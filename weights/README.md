@@ -1,39 +1,36 @@
-# Included inference weights
+# 随项目发布的模型
 
-These compact PyTorch checkpoints are required by the default inference pipeline.
-They were trained on source-disjoint 180-DPI TuxGuitar 2.0.1 and Guitar Pro
-8.1.2.37 `score_tab`/`tab_only` renders. Test songs are excluded from domain
-adaptation data.
+本目录拟随项目发布小节识别 LoRA、谱面信息 LoRA 和图片 TAB 版面模型。模型配置和推理所需权重都存放在本目录，大文件通过 Git LFS 管理。权重许可证与训练素材授权记录尚需项目所有者确认，见 [第三方说明](../THIRD_PARTY_NOTICES.md)。
 
-| File | Role | Size | SHA-256 |
-| --- | --- | ---: | --- |
-| `atomic_symbol_cnn.pt` | printed atomic symbol/time-signature classifier | 0.85 MiB | `4A3213B7CCF74AB4CCBEB326A95612E5ED1892A8D826332E730590A2FC8CE03F` |
-| `fret_token_cnn.pt` | event-conditioned blank/X/fret 0-36 classifier | 0.51 MiB | `2E4219CF7AE0D7CBF7B55C16794612C5FEE163FE2410033A735CC0EC8DC8CE2D` |
-| `pick_stroke_context_cnn.pt` | up/down pick-stroke event context override | 3.38 MiB | `6FD5AD00625F2B36F7EBF359FF4D7BAF53488C7968F4860587F05FFA38D459DB` |
-| `rhythm_context_cnn.pt` | event rhythm, dot, rest and tuplet context | 3.41 MiB | `1000264CD048DC5E59ABA3DBF18D6E22ADAB6E648A731C2A7EE3F69B14682DD4` |
-| `score_event_locator.pt` | x-axis score event locator | 0.65 MiB | `FCC68401296689F0D86E802D9BF455C18FB241D3FA99DBFB44F17D571C2F0E8A` |
-| `tab_event_locator.pt` | pure-TAB x-axis note/rest event locator | 0.65 MiB | `B0B2BED82EFE28326849C2A365965429A24DEA5954260705615AF408AFD634A0` |
-| `tab_rhythm_context_cnn.pt` | pure-TAB voice/rhythm/rest/dot/tuplet context | 3.41 MiB | `2EFCEB9E2EAEC785DD14438CE80EA3375B743F6372ADD56F0F0564CCF0EF52EB` |
-| `tab_symbol_detector.pt` | TAB fret-number/X detector | 2.29 MiB | `FDD4313D2692D978DF38C201287127C12B13C88026180A746F07EC604EF5168D` |
-| `tab_technique_context_cnn.pt` | pure-TAB multi-label playing-technique context | 3.38 MiB | `CFB67BA44B610CB689B93B21675FAA2ACB8B806E3922EACBB57924E73C86F9EE` |
-| `tab_tie_context_cnn.pt` | pure-TAB tie-presence and string relation context | 3.43 MiB | `64D9A6E530391B53D945EF71D2F7FA3BCC58E9809CAF8E42B9F79C19F864869C` |
-| `technique_context_cnn.pt` | multi-label playing-technique context; unsafe score+TAB hammer output disabled | 3.38 MiB | `E8DADA782F84ADBD2E17061F3153BEEE2A34B60906879B28D1CEB309E408FF9A` |
-| `tie_context_cnn.pt` | tie-presence and tie-relation context | 3.43 MiB | `0F0201533824F6C59377C7870329DB08C8E8B826D25D8A997E6A727F036DF57A` |
+```bash
+git lfs install
+git lfs pull
+```
 
-After training and validating replacement models, run
-`scripts/promote_models.ps1` to copy the selected checkpoints here.
+| 步骤 | 目录 | 内容 |
+| --- | --- | --- |
+| 小节识别 | `glm_ocr_measure_sequence_v2_lora/` | GLM-OCR 小节 LoRA，约 31.5 MB |
+| 谱面信息 | `glm_ocr_document_info_v2_lora/` | GLM-OCR 页眉／速度 LoRA，约 31.5 MB |
+| 版面定位 | `pp_doclayout_v3_score_sparse/` | PP-DocLayoutV3 推理模型，约 130.5 MB；检测 `measure` 和 `tempo_region` |
 
-The twelve checkpoints total 28.81 MiB. Score+TAB and pure-TAB use separate
-event/rhythm/tie/technique models; the atomic symbol and TAB digit/X models are shared.
+两套 LoRA 共用 GLM-OCR 基座，使用以下命令下载：
 
-## GLM-OCR v2 end-to-end adapter
+```bash
+uv run --no-sync hf download zai-org/GLM-OCR --revision ca5d8b3e287e52589e37c28385d9655ee4372f9d --local-dir tools/models/GLM-OCR
+```
 
-`weights/glm_ocr_measure_sequence_v2_lora/` is a separate, newer pipeline.
-Its single 30.06 MiB PEFT adapter contains both the visual-tower LoRA and the
-language-Transformer LoRA. The page/measure splitter is deterministic and has
-no checkpoint. The twelve CNN files above are not loaded by
-`guitarocr.pipeline.infer_glm_ocr_document`.
+推理和评测入口使用本目录内的 LoRA；图片定位时指定 `--layout-model-dir weights/pp_doclayout_v3_score_sparse`。基座的 processor/tokenizer 用于两套 LoRA，训练检查点中的优化器状态、日志和重复 tokenizer 文件不属于推理模型文件。
 
-The GLM-OCR base model is not stored in this repository. See
-`docs/GUITAR_PRO_END_TO_END.md` for the exact download, installation and
-PDF-to-GP5 commands.
+`manifest.json` 记录每个发布文件的大小、SHA-256 和已知训练产物来源。更新正式模型时，同步更新这份清单；训练中的检查点仍写入 `output/`。
+
+原始基座模型及其第三方组件保留原有许可。训练样本不随模型目录发布。
+
+## 校验与模型卡
+
+一键发布包包含上述权重，安装器自动校验并下载固定 revision 的基座。手动环境可执行 `uv run --no-sync guitarocr-check --hashes`。`manifest.json` 同时记录基座文件哈希。
+
+- [小节识别模型卡](glm_ocr_measure_sequence_v2_lora/README.md)
+- [谱面信息模型卡](glm_ocr_document_info_v2_lora/README.md)
+- [版面模型卡](pp_doclayout_v3_score_sparse/README.md)
+
+训练数据不会被打包进权重目录。未留存的历史训练信息在模型卡中明确标注，后续发布应补齐版本化训练记录。

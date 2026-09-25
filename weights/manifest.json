@@ -1,0 +1,106 @@
+{
+  "schema_version": "1.0",
+  "models": [
+    {
+      "stage": "measure_ocr",
+      "path": "weights/glm_ocr_measure_sequence_v2_lora",
+      "files": [
+        {
+          "name": "adapter_config.json",
+          "bytes": 1110,
+          "sha256": "26c0011dba0679b0c931473d692ad0ca04a22ecaff6e8891126a12c601e7791a"
+        },
+        {
+          "name": "adapter_model.safetensors",
+          "bytes": 31517928,
+          "sha256": "cd1f3f230c1c9b84af20e37a2e49c559109b599c4254c20dda4f37ac44bba712"
+        }
+      ],
+      "base_model": "zai-org/GLM-OCR",
+      "base_revision": "ca5d8b3e287e52589e37c28385d9655ee4372f9d"
+    },
+    {
+      "stage": "document_info",
+      "path": "weights/glm_ocr_document_info_v2_lora",
+      "files": [
+        {
+          "name": "adapter_config.json",
+          "bytes": 1110,
+          "sha256": "6679a7f338b9db547c113c2c51f8653d2f56f1bd86320bfb3d8fbdfcfd25d254"
+        },
+        {
+          "name": "adapter_model.safetensors",
+          "bytes": 31517928,
+          "sha256": "6a096087756b5e6774e6f67e99ff526a4a5fa382f2ce3d9d2919126a5fa76e3d"
+        }
+      ],
+      "base_model": "zai-org/GLM-OCR",
+      "training_artifact": "output/glm_ocr_document_info_v2_lora",
+      "base_revision": "ca5d8b3e287e52589e37c28385d9655ee4372f9d"
+    },
+    {
+      "stage": "layout",
+      "path": "weights/pp_doclayout_v3_score_sparse",
+      "files": [
+        {
+          "name": "inference.json",
+          "bytes": 1218933,
+          "sha256": "672964a6880a0752d0617bc6f2564ca86833a1878e4f322800d368b2152abee6"
+        },
+        {
+          "name": "inference.pdiparams",
+          "bytes": 129231083,
+          "sha256": "a5aa72a824aa15896c547dfbc835a1c364312d7d2bb7200a342363d9f4c3300a"
+        },
+        {
+          "name": "inference.yml",
+          "bytes": 1216,
+          "sha256": "309084181d28145f64d2cf66886ca46d7e577689f2663331a065617b80523032"
+        }
+      ],
+      "training_artifact": "output/pp_doclayout_v3_score_sparse/0/inference"
+    }
+  ],
+  "base_model": {
+    "repo_id": "zai-org/GLM-OCR",
+    "revision": "ca5d8b3e287e52589e37c28385d9655ee4372f9d",
+    "path": "tools/models/GLM-OCR",
+    "files": [
+      {
+        "name": "config.json",
+        "bytes": 1570,
+        "sha256": "4e1daf0d8a3f63e58960ac14bcb58b7be96758cad231fb7a1e5fec60f42dcd8c"
+      },
+      {
+        "name": "model.safetensors",
+        "bytes": 2650579464,
+        "sha256": "a16eb0de98d199293371c560f95f83130d2a2c9612449df16839f08ff9498815"
+      },
+      {
+        "name": "preprocessor_config.json",
+        "bytes": 367,
+        "sha256": "02cc50c36240882ae35e8cd4077a25a379664108185d728d261cb785aefeccff"
+      },
+      {
+        "name": "tokenizer.json",
+        "bytes": 6838609,
+        "sha256": "aa0fd058c73a5718bb191f6672dc16d122ee0147b20c123d1726514298f9968a"
+      },
+      {
+        "name": "tokenizer_config.json",
+        "bytes": 1066,
+        "sha256": "23404f517abeb2893f1c175c6d7c539f733f6fca287414a2ce9ab569d99a1c06"
+      },
+      {
+        "name": "chat_template.jinja",
+        "bytes": 4606,
+        "sha256": "062e7ee4cc8defa88a5938b5d456dc60366ffd80647f918946ee747bf09ddc7c"
+      },
+      {
+        "name": "generation_config.json",
+        "bytes": 165,
+        "sha256": "4e2a3412f65b2a21d315d928986c55723d3e60dfb92c3982a5b9fd56835b0aa5"
+      }
+    ]
+  }
+}
