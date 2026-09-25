@@ -3,8 +3,10 @@ from argparse import Namespace
 import io
 import os
 from pathlib import Path
+import shutil
 import socket
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -22,6 +24,35 @@ from shared.environment import verify_files
 
 
 class InstallerTest(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("uv"), "uv executable required")
+    def test_export_uses_shipped_lock_with_custom_uv_settings(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name in ("pyproject.toml", "uv.lock", "README.md"):
+                shutil.copy2(launcher.ROOT / name, root / name)
+            lock = (root / "uv.lock").read_bytes()
+            (root / "uv.toml").write_text(
+                'index-url = "https://packages.invalid/simple"\n', encoding="utf-8"
+            )
+            with (
+                patch.object(launcher, "ROOT", root),
+                patch.dict(os.environ, {"UV_OFFLINE": "1", "UV_PYTHON": "3.12"}),
+            ):
+                for device in ("cpu", "cuda"):
+                    with self.subTest(device=device):
+                        requirements = launcher.export_requirements(
+                            shutil.which("uv"), Path(sys.executable), device
+                        )
+                        self.assertIn("transformers==5.8.0", requirements)
+                        self.assertIn("peft==0.18.1", requirements)
+                        self.assertEqual((root / "uv.lock").read_bytes(), lock)
+                        gpu_dependencies = [
+                            line
+                            for line in requirements.splitlines()
+                            if line.startswith(("nvidia-", "cuda-", "triton=="))
+                        ]
+                        self.assertEqual(bool(gpu_dependencies), device == "cuda")
+
     def test_windows_checkout_preserves_model_config_checksum(self):
         config = Path("weights/glm_ocr_measure_sequence_v2_lora/adapter_config.json")
         original = (launcher.ROOT / config).read_bytes()

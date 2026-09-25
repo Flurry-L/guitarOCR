@@ -194,6 +194,39 @@ def installation_lock(tools):
                 msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
 
 
+def export_requirements(uv, python, device):
+    # CI checks lock freshness; installation must not re-resolve it using local indexes.
+    requirements = run(
+        [
+            uv,
+            "export",
+            "--frozen",
+            "--python",
+            python,
+            "--extra",
+            "glm-ocr",
+            "--extra",
+            "webui",
+            "--no-dev",
+            "--no-hashes",
+            "--no-emit-project",
+            "--format",
+            "requirements-txt",
+        ],
+        capture=True,
+    )
+    if device == "cpu":
+        requirements = (
+            "\n".join(
+                line
+                for line in requirements.splitlines()
+                if not re.match(r"^(?:nvidia-|cuda-|triton[=;])", line)
+            )
+            + "\n"
+        )
+    return requirements
+
+
 def install(args, uv, tools):
     if platform.system() not in {
         "Windows",
@@ -223,33 +256,7 @@ def install(args, uv, tools):
                     folder.parent.parent,
                 ]
             )
-    # Keep common dependencies locked; the official Torch index selects CPU/CUDA wheels.
-    requirements = run(
-        [
-            uv,
-            "export",
-            "--locked",
-            "--extra",
-            "glm-ocr",
-            "--extra",
-            "webui",
-            "--no-dev",
-            "--no-hashes",
-            "--no-emit-project",
-            "--format",
-            "requirements-txt",
-        ],
-        capture=True,
-    )
-    if device == "cpu":
-        requirements = (
-            "\n".join(
-                line
-                for line in requirements.splitlines()
-                if not re.match(r"^(?:nvidia-|cuda-|triton[=;])", line)
-            )
-            + "\n"
-        )
+    requirements = export_requirements(uv, app_python, device)
     requirements_path = tools / "webui-requirements.txt"
     requirements_path.write_text(requirements, encoding="utf-8")
     run(
