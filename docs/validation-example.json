@@ -1,0 +1,259 @@
+{
+  "scope": "full_pipeline",
+  "context_source": "predicted",
+  "human_edits": 0,
+  "system": "Linux-6.8.0-117-generic-x86_64-with-glibc2.39",
+  "python": "3.11.14",
+  "device": "cuda",
+  "versions": {
+    "torch": "2.14.0",
+    "transformers": "5.8.0",
+    "peft": "0.18.1",
+    "PyMuPDF": "1.28.2"
+  },
+  "model_manifest": {
+    "schema_version": "1.0",
+    "models": [
+      {
+        "stage": "measure_ocr",
+        "path": "weights/glm_ocr_measure_sequence_v2_lora",
+        "files": [
+          {
+            "name": "adapter_config.json",
+            "bytes": 1110,
+            "sha256": "26c0011dba0679b0c931473d692ad0ca04a22ecaff6e8891126a12c601e7791a"
+          },
+          {
+            "name": "adapter_model.safetensors",
+            "bytes": 31517928,
+            "sha256": "cd1f3f230c1c9b84af20e37a2e49c559109b599c4254c20dda4f37ac44bba712"
+          }
+        ],
+        "base_model": "zai-org/GLM-OCR",
+        "base_revision": "ca5d8b3e287e52589e37c28385d9655ee4372f9d"
+      },
+      {
+        "stage": "document_info",
+        "path": "weights/glm_ocr_document_info_v2_lora",
+        "files": [
+          {
+            "name": "adapter_config.json",
+            "bytes": 1110,
+            "sha256": "6679a7f338b9db547c113c2c51f8653d2f56f1bd86320bfb3d8fbdfcfd25d254"
+          },
+          {
+            "name": "adapter_model.safetensors",
+            "bytes": 31517928,
+            "sha256": "6a096087756b5e6774e6f67e99ff526a4a5fa382f2ce3d9d2919126a5fa76e3d"
+          }
+        ],
+        "base_model": "zai-org/GLM-OCR",
+        "training_artifact": "output/glm_ocr_document_info_v2_lora",
+        "base_revision": "ca5d8b3e287e52589e37c28385d9655ee4372f9d"
+      },
+      {
+        "stage": "layout",
+        "path": "weights/pp_doclayout_v3_score_sparse",
+        "files": [
+          {
+            "name": "inference.json",
+            "bytes": 1218933,
+            "sha256": "672964a6880a0752d0617bc6f2564ca86833a1878e4f322800d368b2152abee6"
+          },
+          {
+            "name": "inference.pdiparams",
+            "bytes": 129231083,
+            "sha256": "a5aa72a824aa15896c547dfbc835a1c364312d7d2bb7200a342363d9f4c3300a"
+          },
+          {
+            "name": "inference.yml",
+            "bytes": 1216,
+            "sha256": "309084181d28145f64d2cf66886ca46d7e577689f2663331a065617b80523032"
+          }
+        ],
+        "training_artifact": "output/pp_doclayout_v3_score_sparse/0/inference"
+      }
+    ],
+    "base_model": {
+      "repo_id": "zai-org/GLM-OCR",
+      "revision": "ca5d8b3e287e52589e37c28385d9655ee4372f9d",
+      "path": "tools/models/GLM-OCR",
+      "files": [
+        {
+          "name": "config.json",
+          "bytes": 1570,
+          "sha256": "4e1daf0d8a3f63e58960ac14bcb58b7be96758cad231fb7a1e5fec60f42dcd8c"
+        },
+        {
+          "name": "model.safetensors",
+          "bytes": 2650579464,
+          "sha256": "a16eb0de98d199293371c560f95f83130d2a2c9612449df16839f08ff9498815"
+        },
+        {
+          "name": "preprocessor_config.json",
+          "bytes": 367,
+          "sha256": "02cc50c36240882ae35e8cd4077a25a379664108185d728d261cb785aefeccff"
+        },
+        {
+          "name": "tokenizer.json",
+          "bytes": 6838609,
+          "sha256": "aa0fd058c73a5718bb191f6672dc16d122ee0147b20c123d1726514298f9968a"
+        },
+        {
+          "name": "tokenizer_config.json",
+          "bytes": 1066,
+          "sha256": "23404f517abeb2893f1c175c6d7c539f733f6fca287414a2ce9ab569d99a1c06"
+        },
+        {
+          "name": "chat_template.jinja",
+          "bytes": 4606,
+          "sha256": "062e7ee4cc8defa88a5938b5d456dc60366ffd80647f918946ee747bf09ddc7c"
+        },
+        {
+          "name": "generation_config.json",
+          "bytes": 165,
+          "sha256": "4e2a3412f65b2a21d315d928986c55723d3e60dfb92c3982a5b9fd56835b0aa5"
+        }
+      ]
+    }
+  },
+  "cases": [
+    {
+      "name": "First Steps PDF",
+      "elapsed_seconds": 16.024978572502732,
+      "inputs": [
+        {
+          "name": "demo.pdf",
+          "sha256": "dad1b7cef31029f0dea9c7a0cda1e87ae08bc2f9f6df3bc297ae07bcc3d18e19"
+        }
+      ],
+      "expected_sha256": "8f28f5c4e9dd15df315339d6449ea9a713381b94478b82dc5fbbe85b1e76c1e5",
+      "expected_measures": 4,
+      "detected_measures": 4,
+      "equal_measure_count": true,
+      "alignment": "reading_order",
+      "metrics": {
+        "samples": 4,
+        "syntax_valid_rate": 1.0,
+        "exact_match_rate": 0.0,
+        "core_exact_rate": 0.0,
+        "rhythm_exact_rate": 0.0,
+        "note_fields_exact_rate": 0.0,
+        "technique_exact_rate": 0.75,
+        "constraint_valid_rate": 1.0,
+        "metadata_accuracy": 0.0,
+        "metadata_exact_rate": 0.75,
+        "metadata_field": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0
+        },
+        "event_onset": {
+          "precision": 0.6666666666666666,
+          "recall": 1.0,
+          "f1": 0.8
+        },
+        "duration_accuracy_on_aligned_events": 1.0,
+        "status_accuracy_on_aligned_events": 1.0,
+        "note_exact": {
+          "precision": 0.8888888888888888,
+          "recall": 1.0,
+          "f1": 0.9411764705882353
+        },
+        "string_accuracy": 1.0,
+        "fret_accuracy": 1.0,
+        "pitch_accuracy": 0.0,
+        "technique": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0
+        },
+        "technique_by_class": {
+          "text": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "expected": 0,
+            "predicted": 1
+          }
+        },
+        "counts": {
+          "expected_events": 16,
+          "predicted_events": 24,
+          "expected_notes": 16,
+          "predicted_notes": 18
+        },
+        "parse_errors": {},
+        "constraint_errors": {}
+      },
+      "review_measures": [],
+      "gp5_exported": true
+    },
+    {
+      "name": "First Steps image",
+      "elapsed_seconds": 16.94859290495515,
+      "inputs": [
+        {
+          "name": "demo.png",
+          "sha256": "3bb3e65d75053d5622418625787bb4f527b18c8de8fcc1e215689e9bebec9646"
+        }
+      ],
+      "expected_sha256": "8f28f5c4e9dd15df315339d6449ea9a713381b94478b82dc5fbbe85b1e76c1e5",
+      "expected_measures": 4,
+      "detected_measures": 4,
+      "equal_measure_count": true,
+      "alignment": "reading_order",
+      "metrics": {
+        "samples": 4,
+        "syntax_valid_rate": 1.0,
+        "exact_match_rate": 0.75,
+        "core_exact_rate": 0.75,
+        "rhythm_exact_rate": 0.75,
+        "note_fields_exact_rate": 0.75,
+        "technique_exact_rate": 1.0,
+        "constraint_valid_rate": 1.0,
+        "metadata_accuracy": 0.5,
+        "metadata_exact_rate": 0.75,
+        "metadata_field": {
+          "precision": 1.0,
+          "recall": 0.5,
+          "f1": 0.6666666666666666
+        },
+        "event_onset": {
+          "precision": 0.9411764705882353,
+          "recall": 1.0,
+          "f1": 0.9696969696969697
+        },
+        "duration_accuracy_on_aligned_events": 1.0,
+        "status_accuracy_on_aligned_events": 1.0,
+        "note_exact": {
+          "precision": 0.6666666666666666,
+          "recall": 0.75,
+          "f1": 0.7058823529411765
+        },
+        "string_accuracy": 0.9375,
+        "fret_accuracy": 0.75,
+        "pitch_accuracy": 0.0,
+        "technique": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0
+        },
+        "technique_by_class": {},
+        "counts": {
+          "expected_events": 16,
+          "predicted_events": 17,
+          "expected_notes": 16,
+          "predicted_notes": 18
+        },
+        "parse_errors": {},
+        "constraint_errors": {}
+      },
+      "review_measures": [],
+      "gp5_exported": true
+    }
+  ],
+  "gpu": "NVIDIA H100 80GB HBM3",
+  "peak_allocated_vram_bytes": 2422785536,
+  "description": "Four-measure, self-authored functional example; not a representative accuracy benchmark."
+}

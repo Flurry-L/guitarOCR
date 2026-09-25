@@ -7,5 +7,7 @@
 *.bat text eol=crlf
 *.js text eol=lf
 *.yml text eol=lf
+*.pdf binary
+*.gp5 binary
 *.safetensors filter=lfs diff=lfs merge=lfs -text
 *.pdiparams filter=lfs diff=lfs merge=lfs -text
