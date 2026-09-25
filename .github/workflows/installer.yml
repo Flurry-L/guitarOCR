@@ -5,13 +5,34 @@ permissions:
 jobs:
   install:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
+        config: [default, config-file, environment]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
         with:
           lfs: true
+      - name: Configure a mirror with missing packages
+        if: matrix.config != 'default'
+        shell: python
+        env:
+          INSTALLER_CONFIG: ${{ matrix.config }}
+        run: |
+          import os
+          from pathlib import Path
+
+          mirror = Path(os.environ["RUNNER_TEMP"]) / "empty-python-index"
+          mirror.mkdir()
+          if os.environ["INSTALLER_CONFIG"] == "config-file":
+              config = mirror.parent / "installer-uv.toml"
+              config.write_text(f'index-url = "{mirror.as_uri()}"\n', encoding="utf-8")
+              setting = f"UV_CONFIG_FILE={config}"
+          else:
+              setting = f"UV_DEFAULT_INDEX={mirror.as_uri()}"
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as output:
+              output.write(setting + "\n")
       - if: runner.os == 'Linux'
         run: bash install.sh --device cpu
       - if: runner.os == 'Windows'
@@ -25,5 +46,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: install-logs-${{ runner.os }}
+          name: install-logs-${{ runner.os }}-${{ matrix.config }}
           path: output/logs/*

@@ -17,4 +17,4 @@ if [[ ! -x "$uv_binary" ]]; then
 fi
 export GUITAROCR_UV="$uv_binary"
 export PYTHONUTF8=1
-"$uv_binary" run --no-project --python 3.11 scripts/launcher.py "$@"
+"$uv_binary" run --config-file scripts/bootstrap-uv.toml --no-project --python 3.11 scripts/launcher.py "$@"

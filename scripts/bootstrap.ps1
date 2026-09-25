@@ -30,7 +30,7 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'uv installation failed. Check network access and retry.' }
     }
     $env:GUITAROCR_UV = $uvBinary
-    & $uvBinary run --no-project --python 3.11 scripts/launcher.py $Command @LauncherArgs
+    & $uvBinary run --config-file scripts/bootstrap-uv.toml --no-project --python 3.11 scripts/launcher.py $Command @LauncherArgs
     $result = $LASTEXITCODE
     if ($result -ne 0) { throw "GuitarOCR exited with code $result. See the log above and docs/troubleshooting.md." }
 } catch {

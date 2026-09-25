@@ -40,6 +40,30 @@ def run(command, *, capture=False, env=None):
     return result.stdout if capture else None
 
 
+def run_uv(uv, arguments, *, capture=False):
+    try:
+        return run([uv, *arguments], capture=capture)
+    except subprocess.CalledProcessError:
+        print("当前 uv 配置下执行失败，正在使用官方源重试此步骤。", flush=True)
+    # Keep cache, proxy and certificate settings; reset uv's resolver settings
+    # only in the retry process, without changing the user's configuration.
+    preserved = {
+        "UV_CACHE_DIR",
+        "UV_HTTP_TIMEOUT",
+        "UV_HTTP_RETRIES",
+        "UV_NATIVE_TLS",
+        "UV_SYSTEM_CERTS",
+        "UV_PYTHON_INSTALL_DIR",
+        "UV_PYTHON_CACHE_DIR",
+    }
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith("UV_") or key in preserved
+    }
+    return run([uv, "--no-config", *arguments], capture=capture, env=environment)
+
+
 def install_fingerprint():
     digest = sha256()
     for name in (
@@ -196,9 +220,9 @@ def installation_lock(tools):
 
 def export_requirements(uv, python, device):
     # CI checks lock freshness; installation must not re-resolve it using local indexes.
-    requirements = run(
+    requirements = run_uv(
+        uv,
         [
-            uv,
             "export",
             "--frozen",
             "--python",
@@ -246,22 +270,22 @@ def install(args, uv, tools):
     layout_python = environment_python(tools / "webui-paddle-venv")
     for folder in (app_python, layout_python):
         if not folder.is_file():
-            run(
+            run_uv(
+                uv,
                 [
-                    uv,
                     "venv",
                     "--python",
                     "3.11",
                     "--allow-existing",
                     folder.parent.parent,
-                ]
+                ],
             )
     requirements = export_requirements(uv, app_python, device)
     requirements_path = tools / "webui-requirements.txt"
     requirements_path.write_text(requirements, encoding="utf-8")
-    run(
+    run_uv(
+        uv,
         [
-            uv,
             "pip",
             "install",
             "--python",
@@ -271,14 +295,14 @@ def install(args, uv, tools):
             *torch_reinstall_args(app_python, device),
             "-r",
             requirements_path,
-        ]
+        ],
     )
-    run([uv, "pip", "install", "--python", app_python, "--no-deps", "-e", ROOT])
+    run_uv(uv, ["pip", "install", "--python", app_python, "--no-deps", "-e", ROOT])
     # Paddle's CPU runtime keeps both platforms on the same supported package set.
     # GLM is the dominant workload and uses the chosen GPU independently.
-    run(
+    run_uv(
+        uv,
         [
-            uv,
             "pip",
             "install",
             "--python",
@@ -288,9 +312,9 @@ def install(args, uv, tools):
             "numpy==1.26.4",
             "Pillow>=12.3,<13",
             "PyMuPDF>=1.24,<2",
-        ]
+        ],
     )
-    run([uv, "pip", "install", "--python", layout_python, "--no-deps", "-e", ROOT])
+    run_uv(uv, ["pip", "install", "--python", layout_python, "--no-deps", "-e", ROOT])
     base = manifest["base_model"]
     model = ROOT / base["path"]
     if verify_files(model, base["files"]):

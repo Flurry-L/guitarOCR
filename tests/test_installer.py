@@ -11,6 +11,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 from urllib.error import HTTPError
+from zipfile import ZipFile
 
 from scripts import launcher
 from scripts.launcher import (
@@ -24,6 +25,85 @@ from shared.environment import verify_files
 
 
 class InstallerTest(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("uv"), "uv executable required")
+    def test_available_mirror_is_used_for_installation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            mirror = root / "mirror"
+            index = mirror / "guitarocr-installer-probe"
+            index.mkdir(parents=True)
+            wheel = mirror / "guitarocr_installer_probe-1.0-py3-none-any.whl"
+            metadata = "guitarocr_installer_probe-1.0.dist-info"
+            with ZipFile(wheel, "w") as archive:
+                archive.writestr("guitarocr_installer_probe.py", "value = 'mirror'\n")
+                archive.writestr(
+                    f"{metadata}/METADATA",
+                    "Metadata-Version: 2.1\nName: guitarocr-installer-probe\nVersion: 1.0\n",
+                )
+                archive.writestr(
+                    f"{metadata}/WHEEL",
+                    "Wheel-Version: 1.0\nRoot-Is-Purelib: true\nTag: py3-none-any\n",
+                )
+                archive.writestr(f"{metadata}/RECORD", "")
+            (index / "index.html").write_text(
+                f'<a href="../{wheel.name}">{wheel.name}</a>', encoding="utf-8"
+            )
+            environment = root / "environment"
+            with (
+                patch.object(launcher, "ROOT", root),
+                patch.dict(
+                    os.environ, {"UV_DEFAULT_INDEX": mirror.as_uri(), "UV_OFFLINE": "1"}
+                ),
+            ):
+                launcher.run_uv(
+                    shutil.which("uv"),
+                    ["venv", "--python", sys.executable, environment],
+                )
+                python = launcher.environment_python(environment)
+                launcher.run_uv(
+                    shutil.which("uv"),
+                    [
+                        "pip",
+                        "install",
+                        "--python",
+                        python,
+                        "guitarocr-installer-probe==1.0",
+                    ],
+                )
+            subprocess.run(
+                [
+                    python,
+                    "-c",
+                    "import guitarocr_installer_probe; assert guitarocr_installer_probe.value == 'mirror'",
+                ],
+                check=True,
+            )
+
+    @unittest.skipUnless(shutil.which("uv"), "uv executable required")
+    def test_uv_retry_creates_environment_without_changing_user_config(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = root / "user-uv.toml"
+            config.write_text("unsupported-old-setting = true\n", encoding="utf-8")
+            original = config.read_bytes()
+            environment = root / "environment"
+            with (
+                patch.object(launcher, "ROOT", root),
+                patch.dict(os.environ, {"UV_CONFIG_FILE": str(config)}),
+            ):
+                launcher.run_uv(
+                    shutil.which("uv"),
+                    ["venv", "--python", sys.executable, environment],
+                )
+                self.assertEqual(os.environ["UV_CONFIG_FILE"], str(config))
+            self.assertEqual(config.read_bytes(), original)
+            python = launcher.environment_python(environment)
+            self.assertTrue(python.is_file())
+            subprocess.run(
+                [python, "-c", "import sys; assert sys.prefix != sys.base_prefix"],
+                check=True,
+            )
+
     @unittest.skipUnless(shutil.which("uv"), "uv executable required")
     def test_export_uses_shipped_lock_with_custom_uv_settings(self):
         with tempfile.TemporaryDirectory() as directory:

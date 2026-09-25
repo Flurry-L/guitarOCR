@@ -9,6 +9,7 @@
 | 安装时提示 `uv.lock needs to be updated` | 在仓库目录执行 `git pull --ff-only` 后重跑启动脚本。更新后的安装器直接导出仓库的固定依赖，使用已创建的 Python 3.11；本机 uv 镜像配置不会触发锁文件重新解析 |
 | Hugging Face 下载中断 | 重跑安装脚本。支持标准 `HTTPS_PROXY`；已有可信镜像时可自行设置 `HF_ENDPOINT`，安装后仍会校验 SHA-256 |
 | uv 下载失败 | 检查对 astral.sh / GitHub 的访问与系统时间，再重跑。不要关闭证书验证 |
+| 已配置镜像缺包或 uv 配置不兼容 | 安装器会自动以默认配置和官方源重试失败步骤；日志会标明回退。若重试仍失败，保留最后一条错误信息，检查日志中下载源的网络连通性 |
 | GPU / CUDA 不可用 | 更新 NVIDIA 驱动；一键 CUDA 13 环境需要 580 或更新驱动。也可运行 `install.bat --device cpu` / `bash install.sh --device cpu` |
 | 显存不足 | 关闭占用显存的程序、减小不必要的大框，或使用 `start.bat --device cpu` / `bash start.sh --device cpu` |
 | Windows 缺 DLL / C++ Runtime | 重跑启动脚本完成 Microsoft C++ 运行库安装；也可执行 `winget install --id Microsoft.VCRedist.2015+.x64 --exact`，安装后按提示重启 |

@@ -19,6 +19,8 @@ Windows 在检出的 `guitarOCR` 文件夹中双击 `start.bat`。Linux x64 执�
 
 下载源：uv 来自 Astral，Python 由 uv 管理，Python 包来自 PyPI / PyTorch 官方索引，基座来自 Hugging Face，项目权重来自本次 Git 检出对应的 GitHub LFS 文件。基座 revision 和全部模型 SHA-256 见 `weights/manifest.json`。安装器不会更新到未知的最新基座。
 
+安装器兼容默认配置和已有 uv 镜像配置。已有镜像优先用于依赖下载；若当前 uv 配置导致步骤失败，安装器会以默认配置和官方源重试该步骤。回退只作用于重试进程，保留代理、证书和缓存相关环境变量，不修改用户的全局配置文件。
+
 环境位于 `tools/webui-venv/` 与 `tools/webui-paddle-venv/`；安装状态位于 `tools/install-state.json`，项目位于 `output/webui/`，日志位于 `output/logs/`。开发用 `.venv/` 和训练用 Paddle 环境独立管理。下载体积因设备而异，建议预留至少 20 GB 空间给环境、缓存和模型。
 
 Ubuntu / Debian 的系统依赖：
