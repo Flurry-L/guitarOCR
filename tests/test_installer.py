@@ -1,13 +1,18 @@
 from hashlib import sha256
 from argparse import Namespace
+import io
 import os
 from pathlib import Path
 import socket
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
+from urllib.error import HTTPError
 
+from scripts import launcher
 from scripts.launcher import (
+    acquire_weights,
     choose_device,
     installation_lock,
     launch,
@@ -17,6 +22,90 @@ from shared.environment import verify_files
 
 
 class InstallerTest(unittest.TestCase):
+    def test_windows_checkout_preserves_model_config_checksum(self):
+        config = Path("weights/glm_ocr_measure_sequence_v2_lora/adapter_config.json")
+        original = (launcher.ROOT / config).read_bytes()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".gitattributes").write_bytes(
+                (launcher.ROOT / ".gitattributes").read_bytes()
+            )
+            (root / config).parent.mkdir(parents=True)
+            (root / config).write_bytes(original)
+            for arguments in (["init", "--quiet"], ["add", "."]):
+                subprocess.run(
+                    ["git", "-c", "core.autocrlf=true", *arguments],
+                    cwd=root,
+                    check=True,
+                    capture_output=True,
+                )
+            (root / config).unlink()
+            subprocess.run(
+                ["git", "-c", "core.autocrlf=true", "checkout-index", "--all"],
+                cwd=root,
+                check=True,
+                capture_output=True,
+            )
+            self.assertEqual((root / config).read_bytes(), original)
+
+    def test_repair_downloads_regular_files_and_lfs_weights(self):
+        commit = "a" * 40
+        folder = "weights/adapter"
+        config, weights = b'{"model": "test"}\n', b"complete model"
+        contents = {"adapter_config.json": config, "adapter_model.safetensors": weights}
+        files = [
+            {"name": name, "bytes": len(data), "sha256": sha256(data).hexdigest()}
+            for name, data in contents.items()
+        ]
+        git_output = {
+            (
+                "git",
+                "remote",
+                "get-url",
+                "origin",
+            ): "https://github.com/Flurry-L/guitarOCR.git",
+            ("git", "rev-parse", "HEAD"): commit,
+        }
+        urls = {}
+        for name, data in contents.items():
+            path = f"{folder}/{name}"
+            lfs = name.endswith(".safetensors")
+            git_output[("git", "check-attr", "-z", "filter", "--", path)] = (
+                f"{path}\0filter\0{'lfs' if lfs else 'unspecified'}\0"
+            )
+            host = (
+                "media.githubusercontent.com/media"
+                if lfs
+                else "raw.githubusercontent.com"
+            )
+            urls[f"https://{host}/Flurry-L/guitarOCR/{commit}/{path}"] = data
+
+        def response(request, **kwargs):
+            if request.full_url not in urls:
+                raise HTTPError(request.full_url, 404, "Not Found", {}, None)
+            return io.BytesIO(urls[request.full_url])
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            model = root / folder
+            model.mkdir(parents=True)
+            (model / "adapter_config.json").write_bytes(config.replace(b"\n", b"\r\n"))
+            (model / "adapter_model.safetensors").write_bytes(
+                b"version https://git-lfs.github.com/spec/v1\n"
+            )
+            with (
+                patch.object(launcher, "ROOT", root),
+                patch.object(
+                    launcher,
+                    "run",
+                    side_effect=lambda command, **kw: git_output[tuple(command)],
+                ),
+                patch("scripts.launcher.urllib.request.urlopen", side_effect=response),
+                patch("scripts.launcher.time.sleep"),
+            ):
+                acquire_weights({"models": [{"path": folder, "files": files}]})
+            self.assertEqual(verify_files(model, files), [])
+
     def test_lfs_pointer_and_same_size_corruption_are_detected(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

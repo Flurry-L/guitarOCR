@@ -5,6 +5,7 @@
 | 现象 | 处理 |
 | --- | --- |
 | 权重是很小的文本文件 / 提示 LFS 指针 | 在 Git 检出目录执行 `git lfs install`、`git lfs pull`；若使用了 GitHub 的源码 ZIP，请按 [获取源码步骤](../README.md#获取源码) 重新克隆，ZIP 不含安装器补下载权重所需的 Git 信息 |
+| Windows 下载 `adapter_config.json` 时出现 HTTP 404 | 旧安装器误用 LFS 下载地址，且 Git 自动换行可能导致配置校验失败。在仓库目录执行 `git pull --ff-only` 后重跑 `start.bat`，更新后的安装器会从正确地址修复配置，无需删除已下载环境 |
 | Hugging Face 下载中断 | 重跑安装脚本。支持标准 `HTTPS_PROXY`；已有可信镜像时可自行设置 `HF_ENDPOINT`，安装后仍会校验 SHA-256 |
 | uv 下载失败 | 检查对 astral.sh / GitHub 的访问与系统时间，再重跑。不要关闭证书验证 |
 | GPU / CUDA 不可用 | 更新 NVIDIA 驱动；一键 CUDA 13 环境需要 580 或更新驱动。也可运行 `install.bat --device cpu` / `bash install.sh --device cpu` |

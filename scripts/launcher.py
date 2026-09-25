@@ -108,7 +108,15 @@ def acquire_weights(manifest):
         raise ValueError("请在此 Git 检出执行 git lfs pull，以取得 weights/ 中的模型。")
     for entry, item in missing:
         path = Path(entry["path"]) / item["name"]
-        url = f"https://media.githubusercontent.com/media/{match[1]}/{commit}/{path.as_posix()}"
+        attributes = run(
+            ["git", "check-attr", "-z", "filter", "--", path.as_posix()], capture=True
+        ).split("\0")
+        host = (
+            "media.githubusercontent.com/media"
+            if attributes[2] == "lfs"
+            else "raw.githubusercontent.com"
+        )
+        url = f"https://{host}/{match[1]}/{commit}/{path.as_posix()}"
         download(url, ROOT / path, item)
 
 
