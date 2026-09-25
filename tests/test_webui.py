@@ -286,6 +286,39 @@ class WebWorkflowTest(unittest.TestCase):
             release.set()
             self.wait(sid)
 
+    def test_session_response_keeps_import_job_snapshot(self):
+        entered, release = threading.Event(), threading.Event()
+        create = self.workflow.create
+
+        def paused_create(*args, **kwargs):
+            entered.set()
+            release.wait(5)
+            return create(*args, **kwargs)
+
+        session = next(
+            route.endpoint
+            for route in self.client.app.routes
+            if route.path == "/api/sessions/{sid}" and "GET" in route.methods
+        )
+        with patch.object(self.workflow, "create", side_effect=paused_create):
+            response = self.client.post(
+                "/api/sessions", files={"files": ("input.png", self.page.read_bytes())}
+            )
+            self.assertEqual(response.status_code, 200)
+            sid = response.json()["id"]
+            try:
+                self.assertTrue(entered.wait(2))
+                # FastAPI serializes this value after the handler releases its lock.
+                snapshot = session(sid)
+                self.assertNotIn("pages", snapshot)
+                self.assertEqual(snapshot["job"]["status"], "running")
+            finally:
+                release.set()
+            completed = self.wait(sid)
+        self.assertEqual(completed["job"]["status"], "complete")
+        self.assertEqual(len(completed["pages"]), 1)
+        self.assertEqual(snapshot["job"]["status"], "running")
+
     def test_invalid_boxes_never_change_project(self):
         sid, original = self.upload()
         for bbox in [[-1, 0, 100, 50], [0, 0, 400, 50], [10, 10, 0, 50]]:

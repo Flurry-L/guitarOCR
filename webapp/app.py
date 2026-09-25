@@ -364,7 +364,9 @@ def create_app(
                 if (directory / "session.json").exists()
                 else {"id": sid}
             )
-            return {**state, "job": jobs.get(sid)}
+            # Serialization happens after this lock is released.
+            job = jobs.get(sid)
+            return {**state, "job": job.copy() if job is not None else None}
 
     @app.post("/api/sessions/{sid}/detect")
     def detect(sid: str, body: Detection, request: Request):
