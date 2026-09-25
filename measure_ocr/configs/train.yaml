@@ -1,0 +1,51 @@
+### model
+model_name_or_path: tools/models/GLM-OCR
+trust_remote_code: true
+
+### method
+stage: sft
+do_train: true
+finetuning_type: lora
+lora_rank: 8
+lora_alpha: 16
+lora_dropout: 0.05
+lora_target: all
+# GLM-OCR/LLaMA-Factory freezes the vision tower by default. Music notation
+# needs domain-specific visual adaptation for tiny fret digits, note heads and
+# technique marks, so v2 trains LoRA modules in both language and vision blocks.
+freeze_vision_tower: false
+freeze_multi_modal_projector: true
+
+### dataset
+dataset_dir: database/gp8_measure_sequence_v2/llamafactory
+dataset: gp8_measure_sequence_train,gp8_measure_sequence_train_hardcases
+mix_strategy: concat
+eval_dataset: gp8_measure_sequence_validation
+template: glm_ocr
+cutoff_len: 3072
+preprocessing_num_workers: 8
+# Labels are regenerated as semantic edge cases are fixed. Never reuse an
+# Arrow cache built from an older M2 schema under the same dataset filename.
+overwrite_cache: true
+
+### output
+output_dir: output/glm_ocr_measure_sequence_v2_lora
+logging_steps: 10
+save_steps: 4000
+eval_steps: 8000
+eval_strategy: steps
+save_total_limit: 3
+plot_loss: true
+overwrite_output_dir: true
+report_to: none
+
+### train
+per_device_train_batch_size: 2
+per_device_eval_batch_size: 4
+gradient_accumulation_steps: 8
+learning_rate: 5.0e-5
+num_train_epochs: 1
+lr_scheduler_type: cosine
+warmup_ratio: 0.03
+bf16: true
+gradient_checkpointing: true

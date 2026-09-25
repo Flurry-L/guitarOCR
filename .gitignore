@@ -4,29 +4,23 @@ venv/
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.ruff_cache/
 *.egg-info/
 build/
 dist/
 
 # Downloaded third-party runtimes
-tuxguitar/
 tools/
-Guitar Pro 8/
-guitar-hero-main/
+datagen/runtime/
 
 # Original corpora and local acceptance-test material
 music-scores-collection/
-finaltest/
-guitarpro_test/
 
 # Generated datasets, annotations, logs, checkpoints and inference artifacts
-database/*
-!database/README.md
+/database/
 output/*
-!output/README.md
 tmp/
 reports/
-lab/
 
 # Local editor/OS files
 .idea/
@@ -34,3 +28,13 @@ lab/
 .DS_Store
 Thumbs.db
 *.log
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Native build intermediates
+datagen/native-bin/*.lib
+datagen/native-bin/*.exp
+datagen/native-bin/*.pdb

@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>GuitarOCR · 乐谱转 Guitar Pro</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <header>
+      <a class="brand" href="/">Guitar<span>OCR</span></a
+      ><span class="tagline">从纸上乐谱，到可编辑的音乐。</span
+      ><button id="newProject" class="quiet">上传新乐谱</button>
+    </header>
+    <main>
+      <div class="intro">
+        <span class="eyebrow">乐谱工作台</span>
+        <h1>让乐谱，继续演奏。</h1>
+        <p>导入 PDF 或图片，逐步检查识别结果，保存为 Guitar Pro 5。</p>
+      </div>
+      <nav id="steps" aria-label="处理步骤">
+        <button data-step="0" class="active">01 <span>导入乐谱</span></button
+        ><button data-step="1">02 <span>调整区域</span></button
+        ><button data-step="2">03 <span>谱面信息</span></button
+        ><button data-step="3">04 <span>校对小节</span></button
+        ><button data-step="4">05 <span>导出 GP5</span></button>
+      </nav>
+      <div id="currentDocument" class="document-summary" hidden>
+        <span
+          ><strong id="documentName"></strong><span id="documentPages"></span
+        ></span>
+        <span class="muted">当前项目 · <span id="documentId"></span></span>
+      </div>
+      <div id="notice" role="status" aria-live="polite" hidden></div>
+      <button id="cancelJob" class="quiet" hidden>停止识别</button>
+      <section data-panel="0" class="panel active">
+        <div class="section-head">
+          <div>
+            <h2>选择你的乐谱</h2>
+            <p>支持矢量或扫描 PDF，也可以一次上传多张图片。</p>
+          </div>
+          <span class="pill">PDF · PNG · JPG · TIFF</span>
+        </div>
+        <label id="dropzone" class="dropzone"
+          ><span class="upload-icon">↑</span
+          ><strong>拖入乐谱，或点击选择文件</strong
+          ><span>多个文件按下方列表顺序处理；PDF 按页展开</span
+          ><input
+            id="files"
+            type="file"
+            accept=".pdf,.png,.jpg,.jpeg,.bmp,.tif,.tiff"
+            multiple
+        /></label>
+        <div id="fileList"></div>
+        <label class="quiet">恢复已保存的项目 ZIP <input id="importProject" type="file" accept=".zip" /></label>
+        <div class="footer">
+          <span class="muted">每个项目最多 100 页、200 MB</span
+          ><button id="upload" class="primary">导入乐谱 →</button>
+        </div>
+        <div id="recentProjects" class="recent" hidden>
+          <h3>继续已有项目</h3>
+          <div id="projectList"></div>
+        </div>
+      </section>
+      <section data-panel="1" class="panel">
+        <div class="section-head">
+          <div>
+            <h2>检查页面上的框</h2>
+            <p>
+              拖动框可移动，拖动四角可缩放。切换到新增工具后，在页面上拖出一个框。
+            </p>
+          </div>
+          <button id="detect">自动检测</button>
+        </div>
+        <div class="toolbar">
+          <label
+            >谱面
+            <select id="mode">
+              <option value="tab">六线谱 TAB</option>
+              <option value="notation">五线谱</option>
+              <option value="both">五线谱 + TAB</option>
+            </select></label
+          ><label
+            >定位
+            <select id="layoutSource">
+              <option value="auto">自动选择</option>
+              <option value="image">图片模型（TAB）</option>
+              <option value="geometry">谱线几何</option>
+            </select></label
+          ><span class="divider"></span
+          ><label
+            >工具
+            <select id="boxTool">
+              <option value="select">选择 / 移动</option>
+              <option value="measure">＋ 小节框</option>
+              <option value="header">＋ 标题信息框</option>
+              <option value="tempo">＋ 速度框</option>
+            </select></label
+          ><button id="deleteBox" class="quiet">删除选中框</button>
+        </div>
+        <div class="layout-editor">
+          <aside>
+            <div class="aside-head" id="pageListTitle">全部页面</div>
+            <div id="pageList"></div>
+          </aside>
+          <div class="canvas-area">
+            <div class="canvas-bar">
+              <div class="page-navigation">
+                <button id="prevPage" aria-label="上一页">← 上一页</button>
+                <select id="pageSelect" aria-label="选择页面"></select>
+                <button id="nextPage" aria-label="下一页">下一页 →</button>
+              </div>
+              <span id="pageLabel"></span
+              ><label
+                >缩放
+                <input id="zoom" type="range" min="30" max="160" value="75" />
+                <span id="zoomValue">75%</span></label
+              >
+            </div>
+            <div id="canvasScroll">
+              <canvas id="canvas" aria-label="页面框选编辑器"></canvas>
+            </div>
+          </div>
+          <aside class="box-sidebar">
+            <div class="aside-head">区域与阅读顺序</div>
+            <div class="legend">
+              <span>■ 小节</span><span>■ 标题</span><span>■ 速度</span>
+            </div>
+            <div id="boxList"></div>
+            <div class="coords" id="coords" hidden>
+              <strong>选中框（像素）</strong
+              ><label>X<input id="boxX" type="number" step="1" /></label
+              ><label>Y<input id="boxY" type="number" step="1" /></label
+              ><label>宽<input id="boxW" type="number" step="1" /></label
+              ><label>高<input id="boxH" type="number" step="1" /></label
+              ><button id="applyCoords">应用坐标</button>
+              <div class="row">
+                <button id="earlier">提前</button
+                ><button id="later">延后</button>
+              </div>
+            </div>
+          </aside>
+        </div>
+        <div class="footer">
+          <span id="boxSummary" class="muted"
+            >先自动检测，或手动添加小节框。</span
+          ><button id="saveBoxes" class="primary">保存区域，下一步 →</button>
+        </div>
+      </section>
+      <section data-panel="2" class="panel">
+        <div class="section-head">
+          <div>
+            <h2>校对谱面信息</h2>
+            <p>
+              可从页面自动读取，也可以直接填写。调整调弦后，需要重新识别小节。
+            </p>
+          </div>
+          <button id="readInfo">自动读取信息</button>
+        </div>
+        <div class="metadata">
+          <label>曲名<input id="title" placeholder="未命名乐谱" /></label
+          ><label>作者 / 艺术家<input id="artist" placeholder="选填" /></label
+          ><label
+            >速度（BPM）<input
+              id="tempo"
+              type="number"
+              min="20"
+              max="400"
+              value="120" /></label
+          ><label
+            >变调夹（品）<input
+              id="capo"
+              type="number"
+              min="0"
+              max="24"
+              value="0" /></label
+          ><label
+            >常用调弦<select id="tuningPreset">
+              <option value="64,59,55,50,45,40">标准调弦 · E B G D A E</option>
+              <option value="64,59,55,50,45,38">Drop D · E B G D A D</option>
+              <option value="62,57,53,48,43,38">全音降调 · D A F C G D</option>
+              <option value="custom">自定义</option>
+            </select></label
+          ><label
+            >各弦音高（从第 1 弦到低音弦）<input
+              id="tuning"
+              value="64,59,55,50,45,40"
+            /><small
+              >使用 MIDI 音高；标准吉他为 64,59,55,50,45,40。</small
+            ></label
+          >
+        </div>
+        <div id="infoWarnings" class="hint" hidden></div>
+        <div class="footer">
+          <span class="muted">信息会保存在项目中，刷新页面后仍可继续。</span
+          ><button id="saveInfo" class="primary">保存信息，下一步 →</button>
+        </div>
+      </section>
+      <section data-panel="3" class="panel">
+        <div class="section-head">
+          <div>
+            <h2>逐小节校对</h2>
+            <p>
+              对照原图修改音符和节奏。标记为待检查的小节，需要保存确认后才能导出。
+            </p>
+          </div>
+          <div class="row"><button id="resumeOcr" hidden>继续上次识别</button><button id="retryIssues" hidden>重试待检查小节</button><button id="recognize" class="primary">开始识别小节</button></div>
+        </div>
+        <div id="ocrEmpty" class="empty">
+          区域和谱面信息保存好后，点击「开始识别小节」。
+        </div>
+        <div id="reviewEditor" hidden>
+          <div class="review-toolbar">
+            <button id="prevMeasure">← 上一小节</button
+            ><select id="measureSelect" aria-label="选择小节"></select
+            ><button id="nextMeasure">下一小节 →</button
+            ><button id="nextIssue" class="quiet">下一个待检查</button
+            ><span id="reviewStatus" class="pill"></span><button id="retryMeasure" class="quiet">重新识别此小节</button>
+          </div>
+          <div class="crop"><img id="measureImage" alt="当前小节原图" /></div>
+          <div id="fallback" class="hint warning" hidden></div>
+          <div class="toolbar">
+            <label
+              >拍号
+              <input
+                id="timeSignature"
+                placeholder="沿用上一小节"
+                size="8" /></label
+            ><label
+              >速度
+              <input
+                id="measureTempo"
+                type="number"
+                placeholder="沿用"
+                min="1"
+                max="999" /></label
+            ><button id="addEvent">＋ 添加音符 / 休止</button>
+          </div>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>声部</th>
+                  <th>起点（四分音符拍）</th>
+                  <th>时值</th>
+                  <th>附点</th>
+                  <th>类型</th>
+                  <th id="notesHeading">音符（弦:品，逗号分隔）</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="eventRows"></tbody>
+            </table>
+          </div>
+          <p class="muted small">
+            第 1 弦是最高音弦，和弦可填
+            1:0,2:1,3:0。奏法和连音信息会保留，可在高级编辑中修改。
+          </p>
+          <details id="advanced">
+            <summary>高级编辑：小节文本（M2）</summary>
+            <p class="muted small">
+              修改文本后点击「保存文本」。普通编辑和高级编辑分别保存，请选择一种方式。
+            </p>
+            <textarea id="m2" rows="5" spellcheck="false"></textarea
+            ><button id="saveRaw">保存文本并确认此小节</button>
+            <p class="muted small">
+              例：M2 time=4/4 | V0{@0:q:s1f0 @960:q:s2f1 @1920:h:r}。w / h / q /
+              e / s 表示全、二分、四分、八分、十六分音符；r 表示休止。
+            </p>
+          </details>
+          <div class="footer">
+            <span id="measureSaved" class="muted"></span
+            ><button id="saveMeasure">保存修改并确认此小节</button>
+          </div>
+        </div>
+        <div class="footer">
+          <span id="recognitionSummary" class="muted"></span
+          ><button id="toExport" class="primary">检查完成，下一步 →</button>
+        </div>
+      </section>
+      <section data-panel="4" class="panel">
+        <div class="section-head">
+          <div>
+            <h2>保存为 Guitar Pro</h2>
+            <p>
+              生成可继续编辑的 GP5 文件，使用 Guitar Pro 或 TuxGuitar 打开。
+            </p>
+          </div>
+        </div>
+        <div id="exportSummary" class="export-summary"></div>
+        <div class="footer">
+          <a id="downloadProject" hidden>下载完整项目 ZIP</a><a id="downloadM2" hidden>下载小节文本</a
+          ><button id="export" class="primary">生成 GP5</button
+          ><a id="downloadGP5" class="button primary" hidden>↓ 下载 GP5</a>
+        </div>
+        <div id="exportWarning" class="hint" hidden></div>
+      </section>
+      <footer class="page-footer">
+        <span>GuitarOCR · 本地处理，逐步校对</span><span id="projectId"></span
+        ><button id="deleteProject" class="quiet" hidden>删除当前项目</button>
+      </footer>
+    </main>
+    <script type="module" src="/static/app.js"></script>
+  </body>
+</html>

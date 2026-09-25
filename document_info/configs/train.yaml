@@ -1,0 +1,45 @@
+### model
+model_name_or_path: tools/models/GLM-OCR
+trust_remote_code: true
+
+### method
+stage: sft
+do_train: true
+finetuning_type: lora
+lora_rank: 8
+lora_alpha: 16
+lora_dropout: 0.05
+lora_target: all
+freeze_vision_tower: false
+freeze_multi_modal_projector: true
+
+### dataset
+dataset_dir: database/gp8_measure_sequence_v2/datasets/document_info/llamafactory
+dataset: document_info_train
+eval_dataset: document_info_validation
+template: glm_ocr
+cutoff_len: 1024
+preprocessing_num_workers: 8
+overwrite_cache: true
+
+### output
+output_dir: output/glm_ocr_document_info_v2_lora
+logging_steps: 10
+save_steps: 200
+eval_steps: 200
+eval_strategy: steps
+save_total_limit: 3
+plot_loss: true
+overwrite_output_dir: true
+report_to: none
+
+### train
+per_device_train_batch_size: 1
+per_device_eval_batch_size: 2
+gradient_accumulation_steps: 2
+learning_rate: 5.0e-5
+num_train_epochs: 3
+lr_scheduler_type: cosine
+warmup_ratio: 0.03
+bf16: true
+gradient_checkpointing: true
