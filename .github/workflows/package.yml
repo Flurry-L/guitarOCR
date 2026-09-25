@@ -1,0 +1,19 @@
+name: Build release ZIP
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.17'
+      - run: uv run --no-project --python 3.11 scripts/package_release.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GuitarOCR-release
+          path: output/releases/*

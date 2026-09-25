@@ -1,0 +1,29 @@
+name: Verify full CPU installer
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  install:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      - if: runner.os == 'Linux'
+        run: bash install.sh --device cpu
+      - if: runner.os == 'Windows'
+        shell: powershell
+        run: '& scripts/bootstrap.ps1 install --device cpu'
+      - if: runner.os == 'Linux'
+        run: bash scripts/bootstrap.sh check
+      - if: runner.os == 'Windows'
+        shell: powershell
+        run: '& scripts/bootstrap.ps1 check'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: install-logs-${{ runner.os }}
+          path: output/logs/*

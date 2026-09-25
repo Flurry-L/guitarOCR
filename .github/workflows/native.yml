@@ -1,0 +1,22 @@
+name: Build native exporter
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install aqtinstall
+      - run: python -m aqt install-qt windows desktop 5.15.2 win64_msvc2019_64 -O '${{ runner.temp }}/Qt'
+      - shell: pwsh
+        run: |
+          $vsRoot = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          & datagen/native-source/build.ps1 -QtRoot '${{ runner.temp }}/Qt/5.15.2/msvc2019_64' -VisualStudioRoot $vsRoot -OutputDll output/native/gpomr_native_export.dll -OutputPreloadDll output/native/gpomr_amprof_preload.dll
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-exporter
+          path: output/native/*
