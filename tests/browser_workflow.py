@@ -42,7 +42,9 @@ class BrowserWorkflow(unittest.TestCase):
                     mode,
                 )
 
-        cls.workflow = DemoWorkflow(cls.root / "projects", device="cpu")
+        cls.workflow = DemoWorkflow(
+            cls.root / "projects", model=cls.root / "missing-model", device="cpu"
+        )
         cls.backend_patch = patch("shared.glm_backend.GlmBackend")
         cls.backend_patch.start().return_value.generate.return_value = (TARGET, 20)
         with socket.socket() as sock:
@@ -92,6 +94,7 @@ class BrowserWorkflow(unittest.TestCase):
         self.errors = []
         self.page.on("pageerror", lambda error: self.errors.append(str(error)))
         self.page.goto(f"http://127.0.0.1:{self.port}")
+        expect(self.page.locator("#notice")).to_contain_text("识别环境尚未就绪")
         self.page.locator("#files").set_input_files(self.pdf)
         self.page.locator("#upload").click()
         expect(self.page.locator('[data-panel="1"]')).to_have_class(
@@ -173,6 +176,7 @@ class BrowserWorkflow(unittest.TestCase):
         expect(page.locator("#notice")).to_contain_text("测试用检测失败", timeout=15000)
         expect(page.locator("#detect")).to_be_enabled()
         page.locator("#boxTool").select_option("measure")
+        expect(page.locator("#canvas")).to_have_attribute("aria-busy", "false")
         canvas = page.locator("#canvas").bounding_box()
         page.mouse.move(canvas["x"] + 30, canvas["y"] + 50)
         page.mouse.down()
@@ -181,7 +185,12 @@ class BrowserWorkflow(unittest.TestCase):
         page.locator("#saveBoxes").click()
         expect(page.locator('[data-panel="2"]')).to_have_class("panel active")
         page.reload()
-        expect(page.locator("#notice")).to_contain_text("已恢复上次项目")
+        # Startup replaces the restore notice when real models are unavailable.
+        expect(page.locator("#notice")).to_contain_text("识别环境尚未就绪")
+        expect(page.locator('[data-panel="1"]')).to_have_class("panel active")
+        expect(page.locator("#boxSummary")).to_have_text("4 页 · 1 个小节")
+        expect(page.locator("#boxList button")).to_have_count(1)
+        expect(page.locator("#canvas")).to_have_attribute("aria-busy", "false")
         self.assertNotIn("测试用检测失败", page.locator("#notice").inner_text())
         self.assertFalse(self.errors, self.errors)
 
