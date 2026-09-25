@@ -27,7 +27,7 @@ uv run --no-sync hf download zai-org/GLM-OCR --revision ca5d8b3e287e52589e37c283
 
 ## 校验与模型卡
 
-一键发布包包含上述权重，安装器自动校验并下载固定 revision 的基座。手动环境可执行 `uv run --no-sync guitarocr-check --hashes`。`manifest.json` 同时记录基座文件哈希。
+上述权重通过 Git LFS 获取，步骤见 [README](../README.md#获取源码)。安装器自动校验权重并下载固定 revision 的基座。手动环境可执行 `uv run --no-sync guitarocr-check --hashes`。`manifest.json` 同时记录基座文件哈希。
 
 - [小节识别模型卡](glm_ocr_measure_sequence_v2_lora/README.md)
 - [谱面信息模型卡](glm_ocr_document_info_v2_lora/README.md)

@@ -1,10 +1,10 @@
 # 安装与启动
 
-所有命令在仓库根目录执行。初次使用推荐发布包中的一键脚本；开发和重新训练可以使用后面的手动安装命令。
+先按 [README 的获取源码步骤](../README.md#获取源码) 使用 Git 和 Git LFS 克隆仓库、取得完整权重。当前没有可下载的 Release 安装包。以下命令都在仓库根目录执行；开发和重新训练可以使用后面的手动安装命令。
 
 ## 一键安装
 
-Windows 完整解压 `GuitarOCR-版本号.zip` 后双击 `start.bat`。Linux x64 执行 `bash start.sh`。首次准备环境后自动打开浏览器，以后直接复用已安装环境；安装失败时保留日志并退出，重跑同一个脚本即可继续。
+Windows 在检出的 `guitarOCR` 文件夹中双击 `start.bat`。Linux x64 执行 `bash start.sh`。首次准备环境后自动打开浏览器，以后直接复用已安装环境；安装失败时保留日志并退出，重跑同一个脚本即可继续。
 
 | 操作 | Windows | Linux |
 | --- | --- | --- |
@@ -17,7 +17,7 @@ Windows 完整解压 `GuitarOCR-版本号.zip` 后双击 `start.bat`。Linux x64
 
 脚本安装固定版本 uv 和 Python 3.11，不修改系统 Python。Windows 缺少 Microsoft C++ 运行库时，会先下载微软官方安装程序，系统可能弹出管理员确认；需要重启时脚本会明确提示。PyTorch 按 CPU / CUDA 13.0 选择官方 wheel，其余主环境依赖来自 `uv.lock`。自动选择 GPU 需要 NVIDIA 驱动 580 或更新版本；没有匹配驱动时使用 CPU。Paddle 版面检测默认使用独立的 CPU 环境，GLM 识别使用所选设备。需要加速版面检测的用户可按下方命令单独配置 Paddle GPU。
 
-下载源：uv 来自 Astral，Python 由 uv 管理，Python 包来自 PyPI / PyTorch 官方索引，基座来自 Hugging Face，项目权重来自发布包或本次 Git 检出对应的 GitHub LFS 文件。基座 revision 和全部模型 SHA-256 见 `weights/manifest.json`。安装器不会更新到未知的最新基座。
+下载源：uv 来自 Astral，Python 由 uv 管理，Python 包来自 PyPI / PyTorch 官方索引，基座来自 Hugging Face，项目权重来自本次 Git 检出对应的 GitHub LFS 文件。基座 revision 和全部模型 SHA-256 见 `weights/manifest.json`。安装器不会更新到未知的最新基座。
 
 环境位于 `tools/webui-venv/` 与 `tools/webui-paddle-venv/`；安装状态位于 `tools/install-state.json`，项目位于 `output/webui/`，日志位于 `output/logs/`。开发用 `.venv/` 和训练用 Paddle 环境独立管理。下载体积因设备而异，建议预留至少 20 GB 空间给环境、缓存和模型。
 

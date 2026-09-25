@@ -8,32 +8,44 @@
 
 ## 快速开始
 
+目前尚未发布可下载的 Release 安装包，请先通过 Git 获取源码和模型权重，再运行启动脚本。
+
+### 获取源码
+
+Windows 先安装 [Git for Windows](https://gitforwindows.org/) 和 [Git LFS](https://git-lfs.com/)，然后打开 PowerShell。Ubuntu / Debian 可在终端安装所需工具：
+
+```bash
+sudo apt-get update
+sudo apt-get install -y git git-lfs curl ca-certificates libgl1 libglib2.0-0
+```
+
+在可写目录中执行以下命令（Windows 和 Linux 相同）：
+
+```bash
+git lfs install
+git clone --depth 1 --single-branch --branch agent/guitar-pro-end-to-end https://github.com/Flurry-L/guitarOCR.git
+cd guitarOCR
+git lfs pull
+```
+
+`git lfs pull` 获取两套 LoRA 和版面权重；GLM-OCR 基座在首次启动时按固定版本下载。GitHub 的 **Code → Download ZIP** 或自动生成的 **Source code.zip** 可能只包含 LFS 指针，而且没有安装器补下载权重所需的 Git 信息，请使用上述完整检出方式。
+
 ### Windows
 
-1. 从本仓库 **Releases** 下载 `GuitarOCR-版本号.zip`，完整解压到可写文件夹。
-2. 双击 **`start.bat`**。首次自动准备 Python 3.11、依赖、两套 LoRA、版面权重和 GLM-OCR 基座；按提示等待安装完成。
-3. 浏览器会打开 **http://127.0.0.1:7860**。以后仍双击同一个文件启动。
+1. 完成上述检出后，在 `guitarOCR` 文件夹中双击 **`start.bat`**。首次自动准备 Python 3.11、依赖和 GLM-OCR 基座，并校验模型权重；按提示等待安装完成。
+2. 浏览器会打开 **http://127.0.0.1:7860**。以后仍双击同一个文件启动。
 
-不需要提前安装 Python、Git、Node.js 或 CUDA Toolkit。GPU 加速需要已安装兼容的 NVIDIA 驱动；自动模式在驱动低于 580 或没有 NVIDIA 显卡时选择 CPU。首次需要联网下载数 GB；中断后可重跑脚本。使用期间保留启动窗口。
+不需要提前安装 Python、Node.js 或 CUDA Toolkit。GPU 加速需要已安装兼容的 NVIDIA 驱动；自动模式在驱动低于 580 或没有 NVIDIA 显卡时选择 CPU。首次需要联网下载数 GB；中断后可重跑脚本。使用期间保留启动窗口。
 
 ### Linux x64
 
-解压同一发布包，在目录中运行：
+完成上述检出后，在 `guitarOCR` 目录中运行：
 
 ```bash
 bash start.sh
 ```
 
-Ubuntu / Debian 若缺少系统组件，先执行：
-
-```bash
-sudo apt-get update
-sudo apt-get install -y curl ca-certificates libgl1 libglib2.0-0
-```
-
 `install.bat` / `bash install.sh` 可以只安装、不启动。常用参数、手动安装和硬件验证范围见 [安装说明](docs/setup.md)；下载失败、显存不足等见 [故障排查](docs/troubleshooting.md)。
-
-源码通过 Git 获取时，需要完整检出 Git LFS 权重。发布包包含两套 LoRA 和版面权重；GLM 基座由安装器按固定版本下载。GitHub 自动生成的 “Source code.zip” 可能只有 LFS 指针，请优先使用上述发布包。
 
 ## 转换一份乐谱
 

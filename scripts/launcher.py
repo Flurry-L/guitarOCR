@@ -98,7 +98,7 @@ def acquire_weights(manifest):
         commit = run(["git", "rev-parse", "HEAD"], capture=True).strip()
     except (OSError, subprocess.CalledProcessError):
         raise ValueError(
-            "当前下载包缺少完整模型。请下载 Releases 中的 GuitarOCR-版本号.zip 并完整解压，或在 Git 检出中执行 git lfs pull。"
+            "当前目录缺少完整模型，且无法读取 Git 来源。请按 README 的「获取源码」步骤克隆仓库，再执行 git lfs pull。"
         ) from None
     match = re.fullmatch(
         r"(?:https://github\.com/|git@github\.com:)([\w.-]+/[\w.-]+?)(?:\.git)?/?",
