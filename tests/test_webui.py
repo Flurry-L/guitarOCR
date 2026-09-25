@@ -1,4 +1,5 @@
 import contextlib
+from concurrent.futures import ThreadPoolExecutor
 import io
 import json
 from pathlib import Path
@@ -318,6 +319,41 @@ class WebWorkflowTest(unittest.TestCase):
         self.assertEqual(completed["job"]["status"], "complete")
         self.assertEqual(len(completed["pages"]), 1)
         self.assertEqual(snapshot["job"]["status"], "running")
+
+    def test_session_reads_wait_for_file_replacement(self):
+        sid, _ = self.upload()
+        state = self.workflow.load(sid)
+        state["revision"] += 1
+        session_path = self.workflow.directory(sid) / "session.json"
+        replacing, release, reading = (
+            threading.Event(), threading.Event(), threading.Event()
+        )
+        replace = Path.replace
+
+        def paused_replace(path, target):
+            if target == session_path:
+                replacing.set()
+                if not release.wait(5):
+                    raise TimeoutError("File replacement was not released")
+            return replace(path, target)
+
+        def read():
+            reading.set()
+            return self.workflow.load(sid)
+
+        with patch.object(Path, "replace", paused_replace), ThreadPoolExecutor(2) as pool:
+            writer = pool.submit(self.workflow.store, state)
+            try:
+                self.assertTrue(replacing.wait(2))
+                reader = pool.submit(read)
+                self.assertTrue(reading.wait(2))
+                # Windows can deny reads while a replacement is in progress.
+                with self.assertRaises(TimeoutError):
+                    reader.result(timeout=0.1)
+            finally:
+                release.set()
+            writer.result(timeout=2)
+            self.assertEqual(reader.result(timeout=2)["revision"], state["revision"])
 
     def test_invalid_boxes_never_change_project(self):
         sid, original = self.upload()

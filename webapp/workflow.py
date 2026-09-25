@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from pathlib import Path
+from threading import Lock
 
 from shared.defaults import MODEL, MEASURE_ADAPTER, INFO_ADAPTER
 from uuid import uuid4
@@ -38,6 +39,7 @@ class Workflow:
         self.model, self.device = model, device
         self.layout_model, self.layout_python = layout_model, layout_python
         self.pool = BackendPool(model, device)
+        self._state_lock = Lock()
         self.info_adapter = INFO_ADAPTER
         self.measure_adapter = MEASURE_ADAPTER
 
@@ -47,12 +49,15 @@ class Workflow:
         return self.root / sid
 
     def load(self, sid):
-        return json.loads(
-            (self.directory(sid) / "session.json").read_text(encoding="utf-8")
-        )
+        with self._state_lock:
+            return json.loads(
+                (self.directory(sid) / "session.json").read_text(encoding="utf-8")
+            )
 
     def store(self, state):
-        write_json(self.directory(state["id"]) / "session.json", state)
+        # Windows cannot reliably open a file during its atomic replacement.
+        with self._state_lock:
+            write_json(self.directory(state["id"]) / "session.json", state)
         return state
 
     def output(self, sid, stage):
