@@ -4,6 +4,7 @@ import argparse
 from hashlib import sha256
 import json
 from pathlib import Path
+import subprocess
 import sys
 import tomllib
 from zipfile import ZipFile, ZIP_DEFLATED
@@ -30,6 +31,7 @@ DIRECTORIES = {
 }
 ROOT_FILES = {
     "README.md",
+    "使用说明.txt",
     "CONTRIBUTING.md",
     "CHANGELOG.md",
     "THIRD_PARTY_NOTICES.md",
@@ -58,6 +60,22 @@ def build(output):
         "project"
     ]["version"]
     prefix = f"GuitarOCR-{version}"
+    commit = None
+    if (ROOT / ".git").exists():
+        commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+        ).strip()
+    release = {
+        "version": version,
+        "repository": "Flurry-L/guitarOCR",
+        "commit": commit,
+        "models": [model["path"] for model in manifest["models"]],
+    }
+    model_files = {
+        (ROOT / model["path"] / item["name"]).resolve()
+        for model in manifest["models"]
+        for item in model["files"]
+    }
     output.mkdir(parents=True, exist_ok=True)
     destination = output / f"{prefix}.zip"
     root_files = {ROOT / name for name in ROOT_FILES}
@@ -69,6 +87,8 @@ def build(output):
             if not path.is_file() or path.is_symlink():
                 continue
             if any(part in EXCLUDE for part in path.relative_to(ROOT).parts):
+                continue
+            if path.suffix in {".safetensors", ".pdiparams", ".pdparams", ".pt"} and path.resolve() not in model_files:
                 continue
             if path.name == ".env" or (
                 path.name.startswith(".env.") and path.name != ".env.example"
@@ -87,10 +107,13 @@ def build(output):
             files.append(path)
     checksums = []
     with ZipFile(destination, "w", ZIP_DEFLATED) as archive:
+        contents = (json.dumps(release, indent=2) + "\n").encode()
+        archive.writestr(f"{prefix}/release.json", contents)
+        checksums.append(f"{sha256(contents).hexdigest()}  release.json")
         for path in sorted(files):
             relative = path.relative_to(ROOT).as_posix()
             contents = path.read_bytes()
-            if path.suffix == ".bat":
+            if path.suffix == ".bat" or path.name == "使用说明.txt":
                 contents = contents.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
             archive.writestr(f"{prefix}/{relative}", contents)
             checksums.append(f"{sha256(contents).hexdigest()}  {relative}")

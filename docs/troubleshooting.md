@@ -4,7 +4,7 @@
 
 | 现象 | 处理 |
 | --- | --- |
-| 权重是很小的文本文件 / 提示 LFS 指针 | 在 Git 检出目录执行 `git lfs install`、`git lfs pull`；若使用了 GitHub 的源码 ZIP，请按 [获取源码步骤](../README.md#获取源码) 重新克隆，ZIP 不含安装器补下载权重所需的 Git 信息 |
+| 权重是很小的文本文件 / 提示 LFS 指针 | 下载 [Release](https://github.com/Flurry-L/guitarOCR/releases/latest) 中的 GuitarOCR ZIP 并完整解压；Git 用户可执行 `git lfs pull`。GitHub 自动生成的 Source code.zip 不是启动包 |
 | Windows 下载 `adapter_config.json` 时出现 HTTP 404 | 旧安装器误用 LFS 下载地址，且 Git 自动换行可能导致配置校验失败。在仓库目录执行 `git pull --ff-only` 后重跑 `start.bat`，更新后的安装器会从正确地址修复配置，无需删除已下载环境 |
 | 安装时提示 `uv.lock needs to be updated` | 在仓库目录执行 `git pull --ff-only` 后重跑启动脚本。更新后的安装器直接导出仓库的固定依赖，使用已创建的 Python 3.11；本机 uv 镜像配置不会触发锁文件重新解析 |
 | Hugging Face 下载中断 | 重跑安装脚本。支持标准 `HTTPS_PROXY`；已有可信镜像时可自行设置 `HF_ENDPOINT`，安装后仍会校验 SHA-256 |

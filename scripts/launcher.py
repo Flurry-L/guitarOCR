@@ -116,13 +116,27 @@ def acquire_weights(manifest):
     if not missing:
         print("随项目发布的 LoRA 和版面权重校验通过。", flush=True)
         return
-    # Release ZIPs include these files. A Git checkout can fetch its own pinned revision.
+    # Release ZIPs normally include all files; their pinned provenance also
+    # allows repair without requiring Git on the user's machine.
+    release_path = ROOT / "release.json"
+    if release_path.is_file():
+        release = json.loads(release_path.read_text(encoding="utf-8"))
+        repository = release.get("repository", "")
+        commit = release.get("commit") or ""
+        if not re.fullmatch(r"[\w.-]+/[\w.-]+", repository) or not re.fullmatch(r"[0-9a-f]{40}", commit):
+            raise ValueError("安装包信息不完整，请重新下载 Release 中的 GuitarOCR ZIP 并完整解压。")
+        for entry, item in missing:
+            path = Path(entry["path"]) / item["name"]
+            host = "media.githubusercontent.com/media" if path.suffix in {".safetensors", ".pdiparams"} else "raw.githubusercontent.com"
+            download(f"https://{host}/{repository}/{commit}/{path.as_posix()}", ROOT / path, item)
+        return
+    # Git checkouts fetch the revision they actually checked out.
     try:
         remote = run(["git", "remote", "get-url", "origin"], capture=True).strip()
         commit = run(["git", "rev-parse", "HEAD"], capture=True).strip()
     except (OSError, subprocess.CalledProcessError):
         raise ValueError(
-            "当前目录缺少完整模型，且无法读取 Git 来源。请按 README 的「获取源码」步骤克隆仓库，再执行 git lfs pull。"
+            "当前目录缺少模型。请从 https://github.com/Flurry-L/guitarOCR/releases/latest 下载 GuitarOCR ZIP 并完整解压。"
         ) from None
     match = re.fullmatch(
         r"(?:https://github\.com/|git@github\.com:)([\w.-]+/[\w.-]+?)(?:\.git)?/?",

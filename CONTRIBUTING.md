@@ -36,7 +36,7 @@ README 提供首次使用的完整路径；安装、数据、训练、格式参�
 uv run --no-project --python 3.11 scripts/package_release.py
 ```
 
-生成 `output/releases/GuitarOCR-版本号.zip` 与 SHA-256 文件。包内包含源码、启动脚本、模型卡和实际 LoRA / 版面权重，不包含本地环境、训练数据、用户项目或 GLM 基座。用户可直接解压运行 start。构建前严格校验权重，LFS 指针不会被当成模型打包。
+生成 `output/releases/GuitarOCR-版本号.zip` 与 SHA-256 文件。包内包含源码、启动脚本、模型卡和当前默认的实际 LoRA / 版面权重，不包含本地环境、训练数据、用户项目或 GLM 基座。用户可直接解压运行 start。构建前校验权重，历史模型二进制不进入 ZIP。`release.json` 记录来源提交，供无 Git 环境修复缺失文件；`使用说明.txt` 提供首次启动步骤。
 
 GitHub Actions 的 Build release ZIP 流程只产生可下载构件，不自动发布。Native 构建流程记录源码和 DLL 哈希，但仍需在目标 GP8 运行时验收。发布时更新 CHANGELOG、验证记录及模型清单，并对最终提交的新检出完成安装验收。
 

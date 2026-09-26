@@ -1,6 +1,7 @@
 from hashlib import sha256
 from argparse import Namespace
 import io
+import json
 import os
 from pathlib import Path
 import shutil
@@ -25,6 +26,32 @@ from shared.environment import verify_files
 
 
 class InstallerTest(unittest.TestCase):
+    def test_release_repairs_model_without_git(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            commit = "a" * 40
+            (root / "release.json").write_text(json.dumps({
+                "repository": "Flurry-L/guitarOCR", "commit": commit,
+            }))
+            contents = {"adapter_config.json": b"{}\n", "adapter_model.safetensors": b"model bytes"}
+            files = [{"name": name, "bytes": len(data), "sha256": sha256(data).hexdigest()}
+                     for name, data in contents.items()]
+            urls = []
+
+            def response(request, **kwargs):
+                urls.append(request.full_url)
+                return io.BytesIO(contents[request.full_url.rsplit("/", 1)[1]])
+
+            with (
+                patch.object(launcher, "ROOT", root),
+                patch.object(launcher, "run", side_effect=AssertionError("Git must not run")),
+                patch("scripts.launcher.urllib.request.urlopen", side_effect=response),
+            ):
+                acquire_weights({"models": [{"path": "weights/adapter", "files": files}]})
+            self.assertEqual(verify_files(root / "weights/adapter", files), [])
+            self.assertTrue(any("raw.githubusercontent.com" in u for u in urls))
+            self.assertTrue(any("media.githubusercontent.com" in u for u in urls))
+
     @unittest.skipUnless(shutil.which("uv"), "uv executable required")
     def test_available_mirror_is_used_for_installation(self):
         with tempfile.TemporaryDirectory() as directory:

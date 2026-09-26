@@ -12,7 +12,7 @@
 
 ## 获取与校验
 
-权重通过 Git LFS 获取：
+Release ZIP 已包含当前默认权重。完整 Git 仓库还保留历史模型，可通过 Git LFS 获取：
 
 ```bash
 git lfs install

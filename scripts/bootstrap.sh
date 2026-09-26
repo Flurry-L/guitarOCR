@@ -4,7 +4,7 @@ cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 mkdir -p output/logs tools/uv
 log_file="output/logs/launcher-$(date +%Y%m%d-%H%M%S).log"
 exec > >(tee -a "$log_file") 2>&1
-echo "GuitarOCR · 环境安装与启动"
+echo "GuitarOCR 环境安装与启动"
 echo "日志：$log_file"
 uv_binary="$PWD/tools/uv/uv"
 if [[ ! -x "$uv_binary" ]]; then

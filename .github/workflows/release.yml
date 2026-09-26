@@ -1,0 +1,86 @@
+name: Verify release ZIP
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to test
+        required: true
+        default: v0.1.0
+permissions:
+  contents: read
+jobs:
+  install:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - name: Download release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern 'GuitarOCR-*.zip' --pattern '*.zip.sha256' --dir "$RUNNER_TEMP/guitarocr-release"
+      - name: Verify and extract
+        shell: python
+        run: |
+          from hashlib import sha256
+          from pathlib import Path
+          from zipfile import ZipFile
+          import os
+
+          folder = Path(os.environ["RUNNER_TEMP"]) / "guitarocr-release"
+          archive = next(folder.glob("*.zip"))
+          expected = archive.with_suffix(".zip.sha256").read_text().split()[0]
+          assert sha256(archive.read_bytes()).hexdigest() == expected
+          destination = folder / "GuitarOCR release test"
+          with ZipFile(archive) as bundle:
+              bundle.extractall(destination)
+          root = next(destination.iterdir())
+          assert not (root / ".git").exists()
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as out:
+              out.write(f"GUITAROCR_RELEASE_ROOT={root}\n")
+      - name: Install on Linux
+        if: runner.os == 'Linux'
+        working-directory: ${{ env.GUITAROCR_RELEASE_ROOT }}
+        run: bash install.sh --device cpu
+      - name: Install on Windows
+        if: runner.os == 'Windows'
+        shell: powershell
+        working-directory: ${{ env.GUITAROCR_RELEASE_ROOT }}
+        run: '& scripts/bootstrap.ps1 install --device cpu'
+      - name: Start web app and export example
+        shell: python
+        working-directory: ${{ env.GUITAROCR_RELEASE_ROOT }}
+        run: |
+          from pathlib import Path
+          import json, os, subprocess, time, urllib.request
+
+          python = Path("tools/webui-venv") / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+          subprocess.run([str(python), "-m", "gp5_export.writer", "examples/expected.score.txt", "output/release-demo.gp5", "--mode", "tab"], check=True)
+          process = subprocess.Popen([str(python), "-m", "webapp.app", "--device", "cpu", "--port", "17860"])
+          try:
+              for _ in range(60):
+                  if process.poll() is not None:
+                      raise RuntimeError("Web app exited before becoming ready")
+                  try:
+                      with urllib.request.urlopen("http://127.0.0.1:17860/api/config", timeout=2) as response:
+                          config = json.load(response)
+                      assert config["model_ready"] and config["layout_ready"], config
+                      break
+                  except OSError:
+                      time.sleep(1)
+              else:
+                  raise RuntimeError("Web app did not become ready")
+          finally:
+              process.terminate()
+              process.wait(timeout=20)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-install-${{ runner.os }}
+          path: ${{ env.GUITAROCR_RELEASE_ROOT }}/output/logs/*

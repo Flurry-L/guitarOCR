@@ -6,25 +6,11 @@
 
 ![小节校对界面](docs/images/webui.png)
 
-## 获取源码
+## 下载
 
-目前没有 Release 安装包，请使用 Git 和 Git LFS 获取源码及权重。Windows 先安装 [Git for Windows](https://gitforwindows.org/) 和 [Git LFS](https://git-lfs.com/)，然后打开 PowerShell。Ubuntu / Debian 使用终端安装：
+下载 [GuitarOCR-0.1.0.zip](https://github.com/Flurry-L/guitarOCR/releases/download/v0.1.0/GuitarOCR-0.1.0.zip)，完整解压到可写文件夹。包内包含当前版面模型和两套 OCR 适配器，无需 Git。Windows 用户可先看包内的「使用说明.txt」。
 
-```bash
-sudo apt-get update
-sudo apt-get install -y git git-lfs curl ca-certificates libgl1 libglib2.0-0
-```
-
-在可写目录中执行（Windows 和 Linux 相同）：
-
-```bash
-git lfs install
-git clone --depth 1 --single-branch --branch agent/guitar-pro-end-to-end https://github.com/Flurry-L/guitarOCR.git
-cd guitarOCR
-git lfs pull
-```
-
-GitHub 的源码 ZIP 可能只含权重指针，且缺少安装器补下载所需的 Git 信息，请使用上述克隆方式。
+请下载名为 GuitarOCR 的 ZIP；GitHub 自动生成的 Source code.zip 是源码归档。
 
 ## 启动
 
@@ -47,6 +33,26 @@ NVIDIA 驱动 580 或更新版本可自动启用 GPU，否则使用 CPU。无需
 5. **导出 GP5**：生成并下载文件，也可下载项目备份，稍后继续编辑。
 
 可先用自编[示例 PDF](examples/demo.pdf)或[示例图片](examples/demo.png)试用，与[预期 GP5](examples/expected.gp5)对照。停止后继续识别、局部重试和备份恢复见[工作台使用说明](docs/webui.md)。转换 PDF 或图片无需安装 Guitar Pro，生成训练数据时才使用它。
+
+## 获取源码
+
+需要修改代码或训练模型时，可通过 Git 获取完整仓库。Windows 先安装 [Git for Windows](https://gitforwindows.org/) 和 [Git LFS](https://git-lfs.com/)，然后打开 PowerShell。Ubuntu / Debian 使用终端安装：
+
+```bash
+sudo apt-get update
+sudo apt-get install -y git git-lfs curl ca-certificates libgl1 libglib2.0-0
+```
+
+在可写目录中执行（Windows 和 Linux 相同）：
+
+```bash
+git lfs install
+git clone --depth 1 --single-branch --branch agent/guitar-pro-end-to-end https://github.com/Flurry-L/guitarOCR.git
+cd guitarOCR
+git lfs pull
+```
+
+GitHub 的源码 ZIP 可能只含权重指针，且缺少安装器补下载所需的 Git 信息，请使用上述克隆方式。
 
 ## 命令行与开发
 
