@@ -7,7 +7,14 @@ let config,
   refreshing = false;
 const runners = new Map(),
   browserMessages = new Map();
+const signedIn = () => Boolean(auth?.user && !auth.user.guest);
+const engine = () => document.querySelector('[name="engine"]:checked')?.value;
 function notice(text, error = false) {
+  if ($("auth").open) {
+    $("authNotice").textContent = text;
+    $("authNotice").hidden = !text;
+    return;
+  }
   $("notice").textContent = text;
   $("notice").hidden = !text;
   $("notice").classList.toggle("error", error);
@@ -30,7 +37,11 @@ function show(name) {
   view = name;
   document
     .querySelectorAll("section[data-view]")
-    .forEach((n) => (n.hidden = n.dataset.view !== name || !auth));
+    .forEach(
+      (n) =>
+        (n.hidden =
+          n.dataset.view !== name || (name !== "projects" && !signedIn())),
+    );
   document
     .querySelectorAll("nav [data-view]")
     .forEach((n) => n.classList.toggle("selected", n.dataset.view === name));
@@ -52,10 +63,36 @@ function minutes(seconds) {
     : `${Math.round(seconds / 60)} 分钟`;
 }
 function engineHint() {
+  if (!config) return;
   $("engineHint").textContent =
-    $("engine").value === "gpu"
-      ? "服务器按顺序处理，关闭网页后仍会继续。"
-      : `直接使用这台电脑的 CPU。首次需下载约 ${(config.browser_download_bytes / 1024 ** 3).toFixed(1)} GB 模型，请保留此页面。文件仍会上传，用于保存和校对结果。`;
+    engine() === "gpu"
+      ? "提交后可以关闭网页，服务器会继续处理。重新登录即可查看进度和结果，也可取消排队或识别中的任务。"
+      : "识别时请保持此页面打开。关闭网页会暂停，再次打开任务可继续；登录后可从账号找回任务，继续时仍需保持页面打开。";
+  $("uploadButton").textContent =
+    engine() === "gpu" && !signedIn() ? "登录后使用 GPU" : "上传并识别";
+  $("uploadButton").disabled = !(engine() === "browser"
+    ? config.browser_ready
+    : config.gpu_available);
+}
+function openAuth(reason) {
+  $("authReason").textContent =
+    reason || "登录后可使用服务器 GPU，并在账号中保存任务和结果。";
+  $("authNotice").hidden = true;
+  $("auth").showModal();
+}
+function renderIdentity() {
+  $("loginButton").hidden = signedIn();
+  $("navigation").hidden = !signedIn();
+  $("adminTab").hidden = !auth?.user?.admin;
+  $("identity").textContent = signedIn() ? auth.user.username : "";
+  $("historyTitle").textContent = signedIn() ? "我的乐谱" : "识别记录";
+  $("saveAccount").hidden = signedIn() || !auth;
+  $("sessionHint").textContent = signedIn()
+    ? "任务和结果已保存到账号。GPU 任务关闭网页后继续，浏览器任务会暂停。"
+    : auth
+      ? `当前记录凭此浏览器的 Cookie 访问，保留至 ${new Date(auth.expires * 1000).toLocaleDateString("zh-CN")}。清除 Cookie 后无法找回，请及时下载，或登录保存到账号。`
+      : `无需登录即可使用浏览器推理。访客记录保留 ${config.session_days} 天，请在同一浏览器查看；登录后可保存到账号。`;
+  engineHint();
 }
 function startBrowser(job) {
   if (runners.has(job.id)) return;
@@ -85,8 +122,9 @@ function renderProjects(projects) {
       busy = job && ["queued", "running"].includes(job.status);
     let status = project.stage;
     if (busy)
-      status =
-        job.status === "queued"
+      status = !job.cancellable
+        ? "正在取消，已完成部分会保留"
+        : job.status === "queued"
           ? project.engine === "browser"
             ? "等待浏览器运行"
             : `排队中，前面约 ${Math.max(0, job.position - 1)} 个任务`
@@ -109,19 +147,32 @@ function renderProjects(projects) {
       p.setAttribute("aria-label", "识别进度");
       info.append(p);
     }
-    if (project.engine === "browser" && busy && !runners.has(job.id))
+    if (
+      project.engine === "browser" &&
+      busy &&
+      job.cancellable &&
+      !runners.has(job.id)
+    )
       actions.append(button("在此页继续", () => startBrowser(job)));
     if (!busy && project.pages)
       actions.append(link("校对 / 下载", `/workbench?project=${project.id}`));
-    if (busy)
-      actions.append(
-        button("取消", async () => {
+    if (busy) {
+      const cancelButton = button(
+        job.cancellable ? "取消任务" : "正在取消…",
+        async () => {
           await api(`/api/sessions/${project.id}/cancel`, "POST");
           runners.get(job.id)?.stop();
+          notice(
+            project.engine === "browser"
+              ? "已停止浏览器推理，正在取消任务。已完成部分会保留。"
+              : "已请求取消，当前步骤结束后停止。已完成部分会保留。",
+          );
           await refresh();
-        }),
+        },
       );
-    else {
+      cancelButton.disabled = !job.cancellable;
+      actions.append(cancelButton);
+    } else {
       if (["failed", "cancelled"].includes(job?.status))
         actions.append(
           button("重试", async () => {
@@ -254,12 +305,10 @@ async function refresh() {
     refreshing = false;
   }
 }
-async function signedIn(data) {
+async function enterSession(data) {
   setAuth(data);
-  $("auth").hidden = true;
-  $("navigation").hidden = false;
-  $("adminTab").hidden = !auth.user.admin;
-  $("identity").textContent = auth.user.username;
+  $("auth").close();
+  renderIdentity();
   show("projects");
   notice("");
   await refresh();
@@ -273,41 +322,61 @@ $("authForm").onsubmit = action(async () => {
       { username: $("username").value, password: $("password").value },
     );
     $("password").value = "";
-    await signedIn(data);
+    await enterSession(data);
   } finally {
     $("authSubmit").disabled = false;
   }
 });
 $("authToggle").onclick = () => {
   registering = !registering;
+  $("authTitle").textContent = registering ? "创建账号" : "登录";
   $("authSubmit").textContent = registering ? "创建账号" : "登录";
   $("authToggle").textContent = registering ? "已有账号，去登录" : "创建账号";
   $("password").autocomplete = registering
     ? "new-password"
     : "current-password";
 };
+$("loginButton").onclick = () => openAuth();
+$("saveAccount").onclick = () =>
+  openAuth("登录或创建账号后，当前访客任务和结果会保存到账号。");
+$("closeAuth").onclick = () => $("auth").close();
+$("auth").addEventListener("close", () => {
+  $("password").value = "";
+});
 $("logout").onclick = action(async () => {
   for (const r of runners.values()) r.stop();
   await api("/api/auth/logout", "POST");
   localStorage.removeItem("guitarocr-session");
   location.reload();
 });
-$("engine").onchange = engineHint;
+$("engines").onchange = engineHint;
 $("uploadForm").onsubmit = action(async () => {
+  const selectedEngine = engine();
+  if (selectedEngine === "gpu" && !signedIn()) {
+    openAuth("登录后可使用服务器 GPU；已选择的文件会保留。");
+    return;
+  }
   $("uploadButton").disabled = true;
+  $("engines").disabled = true;
   try {
+    if (!auth) {
+      setAuth(await api("/api/auth/guest", "POST"));
+      renderIdentity();
+      $("uploadButton").disabled = true;
+    }
     const form = new FormData();
     for (const file of $("files").files) form.append("files", file);
-    form.append("engine", $("engine").value);
+    form.append("engine", selectedEngine);
     form.append("action", "full");
     notice("正在上传…");
     const result = await api("/api/sessions", "POST", form);
     $("files").value = "";
     notice("");
-    if ($("engine").value === "browser") startBrowser(result.job);
+    if (selectedEngine === "browser") startBrowser(result.job);
     await refresh();
   } finally {
-    $("uploadButton").disabled = false;
+    $("engines").disabled = false;
+    engineHint();
   }
 });
 $("passwordForm").onsubmit = action(async (event) => {
@@ -341,18 +410,23 @@ $("applyUpdate").onclick = action(async () => {
   try {
     config = await api("/api/config");
     $("authToggle").hidden = !config.registration;
-    $("engine").options[0].disabled = !config.gpu_available;
-    $("engine").options[1].disabled = !config.browser_ready;
-    if (!config.gpu_available && config.browser_ready)
-      $("engine").value = "browser";
+    $("gpuEngine").disabled = !config.gpu_available;
+    $("browserEngine").disabled = !config.browser_ready;
+    $("gpuUnavailable").hidden = config.gpu_available;
+    $("browserUnavailable").hidden = config.browser_ready;
+    if (!config.browser_ready && config.gpu_available)
+      $("gpuEngine").checked = true;
+    if (config.browser_ready)
+      $("browserDownload").textContent =
+        `首次需下载约 ${(config.browser_download_bytes / 1024 ** 3).toFixed(1)} GB 模型，下载时间另计。`;
     $("limits").textContent =
       `每份乐谱最多 ${config.max_pages} 页、${config.max_upload_mb} MB。`;
-    if (!config.browser_ready)
-      $("limits").textContent += " 浏览器模型尚未安装。";
-    engineHint();
-    const response = await fetch("/api/auth/me");
-    if (response.ok) await signedIn(await response.json());
-    else $("auth").hidden = false;
+    const session = await api("/api/auth/me");
+    if (session.user) await enterSession(session);
+    else {
+      renderIdentity();
+      renderProjects([]);
+    }
   } catch (error) {
     notice(error.message, true);
   }

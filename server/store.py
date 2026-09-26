@@ -46,7 +46,8 @@ class Store:
             CREATE TABLE IF NOT EXISTS users (
                 id TEXT PRIMARY KEY, username TEXT UNIQUE COLLATE NOCASE NOT NULL,
                 password TEXT NOT NULL, admin INTEGER NOT NULL DEFAULT 0,
-                disabled INTEGER NOT NULL DEFAULT 0, created REAL NOT NULL
+                disabled INTEGER NOT NULL DEFAULT 0, created REAL NOT NULL,
+                guest INTEGER NOT NULL DEFAULT 0
             );
             CREATE TABLE IF NOT EXISTS sessions (
                 token TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id),
@@ -77,6 +78,13 @@ class Store:
             CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS rate_limits (key TEXT PRIMARY KEY, count INTEGER NOT NULL, until REAL NOT NULL);
             """)
+        with self.connect(True) as db:
+            if "guest" not in {
+                row[1] for row in db.execute("PRAGMA table_info(users)")
+            }:
+                db.execute(
+                    "ALTER TABLE users ADD COLUMN guest INTEGER NOT NULL DEFAULT 0"
+                )
         self.path.chmod(0o600)
 
     @contextmanager
@@ -125,6 +133,35 @@ class Store:
             (uid, username, password_hash(password), int(admin), time.time()),
         )
         return uid
+
+    def expire_guests(self):
+        """Revoke expired guest work, then return inactive project directories to remove."""
+        removed = []
+        with self.connect(True) as db:
+            db.execute("DELETE FROM sessions WHERE expires<=?", (time.time(),))
+            guests = db.execute(
+                """SELECT id FROM users WHERE guest=1 AND NOT EXISTS
+                (SELECT 1 FROM sessions WHERE user_id=users.id)"""
+            ).fetchall()
+            for guest in guests:
+                uid = guest["id"]
+                db.execute("UPDATE jobs SET cancel=1 WHERE user_id=?", (uid,))
+                if db.execute(
+                    "SELECT 1 FROM jobs WHERE user_id=? AND status='running'", (uid,)
+                ).fetchone():
+                    continue
+                removed.extend(
+                    row["id"]
+                    for row in db.execute(
+                        "SELECT id FROM projects WHERE user_id=?", (uid,)
+                    )
+                )
+                db.execute("DELETE FROM projects WHERE user_id=?", (uid,))
+                db.execute(
+                    "DELETE FROM settings WHERE key LIKE ?", (f"deleted_usage:{uid}:%",)
+                )
+                db.execute("DELETE FROM users WHERE id=?", (uid,))
+        return removed
 
     def rate_limit(self, key, count, interval):
         now = time.time()
@@ -272,7 +309,8 @@ class Store:
     def cancel(self, project_id):
         self.execute(
             """UPDATE jobs SET cancel=1,status=CASE WHEN status='queued' THEN 'cancelled' ELSE status END,
-            finished=CASE WHEN status='queued' THEN ? ELSE finished END,message='正在停止'
+            finished=CASE WHEN status='queued' THEN ? ELSE finished END,
+            message=CASE WHEN status='queued' THEN '已取消' ELSE '正在取消，已完成部分会保留' END
             WHERE project_id=? AND status IN ('queued','running')""",
             (time.time(), project_id),
         )

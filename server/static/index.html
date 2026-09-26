@@ -10,6 +10,7 @@
   <body>
     <header>
       <a class="brand" href="/">Guitar<span>OCR</span></a>
+      <button id="loginButton" type="button">登录</button>
       <nav id="navigation" hidden>
         <button data-view="projects" class="selected">我的乐谱</button
         ><button data-view="account">账号</button
@@ -19,9 +20,22 @@
     </header>
     <main>
       <div id="notice" role="status" aria-live="polite" hidden></div>
-      <section id="auth" class="login" hidden>
-        <h1>把吉他谱转换为 GP5</h1>
-        <p>上传 PDF 或图片，识别后可逐小节校对。</p>
+      <dialog
+        id="auth"
+        class="login"
+        aria-labelledby="authTitle"
+        aria-describedby="authReason"
+      >
+        <div class="heading">
+          <h2 id="authTitle">登录</h2>
+          <button id="closeAuth" type="button" aria-label="关闭登录窗口">
+            关闭
+          </button>
+        </div>
+        <p id="authReason">
+          登录后可使用服务器 GPU，并在账号中保存任务和结果。
+        </p>
+        <p id="authNotice" class="error" role="alert" hidden></p>
         <form id="authForm">
           <label
             >用户名<input
@@ -46,17 +60,26 @@
               required
               minlength="10"
               maxlength="128"
+              aria-describedby="passwordHint passwordStorage"
           /></label>
-          <p class="hint">至少 10 个字符。</p>
+          <p id="passwordHint" class="hint">
+            至少 10
+            个字符。请设置本站专用密码，避免复用常用密码或使用容易猜到的密码。
+          </p>
+          <p id="passwordStorage" class="hint">
+            服务器只保存加入随机盐后计算的 scrypt
+            密码哈希，不保存明文密码。登录时通过重新计算哈希来核验。
+          </p>
           <button id="authSubmit" class="primary" type="submit">登录</button
           ><button id="authToggle" type="button">创建账号</button>
         </form>
-      </section>
-      <section data-view="projects" hidden>
+      </dialog>
+      <section data-view="projects">
         <div class="heading">
-          <h1>我的乐谱</h1>
+          <h1>把吉他谱转换为 GP5</h1>
           <span id="identity" class="muted"></span>
         </div>
+        <p>上传 PDF 或图片，识别后可逐小节校对、下载。</p>
         <form id="uploadForm" class="upload">
           <label class="file"
             >选择 PDF 或图片<input
@@ -66,23 +89,70 @@
               multiple
               required
           /></label>
-          <div class="upload-options">
-            <label
-              >推理方式<select id="engine">
-                <option value="gpu">服务器 GPU</option>
-                <option value="browser">浏览器 CPU</option>
-              </select></label
-            ><button class="primary" id="uploadButton" type="submit">
-              上传并识别
-            </button>
-          </div>
-          <p id="engineHint" class="hint">
-            服务器按顺序处理，关闭网页后仍会继续。
+          <fieldset id="engines">
+            <legend>选择推理方式</legend>
+            <div class="engine-options">
+              <label class="engine-option">
+                <span class="engine-title"
+                  ><input
+                    id="browserEngine"
+                    type="radio"
+                    name="engine"
+                    value="browser"
+                    checked
+                  />浏览器本地推理</span
+                >
+                <span>使用这台设备的 CPU，无需登录，适合内存充足的电脑。</span>
+                <span id="browserDownload" class="hint"
+                  >首次需下载约 3 GB 模型。</span
+                >
+                <span class="hint"
+                  >4 小节示例约 4 分钟，在服务器 CPU
+                  上测试；普通电脑可能更慢。</span
+                >
+                <span id="browserUnavailable" class="error" hidden
+                  >本站尚未启用浏览器推理。</span
+                >
+              </label>
+              <label class="engine-option">
+                <span class="engine-title"
+                  ><input
+                    id="gpuEngine"
+                    type="radio"
+                    name="engine"
+                    value="gpu"
+                  />服务器 GPU 加速</span
+                >
+                <span
+                  >由本站 GPU
+                  运行模型，不占用你的设备算力，适合手机和低端电脑。需要登录，可能排队。</span
+                >
+                <span class="hint"
+                  >同一份 4 小节示例在 H100 上约 24 秒，排队时间另计。</span
+                >
+                <span id="gpuUnavailable" class="error" hidden
+                  >本站尚未启用 GPU 推理。</span
+                >
+              </label>
+            </div>
+          </fieldset>
+          <p id="engineHint" class="hint" aria-live="polite"></p>
+          <button class="primary" id="uploadButton" type="submit" disabled>
+            上传并识别
+          </button>
+          <p class="hint">
+            两种方式都会上传谱面，用于展开
+            PDF、保存和校对结果。实际速度随设备、页数和谱面复杂度变化。
           </p>
           <p id="limits" class="hint"></p>
         </form>
+        <div class="heading history-heading">
+          <h2 id="historyTitle">识别记录</h2>
+          <button id="saveAccount" type="button">登录并保存到账号</button>
+        </div>
+        <p id="sessionHint" class="hint"></p>
         <p id="empty" class="empty" hidden>
-          还没有乐谱。上传后，任务进度和结果会保存在这里。
+          上传乐谱后，可在这里查看进度和结果，或取消任务。
         </p>
         <div id="projects" class="project-list"></div>
       </section>
@@ -109,8 +179,15 @@
               autocomplete="new-password"
               required
               minlength="10"
-              maxlength="128" /></label
-          ><button type="submit" class="primary">保存密码</button>
+              maxlength="128"
+              aria-describedby="newPasswordHint"
+          /></label>
+          <p id="newPasswordHint" class="hint">
+            至少 10
+            个字符。请使用本站专用密码，避免复用常用密码或使用容易猜到的密码。服务器只保存加随机盐的
+            scrypt 哈希。
+          </p>
+          <button type="submit" class="primary">保存密码</button>
         </form>
       </section>
       <section data-view="admin" hidden>

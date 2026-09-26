@@ -16,6 +16,7 @@ export class BrowserRunner {
     this.stopped = true;
     this.worker?.terminate();
     this.worker = null;
+    this.pending = null;
   }
   async start() {
     try {
@@ -34,7 +35,11 @@ export class BrowserRunner {
           const data = await api(`/api/browser/jobs/${this.job}/poll`, "POST", {
             token: this.token,
           });
-          if (data.cancel || !["queued", "running"].includes(data.job.status))
+          if (
+            this.stopped ||
+            data.cancel ||
+            !["queued", "running"].includes(data.job.status)
+          )
             break;
           if (this.pending) {
             await api(
@@ -43,6 +48,7 @@ export class BrowserRunner {
               { token: this.token, ...this.pending },
             );
             this.pending = null;
+            if (this.stopped) break;
           }
           if (data.call && data.call.id !== this.call) {
             this.call = data.call.id;

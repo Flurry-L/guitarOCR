@@ -22,11 +22,12 @@ export async function api(path, method = "GET", body) {
   const opts = { method };
   if (serverMode && !csrf) {
     const auth = await fetch("/api/auth/me");
-    if (!auth.ok) {
+    const session = auth.ok ? await auth.json() : null;
+    if (!session?.user) {
       location.assign("/");
-      throw new Error("请先登录。");
+      throw new Error("会话已过期，请返回首页。");
     }
-    csrf = (await auth.json()).csrf;
+    csrf = session.csrf;
   }
   if (body instanceof FormData) opts.body = body;
   else if (body !== undefined) {

@@ -222,6 +222,136 @@ class ServiceTest(unittest.TestCase):
         self.assertEqual(result.status_code, 400)
         self.assertEqual(self.store.one("SELECT count(*) AS n FROM projects")["n"], 3)
 
+    def guest(self):
+        self.config.browser_models.mkdir(exist_ok=True)
+        (self.config.browser_models / "manifest.json").write_text(
+            json.dumps({"revision": "a" * 20, "bytes": 1000})
+        )
+        client = self.enterContext(TestClient(self.app))
+        response = client.post("/api/auth/guest")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertTrue(response.json()["user"]["guest"])
+        client.headers["X-CSRF-Token"] = response.json()["csrf"]
+        return client
+
+    def guest_upload(self, client, action="import"):
+        response = client.post(
+            "/api/sessions",
+            files={"files": ("score.png", self.image, "image/png")},
+            data={"engine": "browser", "action": action},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        return response.json()
+
+    def test_guest_access_is_private_and_gpu_requires_login(self):
+        anonymous = self.enterContext(TestClient(self.app))
+        self.assertEqual(anonymous.get("/").status_code, 200)
+        self.assertIsNone(anonymous.get("/api/auth/me").json()["user"])
+        self.assertEqual(anonymous.get("/api/sessions").status_code, 401)
+        self.store.set("registration", False)
+        guest = self.guest()
+        self.assertEqual(
+            guest.post(
+                "/api/sessions", files={"files": ("score.png", self.image)}
+            ).status_code,
+            403,
+        )
+        self.assertEqual(guest.get("/api/admin/users").status_code, 403)
+        self.assertEqual(
+            guest.put(
+                "/api/auth/password", json={"current": "", "password": "new password"}
+            ).status_code,
+            403,
+        )
+        item = self.guest_upload(guest)
+        sid, jid = item["id"], item["job"]["id"]
+        other = self.guest()
+        self.assertEqual(other.get(f"/api/sessions/{sid}").status_code, 404)
+        self.assertEqual(other.post(f"/api/sessions/{sid}/cancel").status_code, 404)
+        self.assertEqual(
+            guest.post(
+                f"/api/sessions/{sid}/cancel", headers={"X-CSRF-Token": "wrong"}
+            ).status_code,
+            403,
+        )
+        token = "g" * 40
+        guest.post(f"/api/browser/jobs/{jid}/poll", json={"token": token})
+        self.assertTrue(
+            run_once(self.config, self.store, self.workflow, "browser", Event())
+        )
+        self.assertEqual(
+            guest.get(f"/api/sessions/{sid}").json()["job"]["status"], "complete"
+        )
+        self.assertEqual(guest.get(f"/api/sessions/{sid}/archive").status_code, 200)
+        self.assertEqual(other.get(f"/api/sessions/{sid}/archive").status_code, 404)
+
+    def test_guest_login_and_registration_keep_active_jobs_and_revoke_guest(self):
+        for endpoint, username in (("login", "alice"), ("register", "new-user")):
+            with self.subTest(endpoint=endpoint):
+                guest = self.guest()
+                item = self.guest_upload(guest)
+                sid, jid = item["id"], item["job"]["id"]
+                token = "t" * 40
+                guest.post(f"/api/browser/jobs/{jid}/poll", json={"token": token})
+                job = self.store.claim("browser")
+                self.assertEqual(job["id"], jid)
+                stale = self.enterContext(TestClient(self.app))
+                stale.cookies.update(guest.cookies)
+                result = guest.post(
+                    f"/api/auth/{endpoint}",
+                    json={"username": username, "password": "a long password"},
+                )
+                self.assertEqual(result.status_code, 200, result.text)
+                auth = result.json()
+                self.assertFalse(auth["user"]["guest"])
+                guest.headers["X-CSRF-Token"] = auth["csrf"]
+                self.assertEqual(stale.get(f"/api/sessions/{sid}").status_code, 401)
+                self.assertEqual(
+                    guest.get(f"/api/sessions/{sid}").json()["job"]["status"], "running"
+                )
+                self.assertEqual(self.store.job(sid)["user_id"], auth["user"]["id"])
+                self.assertEqual(
+                    guest.post(
+                        f"/api/browser/jobs/{jid}/poll", json={"token": token}
+                    ).status_code,
+                    200,
+                )
+                guest.post(f"/api/sessions/{sid}/cancel")
+                self.assertTrue(self.store.finish(job, "complete"))
+                self.assertEqual(self.store.job(sid)["status"], "cancelled")
+                self.assertIsNone(
+                    self.store.one("SELECT id FROM users WHERE id=?", (job["user_id"],))
+                )
+
+    def test_cancel_running_browser_and_expire_guest_records(self):
+        guest = self.guest()
+        item = self.guest_upload(guest, action="full")
+        sid, jid = item["id"], item["job"]["id"]
+        guest.post(f"/api/browser/jobs/{jid}/poll", json={"token": "t" * 40})
+        with ThreadPoolExecutor(1) as pool:
+            running = pool.submit(
+                run_once, self.config, self.store, self.workflow, "browser", Event()
+            )
+            deadline = time.monotonic() + 5
+            while not self.store.one("SELECT id FROM calls WHERE job_id=?", (jid,)):
+                self.assertLess(time.monotonic(), deadline)
+                time.sleep(0.01)
+            response = guest.post(f"/api/sessions/{sid}/cancel")
+            self.assertEqual(response.status_code, 200)
+            self.assertFalse(
+                guest.get(f"/api/sessions/{sid}").json()["job"]["cancellable"]
+            )
+            self.assertTrue(running.result(timeout=5))
+        self.assertEqual(self.store.job(sid)["status"], "cancelled")
+        self.assertEqual(len(self.workflow.load(sid)["pages"]), 1)
+        self.assertEqual(self.store.expire_guests(), [])
+        uid = guest.get("/api/auth/me").json()["user"]["id"]
+        self.store.execute("UPDATE sessions SET expires=0 WHERE user_id=?", (uid,))
+        self.assertEqual(self.store.expire_guests(), [sid])
+        self.assertIsNone(self.store.job(sid))
+        self.assertIsNone(guest.get("/api/auth/me").json()["user"])
+        self.assertTrue(self.client.get("/api/auth/me").json()["user"])
+
     def test_update_failure_restores_database_and_old_release(self):
         self.upload()
         supervisor = Supervisor(self.config, self.config.data / "config.json")

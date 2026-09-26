@@ -59,6 +59,7 @@ class Config:
             "max_pending",
             "storage_mb",
             "lease_seconds",
+            "session_days",
         ):
             if getattr(self, field) < 1:
                 raise ValueError(f"{field} 必须大于零")

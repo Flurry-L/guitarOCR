@@ -18,7 +18,7 @@ export async function api(path, method = "GET", body) {
     } catch {
       data = {};
     }
-    if (response.status === 401 && auth) {
+    if (response.status === 401 && auth && path !== "/api/auth/login") {
       setAuth(null);
       location.assign("/");
     }

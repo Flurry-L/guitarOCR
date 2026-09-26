@@ -1,4 +1,4 @@
-"""Authenticated HTTP API. The service never starts inference from a request."""
+"""Account and guest HTTP API. Inference runs in independent workers."""
 
 from contextlib import contextmanager
 import json
@@ -107,7 +107,7 @@ def create_app(config: Config, workflow=None):
         token = request.cookies.get("guitarocr-auth", "")
         if token:
             session = store.one(
-                """SELECT s.*,u.username,u.admin,u.disabled FROM sessions s
+                """SELECT s.*,u.username,u.admin,u.disabled,u.guest FROM sessions s
                 JOIN users u ON s.user_id=u.id WHERE token=? AND expires>? AND u.disabled=0""",
                 (token_hash(token), time.time()),
             )
@@ -117,10 +117,13 @@ def create_app(config: Config, workflow=None):
                     "id": session["user_id"],
                     "username": session["username"],
                     "admin": bool(session["admin"]),
+                    "guest": bool(session["guest"]),
                 }
         public = path in {
             "/api/auth/login",
             "/api/auth/register",
+            "/api/auth/guest",
+            "/api/auth/me",
             "/api/config",
             "/health",
         }
@@ -128,8 +131,9 @@ def create_app(config: Config, workflow=None):
         if protected and not request.state.user:
             return JSONResponse({"detail": "请先登录"}, 401)
         if (
-            protected
+            (protected or path == "/api/auth/guest")
             and mutation
+            and request.state.session
             and not secrets.compare_digest(
                 request.headers.get("x-csrf-token", ""), request.state.session["csrf"]
             )
@@ -255,17 +259,51 @@ def create_app(config: Config, workflow=None):
         if not store.rate_limit(token_hash(address + ":" + suffix), count, interval):
             raise HTTPException(429, "尝试过于频繁，请稍后重试")
 
-    def login_response(user):
+    def identity(user):
+        return {
+            "id": user["id"],
+            "username": None if user["guest"] else user["username"],
+            "admin": bool(user["admin"]),
+            "guest": bool(user["guest"]),
+        }
+
+    def login_response(user, request=None):
         token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
         expires = time.time() + config.session_days * 86400
         with store.connect(True) as db:
+            if user is None:
+                uid = uuid4().hex
+                db.execute(
+                    "INSERT INTO users(id,username,password,guest,created) VALUES (?,?,?,1,?)",
+                    (uid, "~guest-" + uid, "", time.time()),
+                )
+                user = dict(
+                    db.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
+                )
+            if request and request.state.user and request.state.user["guest"]:
+                guest_id = request.state.user["id"]
+                # Move projects and active jobs together, so the browser can keep running.
+                # Revoking the guest session prevents its old token accessing this account.
+                db.execute(
+                    "UPDATE projects SET user_id=? WHERE user_id=?",
+                    (user["id"], guest_id),
+                )
+                db.execute(
+                    "UPDATE jobs SET user_id=? WHERE user_id=?", (user["id"], guest_id)
+                )
+                db.execute("DELETE FROM sessions WHERE user_id=?", (guest_id,))
+                db.execute(
+                    "DELETE FROM settings WHERE key LIKE ?",
+                    (f"deleted_usage:{guest_id}:%",),
+                )
+                db.execute("DELETE FROM users WHERE id=? AND guest=1", (guest_id,))
             db.execute("DELETE FROM sessions WHERE expires<?", (time.time(),))
             db.execute(
                 "INSERT INTO sessions VALUES (?,?,?,?)",
                 (token_hash(token), user["id"], csrf, expires),
             )
         response = JSONResponse(
-            {"user": {k: user[k] for k in ("id", "username", "admin")}, "csrf": csrf}
+            {"user": identity(user), "csrf": csrf, "expires": expires}
         )
         response.set_cookie(
             "guitarocr-auth",
@@ -306,6 +344,7 @@ def create_app(config: Config, workflow=None):
             "device": "服务器 GPU",
             "max_upload_mb": config.max_upload_mb,
             "max_pages": config.max_pages,
+            "session_days": config.session_days,
             "model_ready": Path(config.model, "config.json").exists(),
             "layout_ready": Path(config.layout_model).exists(),
             "gpu_available": bool(config.gpus),
@@ -326,7 +365,16 @@ def create_app(config: Config, workflow=None):
             uid = store.add_user(body.username, body.password)
         except sqlite3.IntegrityError:
             raise HTTPException(409, "用户名已被使用") from None
-        return login_response(store.one("SELECT * FROM users WHERE id=?", (uid,)))
+        return login_response(
+            store.one("SELECT * FROM users WHERE id=?", (uid,)), request
+        )
+
+    @app.post("/api/auth/guest")
+    def guest(request: Request):
+        if request.state.user:
+            return me(request)
+        rate(request, "guest", 10, 3600)
+        return login_response(None)
 
     @app.post("/api/auth/login")
     def login(body: Credentials, request: Request):
@@ -337,13 +385,19 @@ def create_app(config: Config, workflow=None):
             raise HTTPException(429, "尝试过于频繁，请稍后重试")
         user = store.one("SELECT * FROM users WHERE username=?", (body.username,))
         valid = check_password(body.password, user["password"] if user else dummy_hash)
-        if not valid or not user or user["disabled"]:
+        if not valid or not user or user["disabled"] or user["guest"]:
             raise HTTPException(401, "用户名或密码不正确")
-        return login_response(user)
+        return login_response(user, request)
 
     @app.get("/api/auth/me")
     def me(request: Request):
-        return {"user": request.state.user, "csrf": request.state.session["csrf"]}
+        if not request.state.user:
+            return {"user": None, "csrf": None}
+        return {
+            "user": identity(request.state.user),
+            "csrf": request.state.session["csrf"],
+            "expires": request.state.session["expires"],
+        }
 
     @app.post("/api/auth/logout")
     def logout(request: Request):
@@ -356,6 +410,8 @@ def create_app(config: Config, workflow=None):
 
     @app.put("/api/auth/password")
     def change_password(body: PasswordChange, request: Request):
+        if request.state.user["guest"]:
+            raise HTTPException(403, "请先创建账号")
         rate(request, "password", 10, 900)
         user = store.one("SELECT * FROM users WHERE id=?", (request.state.user["id"],))
         if not check_password(body.current, user["password"]):
@@ -398,6 +454,8 @@ def create_app(config: Config, workflow=None):
         action: Literal["full", "import"] = Form("import"),
     ):
         rate(request, "upload", 30, 3600)
+        if engine == "gpu" and request.state.user["guest"]:
+            raise HTTPException(403, "使用服务器 GPU 需要登录")
         if not 1 <= len(files) <= config.max_pages:
             raise HTTPException(400, f"请选择 1 至 {config.max_pages} 个文件")
         if engine == "gpu" and not config.gpus:
@@ -527,7 +585,7 @@ def create_app(config: Config, workflow=None):
     def cancel(sid: str, request: Request):
         owner(sid, request)
         store.cancel(sid)
-        return {"message": "已请求停止，当前步骤完成后生效"}
+        return {"message": "已请求取消，已完成部分会保留"}
 
     @app.put("/api/sessions/{sid}/boxes")
     def boxes(sid: str, body: Boxes, request: Request):
@@ -733,12 +791,12 @@ def create_app(config: Config, workflow=None):
         return store.all("""SELECT u.id,u.username,u.admin,u.disabled,u.created,
             (SELECT count(*) FROM projects p WHERE p.user_id=u.id) AS projects,
             (SELECT coalesce(sum(seconds),0) FROM jobs j WHERE j.user_id=u.id AND j.engine='gpu') AS gpu_seconds
-            FROM users u ORDER BY u.created""")
+            FROM users u WHERE u.guest=0 ORDER BY u.created""")
 
     @app.patch("/api/admin/users/{uid}")
     def account(uid: str, body: AccountEdit, request: Request):
         user = store.one("SELECT * FROM users WHERE id=?", (uid,))
-        if not user:
+        if not user or user["guest"]:
             raise HTTPException(404, "用户不存在")
         if user["admin"]:
             raise HTTPException(409, "管理员账号请通过命令行管理")
@@ -765,7 +823,8 @@ def create_app(config: Config, workflow=None):
         return {
             "registration": store.setting("registration", True),
             "queue_paused": store.setting("queue_paused", False),
-            "jobs": store.all("""SELECT j.id,j.project_id,j.engine,j.status,j.message,j.created,u.username FROM jobs j
+            "jobs": store.all("""SELECT j.id,j.project_id,j.engine,j.status,j.message,j.created,
+                    CASE WHEN u.guest=1 THEN '访客' ELSE u.username END AS username FROM jobs j
                     JOIN users u ON u.id=j.user_id WHERE j.status IN ('queued','running') ORDER BY j.created LIMIT 200"""),
             "update": store.setting("update", {}),
             "supervisor_seen": store.setting("supervisor_seen", 0),

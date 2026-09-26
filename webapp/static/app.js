@@ -151,6 +151,7 @@ async function watch(after) {
 }
 $("cancelJob").onclick = action(async () => {
   await api(endpoint("/cancel"), "POST");
+  window.dispatchEvent(new Event("guitarocr:cancel"));
   notice("正在停止，当前小节处理结束后生效。已完成部分会保留。");
 });
 async function start(path, body, after) {

@@ -107,7 +107,7 @@ def execute(config, store, workflow, job, stop):
 
     def progress(done, total):
         store.execute(
-            "UPDATE jobs SET done=?,total=?,message=? WHERE id=? AND lease=?",
+            "UPDATE jobs SET done=?,total=?,message=? WHERE id=? AND lease=? AND cancel=0",
             (done, total, f"已识别 {done} / {total} 小节", job["id"], job["lease"]),
         )
 
@@ -115,13 +115,14 @@ def execute(config, store, workflow, job, stop):
         check()
         sync_usage(store, workflow, sid)
         used = store.one(
-            "SELECT coalesce(sum(bytes),0) AS n FROM projects WHERE user_id=?",
-            (job["user_id"],),
+            """SELECT coalesce(sum(bytes),0) AS n FROM projects WHERE user_id=
+            (SELECT user_id FROM projects WHERE id=?)""",
+            (sid,),
         )["n"]
         if used >= config.storage_mb * 1024**2:
             raise ValueError("存储空间已达上限，请删除不需要的项目")
         store.execute(
-            "UPDATE jobs SET message=? WHERE id=? AND lease=?",
+            "UPDATE jobs SET message=? WHERE id=? AND lease=? AND cancel=0",
             (label, job["id"], job["lease"]),
         )
 

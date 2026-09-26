@@ -372,10 +372,14 @@ class Supervisor:
         signal.signal(signal.SIGINT, lambda *_: self.stop.set())
         self.recover_update()
         self.start_children(self.current, self.python)
-        last_check = 0
+        last_check = last_cleanup = 0
         try:
             while not self.stop.wait(1):
                 self.store.set("supervisor_seen", time.time())
+                if time.time() - last_cleanup > 60:
+                    for sid in self.store.expire_guests():
+                        shutil.rmtree(self.config.projects / sid, ignore_errors=True)
+                    last_cleanup = time.time()
                 busy = self.update_thread is not None and self.update_thread.is_alive()
                 state = self.store.setting("update", {}).get("state")
                 if not busy and state == "requested":
