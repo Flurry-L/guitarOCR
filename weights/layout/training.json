@@ -1,0 +1,14 @@
+{
+  "architecture": "PP-DocLayoutV3",
+  "gpus": "8 NVIDIA H100 80GB",
+  "batch_size_per_gpu": 4,
+  "learning_rate": 2e-05,
+  "warmup_steps": 100,
+  "num_classes": 4,
+  "epochs": 6,
+  "selected_epoch": 4,
+  "best_validation_ap": 0.9539088745305202,
+  "selection_metric": "validation bbox AP",
+  "checkpoint_sha256": "492991597116bb790e7dd4e10ff93a3029ce3b823cc60175c8b15bd686312092",
+  "original_config_sha256": "aeee6884597bbad8ec54069b20cd83d6c71082c5ecb14cca5eab364d482190cf"
+}

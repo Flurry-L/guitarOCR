@@ -1,0 +1,6 @@
+LIBRARY "AMPainting.dll"
+EXPORTS
+    ?Transparent@Color@painting@am@@2V123@A
+    ?BBox@IElement@painting@am@@QEBA?AVRect@23@XZ
+    ??1FormattedText@painting@am@@UEAA@XZ
+    ?text@FormattedText@painting@am@@QEBAAEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@XZ

@@ -1,0 +1,4 @@
+# Keep PaddleDetection's installer compatible with the layout environment.
+numpy==1.26.4
+opencv-contrib-python==4.10.0.84
+pycocotools==2.0.8

@@ -1,25 +1,27 @@
 [build-system]
-requires = ["setuptools>=69"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "guitarocr"
-version = "0.1.0"
-description = "TuxGuitar/Guitar Pro 8 pure-TAB and score+TAB PDF recognition with GP5 reconstruction"
+version = "0.1.1"
+description = "GLM-OCR measure-sequence transcription to Guitar Pro 5"
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
 dependencies = [
   "numpy>=1.26,<3",
-  "opencv-python>=4.8,<5",
-  "Pillow>=10,<12",
+  "Pillow>=12.3,<13",
   "PyGuitarPro>=0.7,<1",
-  "PyMuPDF>=1.24,<2",
-  "torch>=2.2,<3",
-  "torchvision>=0.17,<1",
+  "pypdfium2>=5.13,<6",
+  "pdfplumber>=0.11.10,<1",
 ]
 
 [project.optional-dependencies]
+webui = ["fastapi>=0.115,<1", "uvicorn>=0.30,<1", "python-multipart>=0.0.20,<1"]
+dev = ["httpx>=0.27,<1", "ruff>=0.11,<1", "reportlab>=4.4,<5"]
 glm-ocr = [
+  "torch>=2.2,<3",
+  "torchvision>=0.17,<1",
   "accelerate>=1.11,<2",
   "huggingface-hub>=1.23,<2",
   "peft==0.18.1",
@@ -28,11 +30,27 @@ glm-ocr = [
 ]
 
 [project.scripts]
-guitarocr = "guitarocr.cli.pdf_to_gp:main"
-guitarocr-check = "guitarocr.cli.check_install:main"
-guitarocr-layout = "guitarocr.cli.classify_layout:main"
-guitarocr-gp = "guitarocr.pipeline.infer_glm_ocr_document:main"
-guitarocr-render-gp8 = "guitarocr.export.render_gp_to_guitarpro_pdf:main"
+guitarocr-gp = "pipeline.run:main"
+guitarocr-data = "datagen.run:main"
+guitarocr-web = "webapp.app:main"
+guitarocr-check = "shared.environment:main"
+
+[tool.setuptools]
+include-package-data = false
 
 [tool.setuptools.packages.find]
-include = ["guitarocr*"]
+include = ["datagen*", "layout*", "document_info*", "measure_ocr*", "gp5_export*", "pipeline*", "shared*", "webapp*"]
+namespaces = false
+
+[tool.setuptools.package-data]
+layout = ["configs/*.yaml"]
+document_info = ["configs/*.yaml"]
+measure_ocr = ["configs/*.yaml", "configs/*.json"]
+datagen = ["native-bin/*.dll", "native-source/*.cpp", "native-source/*.h", "native-source/*.ps1", "native-source/*.py", "native-source/toolchain/*"]
+webapp = ["static/*.html", "static/*.css", "static/*.js"]
+
+[tool.ruff]
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]

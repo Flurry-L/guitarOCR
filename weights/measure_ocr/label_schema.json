@@ -1,0 +1,76 @@
+{
+  "label_schema": "visible_ornaments",
+  "representation_marker": "M2",
+  "renderer": "Guitar Pro 8 native",
+  "source_catalog_sha256": "c0e4fb2f6dd3fd054a520256a3e36fc22109688e6afd9c278c26eee3d115688b",
+  "visibility_experiments": {
+    "grace": {
+      "tab": {
+        "d16": true,
+        "d32": true,
+        "d64": true,
+        "onbeat": true,
+        "dead": false,
+        "plain": false
+      },
+      "notation": {
+        "d16": true,
+        "d32": true,
+        "d64": true,
+        "onbeat": false,
+        "dead": false,
+        "plain": false
+      },
+      "both": {
+        "d16": true,
+        "d32": true,
+        "d64": true,
+        "onbeat": false,
+        "dead": false,
+        "plain": false
+      }
+    },
+    "trill": {
+      "tab": {
+        "identical_pixels_for_trill16_and_trill64": true
+      },
+      "notation": {
+        "identical_pixels_for_trill16_and_trill64": true
+      },
+      "both": {
+        "identical_pixels_for_trill16_and_trill64": true
+      }
+    },
+    "dynamics": {
+      "tab": {
+        "31": false,
+        "79": false,
+        "95": true
+      },
+      "notation": {
+        "31": false,
+        "79": false,
+        "95": true
+      },
+      "both": {
+        "31": false,
+        "79": false,
+        "95": true
+      }
+    }
+  },
+  "code_sha256": {
+    "shared/m2.py": "c2c7e9cd3b6e4aa92ad2e902db4abffe21da5afcb22e38fec379ef86f2347575",
+    "shared/techniques.py": "40433c69bcb4eb89b589f4a882a90b9529aa961e773eb7131e6b97a7f2fdc995",
+    "shared/constraints.py": "a3086b9e4a5ff9c96e2d66b581671de1184a1a3c629b38fd22802b65c002c4e1",
+    "datagen/gp_sources.py": "124d0506dc77891989c65d6fa30f9d72ce7dc272022e053e1f3d098bab71e723",
+    "datagen/build_measure_data.py": "33d884dba93b58dc7e67db86e6fb010cf8838a64c69a2914742e36e0b8d4494c",
+    "datagen/scan_augment.py": "e7e63f8a845887307ec86769a2723f288d4fe48ede2a6b73b8de68c1de3c8017",
+    "datagen/curate_measure_data.py": "f2d8e66fe65f4c40052783eaf9af0df3d762f63c76a8fb7c5aa7c118b26c3b0e"
+  },
+  "limitations": [
+    "Printed dynamics are not supervised; source velocity normalized.",
+    "Trill has no examples in selected training corpus; syntax/export support does not imply learned accuracy.",
+    "Arbitrary bend control points not preserved; common type contours restored."
+  ]
+}

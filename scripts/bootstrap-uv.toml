@@ -1,0 +1,1 @@
+# Only bootstrap Python here. The launcher handles the user's uv configuration.

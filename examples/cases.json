@@ -1,0 +1,4 @@
+[
+  {"name": "First Steps PDF", "inputs": ["demo.pdf"], "expected_m2": "expected.m2", "mode": "tab"},
+  {"name": "First Steps image", "inputs": ["demo.png"], "expected_m2": "expected.m2", "mode": "tab"}
+]
