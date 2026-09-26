@@ -70,7 +70,12 @@ def run_uv(uv, arguments, *, capture=False):
         if "--torch-backend" in preferred:
             index = preferred.index("--torch-backend")
             backend = preferred[index + 1]
-            preferred[index:index + 2] = ["--index", f"{TORCH_MIRROR}/{backend}/"]
+            # This mirror includes older copies of ordinary PyPI dependencies.
+            # Exhaust it before looking for the pinned version on the PyPI mirror.
+            preferred[index:index + 2] = [
+                "--index", f"{TORCH_MIRROR}/{backend}/",
+                "--index-strategy", "unsafe-first-match",
+            ]
             # UV_TORCH_BACKEND overrides index selection even without the CLI flag.
             environment.pop("UV_TORCH_BACKEND", None)
             print("PyTorch 使用上海交大镜像。", flush=True)
@@ -296,7 +301,12 @@ def export_requirements(uv, python, device):
             )
             + "\n"
         )
-    return requirements
+    backend = "cpu" if device == "cpu" else "cu130"
+    # Keep a missing CPU/CUDA mirror wheel from resolving to another backend.
+    return re.sub(
+        r"^(torch|torchvision)==([0-9.]+)(?:\+[^\s;]+)?",
+        rf"\1==\2+{backend}", requirements, flags=re.MULTILINE,
+    )
 
 
 def install(args, uv, tools):

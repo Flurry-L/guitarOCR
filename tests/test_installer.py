@@ -152,6 +152,9 @@ class InstallerTest(unittest.TestCase):
                         )
                         self.assertIn("transformers==5.8.0", requirements)
                         self.assertIn("peft==0.18.1", requirements)
+                        backend = "cpu" if device == "cpu" else "cu130"
+                        self.assertIn(f"torch==2.14.0+{backend}", requirements)
+                        self.assertIn(f"torchvision==0.29.0+{backend}", requirements)
                         self.assertEqual((root / "uv.lock").read_bytes(), lock)
                         gpu_dependencies = [
                             line
