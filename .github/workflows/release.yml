@@ -5,7 +5,7 @@ on:
       tag:
         description: Release tag to test
         required: true
-        default: v0.1.0
+        default: v0.1.1
 permissions:
   # Draft releases are only visible to tokens with repository write access.
   contents: write
@@ -45,6 +45,9 @@ jobs:
           assert not (root / ".git").exists()
           with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as out:
               out.write(f"GUITAROCR_RELEASE_ROOT={root}\n")
+              out.write(f"UV_CACHE_DIR={folder / 'empty-cache'}\n")
+              out.write(f"UV_PYTHON_INSTALL_DIR={folder / 'python'}\n")
+              out.write("UV_PYTHON_PREFERENCE=only-managed\n")
       - name: Install on Linux
         if: runner.os == 'Linux'
         working-directory: ${{ env.GUITAROCR_RELEASE_ROOT }}

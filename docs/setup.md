@@ -17,9 +17,20 @@ Windows 在解压后的项目文件夹中双击 `start.bat`。Linux x64 执行 `
 
 脚本安装固定版本 uv 和 Python 3.11，不修改系统 Python。Windows 缺少 Microsoft C++ 运行库时，会先下载微软官方安装程序，系统可能弹出管理员确认；需要重启时脚本会明确提示。PyTorch 按 CPU / CUDA 13.0 选择官方 wheel，其余主环境依赖来自 `uv.lock`。自动选择 GPU 需要 NVIDIA 驱动 580 或更新版本；没有匹配驱动时使用 CPU。Paddle 版面检测默认使用独立的 CPU 环境，GLM 识别使用所选设备。需要加速版面检测的用户可按下方命令单独配置 Paddle GPU。
 
-下载源：uv 来自 Astral，Python 由 uv 管理，Python 包来自 PyPI / PyTorch 官方索引，基座来自 Hugging Face，当前任务权重已包含在 Release ZIP 中；缺失或损坏时按包内的提交记录从 GitHub 修复。基座 revision 和全部模型 SHA-256 见 `weights/manifest.json`。安装器不会更新到未知的最新基座。
+默认下载源如下，下载失败时会尝试官方源：
 
-安装器兼容默认配置和已有 uv 镜像配置。已有镜像优先用于依赖下载；若当前 uv 配置导致步骤失败，安装器会以默认配置和官方源重试该步骤。回退只作用于重试进程，保留代理、证书和缓存相关环境变量，不修改用户的全局配置文件。
+| 下载内容 | 默认来源 | 备用来源 |
+| --- | --- | --- |
+| Python 3.11 | 南京大学镜像 | Astral 的 GitHub Release |
+| 普通 Python 包和 Paddle | 清华 PyPI 镜像 | PyPI |
+| PyTorch CPU / CUDA | 上海交大镜像 | PyTorch 官方索引 |
+| GLM-OCR 基座 | 魔搭 ZhipuAI/GLM-OCR 的固定历史版本 | Hugging Face 的固定版本 |
+
+模型来源、revision 和全部模型 SHA-256 见 `weights/manifest.json`，不同来源的文件必须通过相同校验。模型下载中断后可续传；服务器不支持续传时会重新下载该文件。已校验通过的文件会复用。
+
+已有 uv 配置优先用于普通依赖下载；`UV_PYTHON_INSTALL_MIRROR` 可指定 Python 来源，`HF_ENDPOINT` 可指定优先使用的模型站点。下载失败后的官方源回退只作用于当前进程，保留代理、证书和缓存设置，不修改全局配置。
+
+ZIP 仍从 GitHub 下载，uv 来自 Astral，Windows C++ 运行库来自微软。当前任务权重已包含在 ZIP 中，缺失或损坏时从 GitHub 修复。尚未在国内各运营商网络上完成验收。
 
 环境位于 `tools/webui-venv/` 与 `tools/webui-paddle-venv/`；安装状态位于 `tools/install-state.json`，项目位于 `output/webui/`，日志位于 `output/logs/`。开发用 `.venv/` 和训练用 Paddle 环境独立管理。下载体积因设备而异，建议预留至少 20 GB 空间给环境、缓存和模型。
 

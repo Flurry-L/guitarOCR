@@ -7,7 +7,8 @@
 | 权重是很小的文本文件 / 提示 LFS 指针 | 下载 [Release](https://github.com/Flurry-L/guitarOCR/releases/latest) 中的 GuitarOCR ZIP 并完整解压；Git 用户可执行 `git lfs pull`。GitHub 自动生成的 Source code.zip 不是启动包 |
 | Windows 下载 `adapter_config.json` 时出现 HTTP 404 | 旧安装器误用 LFS 下载地址，且 Git 自动换行可能导致配置校验失败。在仓库目录执行 `git pull --ff-only` 后重跑 `start.bat`，更新后的安装器会从正确地址修复配置，无需删除已下载环境 |
 | 安装时提示 `uv.lock needs to be updated` | 在仓库目录执行 `git pull --ff-only` 后重跑启动脚本。更新后的安装器直接导出仓库的固定依赖，使用已创建的 Python 3.11；本机 uv 镜像配置不会触发锁文件重新解析 |
-| Hugging Face 下载中断 | 重跑安装脚本。支持标准 `HTTPS_PROXY`；已有可信镜像时可自行设置 `HF_ENDPOINT`，安装后仍会校验 SHA-256 |
+| 基座模型下载中断 | 重跑启动脚本，会续传并校验文件。默认使用魔搭，失败后尝试 Hugging Face。支持 `HTTPS_PROXY` 和用户设置的 `HF_ENDPOINT` |
+| Python、依赖或 PyTorch 镜像下载失败 | 安装器会尝试官方源。两边均失败时，查看日志中的下载地址，检查网络或代理后重跑启动脚本 |
 | uv 下载失败 | 检查对 astral.sh / GitHub 的访问与系统时间，再重跑。不要关闭证书验证 |
 | 已配置镜像缺包或 uv 配置不兼容 | 安装器会自动以默认配置和官方源重试失败步骤；日志会标明回退。若重试仍失败，保留最后一条错误信息，检查日志中下载源的网络连通性 |
 | GPU / CUDA 不可用 | 更新 NVIDIA 驱动；一键 CUDA 13 环境需要 580 或更新驱动。也可运行 `install.bat --device cpu` / `bash install.sh --device cpu` |

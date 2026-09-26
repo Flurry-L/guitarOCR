@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "guitarocr"
-version = "0.1.0"
+version = "0.1.1"
 description = "GLM-OCR measure-sequence transcription to Guitar Pro 5"
 readme = "README.md"
 requires-python = ">=3.10,<3.13"

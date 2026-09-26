@@ -12,6 +12,8 @@ Windows 10 / 11（64 位）
 使用期间保留启动窗口，关闭窗口会停止服务。
 
 包内已包含版面模型和两套 OCR 适配器，无需安装 Git 或提前安装 Python。
+Python、依赖和 OCR 基座优先从国内源下载，失败后尝试官方源。
+ZIP 下载仍需访问 GitHub，uv 和 Windows C++ 运行库仍从官方站点下载。
 NVIDIA 驱动 580 或更新版本可自动使用 GPU，否则使用 CPU，识别会较慢。
 
 Linux x64

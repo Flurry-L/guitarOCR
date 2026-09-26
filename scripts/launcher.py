@@ -24,6 +24,24 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from shared.defaults import environment_python  # noqa: E402
 from shared.environment import verify_files  # noqa: E402
+from scripts.downloads import acquire_base_model  # noqa: E402
+
+PYPI_MIRROR = "https://pypi.tuna.tsinghua.edu.cn/simple"
+TORCH_MIRROR = "https://mirror.sjtu.edu.cn/pytorch-wheels"
+
+
+def has_uv_config():
+    """Let an explicitly configured index take precedence over our default."""
+    settings = {"UV_CONFIG_FILE", "UV_DEFAULT_INDEX", "UV_INDEX_URL", "UV_INDEX",
+                "UV_EXTRA_INDEX_URL", "UV_FIND_LINKS", "UV_NO_INDEX", "UV_OFFLINE"}
+    if settings.intersection(os.environ):
+        return True
+    config_home = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    windows_config = Path(os.environ.get("APPDATA", Path.home() / "AppData/Roaming"))
+    return any(path.is_file() for path in (
+        ROOT / "uv.toml", config_home / "uv/uv.toml",
+        windows_config / "uv/uv.toml", Path("/etc/uv/uv.toml"),
+    ))
 
 
 def run(command, *, capture=False, env=None):
@@ -41,10 +59,25 @@ def run(command, *, capture=False, env=None):
 
 
 def run_uv(uv, arguments, *, capture=False):
+    environment = os.environ.copy()
+    environment.setdefault("UV_HTTP_TIMEOUT", "30")
+    environment.setdefault("UV_HTTP_RETRIES", "2")
+    preferred = list(arguments)
+    if preferred[:2] == ["pip", "install"]:
+        if not has_uv_config():
+            environment["UV_DEFAULT_INDEX"] = PYPI_MIRROR
+            print("Python 包使用清华镜像。", flush=True)
+        if "--torch-backend" in preferred:
+            index = preferred.index("--torch-backend")
+            backend = preferred[index + 1]
+            preferred[index:index + 2] = ["--index", f"{TORCH_MIRROR}/{backend}/"]
+            # UV_TORCH_BACKEND overrides index selection even without the CLI flag.
+            environment.pop("UV_TORCH_BACKEND", None)
+            print("PyTorch 使用上海交大镜像。", flush=True)
     try:
-        return run([uv, *arguments], capture=capture)
+        return run([uv, *preferred], capture=capture, env=environment)
     except subprocess.CalledProcessError:
-        print("当前 uv 配置下执行失败，正在使用官方源重试此步骤。", flush=True)
+        print("当前步骤执行失败，正在使用默认配置和官方源重试。", flush=True)
     # Keep cache, proxy and certificate settings; reset uv's resolver settings
     # only in the retry process, without changing the user's configuration.
     preserved = {
@@ -71,6 +104,7 @@ def install_fingerprint():
         "pyproject.toml",
         "weights/manifest.json",
         "scripts/launcher.py",
+        "scripts/downloads.py",
     ):
         digest.update((ROOT / name).read_bytes())
     digest.update(f"{platform.system()}:{platform.machine()}".encode())
@@ -331,23 +365,7 @@ def install(args, uv, tools):
     run_uv(uv, ["pip", "install", "--python", layout_python, "--no-deps", "-e", ROOT])
     base = manifest["base_model"]
     model = ROOT / base["path"]
-    if verify_files(model, base["files"]):
-        script = (
-            "from huggingface_hub import snapshot_download; "
-            "import sys; snapshot_download(sys.argv[1], revision=sys.argv[2], local_dir=sys.argv[3], "
-            "allow_patterns=sys.argv[4:])"
-        )
-        run(
-            [
-                app_python,
-                "-c",
-                script,
-                base["repo_id"],
-                base["revision"],
-                model,
-                *[r["name"] for r in base["files"]],
-            ]
-        )
+    acquire_base_model(base, ROOT)
     run(
         [
             app_python,

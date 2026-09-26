@@ -81,6 +81,9 @@
     "repo_id": "zai-org/GLM-OCR",
     "revision": "ca5d8b3e287e52589e37c28385d9655ee4372f9d",
     "path": "tools/models/GLM-OCR",
+    "download_sources": [
+      "https://modelscope.cn/models/ZhipuAI/GLM-OCR/resolve/4ef9fafb5f9a2397f6927ea48f2260492461af71"
+    ],
     "files": [
       {
         "name": "config.json",

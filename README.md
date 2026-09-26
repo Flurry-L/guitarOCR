@@ -8,7 +8,7 @@
 
 ## 下载
 
-下载 [GuitarOCR-0.1.0.zip](https://github.com/Flurry-L/guitarOCR/releases/download/v0.1.0/GuitarOCR-0.1.0.zip)，完整解压到可写文件夹。包内包含当前版面模型和两套 OCR 适配器，无需 Git。Windows 用户可先看包内的「使用说明.txt」。
+下载 [GuitarOCR-0.1.1.zip](https://github.com/Flurry-L/guitarOCR/releases/download/v0.1.1/GuitarOCR-0.1.1.zip)，完整解压到可写文件夹。包内包含当前版面模型和两套 OCR 适配器，无需 Git。Windows 用户可先看包内的「使用说明.txt」。
 
 请下载名为 GuitarOCR 的 ZIP；GitHub 自动生成的 Source code.zip 是源码归档。
 
@@ -21,6 +21,8 @@ bash start.sh
 ```
 
 首次启动会安装 Python 3.11、依赖和 GLM-OCR 基座，校验权重后打开 **http://127.0.0.1:7860**。需要联网下载数 GB，建议预留 20 GB 磁盘空间。中断后重跑同一脚本即可，使用期间保留启动窗口。
+
+Python、Python 包、PyTorch 和 OCR 基座默认从国内源下载，失败时尝试官方源。ZIP 下载仍需访问 GitHub，uv 和 Windows C++ 运行库仍从官方站点下载。
 
 NVIDIA 驱动 580 或更新版本可自动启用 GPU，否则使用 CPU。无需提前安装 Python 或 CUDA Toolkit。Linux CPU 和 H100 已实测；Windows 提供脚本与 CI，完整安装仍需实机验收。详细参数和手动安装见[安装说明](docs/setup.md)，安装失败见[故障排查](docs/troubleshooting.md)。
 
