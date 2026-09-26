@@ -7,7 +7,8 @@ on:
         required: true
         default: v0.1.0
 permissions:
-  contents: read
+  # Draft releases are only visible to tokens with repository write access.
+  contents: write
 jobs:
   install:
     strategy:
