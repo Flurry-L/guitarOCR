@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>GuitarOCR</title>
+    <link rel="stylesheet" href="/server-static/style.css" />
+    <script type="module" src="/server-static/app.js"></script>
+  </head>
+  <body>
+    <header>
+      <a class="brand" href="/">Guitar<span>OCR</span></a>
+      <nav id="navigation" hidden>
+        <button data-view="projects" class="selected">我的乐谱</button
+        ><button data-view="account">账号</button
+        ><button data-view="admin" id="adminTab" hidden>管理</button
+        ><button id="logout">退出</button>
+      </nav>
+    </header>
+    <main>
+      <div id="notice" role="status" aria-live="polite" hidden></div>
+      <section id="auth" class="login" hidden>
+        <h1>把吉他谱转换为 GP5</h1>
+        <p>上传 PDF 或图片，识别后可逐小节校对。</p>
+        <form id="authForm">
+          <label
+            >用户名<input
+              id="username"
+              name="username"
+              autocomplete="username"
+              required
+              minlength="3"
+              maxlength="32"
+              pattern="[a-zA-Z0-9_\-]+"
+              aria-describedby="usernameHint"
+          /></label>
+          <p id="usernameHint" class="hint">
+            3 至 32 个字母、数字、下划线或连字符。
+          </p>
+          <label
+            >密码<input
+              id="password"
+              name="password"
+              type="password"
+              autocomplete="current-password"
+              required
+              minlength="10"
+              maxlength="128"
+          /></label>
+          <p class="hint">至少 10 个字符。</p>
+          <button id="authSubmit" class="primary" type="submit">登录</button
+          ><button id="authToggle" type="button">创建账号</button>
+        </form>
+      </section>
+      <section data-view="projects" hidden>
+        <div class="heading">
+          <h1>我的乐谱</h1>
+          <span id="identity" class="muted"></span>
+        </div>
+        <form id="uploadForm" class="upload">
+          <label class="file"
+            >选择 PDF 或图片<input
+              id="files"
+              type="file"
+              accept=".pdf,.png,.jpg,.jpeg,.bmp,.tif,.tiff"
+              multiple
+              required
+          /></label>
+          <div class="upload-options">
+            <label
+              >推理方式<select id="engine">
+                <option value="gpu">服务器 GPU</option>
+                <option value="browser">浏览器 CPU</option>
+              </select></label
+            ><button class="primary" id="uploadButton" type="submit">
+              上传并识别
+            </button>
+          </div>
+          <p id="engineHint" class="hint">
+            服务器按顺序处理，关闭网页后仍会继续。
+          </p>
+          <p id="limits" class="hint"></p>
+        </form>
+        <p id="empty" class="empty" hidden>
+          还没有乐谱。上传后，任务进度和结果会保存在这里。
+        </p>
+        <div id="projects" class="project-list"></div>
+      </section>
+      <section data-view="account" hidden>
+        <h1>账号</h1>
+        <h2>使用记录</h2>
+        <div id="usage" class="stats"></div>
+        <p class="hint">
+          时长记录任务占用工作进程的时间，包括模型加载和预处理；浏览器任务还包含等待时间。
+        </p>
+        <h2>修改密码</h2>
+        <form id="passwordForm" class="narrow">
+          <label
+            >当前密码<input
+              name="current"
+              type="password"
+              autocomplete="current-password"
+              required
+              maxlength="128" /></label
+          ><label
+            >新密码<input
+              name="password"
+              type="password"
+              autocomplete="new-password"
+              required
+              minlength="10"
+              maxlength="128" /></label
+          ><button type="submit" class="primary">保存密码</button>
+        </form>
+      </section>
+      <section data-view="admin" hidden>
+        <h1>服务管理</h1>
+        <div class="heading">
+          <h2>更新</h2>
+          <button id="checkUpdate">检查更新</button>
+        </div>
+        <div class="update">
+          <p id="updateMessage">正在读取版本信息</p>
+          <p id="updateVersion" class="hint"></p>
+          <p id="updateError" class="error" hidden></p>
+          <button id="applyUpdate" class="primary" hidden>安装更新</button>
+          <p class="hint">
+            更新会等待当前任务结束，再短暂重启服务。任务和结果会保留。
+          </p>
+        </div>
+        <div class="heading">
+          <h2>用户</h2>
+          <label class="inline"
+            ><input id="registration" type="checkbox" />允许新用户注册</label
+          >
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>用户名</th>
+                <th>项目</th>
+                <th>GPU 用时</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="users"></tbody>
+          </table>
+        </div>
+        <h2>待处理任务</h2>
+        <div id="adminJobs"></div>
+      </section>
+    </main>
+    <footer>GuitarOCR</footer>
+  </body>
+</html>

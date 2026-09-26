@@ -88,6 +88,7 @@ def prepare_document_crops(
     layout_model_dir: Path | None = None, layout_python: Path | None = None,
     layout_source: str = "auto",
     pages: list[dict] | None = None, allow_empty: bool = False,
+    detector=None,
 ) -> tuple[str, list[dict[str, Any]]]:
     if layout_source not in {"auto", "image", "geometry"}:
         raise ValueError("Unknown layout source")
@@ -110,7 +111,13 @@ def prepare_document_crops(
     )
     if layout_source == "image" and layout_model_dir is None:
         raise ValueError("--layout-source image requires --layout-model-dir")
-    if layout_source != "geometry" and detected_pages:
+    if layout_source != "geometry" and detected_pages and detector is not None:
+        detected_layout = {
+            Path(source["image"]): prediction for source, prediction in zip(
+                detected_pages, detector([source["image"] for source in detected_pages]), strict=True
+            )
+        }
+    elif layout_source != "geometry" and detected_pages:
         page_manifest = temp_root / "layout_pages.json"
         result_path = temp_root / "layout_boxes.json"
         temp_root.mkdir(parents=True, exist_ok=True)

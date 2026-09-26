@@ -1,0 +1,23 @@
+[Unit]
+Description=GuitarOCR server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=guitarocr
+Group=guitarocr
+WorkingDirectory=/opt/guitarocr
+Environment=PATH=/opt/guitarocr/.venv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/guitarocr/.venv/bin/python -m server.cli serve --config /var/lib/guitarocr/config.json
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=45
+KillMode=mixed
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

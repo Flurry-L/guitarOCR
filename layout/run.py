@@ -15,12 +15,14 @@ def run(
     force_pdf_render: bool = False, layout_model_dir: Path | None = None,
     layout_python: Path | None = None, layout_source: str = "auto",
     pages: list[dict] | None = None, allow_empty: bool = False,
+    detector=None,
 ) -> Path:
     output = output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     mode, records = prepare_document_crops(
         inputs, output, mode, force_pdf_render,
         layout_model_dir, layout_python, layout_source, pages, allow_empty,
+        detector,
     )
     regions = json.loads((output / "document_regions.json").read_text(encoding="utf-8"))
     return write_result(

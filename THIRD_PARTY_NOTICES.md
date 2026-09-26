@@ -10,6 +10,8 @@
 | [PyGuitarPro](https://github.com/Perlence/PyGuitarPro) | LGPL-3.0-only。作为可替换的独立 Python 包使用；分发时保留许可及版权说明，并履行适用的修改与源码提供义务。 |
 | Pillow、NumPy、FastAPI、Uvicorn | 分别为 MIT-CMU、BSD-3-Clause、MIT、BSD-3-Clause；保留各自的版权和许可文本。 |
 | Transformers、PEFT、PaddlePaddle、PaddleX | Apache-2.0；模型权重的许可需单独确认。 |
+| Transformers.js | Apache-2.0；浏览器运行库及许可文本由模型转换命令下载。 |
+| ONNX Runtime Web、Paddle2ONNX | 分别为 MIT、Apache-2.0；用于浏览器推理和模型转换。 |
 | PyTorch、CUDA 及二进制捆绑库 | 以实际发行包所附的许可为准，NVIDIA 组件另有条款。 |
 
 依赖安装在用户本机，许可证随相应软件包提供。未来分发完整离线环境时，也需包含其许可和版权材料。
@@ -17,6 +19,8 @@
 ## 模型与素材
 
 GLM-OCR 基座的模型卡声明 MIT，来源固定为 [zai-org/GLM-OCR](https://huggingface.co/zai-org/GLM-OCR/tree/ca5d8b3e287e52589e37c28385d9655ee4372f9d)。魔搭下载源使用相同文件校验值。
+
+浏览器转换使用 [onnx-community/GLM-OCR-ONNX](https://huggingface.co/onnx-community/GLM-OCR-ONNX/tree/aea46198f09e3aa2b63422dd234f1cc66afffe52) 的计算图，模型卡声明 MIT。转换命令以本地基座和微调权重替换全部可学习参数，产物清单保留上游提交与运行库版本。ONNX 产物不包含在源码 ZIP 中，由部署者生成。
 
 仓库中的微调权重尚未单独声明许可证。模型卡保留训练来源和评测记录，完整训练素材的授权记录仍需补齐。`examples/` 为项目自编示例，具体授权随项目许可证确定。
 

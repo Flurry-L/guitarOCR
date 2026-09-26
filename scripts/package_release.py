@@ -22,6 +22,7 @@ DIRECTORIES = {
     "pipeline",
     "shared",
     "webapp",
+    "server",
     "scripts",
     "docs",
     "examples",

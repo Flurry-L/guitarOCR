@@ -4,7 +4,7 @@
 
 ```bash
 uv sync --locked --python 3.11 --extra webui --extra dev
-uv run --no-sync ruff check datagen layout document_info measure_ocr gp5_export pipeline shared webapp scripts examples tests
+uv run --no-sync ruff check datagen layout document_info measure_ocr gp5_export pipeline shared webapp server scripts examples tests
 uv run --no-sync python -m unittest discover -s tests -v
 ```
 
@@ -25,6 +25,7 @@ uv run --no-sync python -m unittest discover -s tests -v
 | `gp5_export/` | 指法、奏法和 GP5 写出 |
 | `shared/` | 小节文本、音乐约束、默认配置和模型调用 |
 | `webapp/` | 本地网页、编辑流程和项目存储 |
+| `server/` | 多用户账号、持久化队列、浏览器推理与服务更新 |
 | `scripts/` | 安装、启动与发布打包 |
 
 小节记录保存各自的谱面类型，OCR 按该类型选择提示词。模型池共用一个 GLM 基座，两项 OCR 任务切换适配器。Paddle 在独立环境中运行。

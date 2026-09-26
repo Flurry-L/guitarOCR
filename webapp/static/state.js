@@ -2,7 +2,7 @@ export const ui = {
   state: null,
   sid:
     new URLSearchParams(location.search).get("project") ||
-    localStorage.getItem("guitarocr-session"),
+    (location.pathname === "/workbench" ? null : localStorage.getItem("guitarocr-session")),
   step: 0,
   files: [],
   busy: false,

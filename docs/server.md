@@ -1,0 +1,84 @@
+# 部署多人服务
+
+服务端面向 Linux。用户自行注册账号，上传 PDF 或图片，选择服务器 GPU 或浏览器 CPU，结果保存在各自账号下。识别完成后进入原有工作台校对、下载 GP5 或备份项目。
+
+| 推理方式 | 模型在哪里运行 | 关闭网页后 |
+| --- | --- | --- |
+| 服务器 GPU | 你配置的 NVIDIA GPU | 继续处理，重新登录后查看结果 |
+| 浏览器 CPU | 用户浏览器的 Web Worker，通过 WASM 运行 | 暂停，重新打开任务后继续 |
+
+两种方式都会上传谱面，服务器负责展开 PDF、裁图、校验结果和生成 GP5。浏览器推理无需安装客户端，模型由你的站点提供。首次下载约 3 GB，建议使用新版桌面 Chrome 或 Edge，并预留足够内存；手机和低内存设备建议使用服务器 GPU。
+
+## 安装与启动
+
+先按[安装说明](setup.md)安装 GPU 推理环境和模型。服务端复用同一套权重。以下命令在仓库目录执行，示例使用 `.venv`；如果通过启动器安装，将 Python 路径换成 `tools/webui-venv/bin/python`。
+
+```bash
+uv pip install --python .venv/bin/python -e '.[webui]'
+.venv/bin/python -m server.cli init \
+  --data /var/lib/guitarocr \
+  --public-url https://ocr.example.com \
+  --gpus 0,1,2,3,4,5,6,7 \
+  --username admin
+```
+
+命令会提示设置管理员密码，至少 10 个字符。数据目录需要当前服务用户可写。不要把数据目录放在临时文件夹或即将被替换的发布目录中。
+
+查看 `/var/lib/guitarocr/config.json`，确认模型路径及 Paddle Python 路径正确，再启动：
+
+```bash
+.venv/bin/python -m server.cli serve --config /var/lib/guitarocr/config.json
+```
+
+默认监听 `127.0.0.1:8080`。通过 HTTPS 反向代理访问，`public_url` 必须与访问地址一致。仓库提供 [Caddy 配置](../server/deploy/Caddyfile)和 [systemd 服务](../server/deploy/guitarocr.service)，部署前修改域名、运行用户、仓库路径和 Python 路径。`uv`、`git` 和 `git-lfs` 需要在服务的 PATH 中，管理员更新时会用到。
+
+在单机试用时可以将 `public_url` 设置为 `http://localhost:8080`。公网部署使用 HTTPS，浏览器 WASM 多线程也需要 HTTPS 或 localhost。
+
+每个 GPU 启动一个工作进程，模型按需加载。8 张卡可同时处理最多 8 个用户的 GPU 任务；每个用户同时运行一个 GPU 任务。任务按提交时间选择，跳过已经占用 GPU 的用户，避免一个用户占满所有卡。
+
+## 启用浏览器 CPU
+
+在管理员机器上转换一次模型。浏览器使用量化后的两套微调 OCR 模型及版面模型，不会回退到服务器 GPU。
+
+```bash
+uv pip install --python .venv/bin/python -e '.[webui,glm-ocr,browser-export]'
+uv pip install --python tools/webui-paddle-venv/bin/python paddle2onnx
+.venv/bin/python -m server.export_models --config /var/lib/guitarocr/config.json
+```
+
+转换环境使用 Python 3.11 或 3.12。`layout_python` 指向另一处 Paddle 环境时，第二条命令使用那个环境。转换需要联网获取固定版本的 ONNX 计算图和浏览器运行库，本仓库的基座与 LoRA 权重在本地合并。首次转换建议预留 20 GB 临时磁盘空间。产物保存在数据目录的 `browser-models` 下，生成完整清单后才会显示浏览器选项。不同产物使用独立缓存地址，更新模型不会覆盖正在使用的旧文件。
+
+用户选择浏览器 CPU 后保留任务页面。页面使用独立线程运行模型，显示下载和推理进度。任务重新打开后会复用已完成的小节；正在处理但未保存的小节会重新识别。另一标签页不能同时接管正在运行的同一任务。
+
+## 账号、任务与数据
+
+管理员在网页「管理」中开关注册、停用普通用户、重设密码、查看队列及取消任务。普通用户可修改密码。修改密码会撤销旧登录状态；管理员账号的创建或恢复通过服务器命令行完成：
+
+```bash
+.venv/bin/python -m server.cli admin \
+  --config /var/lib/guitarocr/config.json --username admin
+```
+
+默认每人最多保存 30 个项目，同时保留 3 个待处理任务，每次上传最多 50 页、100 MB。配置中的 `max_projects`、`max_pending`、`max_pages`、`max_upload_mb` 和 `storage_mb` 控制限制，修改后重启服务。反向代理的上传限制应略高于 `max_upload_mb`，留出表单开销。
+
+数据库采用 SQLite WAL，记录用户、登录状态、任务和用量。项目文件在 `projects` 中，进程日志在 `logs` 中。请整体备份数据目录；运行时备份数据库使用 SQLite backup，不要单独复制正在写入的数据库文件。停止服务后可以直接复制整个目录。
+
+网页关闭不会取消 GPU 任务。服务或工作进程中断后，心跳租约超时会重新排队，恢复已保存的识别进度。连续三次异常中断会停止自动重试，避免坏任务反复占用 GPU。取消在当前步骤结束后生效。结果删除后保留累计任务数和用时，不再保留项目文件。
+
+用量是任务次数、工作进程占用秒数和当前保存页数，没有计费功能。时长包括模型加载与预处理，浏览器任务还包含下载和等待用户设备的时间，不能当成 GPU 核心计算时间。
+
+## 从管理员页面更新
+
+服务每 15 分钟检查一次配置的仓库分支，默认是本项目的 `main`。检查结果缓存在数据库中，打开网页不会额外请求 GitHub。管理员也可以手动检查。
+
+点击「安装更新」后，服务会在独立目录下载指定提交、获取 LFS 权重，并按锁文件安装依赖。准备阶段继续处理任务。准备完成后停止领取新任务，等正在运行的任务结束，再备份数据库并重启服务。新进程未通过健康检查时自动恢复旧代码和数据库。更新期间保留排队任务和已有结果。
+
+更新只从配置中的 `repository` 和 `branch` 获取代码，网页不能传入命令或仓库地址。`repository` 应指向你信任且有权发布的仓库。离线或下载失败时原服务继续运行。运行记录保存在 `update.log`，失败原因也会显示在管理页面。
+
+GLM-OCR 基座、Paddle 环境和浏览器模型保存在配置指定的位置，不随代码更新重复下载。仓库自带的默认 LoRA 和版面权重跟随新提交；浏览器权重改变后需要重新运行转换命令。已排队和可续跑的任务保留提交时的模型路径，因此不要在这些任务完成前删除旧发布目录。此版本通过短暂重启应用完成更新，不保证连接不中断。
+
+## 已做的验证
+
+在 H100 和禁用 GPU 的 Chromium 中分别运行自编示例，四个小节的音符、节奏和导出的 GP5 一致。浏览器测试启用 WASM CPU，完成一次导入、版面检测、谱面信息识别、小节识别和导出约需四分钟；测试在服务器 CPU 上进行，不代表普通电脑的速度。模型首次下载约 3 GB。
+
+GPU 测试还在第一个小节保存后强制终止工作进程，重启后保留该小节并完成余下三个。自动检查覆盖账号隔离、登录撤销、跨站防护、队列并发、租约恢复、浏览器任务归属、用量保留，以及从本地 Git 仓库发现更新和失败回退。公网 HTTPS 部署仍需使用实际域名与反向代理配置验收。

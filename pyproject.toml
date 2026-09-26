@@ -19,6 +19,7 @@ dependencies = [
 [project.optional-dependencies]
 webui = ["fastapi>=0.115,<1", "uvicorn>=0.30,<1", "python-multipart>=0.0.20,<1"]
 dev = ["httpx>=0.27,<1", "ruff>=0.11,<1", "reportlab>=4.4,<5"]
+browser-export = ["onnx>=1.18,<2", "onnx-ir>=0.1,<2", "onnxruntime>=1.30,<2; python_version >= '3.11'"]
 glm-ocr = [
   "torch>=2.2,<3",
   "torchvision>=0.17,<1",
@@ -34,12 +35,13 @@ guitarocr-gp = "pipeline.run:main"
 guitarocr-data = "datagen.run:main"
 guitarocr-web = "webapp.app:main"
 guitarocr-check = "shared.environment:main"
+guitarocr-server = "server.cli:main"
 
 [tool.setuptools]
 include-package-data = false
 
 [tool.setuptools.packages.find]
-include = ["datagen*", "layout*", "document_info*", "measure_ocr*", "gp5_export*", "pipeline*", "shared*", "webapp*"]
+include = ["datagen*", "layout*", "document_info*", "measure_ocr*", "gp5_export*", "pipeline*", "shared*", "webapp*", "server*"]
 namespaces = false
 
 [tool.setuptools.package-data]
@@ -48,6 +50,7 @@ document_info = ["configs/*.yaml"]
 measure_ocr = ["configs/*.yaml", "configs/*.json"]
 datagen = ["native-bin/*.dll", "native-source/*.cpp", "native-source/*.h", "native-source/*.ps1", "native-source/*.py", "native-source/toolchain/*"]
 webapp = ["static/*.html", "static/*.css", "static/*.js"]
+server = ["static/*.html", "static/*.css", "static/*.js", "deploy/*"]
 
 [tool.ruff]
 target-version = "py310"

@@ -36,6 +36,12 @@ NVIDIA 驱动 580 或更新版本可自动启用 GPU，否则使用 CPU。无需
 
 可先用自编[示例 PDF](examples/demo.pdf)或[示例图片](examples/demo.png)试用，与[预期 GP5](examples/expected.gp5)对照。停止后继续识别、局部重试和备份恢复见[工作台使用说明](docs/webui.md)。转换 PDF 或图片无需安装 Guitar Pro，生成训练数据时才使用它。
 
+## 部署多人服务
+
+服务端支持用户注册、管理员账号、GPU 排队、用量记录和结果管理。GPU 任务在关闭网页后继续运行；用户也可选择浏览器 CPU，通过 WASM 推理，无需安装客户端。管理员可在网页检查仓库更新并安装，更新会等待当前任务结束后短暂重启服务。
+
+部署需要 Linux，浏览器 CPU 需要先转换模型。安装、HTTPS 配置和更新方式见[服务端部署说明](docs/server.md)。
+
 ## 获取源码
 
 需要修改代码或训练模型时，可通过 Git 获取完整仓库。Windows 先安装 [Git for Windows](https://gitforwindows.org/) 和 [Git LFS](https://git-lfs.com/)，然后打开 PowerShell。Ubuntu / Debian 使用终端安装：

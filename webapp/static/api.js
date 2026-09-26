@@ -1,4 +1,6 @@
 import { ui } from "./state.js";
+const serverMode = location.pathname === "/workbench";
+let csrf;
 function requestError(detail) {
   if (typeof detail === "string") return detail;
   if (!Array.isArray(detail)) return "请求失败，请重试。";
@@ -18,6 +20,14 @@ function requestError(detail) {
 }
 export async function api(path, method = "GET", body) {
   const opts = { method };
+  if (serverMode && !csrf) {
+    const auth = await fetch("/api/auth/me");
+    if (!auth.ok) {
+      location.assign("/");
+      throw new Error("请先登录。");
+    }
+    csrf = (await auth.json()).csrf;
+  }
   if (body instanceof FormData) opts.body = body;
   else if (body !== undefined) {
     opts.body = JSON.stringify(body);
@@ -30,11 +40,14 @@ export async function api(path, method = "GET", body) {
   ) {
     opts.headers = { ...opts.headers, "If-Match": String(ui.state.revision) };
   }
+  if (serverMode && method !== "GET") {
+    opts.headers = { ...opts.headers, "X-CSRF-Token": csrf };
+  }
   let r;
   try {
     r = await fetch(path, opts);
   } catch {
-    throw new Error("无法连接工作台，请确认启动窗口仍在运行后重试。");
+    throw new Error(serverMode ? "暂时无法连接服务，请稍后重试。" : "无法连接工作台，请确认启动窗口仍在运行后重试。");
   }
   if (!r.ok) {
     let data;

@@ -44,6 +44,7 @@ class Workflow:
         self._state_lock = Lock()
         self.info_adapter = INFO_ADAPTER
         self.measure_adapter = MEASURE_ADAPTER
+        self.layout_detector = None
 
     def directory(self, sid):
         if len(sid) != 32 or any(c not in "0123456789abcdef" for c in sid):
@@ -121,6 +122,7 @@ class Workflow:
             layout_model_dir=self.layout_model,
             layout_python=self.layout_python,
             allow_empty=True,
+            detector=self.layout_detector,
         )
         data = read_result(result, "layout")
         state.update(
