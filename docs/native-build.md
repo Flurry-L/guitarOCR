@@ -1,6 +1,6 @@
 # 构建 GP8 原生导出 DLL
 
-源码已从同一工作区的 `GPOMR/datagen/native-source/` 收入 `datagen/native-source/`，包含 `dllmain.cpp`、`score_dump.cpp/.h`、完整的导出符号 `.def`、接口声明 `gp_stubs.h` 和 `build.ps1`。不再引用相邻仓库。原项目的副本保留，避免破坏它的构建。
+`datagen/native-source/` 包含 C++ 源码、导出符号、接口声明和构建脚本。代码源自 GPOMR 的原生导出器，当前构建所需文件均在本仓库中。
 
 当前 DLL 已增加 `display_mode=tab|notation|both`，由本目录源码在 Linux 上使用 clang-cl 18、xwin 的 MSVC/Windows SDK 和 Qt 5.15.2 MSVC SDK 交叉编译。已在 GP8 8.1.2.37 + Wine 中实测三种排版及小节框，SHA-256：
 
@@ -44,7 +44,6 @@ datagen/native-bin/gpomr_amprof_preload.dll
 
 构建后按 [数据导出环境](setup.md#数据导出环境) 的命令导出一份 GP 源谱，检查生成的 PDF、`layout.json` 和 `official-score.json`。Guitar Pro 安装程序及其运行库不属于本项目的开源内容。
 
-
 构建成功后会在 DLL 旁生成 `build-manifest.json`，记录源文件 SHA-256、编译器版本、Qt 路径和 DLL 哈希。`runtime_validation` 初始为 `not_run`，只有完成目标 GP8 导出验收后才能另行记录通过。GitHub Actions 的 Build native exporter 可手动执行 Windows 编译并保存构件；这不替代实际 GP8 运行验证。
 
 ## Linux 交叉编译
@@ -53,8 +52,8 @@ datagen/native-bin/gpomr_amprof_preload.dll
 
 ```bash
 xwin --accept-license --arch x86_64 splat --output tools/native-build/msvc
-python -m aqt install-qt windows desktop 5.15.2 win64_msvc2019_64 --archives qtbase -O tools/native-build/qt
-python datagen/native-source/build_linux.py \
+uvx --from aqtinstall aqt install-qt windows desktop 5.15.2 win64_msvc2019_64 --archives qtbase -O tools/native-build/qt
+uv run --no-sync python datagen/native-source/build_linux.py \
   --sdk tools/native-build/msvc --qt tools/native-build/qt/5.15.2/msvc2019_64 \
   --clang clang-cl-18 --linker tools/native-build/llvm/usr/lib/llvm-18/bin/lld-link --lib /usr/bin/llvm-lib-18 \
   --output datagen/native-bin

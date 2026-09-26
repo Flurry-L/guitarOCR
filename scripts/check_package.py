@@ -26,6 +26,7 @@ def check(path):
             "measure_ocr/configs/train.yaml",
             "measure_ocr/configs/release_gate.json",
             "datagen/native-source/build.ps1",
+            "datagen/native-source/build_linux.py",
             "datagen/native-source/dllmain.cpp",
             "datagen/native-source/score_dump.cpp",
             "datagen/native-source/toolchain/GPCore.def",

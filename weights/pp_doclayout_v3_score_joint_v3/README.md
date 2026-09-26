@@ -10,7 +10,7 @@ tags: [object-detection, music, paddlex]
 
 2,799 个音乐来源按 family、音乐事件及标题别名检查分组：训练 2,400，验证 199，测试 200。所有页面由 Guitar Pro 原生渲染三种排版。训练使用 26,192 张干净页面和 6,548 张模拟扫描退化页面，合计 32,740 张；验证 2,337 页、测试 2,164 页。真实 GP 文件重新排版不等于真实扫描数据。
 
-从上一版四类 typed 模型的最佳 EMA 参数继续训练，8 张 H100、每卡 batch 4、学习率 2e-5，共 6 轮。训练器按验证集四类 bbox AP 选择第 4 轮（95.3909%）；选定后才运行独立测试。可复现配置见 [training_config.yaml](training_config.yaml)，源谱索引见 [dataset_sources.json](dataset_sources.json)，哈希、完整指标和选择记录见 [evaluation.json](evaluation.json)。本模型只负责版面，不包含 GLM-OCR。
+从上一版四类 typed 模型的最佳 EMA 参数继续训练，8 张 H100、每卡 batch 4、学习率 2e-5，共 6 轮。训练器按验证集四类 bbox AP 选择第 4 轮（95.3909%）；选定后才运行独立测试。可复现配置见 [training_config.yaml](training_config.yaml)，源谱索引见 [dataset_sources.json](dataset_sources.json)，哈希、完整指标和选择记录见 [evaluation.json](evaluation.json)。
 
 ## 同参数对照
 

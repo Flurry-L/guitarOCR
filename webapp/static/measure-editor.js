@@ -18,7 +18,7 @@ export function initMeasures({ start, go, renderExport }) {
     start("/recognize", { measures: ui.state.review_measures }),
   );
   $("retryMeasure").onclick = action(async () => {
-    if (!confirm("重新识别会替换当前小节的编辑，其余小节会保留，继续？"))
+    if (!confirm("重新识别会替换当前小节的编辑，继续？"))
       return;
     await start("/recognize", { measures: [ui.measureIndex + 1] }, () => {
       ui.measureDirty = false;
@@ -32,17 +32,19 @@ export function initMeasures({ start, go, renderExport }) {
     $("reviewEditor").hidden = !measures.length;
     $("recognize").textContent = measures.length
       ? "重新识别小节"
-      : "开始识别小节";
+      : "识别小节";
+    $("recognize").classList.toggle("primary", !measures.length);
     $("recognitionSummary").textContent = measures.length
-      ? `共 ${measures.length} 小节 · ${ui.state.review_measures.length} 个待检查`
+      ? `共 ${measures.length} 小节，${ui.state.review_measures.length} 个待检查`
       : "";
+    updateMeasureControls();
     if (!measures.length) return;
     ui.measureIndex = Math.min(ui.measureIndex, measures.length - 1);
     $("measureSelect").replaceChildren();
     measures.forEach((m, i) => {
       const option = el(
         "option",
-        `第 ${i + 1} 小节${m.needs_review ? " · 待检查" : ""}`,
+        `第 ${i + 1} 小节${m.needs_review ? "（待检查）" : ""}`,
       );
       option.value = i;
       $("measureSelect").append(option);
@@ -50,9 +52,10 @@ export function initMeasures({ start, go, renderExport }) {
     renderMeasure();
   }
   function selectMeasure(i) {
-    if (ui.measureDirty && !confirm("当前小节尚未保存，放弃修改并切换？"))
+    if (ui.measureDirty && !confirm("当前小节尚未保存，放弃修改并切换？")) {
+      $("measureSelect").value = ui.measureIndex;
       return;
-    $("advanced").open = false;
+    }
     ui.measureDirty = false;
     ui.measureIndex = Math.max(0, Math.min(ui.state.measures.length - 1, i));
     renderMeasure();
@@ -106,22 +109,48 @@ export function initMeasures({ start, go, renderExport }) {
         : "识别完成";
     $("fallback").hidden = !m.needs_review;
     $("fallback").textContent =
-      "这个小节未能通过识别校验，暂以整小节休止符占位。请对照原图修改，或确认这里确实应为休止。\n" +
-      (m.fallback_reason || []).join("; ");
-    $("measureSaved").textContent = m.manually_edited
-      ? "已保存人工校对结果"
-      : "";
+      "此小节识别失败，暂用休止符占位。请重新识别，或对照原图修改后保存确认。";
+    $("saveMeasure").textContent = m.needs_review ? "保存并确认" : "保存小节";
     $("notesHeading").textContent =
       currentMode() === "notation"
         ? "音符（MIDI 音高，逗号分隔）"
         : currentMode() === "both"
           ? "音符（弦:品:MIDI 音高）"
           : "音符（弦:品，逗号分隔）";
+    $("noteHint").textContent =
+      currentMode() === "notation"
+        ? "音高用 MIDI 编号表示，例如 E4 为 64。多个音符用逗号分隔。"
+        : currentMode() === "both"
+          ? "例如 1:3:67 表示第 1 弦第 3 品、音高 G4。多个音符用逗号分隔。"
+          : "例如 1:3,2:1 表示第 1 弦第 3 品与第 2 弦第 1 品。闷音用品位 x 表示。";
     ui.eventData = m.parsed.voices.flatMap((v) =>
       v.events.map((e) => ({ voice: v.voice, event: structuredClone(e) })),
     );
     renderEvents();
+    renderEditorMode();
+    updateMeasureControls();
   }
+  function updateMeasureControls() {
+    const count = ui.state?.measures?.length || 0;
+    $("prevMeasure").disabled = ui.busy || ui.measureIndex === 0;
+    $("nextMeasure").disabled = ui.busy || ui.measureIndex >= count - 1;
+    $("nextIssue").hidden = !ui.state?.review_measures?.length;
+    $("toExport").disabled = ui.busy || !count;
+    $("saveMeasure").hidden = !count;
+  }
+  function renderEditorMode() {
+    $("editMode").value = ui.editorMode;
+    $("tableEditor").hidden = ui.editorMode !== "table";
+    $("textEditor").hidden = ui.editorMode !== "text";
+  }
+  $("editMode").onchange = () => {
+    if (ui.measureDirty) {
+      $("editMode").value = ui.editorMode;
+      return notice("请先保存当前修改，再切换编辑方式。", true);
+    }
+    ui.editorMode = $("editMode").value;
+    renderEditorMode();
+  };
   function renderEvents() {
     const tbody = $("eventRows");
     tbody.replaceChildren();
@@ -194,13 +223,16 @@ export function initMeasures({ start, go, renderExport }) {
         ui.measureDirty = true;
       };
       const remove = el("button", "×", "quiet");
-      remove.setAttribute("aria-label", `删除第 ${i + 1} 个事件`);
+      remove.setAttribute("aria-label", `删除第 ${i + 1} 行`);
       remove.onclick = () => {
         ui.eventData.splice(i, 1);
         ui.measureDirty = true;
         renderEvents();
       };
-      for (const n of [voice, start, duration, dots, status, notes, remove]) {
+      const fields = [voice, start, duration, dots, status, notes, remove];
+      const labels = ["声部", "起点", "时值", "附点", "类型", "音符"];
+      for (const [column, n] of fields.entries()) {
+        if (labels[column]) n.setAttribute("aria-label", `第 ${i + 1} 行${labels[column]}`);
         const td = el("td");
         td.append(n);
         tr.append(td);
@@ -299,9 +331,8 @@ export function initMeasures({ start, go, renderExport }) {
     renderExport();
     notice(`第 ${ui.measureIndex + 1} 小节已保存并确认。`);
   }
-  $("saveMeasure").onclick = action(() => saveMeasure(false));
-  $("saveRaw").onclick = action(() => saveMeasure(true));
+  $("saveMeasure").onclick = action(() => saveMeasure(ui.editorMode === "text"));
   $("toExport").onclick = () => go(4);
 
-  return { renderMeasures };
+  return { renderMeasures, updateMeasureControls };
 }

@@ -45,7 +45,7 @@ namespaces = false
 layout = ["configs/*.yaml"]
 document_info = ["configs/*.yaml"]
 measure_ocr = ["configs/*.yaml", "configs/*.json"]
-datagen = ["native-bin/*.dll", "native-source/*.cpp", "native-source/*.h", "native-source/*.ps1", "native-source/toolchain/*"]
+datagen = ["native-bin/*.dll", "native-source/*.cpp", "native-source/*.h", "native-source/*.ps1", "native-source/*.py", "native-source/toolchain/*"]
 webapp = ["static/*.html", "static/*.css", "static/*.js"]
 
 [tool.ruff]

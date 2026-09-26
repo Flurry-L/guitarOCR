@@ -5,8 +5,8 @@ import { initPages } from "./pages.js";
 import { initBoxes } from "./boxes.js";
 import { initMeasures } from "./measure-editor.js";
 const { renderPages, updatePageNavigation } = initPages(() => loadPage());
-const { loadPage, renderBoxList } = initBoxes({ start, go, render });
-const { renderMeasures } = initMeasures({ start, go, renderExport });
+const { loadPage, renderBoxList, updateBoxControls } = initBoxes({ start, go, render });
+const { renderMeasures, updateMeasureControls } = initMeasures({ start, go, renderExport });
 function setBusy(value) {
   ui.busy = value;
   document
@@ -15,7 +15,11 @@ function setBusy(value) {
   $("notice").classList.toggle("busy", value);
   $("cancelJob").hidden = !value;
   $("cancelJob").disabled = !value;
+  renderFiles();
   updatePageNavigation();
+  updateMeasureControls();
+  updateBoxControls();
+  renderExport();
 }
 function go(next) {
   if (next > 0 && ui.files.length)
@@ -33,6 +37,7 @@ function go(next) {
     notice("当前修改尚未保存，请先保存再切换步骤。", true);
     return;
   }
+  if (!ui.busy) notice("");
   ui.step = next;
   document
     .querySelectorAll("[data-panel]")
@@ -48,6 +53,7 @@ $("steps").onclick = (e) => {
   if (button) go(+button.dataset.step);
 };
 function renderFiles() {
+  $("upload").disabled = ui.busy || !ui.files.length;
   const list = $("fileList");
   list.replaceChildren();
   ui.files.forEach((f, i) => {
@@ -64,6 +70,7 @@ function renderFiles() {
     ]) {
       const b = el("button", label, "quiet");
       b.type = "button";
+      b.disabled = ui.busy || (!!delta && !ui.files[i + delta]);
       b.setAttribute(
         "aria-label",
         `${label === "×" ? "移除" : label === "↑" ? "提前" : "延后"} ${f.name}`,
@@ -118,7 +125,7 @@ async function watch(after) {
       if (job && ["queued", "running"].includes(job.status)) {
         if (current.pages) ui.state = current;
         $("cancelJob").hidden = !job.cancellable;
-        notice((job.status === "queued" ? "排队中 · " : "") + job.message);
+        notice((job.status === "queued" ? "排队中，" : "") + job.message);
         await new Promise((resolve) => setTimeout(resolve, 1200));
         continue;
       }
@@ -173,7 +180,7 @@ $("upload").onclick = action(async () => {
     renderFiles();
     await watch(() => go(1));
     notice(
-      `导入成功：${documentName()}，共 ${ui.state.pages.length} 页。当前显示第 1 页，可用翻页按钮或左侧缩略图查看其他页。`,
+      `已导入 ${ui.state.pages.length} 页。请检查小节区域。`,
     );
   } finally {
     setBusy(false);
@@ -199,7 +206,7 @@ $("importProject").onchange = action(async (event) => {
     renderFiles();
     render();
     go(ui.state.recognition ? 3 : 1);
-    notice("项目已恢复。原始页面、已保存的编辑和导出结果均已载入。");
+    notice("项目已恢复。");
   } finally {
     setBusy(false);
     event.target.value = "";
@@ -231,14 +238,13 @@ function render() {
   history.replaceState(null, "", `?project=${ui.sid}`);
   $("currentDocument").hidden = false;
   $("documentName").textContent = documentName();
-  $("documentPages").textContent = ` · 已导入 ${ui.state.pages.length} 页`;
-  $("documentId").textContent = ui.sid.slice(0, 8);
+  $("documentPages").textContent = `，共 ${ui.state.pages.length} 页`;
+  $("intro").hidden = true;
+  $("newProject").hidden = false;
   ui.boxes = structuredClone(ui.state.boxes || []);
   ui.pageIndex = Math.min(ui.pageIndex, ui.state.pages.length - 1);
   ui.selected = -1;
   $("mode").value = ui.state.mode_setting || ui.state.mode;
-  $("projectId").textContent =
-    `项目 ${ui.sid.slice(0, 8)} · ${ui.state.pages.length} 页`;
   $("deleteProject").hidden = false;
   renderPages();
   renderMetadata();
@@ -257,11 +263,13 @@ function renderMetadata() {
     (o) => o.value === $("tuning").value,
   );
   $("tuningPreset").value = preset ? $("tuning").value : "custom";
+  $("customTuning").hidden = preset;
   const warnings = m?.document_metadata?.warnings || [];
   $("infoWarnings").hidden = !warnings.length;
   $("infoWarnings").textContent = warnings.join("\n");
 }
 $("tuningPreset").onchange = () => {
+  $("customTuning").hidden = $("tuningPreset").value !== "custom";
   if ($("tuningPreset").value !== "custom")
     $("tuning").value = $("tuningPreset").value;
   ui.metadataDirty = true;
@@ -285,9 +293,14 @@ $("saveInfo").onclick = action(async () => {
     go(3);
     return;
   }
+  for (const id of ["tempo", "capo"]) {
+    if (!$(id).reportValidity()) return;
+  }
   const tuning = $("tuning")
     .value.split(",")
     .map((v) => Number(v.trim()));
+  if (!$("tuning").value.trim() || tuning.length > 7 || tuning.some((v) => !Number.isInteger(v) || v < 0 || v > 127) || $("tuning").value.split(",").some((v) => !v.trim()))
+    throw new Error("请填写 1 至 7 个弦的 MIDI 音高（0 至 127），用逗号分隔。");
   ui.state = await api(endpoint("/metadata"), "PUT", {
     title: $("title").value || "未命名乐谱",
     artist: $("artist").value,
@@ -322,14 +335,15 @@ function renderExport() {
     $("downloadScoreText").download = "score.txt";
   }
   $("downloadGP5").hidden = !ui.state.gp5_url;
-  $("export").textContent = ui.state.gp5_url ? "重新生成 GP5" : "生成 GP5";
+  $("export").hidden = !!ui.state.gp5_url;
+  $("export").disabled = ui.busy || !count || !!review;
   if (ui.state.gp5_url) {
     $("downloadGP5").href = ui.state.gp5_url;
     $("downloadGP5").download = "score.gp5";
   }
   $("exportWarning").hidden = !review;
   $("exportWarning").textContent = review
-    ? `还有 ${review} 个小节需要检查：${ui.state.review_measures.join("、")}。请回到「校对小节」保存确认。`
+    ? `还有 ${review} 个小节待检查。请返回「校对小节」，检查后保存确认。`
     : "";
 }
 $("export").onclick = action(async () => {
@@ -358,7 +372,7 @@ async function renderRecent() {
   projects.forEach((project) => {
     const button = el(
       "button",
-      `${project.title} · ${project.pages} 页 · ${project.stage} · ${project.id.slice(0, 8)}`,
+      `${project.title}，${project.pages} 页，${project.stage}`,
     );
     button.onclick = action(async () => {
       if (
@@ -374,7 +388,7 @@ async function renderRecent() {
       ui.pageIndex = ui.measureIndex = 0;
       await watch(() => go(ui.state.recognition ? 3 : 1));
       notice(
-        `已打开已有项目：${documentName()} · ${ui.state.pages.length} 页。上传新 PDF 请点击右上角「上传新乐谱」。`,
+        `已打开 ${documentName()}。`,
       );
     });
     $("projectList").append(button);
@@ -382,13 +396,14 @@ async function renderRecent() {
 }
 (async () => {
   try {
+    renderFiles();
     await renderRecent();
     if (ui.sid) {
       await watch(() => {
         go(ui.state.recognition ? 3 : ui.state.info ? 3 : 1);
       });
       notice(
-        `已恢复上次项目：${documentName()} · ${ui.state.pages.length} 页。上传新 PDF 请点击右上角「上传新乐谱」。`,
+        `已恢复 ${documentName()}。`,
       );
     }
     const config = await api("/api/config");

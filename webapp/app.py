@@ -211,7 +211,7 @@ def create_app(
                 except Exception as error:
                     logging.exception("Session %s failed", sid)
                     outcome = dict(
-                        status="failed", error=display_error(f"{type(error).__name__}: {error}")
+                        status="failed", error=display_error(str(error))
                     )
                 else:
                     outcome = dict(status="complete", message="处理完成")

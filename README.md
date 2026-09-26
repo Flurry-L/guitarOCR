@@ -1,27 +1,21 @@
 # GuitarOCR
 
-将吉他谱 **PDF（矢量或扫描件）和多张图片转换为可编辑的 GP5 文件**。在本地网页中逐步检查小节框、谱面信息和音符，保存人工修改后继续处理。
+把吉他谱 PDF 或图片转换为可编辑的 GP5 文件。在本地网页中检查小节框、校对音符，再下载到 Guitar Pro 中继续编辑。
 
-当前面向规则排版乐谱。一套版面模型同时定位小节并识别纯 TAB、纯五线谱和五线谱＋TAB，默认自动识别谱面类型；混合谱的上下谱表按同一个小节裁取，每个小节的类型直接传给 GLM-OCR。训练数据与分谱面评测见[版面模型卡](weights/pp_doclayout_v3_score_joint_v3/README.md)。手写谱和明显透视畸变不在现有训练范围内。
+支持六线谱 TAB、五线谱和五线谱＋TAB，默认自动判断谱面类型。当前模型主要适用于规则排版的吉他单轨谱，手写、透视照片和复杂总谱尚需更多验证。识别结果需要对照原谱校对，效果和已知错误见[评测报告](docs/training-v3-report.md)。
 
-三项任务已完成扩充训练：2,799 个曲源、三种 Guitar Pro 原生排版，并加入扫描退化和技巧难例。数据规模、8 张 H100 的训练记录、新旧模型对照及小节表示修复见[扩充训练报告](docs/training-v3-report.md)。
+![小节校对界面](docs/images/webui.png)
 
-![GuitarOCR 工作台](docs/images/webui.png)
+## 获取源码
 
-## 快速开始
-
-目前尚未发布可下载的 Release 安装包，请先通过 Git 获取源码和模型权重，再运行启动脚本。
-
-### 获取源码
-
-Windows 先安装 [Git for Windows](https://gitforwindows.org/) 和 [Git LFS](https://git-lfs.com/)，然后打开 PowerShell。Ubuntu / Debian 可在终端安装所需工具：
+目前没有 Release 安装包，请使用 Git 和 Git LFS 获取源码及权重。Windows 先安装 [Git for Windows](https://gitforwindows.org/) 和 [Git LFS](https://git-lfs.com/)，然后打开 PowerShell。Ubuntu / Debian 使用终端安装：
 
 ```bash
 sudo apt-get update
 sudo apt-get install -y git git-lfs curl ca-certificates libgl1 libglib2.0-0
 ```
 
-在可写目录中执行以下命令（Windows 和 Linux 相同）：
+在可写目录中执行（Windows 和 Linux 相同）：
 
 ```bash
 git lfs install
@@ -30,75 +24,48 @@ cd guitarOCR
 git lfs pull
 ```
 
-`git lfs pull` 获取两套 LoRA 和版面权重；GLM-OCR 基座在首次启动时按固定版本下载。GitHub 的 **Code → Download ZIP** 或自动生成的 **Source code.zip** 可能只包含 LFS 指针，而且没有安装器补下载权重所需的 Git 信息，请使用上述完整检出方式。
+GitHub 的源码 ZIP 可能只含权重指针，且缺少安装器补下载所需的 Git 信息，请使用上述克隆方式。
 
-### Windows
+## 启动
 
-1. 完成上述检出后，在 `guitarOCR` 文件夹中双击 **`start.bat`**。首次自动准备 Python 3.11、依赖和 GLM-OCR 基座，并校验模型权重；按提示等待安装完成。
-2. 浏览器会打开 **http://127.0.0.1:7860**。以后仍双击同一个文件启动。
-
-不需要提前安装 Python、Node.js 或 CUDA Toolkit。GPU 加速需要已安装兼容的 NVIDIA 驱动；自动模式在驱动低于 580 或没有 NVIDIA 显卡时选择 CPU。首次需要联网下载数 GB；中断后可重跑脚本。使用期间保留启动窗口。
-
-### Linux x64
-
-完成上述检出后，在 `guitarOCR` 目录中运行：
+Windows 双击 **`start.bat`**；Linux x64 在项目目录运行：
 
 ```bash
 bash start.sh
 ```
 
-`install.bat` / `bash install.sh` 可以只安装、不启动。常用参数、手动安装和硬件验证范围见 [安装说明](docs/setup.md)；下载失败、显存不足等见 [故障排查](docs/troubleshooting.md)。
+首次启动会安装 Python 3.11、依赖和 GLM-OCR 基座，校验权重后打开 **http://127.0.0.1:7860**。需要联网下载数 GB，建议预留 20 GB 磁盘空间。中断后重跑同一脚本即可，使用期间保留启动窗口。
 
-## 转换一份乐谱
+NVIDIA 驱动 580 或更新版本可自动启用 GPU，否则使用 CPU。无需提前安装 Python 或 CUDA Toolkit。Linux CPU 和 H100 已实测；Windows 提供脚本与 CI，完整安装仍需实机验收。详细参数和手动安装见[安装说明](docs/setup.md)，安装失败见[故障排查](docs/troubleshooting.md)。
 
-**上传 → 调整小节框 → 校对标题、调弦和速度 → 识别并校对小节 → 下载 GP5**。
+## 转换乐谱
 
-- PDF 按页展开；多张图片可调整顺序。用缩略图、页码选择或上一页 / 下一页查看全部页面。
-- 自动定位有误时，可移动、缩放、删除和补画小节框，也可纠正单个小节的谱面类型。
-- 识别可以停止后继续，也可以重试指定小节。识别失败的小节会标成待检查，确认后才能导出。
-- 修改曲名、作者、速度或变调夹会更新导出信息；修改调弦或框时，需要重新处理相关识别结果。
-- 保存后可刷新继续。下载完整项目 ZIP，可在另一台安装了 GuitarOCR 的电脑上恢复原图和编辑结果。
+1. **导入乐谱**：上传 PDF 或图片，多文件可调整顺序。
+2. **调整区域**：自动检测小节框，修正位置、阅读顺序和谱面类型。
+3. **谱面信息**：读取并核对曲名、作者、调弦和速度。
+4. **校对小节**：识别音符和节奏，对照裁图修改并保存。识别失败的小节需检查确认。
+5. **导出 GP5**：生成并下载文件，也可下载项目备份，稍后继续编辑。
 
-先用自编的 [示例 PDF](examples/demo.pdf) 或 [示例图片](examples/demo.png) 试一次；[预期 GP5](examples/expected.gp5) 和 [小节文本](examples/expected.score.txt) 可用于对照。小节文本是本项目记录音符、节奏和奏法的文本格式。详细操作见 [WebUI 使用说明](docs/webui.md)。
-
-## 项目结构
-
-```text
-数据生产：datagen → 版面数据 / 谱面信息数据 / 小节数据
-乐谱转换：PDF / 图片 → layout → document_info → measure_ocr → gp5_export
-                      └──────── pipeline 串联各步骤 ────────┘
-```
-
-| 目录 | 职责 |
-| --- | --- |
-| `datagen/` | 选源、GP8 导出、清单、裁图、标签和统一数据划分 |
-| `layout/` | PDF 渲染、小节与速度区域定位、裁图 |
-| `document_info/` | 标题、作者、调弦和速度读取 |
-| `measure_ocr/` | 顺序识别小节、音乐约束校验、小节文本输出 |
-| `gp5_export/` | 指法与奏法映射、GP5 写出 |
-| `pipeline/` | 命令行整谱流程及状态汇总 |
-| `webapp/` | 本地工作台、人工编辑、任务与项目管理 |
-| `shared/` | 小节文本、共用模型调用、默认参数、环境检查 |
-| `scripts/` | 安装、启动和发布打包 |
-| `weights/` | 随项目发布的模型、模型卡与校验清单 |
-| `examples/`、`tests/`、`docs/` | 示例、回归验证和文档 |
-
-一套 PP-DocLayoutV3 负责定位；两套 GLM-OCR LoRA 分别读取谱面信息和小节内容，运行时共用一个基座。训练和评测入口跟随对应处理阶段。`database/`、`output/`、`tools/` 分别用于训练数据、运行结果和本地环境，均由 Git 忽略。
+可先用自编[示例 PDF](examples/demo.pdf)或[示例图片](examples/demo.png)试用，与[预期 GP5](examples/expected.gp5)对照。停止后继续识别、局部重试和备份恢复见[工作台使用说明](docs/webui.md)。转换 PDF 或图片无需安装 Guitar Pro，生成训练数据时才使用它。
 
 ## 命令行与开发
 
-手动配置开发环境后，整谱识别和小节文本导出示例：
+完成[模型推理环境安装](docs/setup.md#手动安装模型推理)后运行：
 
 ```bash
 uv run --no-sync guitarocr-gp examples/demo.pdf --output output/demo
-uv run --no-sync python -m gp5_export.writer examples/expected.score.txt output/demo.gp5 --mode tab
 uv run --no-sync guitarocr-check --hashes
 ```
 
-- [安装与外部依赖](docs/setup.md) · [步骤接口](docs/workflow.md) · [小节文本格式](docs/score-text.md)
-- [数据生产](docs/data.md) · [训练与评测](docs/training.md) · [模型说明](weights/README.md)
-- [参与开发](CONTRIBUTING.md) · [原生构建](docs/native-build.md) · [验证记录](docs/validation.md)
+运行时有三项任务模型：一套 PP-DocLayoutV3 定位并判断谱面类型，两套 GLM-OCR LoRA 分别读取谱面信息和小节，共用一个基座。模型版本、下载与校验见[模型说明](weights/README.md)。
 
-发布目标、裁图评测和完整乐谱效果分别记录。现有自动测试和小样例运行验证流程行为，不代表逐音准确率。GLM-OCR、Paddle、Qt 等第三方组件以及 Guitar Pro 软件保留各自许可；PDF / 图片转 GP5 无需安装 Guitar Pro，重新生成训练数据时才使用它。
+| 需要做什么 | 文档 |
+| --- | --- |
+| 了解代码结构和步骤接口 | [处理流程](docs/workflow.md) |
+| 编辑或导入小节文本 | [格式参考](docs/score-text.md) |
+| 从 Guitar Pro 生成训练数据 | [数据生产](docs/data.md) |
+| 训练和评测模型 | [训练说明](docs/training.md) |
+| 修改代码、运行测试、打包 | [参与开发](CONTRIBUTING.md) |
+| 查看实测环境与结果 | [验证记录](docs/validation.md) |
 
-项目许可证尚未选定，模型与原生工具的授权材料仍需补齐。公开发布前的待办与本轮修复见 [开源审核记录](docs/open-source-audit.md)，上游许可及授权范围见 [第三方说明](THIRD_PARTY_NOTICES.md)。
+项目许可证尚未选定。模型、训练素材和第三方组件的授权状态见[第三方说明](THIRD_PARTY_NOTICES.md)，发布待办见[审核记录](docs/open-source-audit.md)。

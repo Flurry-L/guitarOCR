@@ -2,7 +2,7 @@
 
 先按 [README 的获取源码步骤](../README.md#获取源码) 使用 Git 和 Git LFS 克隆仓库、取得完整权重。当前没有可下载的 Release 安装包。以下命令都在仓库根目录执行；开发和重新训练可以使用后面的手动安装命令。
 
-## 一键安装
+## 自动安装
 
 Windows 在检出的 `guitarOCR` 文件夹中双击 `start.bat`。Linux x64 执行 `bash start.sh`。首次准备环境后自动打开浏览器，以后直接复用已安装环境；安装失败时保留日志并退出，重跑同一个脚本即可继续。
 
@@ -30,6 +30,8 @@ sudo apt-get update
 sudo apt-get install -y curl ca-certificates libgl1 libglib2.0-0
 ```
 
+远程 GPU 服务器可用 `ssh -L 7860:127.0.0.1:7860 user@server` 转发到本机访问。工作台按单用户设计，没有登录认证，默认只监听本机。
+
 ## 已验证范围
 
 | 环境 | 状态 |
@@ -41,7 +43,7 @@ sudo apt-get install -y curl ca-certificates libgl1 libglib2.0-0
 
 尚未测得可承诺的最低内存、显存和消费级显卡耗时。CPU 可以运行 GLM，但耗时通常更长。
 
-## 手动安装：轻量编辑与导出
+## 手动安装轻量编辑与导出
 
 安装 uv 后执行：
 
@@ -52,9 +54,7 @@ uv run --no-sync guitarocr-web --device cpu
 
 基础安装不拉取 Torch。这个环境可以导入、画框和执行格式与导出测试；自动读取音符还需要下面的模型环境。
 
-工作台默认只接受 `localhost`、`127.0.0.1` 和 `::1` 主机名。自定义主机名需在 CLI 添加 `--allow-host scores.example`；该参数可重复传入，不支持通配符。`--host` 控制监听地址，指定具体地址会允许该地址，`0.0.0.0` / `::` 则不会自动允许所有主机名。工作台没有登录认证；Host 检查用于防止 DNS 重绑定，不能替代公网部署的身份认证。
-
-## 手动安装：模型推理
+## 手动安装模型推理
 
 Ubuntu / Debian 可先安装系统工具：
 
@@ -90,15 +90,13 @@ CPU 版把 Paddle 安装命令换成 `uv pip install --python tools/paddlex-venv
 
 ## GLM 训练环境
 
-LLaMA-Factory 使用当前工作环境的 `0.9.6.dev0` 源码提交，支持本项目固定的 Transformers 5.8.0 和 PEFT 0.18.1：
+先完成主环境的模型推理依赖，再安装 LLaMA-Factory `0.9.6.dev0` 的固定源码提交：
 
 ```bash
 git clone https://github.com/hiyouga/LLaMA-Factory.git tools/LLaMA-Factory
 git -C tools/LLaMA-Factory checkout 97b32d3133b501432141a82949d5c7bc4d94f23a
 uv pip install --python .venv/bin/python -e tools/LLaMA-Factory
 
-uv run --no-sync python -m measure_ocr.train
-uv run --no-sync python -m document_info.train
 ```
 
 安装训练依赖后，训练使用 `uv run --no-sync`。需要更新本项目的可编辑安装时，执行 `uv pip install --python .venv/bin/python --no-deps -e .`，保留已装的训练框架。
@@ -112,11 +110,9 @@ PIP_CONSTRAINT="$PWD/layout/constraints.txt" \
 SKLEARN_ALLOW_DEPRECATED_SKLEARN_PACKAGE_INSTALL=True \
 tools/paddlex-venv/bin/paddlex --install PaddleDetection
 
-tools/paddlex-venv/bin/python -m layout.train \
-  -c layout/configs/train.yaml -o Global.mode=train
 ```
 
-`layout/constraints.txt` 保持 NumPy、OpenCV、pycocotools 与当前工作环境一致。完整训练生成初始检查点后，可用 `layout/configs/train_sparse.yaml` 继续稀疏谱行微调；该配置中的初始检查点路径属于训练流程。
+`layout/constraints.txt` 保持 NumPy、OpenCV、pycocotools 与当前工作环境一致。当前配置、初始化检查点和多卡命令见[训练说明](training.md)。
 
 ## 数据导出环境
 
@@ -161,3 +157,7 @@ uv run --no-sync python -m datagen.run \
 推理只需要主环境和图片版面环境；数据导出工具用于重新生成训练数据。
 
 原生导出 DLL 的完整源码与 Windows 构建命令见 [native-build.md](native-build.md)。Web 工作台启动与操作见 [webui.md](webui.md)。
+
+## 自定义服务地址
+
+工作台默认只接受 `localhost`、`127.0.0.1` 和 `::1` 主机名。自定义主机名需在 CLI 添加 `--allow-host scores.example`；该参数可重复传入，不支持通配符。`--host` 控制监听地址，指定具体地址会允许该地址，`0.0.0.0` / `::` 则不会自动允许所有主机名。工作台没有登录认证；Host 检查用于防止 DNS 重绑定，不能替代公网部署的身份认证。

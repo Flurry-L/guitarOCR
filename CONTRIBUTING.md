@@ -16,7 +16,7 @@ uv run --no-sync python scripts/check_package.py dist
 
 ## 代码与接口
 
-继续按处理阶段组织目录，训练和评测跟随对应阶段。`pipeline/` 与 `webapp/` 负责组织步骤。M2 约束与默认路径放在 `shared/`；阶段清单类型在 `shared/schema.py`。
+继续按处理阶段组织目录，训练和评测跟随对应阶段。`pipeline/` 与 `webapp/` 负责组织步骤。小节文本约束与默认路径放在 `shared/`；阶段清单类型在 `shared/schema.py`。
 
 前端使用原生 ES modules，无需 Node.js 构建：app 组织流程，api 处理请求及版本头，pages 管理翻页，boxes 管理画框，measure-editor 管理音符编辑，state 保存页面状态。修改状态依赖时，应验证用户保存的结果是否保留。回归测试应覆盖具体的错误行为。
 
@@ -26,7 +26,7 @@ uv run --no-sync python scripts/check_package.py dist
 
 README 提供首次使用的完整路径；安装、数据、训练、格式参考各放一个平铺文档。修改命令时实际执行一次；缺少硬件或外部运行时时说明验证范围。模型变更要记录基座 revision、权重哈希、训练配置、数据分组与评测条件，区别目标门槛和实测数值。
 
-文档组织参考 [GitHub README 指南](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-readmes)、[Diátaxis](https://diataxis.fr/) 和 [Hugging Face 模型卡](https://huggingface.co/docs/hub/model-cards)。一键分发借鉴 [MSST-WebUI](https://github.com/SUC-DriverOld/MSST-WebUI) 的固定启动入口、环境整合、模型校验和日志体验；本项目安装脚本为独立实现。
+中文文案使用常用词，按钮直接说明动作。技术细节放在开发文档中；用户操作页只保留完成当前任务所需的信息。修改界面后同步更新使用说明和截图。
 
 ## 准备发布包
 

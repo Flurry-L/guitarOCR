@@ -2,18 +2,25 @@
 
 `database/` 是生成数据与中间结果目录，由 Git 忽略。随仓库保留的是生成代码、格式约定和自编示例。PDF / 图片识别不需要训练数据。
 
-## 从 GP 文件生成三套数据
+## 从 GP 文件生成训练数据
 
 先按 [setup.md](setup.md#数据导出环境) 安装 Wine、Windows Python 与 Guitar Pro 8。Linux 生产流程使用原生导出器取得 PDF、官方布局和音符标签。
 
 ```bash
-uv run --no-sync python -m datagen.run   --corpus /path/to/gp-files --output database/gp8_measure_sequence_v2   --source-count 2000 --phase all   --runtime /path/to/GuitarPro8   --wine-prefix-template /path/to/wine-prefix   --wine-python /path/to/wine-python/python.exe --workers 4
+uv run --no-sync python -m datagen.run \
+  --corpus /path/to/gp-files --output database/gp8_custom \
+  --source-count 2000 --phase all --typed-measures \
+  --runtime /path/to/GuitarPro8 \
+  --wine-prefix-template /path/to/wine-prefix \
+  --wine-python /path/to/wine-python/python.exe --workers 4
 ```
+
+`--typed-measures` 生成包含谱面类型的四类版面标注。生成后将训练 YAML 中的数据路径改为本次输出目录。
 
 `all` 依次选源、渲染、生成小节数据，然后生成版面及谱面信息数据。GP 源文件支持 GP3 / GP4 / GP5 / GTP；默认原生导出 `tab`、`notation`、`both` 三种排版；可重复指定 `--mode` 筛选。默认筛选 8–128 小节、至少 16 个音符的曲谱；小型自编集可调整 `--minimum-measures`、`--maximum-measures` 和 `--source-count`。
 
 ```text
-database/gp8_measure_sequence_v2/
+database/gp8_custom/
   labels/                  源曲谱解析标签
   prepared/                单音轨 GP5
   native-export/           原生 PDF、layout.json、official-score.json
@@ -46,9 +53,14 @@ database/gp8_measure_sequence_v2/
 ## 单独生成页面清单
 
 ```bash
-uv run --no-sync python -m datagen.inventory   --gp8-export database/gp8_measure_sequence_v2   --output database/gp8_measure_sequence_v2/inventory
-uv run --no-sync python -m datagen.build_layout_data   --source database/gp8_measure_sequence_v2/inventory   --output database/gp8_measure_sequence_v2/datasets/layout
-uv run --no-sync python -m datagen.build_info_data   --source database/gp8_measure_sequence_v2/inventory   --output database/gp8_measure_sequence_v2/datasets/document_info
+uv run --no-sync python -m datagen.inventory \
+  --gp8-export database/gp8_custom --output database/gp8_custom/inventory
+uv run --no-sync python -m datagen.build_layout_data \
+  --source database/gp8_custom/inventory \
+  --output database/gp8_custom/datasets/layout --typed-measures --include-test
+uv run --no-sync python -m datagen.build_info_data \
+  --source database/gp8_custom/inventory \
+  --output database/gp8_custom/datasets/document_info --include-test
 ```
 
 也可以省略 `--source`，直接对两个构建器传 `--gp8-export`；它们会自动生成 inventory。旧 inventory 可以继续使用。
@@ -66,23 +78,23 @@ uv run --no-sync python -m datagen.build_info_data   --source database/gp8_measu
 已有来源划分时，提供 `sources` 列表，每项包含 `source_path`、`family`、`split`（train / validation / test）；每个 family 选一份源文件。以下入口保留来源划分，单音轨 GP5 原样复制，由原生导出器切换显示模式，避免重写罕见奏法时丢失信息：
 
 ```bash
-python -m datagen.prepare_catalog --catalog /path/to/input_catalog.json \
+uv run --no-sync python -m datagen.prepare_catalog --catalog /path/to/input_catalog.json \
   --output database/gp8_layout_multimode_v1 --workers 8
 # 按上文提供 runtime / Wine 参数运行 --phase render
-python -m datagen.inventory --gp8-export database/gp8_layout_multimode_v1 \
+uv run --no-sync python -m datagen.inventory --gp8-export database/gp8_layout_multimode_v1 \
   --output database/gp8_layout_multimode_v1/inventory --workers 8
-python -m datagen.build_layout_data --source database/gp8_layout_multimode_v1/inventory \
+uv run --no-sync python -m datagen.build_layout_data --source database/gp8_layout_multimode_v1/inventory \
   --output database/gp8_layout_multimode_v1/datasets/layout --include-test
 ```
 
-库存构建默认识别已有的三种模式；显式传 `--mode` 时要求每个来源均有对应导出。COCO images 保留 mode / source_id / family / renderer。`--include-test` 单独写入 `instance_test.json`，训练器只读 train 和 val。混合谱的 measure 框覆盖同一小节的五线谱与 TAB，两者不会被当作两个小节。
+页面清单构建默认识别已有的三种模式；显式传 `--mode` 时要求每个来源均有对应导出。COCO images 保留 mode / source_id / family / renderer。`--include-test` 单独写入 `instance_test.json`，训练器只读 train 和 val。混合谱的 measure 框覆盖同一小节的五线谱与 TAB，两者不会被当作两个小节。
 
 ## 同时监督谱面类型
 
 四类版面模型直接使用页面的原生 `mode` 标注小节类别，不需要人工分类。以下命令复用 inventory 的图像和框坐标，保留原有来源划分：
 
 ```bash
-python -m datagen.build_layout_data \
+uv run --no-sync python -m datagen.build_layout_data \
   --source database/gp8_layout_multimode_v1/inventory \
   --output database/gp8_layout_multimode_v1/datasets/layout_typed \
   --include-test --typed-measures
@@ -103,23 +115,23 @@ python -m datagen.build_layout_data \
 曲目身份检查结合原有来源划分、音乐事件指纹及标题别名。所有版面、扫描变体与难例重复都沿用源谱 split。训练时另加入 6,548 页扫描退化图、147,212 张退化小节图及 89,318 个有上限的技巧难例重复，共 823,549 条小节训练样本。剔除 3 条损坏时值目标及 3 条含有损坏历史上下文的训练样本；验证、测试序列未因标签或上下文无效而删减。
 
 ```bash
-python -m datagen.run --phase crop --output database/gp8_joint_v3 --workers 16
-python -m datagen.curate_measure_data --source database/gp8_joint_v3 \
+uv run --no-sync python -m datagen.run --phase crop --output database/gp8_joint_v3 --workers 16
+uv run --no-sync python -m datagen.curate_measure_data --source database/gp8_joint_v3 \
   --output database/gp8_joint_v3/datasets/measure_ocr --workers 16
-python -m datagen.build_info_data --source database/gp8_joint_v3/inventory \
+uv run --no-sync python -m datagen.build_info_data --source database/gp8_joint_v3/inventory \
   --output database/gp8_joint_v3/datasets/document_info --include-test
-python -m datagen.scan_augment --source database/gp8_joint_v3/datasets/layout_typed \
+uv run --no-sync python -m datagen.scan_augment --source database/gp8_joint_v3/datasets/layout_typed \
   --output database/gp8_joint_v3/datasets/layout_train_scan --workers 16
 ```
 
 退化包括轻度缩放、模糊、阴影、噪声、JPEG 压缩；页面大小和框坐标不变。训练只增强 train，验证、测试保留原图。另用 `--split val --split test --fraction 1 --replace` 创建单独的退化评测目录；不得将它混回训练。脚本拒绝覆盖已有增强目录。
 
-小节整理器保存无效标签清单、各 split 的来源与模式计数、清单哈希和难例覆盖。若验证／测试存在无效标签，会排除整个来源以保留完整的自回归序列；本次没有此类排除。验证快集固定为 900 个分层样本，用于训练期监测。改动标签后需重建 ShareGPT 数据和训练缓存；图像文件未变不代表标签版本未变。M2 的可见装饰音语义与已知限制见 [m2.md](m2.md)。
+小节整理器保存无效标签清单、各 split 的来源与模式计数、清单哈希和难例覆盖。若验证／测试存在无效标签，会排除整个来源以保留完整的自回归序列；本次没有此类排除。验证快集固定为 900 个分层样本，用于训练期监测。改动标签后需重建 ShareGPT 数据和训练缓存；图像文件未变不代表标签版本未变。可见装饰音的语义与限制见[小节文本格式](score-text.md)。
 
 小节 OCR 也可构建单独的扫描退化验证集，保持标签与干净裁图一致；默认抽取同一批按来源、谱面类型分层的 900 条验证样本。连续预测上下文的评估需使用 `--max-samples 0` 保留完整序列。
 
 ```bash
-python -m datagen.scan_augment \
+uv run --no-sync python -m datagen.scan_augment \
   --measure-manifest database/gp8_joint_v3/datasets/measure_ocr/manifests/validation.jsonl \
   --output database/gp8_joint_v3/datasets/measure_scan_eval --workers 8
 ```
@@ -127,6 +139,21 @@ python -m datagen.scan_augment \
 
 `datagen.augment_headers` 从已分组的主语料选取 120 个训练、30 个验证、30 个测试音乐来源，只改标题、副标题、作者等元数据，并保留前四小节。180 个中英文变体各由 Guitar Pro 渲染 TAB、五线谱和混合谱，共 540 份文档；它们不增加独立音乐来源数量，也没有将验收文件 `jixian.pdf` 的内容用于训练。中文字段通过原生 UTF-8 元数据附属文件设置，见[原生构建说明](native-build.md)。
 
+生成谱头变体后，用上文的 runtime／Wine 参数运行 render，再构建裁图和混合数据：
+
+```bash
+uv run --no-sync python -m datagen.augment_headers \
+  --source database/gp8_joint_v3 --output database/gp8_headers_v3
+# 在此对 database/gp8_headers_v3 执行 datagen.run --phase render
+uv run --no-sync python -m datagen.build_info_data \
+  --gp8-export database/gp8_headers_v3 \
+  --output database/gp8_headers_v3/datasets/document_info --include-test
+uv run --no-sync python -m datagen.augment_info \
+  --source database/gp8_joint_v3/datasets/document_info/llamafactory \
+  --extra database/gp8_headers_v3/datasets/document_info/llamafactory \
+  --output database/gp8_headers_v3/datasets/info_mixed
+```
+
 原生元数据逐字段核对通过，谱头文本可见性过滤无拒绝；得到训练 711、验证 180、测试 180 条谱头／速度裁图（9 个训练速度区域因源谱标注条件未纳入）。`datagen.augment_info` 保留原有 15,029 条训练样本，增加其中 25% 的扫描退化版本，并将新增谱头及其退化版本各重复 6 次。最终训练 23,808 条、验证 1,584 条、测试 1,536 条；验证和测试没有重复加权。副标题不是作者，作者缺失时目标仍为 `null`。
 
-该补充源于初版 Info v3 在真实中文谱头上把副标题当作者的退步。初版候选与评估记录保留，默认模型恢复至 v2 后再训练修复候选。所有生成退化图都是鲁棒性增强，不等同于真实扫描训练数据。来源、增强和清单哈希在 `database/gp8_headers_v3/datasets/info_mixed/summary.json`。
+该补充源于初版 Info v3 在真实中文谱头上把副标题当作者的退步。初版候选与评估记录保留，最终默认模型见[模型目录](../weights/README.md)。所有生成退化图都是鲁棒性增强，不等同于真实扫描训练数据。来源、增强和清单哈希在 `database/gp8_headers_v3/datasets/info_mixed/summary.json`。

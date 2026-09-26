@@ -4,9 +4,11 @@ tags: [object-detection, music, paddlex]
 
 # 三种谱面版面定位模型
 
+此为历史版本，当前默认模型见[模型目录](../README.md)。
+
 一套 PP-DocLayoutV3 同时支持纯 TAB（`tab`）、纯五线谱（`notation`）和五线谱＋TAB（`both`）。检测类别仍为 `measure` 和 `tempo_region`；混合谱每个小节用一个框覆盖对应的上下谱表。页眉根据首小节上方区域生成。
 
-本模型是上一版两类统一定位权重，也是[当前四类默认模型](../pp_doclayout_v3_score_typed/README.md)的初始化来源。可通过 `--layout-model-dir weights/pp_doclayout_v3_score_multimode` 使用。它能定位三种谱面，但不直接输出谱面类型；配合旧模型自动识别类型时，项目会回退到谱线规则。
+本模型是上一版两类统一定位权重，也是[后续四类模型](../pp_doclayout_v3_score_typed/README.md)的初始化来源。可通过 `--layout-model-dir weights/pp_doclayout_v3_score_multimode` 使用。它能定位三种谱面，但不直接输出谱面类型；配合旧模型自动识别类型时，项目会回退到谱线规则。
 
 ## 数据与训练
 
@@ -28,7 +30,7 @@ PaddlePaddle GPU 3.2.0、PaddleX 3.7.2、pycocotools 2.0.8。训练输出保存�
 
 以下小节 AP 为 COCO AP@[0.50:0.95]，召回率采用 IoU 0.50。使用实际推理阈值 0.25、阅读顺序筛选及谱线后处理，与旧模型使用相同页面和设置。页面小节数完全一致只衡量数量，不能保证每个框都正确。
 
-[机器可读记录](evaluation.json) 保存模型与标注哈希、数据分组、检查点选择、各模式的 AP／召回率／数量指标及旧模型对照。推理文件大小和 SHA-256 另见 [manifest.json](../manifest.json)。
+[机器可读记录](evaluation.json) 保存模型与标注哈希、数据分组、检查点选择、各模式的 AP／召回率／数量指标及旧模型对照。历史权重哈希以本目录评估记录为准。
 
 ## 测试结果
 

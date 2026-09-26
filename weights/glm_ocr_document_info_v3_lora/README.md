@@ -5,6 +5,8 @@ tags: [image-to-text, music, lora]
 
 # 文档信息 OCR v3
 
+此为历史版本，当前默认模型见[模型目录](../README.md)。
+
 读取谱头与速度区域，输出标题、艺术家、可见调弦名称及四分音符速度。纯 TAB、五线谱、混合谱共用此适配器，与小节 OCR 共用 GLM-OCR 基座。
 
 从 v2 继续微调，使用 Guitar Pro 8 原生导出的 15,029 张训练裁图；验证 1,224 张，独立测试 1,176 张。三种版面按源曲目统一划分，测试来源未参与本轮训练或权重选择。数据包含真实 GP 曲目重新排版，不是对真实扫描件总体准确率的估计。
@@ -20,6 +22,6 @@ tags: [image-to-text, music, lora]
 
 指标为字段完全匹配。缺失字段即使标签为 null 也判错。样本量有限，少数样本的改善不应解读为普遍可靠性保证；OCR 输出仍需对照原图。
 
-基座 revision：`ca5d8b3e287e52589e37c28385d9655ee4372f9d`。实际训练配置、完整训练状态、来源指纹和新旧验证／测试报告分别见同目录 `training_config.yaml`、`training_record.json`、`dataset_sources.json`、`evaluation.json`；权重哈希见上级 `manifest.json`。
+基座 revision：`ca5d8b3e287e52589e37c28385d9655ee4372f9d`。实际训练配置、完整训练状态、来源指纹和新旧验证／测试报告分别见同目录 `training_config.yaml`、`training_record.json`、`dataset_sources.json`、`evaluation.json`。
 
-当前默认已回退到 v2：后续真实中文扫描验收发现，本检查点把谱头副标题“中级课”误当作者。第 400 步与最终 471 步也有相同问题。上述 GP8 保留集改善仍有效，但不足以覆盖带副标题的真实谱头；本目录作为候选和可复查记录保留。
+本候选未作为最终默认模型：真实中文扫描验收发现，本检查点把谱头副标题“中级课”误当作者。第 400 步与最终 471 步也有相同问题。上述 GP8 保留集改善仍有效，但不足以覆盖带副标题的真实谱头；本目录保留失败记录，后续采用[谱头修复版](../glm_ocr_document_info_v3_headers_lora/README.md)。

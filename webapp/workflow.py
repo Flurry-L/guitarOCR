@@ -22,6 +22,7 @@ from shared.constraints import validate_measure_target
 from shared.glm_backend import BackendPool
 from shared.m2 import format_measure_target, parse_measure_target
 from shared.score_text import display_score_text, model_score_text, display_error
+from webapp.messages import correction_message
 from shared.tuning import DEFAULT_TUNING
 
 
@@ -301,7 +302,7 @@ class Workflow:
             target, mode, tuning=source["tuning_used"]
         )
         if errors:
-            raise ValueError("小节内容无效：" + "; ".join(errors))
+            raise ValueError(correction_message(errors))
         row.update(target=target, manually_edited=True)
         if reviewed:
             row["needs_review"] = False

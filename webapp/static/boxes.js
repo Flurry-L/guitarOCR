@@ -2,7 +2,7 @@ import { ui } from "./state.js";
 import { $, el, action, notice } from "./dom.js";
 import { api, endpoint } from "./api.js";
 const colors = { measure: "#28785b", header: "#6189ac", tempo: "#b07628" };
-const names = { measure: "小节", header: "标题信息", tempo: "速度" };
+const names = { measure: "小节", header: "谱头", tempo: "速度" };
 const modeNames = { tab: "TAB", notation: "五线谱", both: "五线谱 + TAB" };
 
 export function initBoxes({ start, go, render }) {
@@ -15,7 +15,7 @@ export function initBoxes({ start, go, render }) {
     if (!ui.state?.pages) return;
     const p = ui.state.pages[ui.pageIndex];
     $("pageLabel").textContent =
-      `第 ${ui.pageIndex + 1} / ${ui.state.pages.length} 页 · ${p.width} × ${p.height}${p.notation_mode ? ` · ${modeNames[p.notation_mode]}` : ""}`;
+      `第 ${ui.pageIndex + 1} / ${ui.state.pages.length} 页${p.notation_mode ? `，${modeNames[p.notation_mode]}` : ""}`;
     ui.pageImage = null;
     $("canvas").setAttribute("aria-busy", "true");
     const img = new Image();
@@ -91,7 +91,7 @@ export function initBoxes({ start, go, render }) {
       if (box.page !== ui.pageIndex + 1) return;
       const b = el(
         "button",
-        box.kind === "measure" ? `小节 ${numberOf(i)} · ${modeNames[boxMode(box)] || "待识别"}` : names[box.kind],
+        box.kind === "measure" ? `小节 ${numberOf(i)}，${modeNames[boxMode(box)] || "待识别"}` : names[box.kind],
         i === ui.selected ? "active" : "",
       );
       b.onclick = () => {
@@ -114,7 +114,17 @@ export function initBoxes({ start, go, render }) {
           ($(["boxX", "boxY", "boxW", "boxH"][i]).value = Math.round(v)),
       );
     $("boxSummary").textContent =
-      `${ui.state?.pages.length || 0} 页 · ${ui.boxes.filter((b) => b.kind === "measure").length} 个小节${ui.boxDirty ? " · 有未保存的修改" : ""}`;
+      `${ui.state?.pages.length || 0} 页，${ui.boxes.filter((b) => b.kind === "measure").length} 个小节${ui.boxDirty ? "，有未保存的修改" : ""}`;
+    updateBoxControls();
+  }
+  function updateBoxControls() {
+    const selected = ui.boxes[ui.selected];
+    $("deleteBox").disabled = ui.busy || !selected;
+    $("boxMode").disabled = ui.busy || $("mode").value !== "auto";
+    const peers = ui.boxes.map((b, i) => ({ b, i })).filter(({ b }) =>
+      selected && b.page === selected.page && b.kind === selected.kind);
+    $("earlier").disabled = ui.busy || !selected || peers[0]?.i === ui.selected;
+    $("later").disabled = ui.busy || !selected || peers.at(-1)?.i === ui.selected;
   }
   function point(e) {
     const r = $("canvas").getBoundingClientRect();
@@ -299,7 +309,7 @@ export function initBoxes({ start, go, render }) {
       return;
     await start(
       "/detect",
-      { mode: $("mode").value, source: $("layoutSource").value },
+      { mode: $("mode").value, source: "auto" },
       () => {
         ui.boxDirty = ui.metadataDirty = ui.measureDirty = false;
         renderBoxList();
@@ -321,5 +331,5 @@ export function initBoxes({ start, go, render }) {
     go(2);
   });
 
-  return { loadPage, renderBoxList };
+  return { loadPage, renderBoxList, updateBoxControls };
 }

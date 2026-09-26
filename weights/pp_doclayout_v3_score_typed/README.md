@@ -4,6 +4,8 @@ tags: [object-detection, music, paddlex]
 
 # 小节定位与谱面类型联合检测
 
+此为历史版本，当前默认模型见[模型目录](../README.md)。
+
 一套 PP-DocLayoutV3 从页面图像同时预测小节框和谱面类型。类别为 `measure_tab`、`measure_notation`、`measure_both`、`tempo_region`。混合谱的一个小节框覆盖对应的五线谱与 TAB。模型无需接收谱面类型参数。
 
 ## 推理约定

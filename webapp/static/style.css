@@ -2,7 +2,7 @@
   --bg: #f5f5f0;
   --paper: #fff;
   --ink: #233a33;
-  --muted: #79847f;
+  --muted: #626f68;
   --line: #e2e7df;
   --accent: #28785b;
   --soft: #eaf3ec;
@@ -41,10 +41,6 @@ header {
 .brand span {
   color: var(--accent);
 }
-.tagline {
-  font-size: 13px;
-  color: var(--muted);
-}
 header button {
   margin-left: auto;
 }
@@ -52,12 +48,6 @@ main {
   max-width: 1440px;
   margin: auto;
   padding: 42px 40px 15px;
-}
-.eyebrow {
-  font-size: 11px;
-  letter-spacing: 3px;
-  color: var(--accent);
-  font-weight: 650;
 }
 h1 {
   font-size: 34px;
@@ -79,6 +69,9 @@ nav {
   gap: 6px;
   margin: 32px 0 22px;
   border-bottom: 1px solid var(--line);
+}
+.intro[hidden] + nav {
+  margin-top: 0;
 }
 nav button {
   border: none;
@@ -145,7 +138,7 @@ button:hover,
 }
 button:disabled {
   opacity: 0.45;
-  cursor: wait;
+  cursor: default;
 }
 button.primary,
 .button.primary {
@@ -245,6 +238,10 @@ input:focus,
 select:focus,
 textarea:focus,
 button:focus-visible {
+  outline: 2px solid #86ad91;
+  outline-offset: 2px;
+}
+.table-scroll:focus-visible {
   outline: 2px solid #86ad91;
   outline-offset: 2px;
 }
@@ -395,6 +392,7 @@ canvas {
 }
 .row {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-top: 8px;
 }
@@ -473,12 +471,12 @@ canvas {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 15px;
-  max-height: 320px;
+  max-height: 255px;
   overflow: auto;
 }
 .crop img {
   max-width: 100%;
-  max-height: 285px;
+  max-height: 220px;
   object-fit: contain;
 }
 .table-scroll {
@@ -566,9 +564,6 @@ details button {
   main {
     padding: 25px 15px;
   }
-  .tagline {
-    display: none;
-  }
   .panel {
     padding: 18px;
   }
@@ -606,12 +601,10 @@ details button {
   }
   .section-head {
     align-items: flex-start;
+    flex-wrap: wrap;
   }
   .section-head p {
     font-size: 12px;
-  }
-  .pill {
-    display: none;
   }
   .export-summary {
     gap: 25px;
@@ -622,6 +615,30 @@ details button {
   .page-footer {
     flex-wrap: wrap;
   }
+}
+
+.project-import,
+.editor-mode,
+.export-extras {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 20px;
+}
+.editor-mode {
+  margin-bottom: 16px;
+}
+.export-extras {
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+  gap: 24px;
+}
+.export-extras a {
+  color: var(--accent);
+}
+.coords details {
+  padding: 8px;
 }
 @media (max-width: 550px) {
   h1 {

@@ -13,6 +13,7 @@ export const ui = {
   scale: 1,
   drag: null,
   measureIndex: 0,
+  editorMode: "table",
   eventData: [],
   boxDirty: false,
   measureDirty: false,
