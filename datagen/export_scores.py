@@ -41,6 +41,7 @@ class ManifestEntry:
     split: str
     instrument_kind: str
     source: str
+    display_mode: str = "tab"
 
 
 def _positive_int(value: str) -> int:
@@ -339,9 +340,12 @@ def _run_worker(args: argparse.Namespace) -> int:
                 final = output_dir / "documents" / entry.document_id
                 staging: Path | None = None
                 try:
+                    source = _manifest_source(source_root, entry)
                     if final.exists():
+                        _validate_document_source(final, source)
                         _validate_document(final)
                         _validate_document_geometry(final)
+                        _validate_document_mode(final, entry.display_mode)
                         continue
                     staging = Path(
                         tempfile.mkdtemp(
@@ -349,9 +353,11 @@ def _run_worker(args: argparse.Namespace) -> int:
                             dir=temp_root,
                         )
                     )
-                    source = _manifest_source(source_root, entry)
                     copied_source = staging / f"source{source.suffix.lower()}"
                     shutil.copy2(source, copied_source)
+                    metadata = source.with_name(source.name + ".metadata.json")
+                    if metadata.is_file():
+                        shutil.copy2(metadata, copied_source.with_name(copied_source.name + ".metadata.json"))
                     current_exporter = open_exporter()
                     tracks = tuple(
                         track
@@ -367,9 +373,11 @@ def _run_worker(args: argparse.Namespace) -> int:
                         staging,
                         copied_source,
                         tracks,
+                        entry.display_mode,
                     )
                     _validate_document(staging)
                     _validate_document_geometry(staging)
+                    _validate_document_mode(staging, entry.display_mode)
                     staging.replace(final)
                 except Exception as exception:
                     failures.write(
@@ -400,6 +408,7 @@ def _export_document(
     destination: Path,
     source: Path,
     tracks: tuple[SourceTrack, ...],
+    display_mode: str = "tab",
 ) -> None:
     for track in tracks:
         track_dir = destination / "tracks" / _track_name(track)
@@ -411,8 +420,37 @@ def _export_document(
                 layout=track_dir / "layout.json",
                 official_score=track_dir / "official-score.json",
                 track_index=track.source_track_index,
+                display_mode=display_mode,
             )
         )
+
+
+def _validate_document_mode(document: Path, display_mode: str) -> None:
+    for path in (document / "tracks").glob("*/layout.json"):
+        layout = json.loads(path.read_text(encoding="utf-8"))
+        # The original exporter produced only TAB and omitted this field.
+        actual = layout.get("display_mode", "tab")
+        if actual != display_mode:
+            raise ValueError(
+                f"Native export mode mismatch: {actual} != {display_mode}: {path}; "
+                "use a new output directory when changing display mode"
+            )
+
+
+def _validate_document_source(document: Path, source: Path) -> None:
+    """Never reuse a native render after its GP input or metadata has changed."""
+    archived = document / f"source{source.suffix.lower()}"
+    for current, saved in (
+        (source, archived),
+        (source.with_name(source.name + ".metadata.json"),
+         archived.with_name(archived.name + ".metadata.json")),
+    ):
+        if current.is_file() != saved.is_file() or (
+            current.is_file() and current.read_bytes() != saved.read_bytes()
+        ):
+            raise ValueError(
+                f"Native export input changed: {current}; use a new output directory"
+            )
 
 
 def _validate_document(document: Path) -> None:
@@ -451,6 +489,10 @@ def _validate_document_geometry(document: Path) -> None:
     for track in sorted((document / "tracks").iterdir()):
         if track.is_dir():
             layout = json.loads((track / "layout.json").read_text(encoding="utf-8"))
+            if layout.get("display_mode", "tab") != "tab":
+                # Fret-glyph ownership is a TAB-only annotation contract. Page,
+                # system and measure coverage are validated for every mode.
+                continue
             score = json.loads(
                 (track / "official-score.json").read_text(encoding="utf-8")
             )
@@ -464,7 +506,7 @@ def _load_manifest(path: Path) -> tuple[ManifestEntry, ...]:
         source.read_text(encoding="utf-8").splitlines(), start=1
     ):
         value = json.loads(line)
-        if not isinstance(value, dict) or set(value) != _MANIFEST_FIELDS:
+        if not isinstance(value, dict) or not (_MANIFEST_FIELDS <= set(value) <= _MANIFEST_FIELDS | {"display_mode"}):
             raise ValueError(f"invalid manifest fields at line {line_number}")
         entry = ManifestEntry(**value)
         _validate_manifest_entry(entry, line_number)
@@ -484,6 +526,8 @@ def _load_manifest(path: Path) -> tuple[ManifestEntry, ...]:
 
 
 def _validate_manifest_entry(entry: ManifestEntry, line_number: int) -> None:
+    if entry.display_mode not in {"tab", "notation", "both"}:
+        raise ValueError(f"invalid display mode at line {line_number}")
     if _SAFE_DOCUMENT.fullmatch(entry.document_id) is None:
         raise ValueError(f"unsafe document ID at line {line_number}")
     if (
@@ -514,6 +558,7 @@ def _manifest_jsonl(entries: tuple[ManifestEntry, ...]) -> str:
                 "split": entry.split,
                 "instrument_kind": entry.instrument_kind,
                 "source": entry.source,
+                **({"display_mode": entry.display_mode} if entry.display_mode != "tab" else {}),
             },
             ensure_ascii=False,
             separators=(",", ":"),

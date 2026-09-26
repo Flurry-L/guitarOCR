@@ -8,7 +8,7 @@ from shared.defaults import MODEL, MEASURE_ADAPTER, INFO_ADAPTER
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Recognize regular guitar score PDF pages or images as M2 and GP5."
+        description="Recognize regular guitar score PDF pages or images as score text and GP5."
     )
     parser.add_argument("inputs", nargs="+", type=Path)
     parser.add_argument("--output", type=Path, required=True)
@@ -75,6 +75,4 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             parser.error("--tuning must contain comma-separated MIDI pitches")
         if not args.tuning:
             parser.error("--tuning must contain at least one MIDI pitch")
-    if args.layout_source == "image" and args.mode not in {"auto", "tab"}:
-        parser.error("--layout-source image supports TAB only")
     return args

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from measure_ocr.prompts import recognition_prompt
-from shared.m2 import format_previous_measure_context, parse_measure_target
+from shared.m2 import format_history_context, parse_measure_target, full_measure_rest_target as _full_measure_rest_target
 from shared.constraints import validate_measure_target
 from shared.glm_backend import GlmBackend
 
@@ -31,35 +31,18 @@ def _active_time_signature(previous_targets: list[str]) -> tuple[int, int]:
     return 4, 4
 
 
-def _full_measure_rest_target(time_signature: tuple[int, int]) -> str:
-    numerator, denominator = time_signature
-    total_ticks = max(1, round(3840 * numerator / denominator))
-    durations = (
-        (3840, "w"),
-        (2880, "h."),
-        (1920, "h"),
-        (1440, "q."),
-        (960, "q"),
-        (720, "e."),
-        (480, "e"),
-        (360, "s."),
-        (240, "s"),
-        (180, "t."),
-        (120, "t"),
-        (60, "f"),
-    )
-    events = []
-    start = 0
-    remaining = total_ticks
-    while remaining > 0:
-        ticks, token = next(
-            ((ticks, token) for ticks, token in durations if ticks <= remaining),
-            (remaining, f"d{max(1, round(3840 / remaining))}"),
-        )
-        events.append(f"@{start}:{token}:r")
-        start += ticks
-        remaining -= ticks
-    return "M2 | V0{" + " ".join(events) + "}"
+def _rest_fallback_target(previous_targets: list[str]) -> str:
+    """Keep swing through a failed bar without inheriting it over valid straight bars.
+
+    M2 feel describes each bar: omission in a valid prediction means straight.
+    A failed prediction provides no such evidence. Its reviewed rest placeholder
+    provisionally keeps only the immediately preceding bar's feel.
+    """
+    target = _full_measure_rest_target(_active_time_signature(previous_targets))
+    feel = parse_measure_target(previous_targets[-1]).get("triplet_feel") if previous_targets else None
+    if feel:
+        target = target.replace("M2", "M2 feel=" + str(feel), 1)
+    return target
 
 
 def recognize_crops(
@@ -117,8 +100,19 @@ def recognize_crops(
     if not retry.issubset({int(row["measure_number"]) for row in records}):
         raise ValueError("Invalid measure number to retry")
     targets: list[str] = []
+    default_mode = mode
     with diagnostics_path.open("a", encoding="utf-8") as diagnostics:
         for index, record in enumerate(records, start=1):
+            mode = record.get("mode") or default_mode
+            if mode not in {"tab", "notation", "both"}:
+                raise ValueError(f"Measure {record['measure_number']} has no notation type")
+            record["mode"] = mode
+            # Context note fields differ between notation modes. Restart the
+            # visual context at a mode change instead of inventing fingerings
+            # or trying to format a pitch-only note as TAB.
+            previous_context = "START"
+            if targets and (records[index - 2].get("mode") or default_mode) == mode:
+                previous_context = format_history_context(targets, mode)
             if cancelled and cancelled():
                 from shared.tasks import Cancelled
 
@@ -148,11 +142,7 @@ def recognize_crops(
                 if saved:
                     record["needs_review"] = bool(value.get("fallback_reason"))
                 record["target"] = target
-                record["previous_context"] = (
-                    "START"
-                    if not targets
-                    else format_previous_measure_context(targets[-1], mode)
-                )
+                record["previous_context"] = previous_context
                 record["recognition_attempts"] = value.get(
                     "attempt", value.get("recognition_attempts", 0)
                 )
@@ -161,11 +151,6 @@ def recognize_crops(
                     progress(index, len(records))
                 continue
             backend = backend or GlmBackend(model_path, adapter_path, device)
-            previous_context = (
-                "START"
-                if not targets
-                else format_previous_measure_context(targets[-1], mode)
-            )
             messages: list[dict[str, Any]] = [
                 {
                     "role": "user",
@@ -180,7 +165,6 @@ def recognize_crops(
             ]
             target = ""
             constraint_errors: list[str] = []
-            active_time_signature = _active_time_signature(targets)
             token_budget = max_new_tokens
             for attempt in range(1, maximum_attempts + 1):
                 if cancelled and cancelled():
@@ -267,7 +251,7 @@ def recognize_crops(
                         ]
                     )
             if constraint_errors:
-                target = _full_measure_rest_target(active_time_signature)
+                target = _rest_fallback_target(targets)
                 _parsed, fallback_errors = validate_measure_target(
                     target,
                     mode,

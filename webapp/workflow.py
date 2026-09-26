@@ -21,6 +21,7 @@ from shared.artifacts import read_result, write_json, write_result
 from shared.constraints import validate_measure_target
 from shared.glm_backend import BackendPool
 from shared.m2 import format_measure_target, parse_measure_target
+from shared.score_text import display_score_text, model_score_text, display_error
 from shared.tuning import DEFAULT_TUNING
 
 
@@ -80,7 +81,8 @@ class Workflow:
                 "pages": pages,
                 "inputs": [str(p) for p in inputs],
                 "input_names": input_names or [p.name for p in inputs],
-                "mode": "tab",
+                "mode": "auto",
+                "mode_setting": "auto",
                 "boxes": [],
                 "layout": None,
                 "info": None,
@@ -97,7 +99,17 @@ class Workflow:
             state[key] = None
         state["revision"] += 1
 
-    def detect(self, sid, mode="tab", source="auto"):
+    @staticmethod
+    def _layout_boxes(data):
+        return [
+            {"kind": "measure", "page": r["page"], "bbox": r["bbox"], "mode": r.get("mode") or data["mode"]}
+            for r in data["records"]
+        ] + [
+            {"kind": r["kind"], "page": r["page"], "bbox": r["bbox"]}
+            for r in data["regions"]
+        ]
+
+    def detect(self, sid, mode="auto", source="auto"):
         state = self.load(sid)
         result = layout_stage.run(
             [Path(p) for p in state["inputs"]],
@@ -113,14 +125,9 @@ class Workflow:
         state.update(
             layout=str(result),
             mode=data["mode"],
-            boxes=[
-                {"kind": "measure", "page": r["page"], "bbox": r["bbox"]}
-                for r in data["records"]
-            ]
-            + [
-                {"kind": r["kind"], "page": r["page"], "bbox": r["bbox"]}
-                for r in data["regions"]
-            ],
+            mode_setting=mode,
+            pages=data.get("pages", state["pages"]),
+            boxes=self._layout_boxes(data),
         )
         self.invalidate(state, "layout")
         return self.store(state)
@@ -128,7 +135,8 @@ class Workflow:
     def boxes(self, sid, boxes, mode):
         state = self.load(sid)
         result = save_layout(state["pages"], boxes, self.output(sid, "layout"), mode)
-        state.update(layout=str(result), boxes=boxes, mode=mode)
+        data = read_result(result, "layout")
+        state.update(layout=str(result), boxes=self._layout_boxes(data), pages=data["pages"], mode=data["mode"], mode_setting=mode)
         self.invalidate(state, "layout")
         return self.store(state)
 
@@ -155,6 +163,9 @@ class Workflow:
             "\n".join(r["target"] for r in source["records"]) + "\n", encoding="utf-8"
         )
         source["m2"] = str(m2)
+        score_text = out / "score.txt"
+        score_text.write_text(display_score_text(m2.read_text(encoding="utf-8")), encoding="utf-8")
+        source["score_text"] = str(score_text)
         return str(write_json(out / "manifest.json", source))
 
     def _information_changed(self, state, result):
@@ -176,7 +187,7 @@ class Workflow:
                 first = parse_measure_target(source["records"][0]["target"])
                 first["tempo_quarter"] = int(tempo)
                 source["records"][0]["target"] = format_measure_target(
-                    first, source["mode"], preserve_playback=True
+                    first, source["records"][0].get("mode") or source["mode"], preserve_playback=True
                 )
             state["recognition"] = self._save_recognition(
                 state["id"], source, "metadata"
@@ -274,21 +285,23 @@ class Workflow:
         source = read_result(Path(state["recognition"]), "measure_ocr")
         if not 1 <= number <= len(source["records"]):
             raise ValueError("无效的小节编号")
+        row = source["records"][number - 1]
+        mode = row.get("mode") or source["mode"]
         if measure is not None:
             try:
                 target = format_measure_target(
-                    measure, source["mode"], preserve_playback=True
+                    measure, mode, preserve_playback=True
                 )
             except (KeyError, TypeError, ValueError, OverflowError) as error:
                 raise ValueError(f"小节结构无效：{error}") from error
         if not isinstance(target, str) or len(target) > 50000 or "\n" in target:
             raise ValueError("请输入单个小节的内容")
+        target = model_score_text(target)
         parsed, errors = validate_measure_target(
-            target, source["mode"], tuning=source["tuning_used"]
+            target, mode, tuning=source["tuning_used"]
         )
         if errors:
             raise ValueError("小节内容无效：" + "; ".join(errors))
-        row = source["records"][number - 1]
         row.update(target=target, manually_edited=True)
         if reviewed:
             row["needs_review"] = False
@@ -310,6 +323,13 @@ class Workflow:
         state["revision"] += 1
         return self.store(state)
 
+    def score_text(self, sid):
+        state = self.load(sid)
+        if not state["recognition"]:
+            raise ValueError("请先识别小节")
+        source = read_result(Path(state["recognition"]), "measure_ocr")
+        return display_score_text("\n".join(row["target"] for row in source["records"]) + "\n")
+
     def public(self, sid):
         state = deepcopy(self.load(sid))
 
@@ -328,10 +348,14 @@ class Workflow:
             data = read_result(Path(state["recognition"]), "measure_ocr")
             state["review_measures"] = data.get("review_measures", [])
             state["m2_url"] = asset(data["m2"])
+            state["score_text_url"] = f"/api/sessions/{sid}/score.txt"
             for row in data["records"]:
                 state["measures"].append(
                     {
                         **row,
+                        "score_text": display_score_text(row["target"]),
+                        "context_text": display_score_text(row.get("previous_context") or ""),
+                        "fallback_reason": [display_error(reason) for reason in (row.get("fallback_reason") or [])],
                         "url": asset(row["image"]),
                         "parsed": parse_measure_target(row["target"]),
                     }

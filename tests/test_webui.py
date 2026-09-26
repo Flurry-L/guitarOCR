@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 from layout.pages import expand_inputs
 from layout.edit import save_layout
 from shared.glm_backend import BackendPool
+from shared.score_text import display_score_text, model_score_text
 from webapp.app import create_app
 from webapp.workflow import Workflow
 
@@ -144,6 +145,87 @@ class WebWorkflowTest(unittest.TestCase):
         layout = json.loads(Path(changed["layout"]).read_text())
         with Image.open(layout["records"][0]["image"]) as crop:
             self.assertGreater(crop.height, 75)
+
+    def test_readable_text_edits_downloads_and_legacy_projects(self):
+        sid, state = self.prepare()
+        prefix = f"/api/sessions/{sid}"
+        row = state["measures"][0]
+        self.assertTrue(row["score_text"].startswith("MEASURE "))
+        self.assertTrue(state["measures"][1]["context_text"].startswith("CONTEXT "))
+        # The model still receives exactly its trained protocol.
+        prompt = self.backend.return_value.generate.call_args_list[1].args[0][0]["content"][1]["text"]
+        self.assertIn("one M2 fragment", prompt)
+        self.assertIn("C2 ", prompt)
+        self.assertNotIn("MEASURE", prompt)
+        self.assertNotIn("CONTEXT", prompt)
+        raw_path = Path(json.loads(Path(state["recognition"]).read_text())["m2"])
+        raw = raw_path.read_text()
+        downloaded = self.client.get(state["score_text_url"])
+        self.assertIn('filename="score.txt"', downloaded.headers["content-disposition"])
+        self.assertEqual(model_score_text(downloaded.text), raw)
+        self.assertTrue(all(line.startswith("MEASURE ") for line in downloaded.text.splitlines()))
+
+        # Editing a readable header must preserve user text matching old names.
+        target = row["score_text"].replace("MEASURE ", "MEASURE section=M2 ", 1).replace("s1f0", "s1f7")
+        response = self.client.put(prefix + "/measures/1", json={"target": target, "reviewed": True})
+        self.assertEqual(response.status_code, 200, response.text)
+        updated = response.json()
+        self.assertEqual(updated["measures"][0]["score_text"], target)
+        stored = json.loads(Path(updated["recognition"]).read_text())
+        self.assertEqual(stored["records"][0]["target"], model_score_text(target))
+        self.assertIn("section=M2", stored["records"][0]["target"])
+        self.assertEqual(display_score_text(stored["records"][0]["target"]), target)
+        self.assertEqual(self.client.get(updated["score_text_url"]).text.splitlines()[0], target)
+        self.assertEqual(self.client.post(prefix + "/export").status_code, 200)
+        # Older projects need no migration or pre-existing readable sidecar.
+        Path(stored.pop("score_text")).unlink()
+        Path(updated["recognition"]).write_text(json.dumps(stored))
+        restored = self.client.get(prefix).json()
+        self.assertEqual(restored["measures"][0]["score_text"], target)
+        self.assertEqual(self.client.get(restored["score_text_url"]).text.splitlines()[0], target)
+        self.assertEqual(self.client.post(prefix + "/export").status_code, 200)
+        self.assertEqual(raw_path.read_text(), raw)
+        invalid = self.client.put(prefix + "/measures/1", json={"target": "broken"})
+        self.assertEqual(invalid.status_code, 400)
+        self.assertIn("MEASURE", invalid.json()["detail"])
+        self.assertNotIn("M2", invalid.json()["detail"])
+
+    def test_auto_types_survive_edit_save_ocr_and_correction(self):
+        sid, state = self.upload()
+        self.assertEqual(state["mode_setting"], "auto")
+        modes = ["notation", "tab", "both"]
+        targets = [f"M2 time=4/4 | V0{{@0:w:{note}}}" for note in ("p64", "s1f0", "s1f0p64")]
+        self.backend.return_value.generate.side_effect = [(target, 20) for target in targets]
+        prefix = f"/api/sessions/{sid}"
+        response = self.client.put(prefix + "/boxes", json={
+            "mode": "auto", "boxes": [
+                {"page": 1, "kind": "measure", "mode": mode, "bbox": [10 + 90 * i, 80, 80, 60]}
+                for i, mode in enumerate(modes)
+            ],
+        })
+        self.assertEqual(response.status_code, 200, response.text)
+        state = response.json()
+        self.assertEqual(state["mode"], "tab")
+        self.assertEqual([b["mode"] for b in state["boxes"]], modes)
+        self.assertEqual(self.client.put(prefix + "/metadata", json={"tempo_quarter": 96}).status_code, 200)
+        self.client.post(prefix + "/recognize")
+        state = self.wait(sid)
+        self.assertEqual([r["mode"] for r in state["measures"]], modes)
+        self.assertFalse(state["review_measures"])
+        for call, expected in zip(self.backend.return_value.generate.call_args_list, ("Guitar notation", "Guitar TAB", "Guitar score+TAB")):
+            self.assertTrue(call.args[0][0]["content"][1]["text"].startswith(expected))
+        first = state["measures"][0]["parsed"]
+        first["voices"][0]["events"][0]["notes"][0]["pitch"] = 65
+        self.assertEqual(self.client.put(prefix + "/measures/1", json={"measure": first}).status_code, 200)
+        self.assertEqual(self.client.put(prefix + "/metadata", json={"tempo_quarter": 104}).status_code, 200)
+        state = self.client.get(prefix).json()
+        self.assertEqual(state["measures"][0]["parsed"]["voices"][0]["events"][0]["notes"][0]["pitch"], 65)
+        response = self.client.post(prefix + "/export")
+        self.assertEqual(response.status_code, 200, response.text)
+        state = response.json()
+        exported = json.loads(Path(state["export"]).read_text())
+        song = guitarpro.parse(exported["gp5"], encoding="cp936")
+        self.assertEqual(len(song.tracks[0].measures), 3)
 
     def test_structured_edit_preserves_playback_and_effects(self):
         self.backend.return_value.generate.return_value = (
@@ -383,7 +465,7 @@ class WebWorkflowTest(unittest.TestCase):
         self.assertEqual(
             self.client.put(url, json=second, headers=headers).status_code, 409
         )
-        self.assertEqual(self.workflow.load(sid)["boxes"], first["boxes"])
+        self.assertEqual(self.workflow.load(sid)["boxes"], [{**box, "mode": "tab"} for box in first["boxes"]])
         missing = TestClient.request(self.client, "PUT", url, json=second)
         self.assertEqual(missing.status_code, 428)
 
@@ -513,6 +595,8 @@ class WebWorkflowTest(unittest.TestCase):
             restored = imported.json()
             self.assertNotEqual(sid, restored["id"])
             self.assertIn("s1f7", restored["measures"][0]["target"])
+            self.assertTrue(restored["measures"][0]["score_text"].startswith("MEASURE "))
+            self.assertEqual(client.get(restored["score_text_url"]).status_code, 200)
             self.assertEqual(client.get(restored["gp5_url"]).status_code, 200)
             self.assertTrue(str(other.root) in restored["recognition"])
             self.assertEqual(

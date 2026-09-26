@@ -1,7 +1,7 @@
 /**
  * gpomr_native_export.dll - Native Guitar Pro score and layout exporter.
  *
- * Strategy: load through GPCore, select one track with all its TAB staves, then
+ * Strategy: load through GPCore, select one track in the requested notation mode, then
  * render the prepared engraving context and export its official score model.
  *
  * Protocol (newline-delimited JSON over \\.\pipe\gpomr_export):
@@ -53,6 +53,9 @@
 #include <QDir>
 #include <QThread>
 #include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonParseError>
 
 
 // ── Simple JSON helper ───────────────────────────────────────────
@@ -489,6 +492,8 @@ static std::atomic<bool> g_directReady{false};
 static std::atomic<bool> g_directReadyProbeStarted{false};
 static HANDLE g_directReadyEvent = NULL;
 static std::mutex g_directConvertMutex;
+// All exports and changes to this mode are serialized by g_directConvertMutex.
+static std::string g_displayMode = "tab";
 static int g_directProbeCount = 0;
 
 static void ensureDirectFileSystem() {
@@ -1573,8 +1578,9 @@ static bool writeNativeLayoutDump(const std::string& path,
     out << "  \"schema\": \"gpomr.render-layout\",\n";
     out << "  \"pdf_ok\": " << (pdfOk ? "true" : "false") << ",\n";
     out << "  \"source_track_index\": " << sourceTrackIndex << ",\n";
-    out << "  \"tab_only\": true,\n";
-    writeNoteGeometry(out);
+    out << "  \"tab_only\": " << (g_displayMode == "tab" ? "true" : "false") << ",\n";
+    out << "  \"display_mode\": \"" << g_displayMode << "\",\n";
+    if (g_displayMode == "tab") writeNoteGeometry(out);
     const auto* stylesheet = g_directExportState
         ? g_directExportState->stylesheet
         : nullptr;
@@ -2943,6 +2949,39 @@ static std::shared_ptr<gp::core::Score> loadCoreScoreWithoutAppDocument(
                 + inputPath;
             return nullptr;
         }
+        // GP3/4/5 text uses an implicit legacy code page. Explicit UTF-8
+        // metadata keeps generated Unicode headers intact in the native score.
+        QFile metadataFile(qInput + QStringLiteral(".metadata.json"));
+        if (metadataFile.exists()) {
+            errorCodeOut = "metadata_override_invalid";
+            if (!metadataFile.open(QIODevice::ReadOnly)) {
+                errOut = "cannot read UTF-8 metadata sidecar";
+                return nullptr;
+            }
+            QJsonParseError parseError;
+            const auto metadata = QJsonDocument::fromJson(metadataFile.readAll(), &parseError);
+            if (parseError.error != QJsonParseError::NoError || !metadata.isObject()) {
+                errOut = "metadata sidecar must be a JSON object";
+                return nullptr;
+            }
+            const std::map<std::string, std::string> properties = {
+                {"title", "TITLE"}, {"subtitle", "SUBTITLE"}, {"artist", "ARTIST"},
+                {"album", "ALBUM"}, {"words", "WORDS"}, {"music", "MUSIC"},
+                {"copyright", "COPYRIGHT"}, {"tabber", "TABBER"},
+                {"instructions", "INSTRUCTIONS"}, {"notice", "NOTICE"},
+            };
+            const auto object = metadata.object();
+            for (auto iterator = object.begin(); iterator != object.end(); ++iterator) {
+                const auto property = properties.find(iterator.key().toStdString());
+                if (property == properties.end() || !iterator.value().isString()) {
+                    errOut = "metadata sidecar has an unsupported field or non-string value";
+                    return nullptr;
+                }
+                score->setProperty(gp::core::stringToScoreProperty(property->second),
+                                  iterator.value().toString().toUtf8().toStdString());
+            }
+            errorCodeOut.clear();
+        }
     } catch (...) {
         errOut = "Guitar Pro core loader threw while reading: " + inputPath;
         return nullptr;
@@ -3143,10 +3182,10 @@ static bool configureCoreScoreForTrackExport(
     }
     auto& group = view.trackViewGroup(0);
     group.setVisible(true);
-    group.setStandardNotation(false);
+    group.setStandardNotation(g_displayMode != "tab");
     group.setSlash(false);
     group.setNumberedNotation(false);
-    group.setTablature(true);
+    group.setTablature(g_displayMode != "notation");
     const auto groupTrack = group.track();
     if (!groupTrack
             || groupTrack.get() != selectedTrack.get()
@@ -3156,11 +3195,11 @@ static bool configureCoreScoreForTrackExport(
         return false;
     }
     if (!group.isVisible()
-            || group.hasStandardNotation()
+            || group.hasStandardNotation() != (g_displayMode != "tab")
             || group.hasSlash()
             || group.hasNumberedNotation()
-            || !group.hasTablature()) {
-        errOut = "Guitar Pro track view group is not visible TAB-only";
+            || group.hasTablature() != (g_displayMode != "notation")) {
+        errOut = "Guitar Pro track view group does not match the requested display mode";
         return false;
     }
     return true;
@@ -3200,8 +3239,10 @@ static ConvertResult doCoreDirectConvert(const std::string& inputPath,
                                          const std::string& layoutPath,
                                          const std::string& officialScorePath,
                                          int selectedTrackIndex,
-                                         bool captureNoteGeometry) {
+                                         bool captureNoteGeometry,
+                                         const std::string& displayMode) {
     std::lock_guard<std::mutex> lock(g_directConvertMutex);
+    g_displayMode = displayMode;
     ConvertResult cr;
     std::string error;
     std::string errorCode;
@@ -3418,6 +3459,8 @@ static DWORD WINAPI pipeServerThread(LPVOID) {
                         line, "official_score_output");
                     const std::string trackIndexText = json::get(line, "track_index");
                     const std::string tabOnlyText = json::get(line, "tab_only");
+                    std::string displayMode = json::get(line, "display_mode");
+                    if (displayMode.empty() && tabOnlyText == "true") displayMode = "tab";
                     const std::string geometryText = json::get(line, "capture_note_geometry");
                     int selectedTrackIndex = -1;
                     const bool validTrackIndex = parseTrackIndex(
@@ -3428,7 +3471,8 @@ static DWORD WINAPI pipeServerThread(LPVOID) {
                             || layoutPath.empty()
                             || officialScorePath.empty()
                             || !validTrackIndex
-                            || tabOnlyText != "true"
+                            || (displayMode != "tab" && displayMode != "notation" && displayMode != "both")
+                            || tabOnlyText != (displayMode == "tab" ? "true" : "false")
                             || (!geometryText.empty() && geometryText != "true" && geometryText != "false")) {
                         response = json::make({
                             {"ok", "false"},
@@ -3441,7 +3485,8 @@ static DWORD WINAPI pipeServerThread(LPVOID) {
                             layoutPath,
                             officialScorePath,
                             selectedTrackIndex,
-                            geometryText != "false");
+                            geometryText != "false" && displayMode == "tab",
+                            displayMode);
                         if (cr.ok) {
                             response = json::make({{"ok", "true"}});
                         } else if (!cr.errorCode.empty()) {

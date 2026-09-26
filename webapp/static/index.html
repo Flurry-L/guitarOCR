@@ -76,6 +76,7 @@
           <label
             >谱面
             <select id="mode">
+              <option value="auto">自动识别谱面</option>
               <option value="tab">六线谱 TAB</option>
               <option value="notation">五线谱</option>
               <option value="both">五线谱 + TAB</option>
@@ -84,7 +85,7 @@
             >定位
             <select id="layoutSource">
               <option value="auto">自动选择</option>
-              <option value="image">图片模型（TAB）</option>
+              <option value="image">图片模型</option>
               <option value="geometry">谱线几何</option>
             </select></label
           ><span class="divider"></span
@@ -134,6 +135,14 @@
               ><label>宽<input id="boxW" type="number" step="1" /></label
               ><label>高<input id="boxH" type="number" step="1" /></label
               ><button id="applyCoords">应用坐标</button>
+              <label id="boxModeField">小节谱面
+                <select id="boxMode">
+                  <option value="" disabled>待识别</option>
+                  <option value="tab">六线谱 TAB</option>
+                  <option value="notation">五线谱</option>
+                  <option value="both">五线谱 + TAB</option>
+                </select>
+              </label>
               <div class="row">
                 <button id="earlier">提前</button
                 ><button id="later">延后</button>
@@ -257,14 +266,14 @@
             1:0,2:1,3:0。奏法和连音信息会保留，可在高级编辑中修改。
           </p>
           <details id="advanced">
-            <summary>高级编辑：小节文本（M2）</summary>
+            <summary>高级编辑：小节文本</summary>
             <p class="muted small">
               修改文本后点击「保存文本」。普通编辑和高级编辑分别保存，请选择一种方式。
             </p>
-            <textarea id="m2" rows="5" spellcheck="false"></textarea
+            <textarea id="measureText" aria-label="小节文本" rows="5" spellcheck="false"></textarea
             ><button id="saveRaw">保存文本并确认此小节</button>
             <p class="muted small">
-              例：M2 time=4/4 | V0{@0:q:s1f0 @960:q:s2f1 @1920:h:r}。w / h / q /
+              例：MEASURE time=4/4 | V0{@0:q:s1f0 @960:q:s2f1 @1920:h:r}。MEASURE 表示一个小节。w / h / q /
               e / s 表示全、二分、四分、八分、十六分音符；r 表示休止。
             </p>
           </details>
@@ -289,7 +298,7 @@
         </div>
         <div id="exportSummary" class="export-summary"></div>
         <div class="footer">
-          <a id="downloadProject" hidden>下载完整项目 ZIP</a><a id="downloadM2" hidden>下载小节文本</a
+          <a id="downloadProject" hidden>下载完整项目 ZIP</a><a id="downloadScoreText" hidden>下载小节文本</a
           ><button id="export" class="primary">生成 GP5</button
           ><a id="downloadGP5" class="button primary" hidden>↓ 下载 GP5</a>
         </div>

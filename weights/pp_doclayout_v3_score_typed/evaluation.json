@@ -1,0 +1,1437 @@
+{
+  "schema_version": "1.0",
+  "recorded_at_utc": "2026-09-26T03:43:47.404328+00:00",
+  "release_path": "weights/pp_doclayout_v3_score_typed",
+  "model_sha256": {
+    "inference.json": "c58dd9cf680033fe42725813de94106c052e53d6d42e09507cccaf502a383d79",
+    "inference.pdiparams": "47c69ca1eaa983b1fba7a5fb6f2ea4163f5f177d6d2ebc31428d9b8a3ea1e116",
+    "inference.yml": "071c98b3f175e7c5ec7901c96fc5586df02714f83504d0235ca56489358dc84d"
+  },
+  "classes": [
+    "measure_tab",
+    "measure_notation",
+    "measure_both",
+    "tempo_region"
+  ],
+  "measure_modes": {
+    "measure_tab": "tab",
+    "measure_notation": "notation",
+    "measure_both": "both"
+  },
+  "training": {
+    "epochs": 8,
+    "selected_epoch_1_based": 7,
+    "selection_metric": "validation bbox AP@[0.50:0.95], all four detection classes",
+    "selection_ap": 0.937982463258879,
+    "validation_history": [
+      {
+        "metric": 0.7383628379448764,
+        "epoch": 1
+      },
+      {
+        "metric": 0.896054067392477,
+        "epoch": 2
+      },
+      {
+        "metric": 0.9039787141848676,
+        "epoch": 3
+      },
+      {
+        "metric": 0.9316563157081587,
+        "epoch": 4
+      },
+      {
+        "metric": 0.9339178992270706,
+        "epoch": 5
+      },
+      {
+        "metric": 0.9284736260658765,
+        "epoch": 6
+      },
+      {
+        "metric": 0.937982463258879,
+        "epoch": 7
+      },
+      {
+        "metric": 0.9367750685605369,
+        "epoch": 8
+      }
+    ],
+    "checkpoint": "output/pp_doclayout_v3_score_typed/best_model/best_model.pdparams",
+    "checkpoint_sha256": "8aa5f3efada8f7e74d5d0474759be1b294c3e611e3e72bd2a6a33a0753394229",
+    "config": "layout/configs/train_typed.yaml",
+    "config_sha256": "5665dd73cd532398081a59adf3fa30029deed88b5a3ff5007066290d62e01046",
+    "resolved_config_sha256": "eea37d92feda661de216244ac39cbd61796d238c4e5d23834cb1a95a5f138c50",
+    "logged_loss_count": 176,
+    "first_logged_loss": 172.268173,
+    "last_logged_loss": 10.312453,
+    "initialization": {
+      "source": "/mnt/data-4/flurry/guitarOCR-external/output/pp_doclayout_v3_score_multimode/best_model/best_model.pdema",
+      "source_sha256": "02292b9d4c896f375b017ee83f3d66e712a25c98af343b729bd331dcd54e7217",
+      "output_sha256": "f88bad83265a800fd2ae529958080b5386fcbe138d30fa0531971e39157c3fdf",
+      "old_labels": [
+        "measure",
+        "tempo_region"
+      ],
+      "new_labels": [
+        "measure_tab",
+        "measure_notation",
+        "measure_both",
+        "tempo_region"
+      ],
+      "expanded_tensors": {
+        "transformer.score_head.weight": {
+          "before": [
+            256,
+            2
+          ],
+          "after": [
+            256,
+            4
+          ]
+        },
+        "transformer.score_head.bias": {
+          "before": [
+            2
+          ],
+          "after": [
+            4
+          ]
+        },
+        "transformer.denoising_class_embed.weight": {
+          "before": [
+            2,
+            256
+          ],
+          "after": [
+            4,
+            256
+          ]
+        }
+      },
+      "unchanged_tensors": 827
+    },
+    "selection_decision": {
+      "selected_at_utc": "2026-09-26T03:41:55.303694+00:00",
+      "selected_epoch_1_based": 7,
+      "selection_dataset": "validation only",
+      "reason": "Best four-class validation bbox AP after 8 epochs. All 1196 page types and 27473 matched measure types correct. Localization differences vs two-class predecessor: TAB -0.003066 AP, notation +0.002760 AP, both -0.001606 AP. Old sparse TAB AP +0.001402; exact-count pages 979/989 vs 987/989, with 10 missed of 24780 measures. Accepted as small localization tradeoff for model-provided types; no held-out test used for selection."
+    },
+    "raw_training_checkpoint": "output/pp_doclayout_v3_score_typed/best_model/best_model.pdema",
+    "raw_training_checkpoint_sha256": "fd1b0f7c100348e1ad5ae897c7c3c554b26165affdd8882b90c8d916ee3a3037",
+    "checkpoint_role": "EMA weights selected by validation and used for inference export; .pdema contains raw optimizer-training weights."
+  },
+  "data_audit": {
+    "train": {
+      "pages": 7003,
+      "families": 600,
+      "categories": {
+        "tempo_region": 2838,
+        "measure_tab": 53175,
+        "measure_notation": 53175,
+        "measure_both": 53175
+      },
+      "annotations_sha256": "f178150ec4f34f1e2e5330252d1da4cdd4e522c24dc65c800214692d778695f4"
+    },
+    "val": {
+      "pages": 1196,
+      "families": 100,
+      "categories": {
+        "tempo_region": 357,
+        "measure_tab": 9161,
+        "measure_notation": 9161,
+        "measure_both": 9161
+      },
+      "annotations_sha256": "efb9474029f20fa6d6501f980d817123e2cb083d7f9c0c89a05be79e4066ad53"
+    },
+    "test": {
+      "pages": 1123,
+      "families": 100,
+      "categories": {
+        "tempo_region": 297,
+        "measure_tab": 8586,
+        "measure_notation": 8586,
+        "measure_both": 8586
+      },
+      "annotations_sha256": "9baff14d8c17c3d75372c9fd4d89f34503f8104f07fb0b593a7f4ff8e86a9b43"
+    }
+  },
+  "original_data_audit": {
+    "dataset": "/mnt/data-4/flurry/guitarOCR-external/database/gp8_layout_multimode_v1/datasets/layout",
+    "splits": {
+      "train": {
+        "pages": 7003,
+        "families": 600,
+        "modes": {
+          "tab": 2130,
+          "notation": 1824,
+          "both": 3049
+        }
+      },
+      "val": {
+        "pages": 1196,
+        "families": 100,
+        "modes": {
+          "tab": 367,
+          "notation": 311,
+          "both": 518
+        }
+      },
+      "test": {
+        "pages": 1123,
+        "families": 100,
+        "modes": {
+          "tab": 338,
+          "notation": 293,
+          "both": 492
+        }
+      }
+    },
+    "annotation_sha256": {
+      "train": "bfe3ac590c5a39cfc1a4c14364c451f16ad611bb196890b21752cfaec82753af",
+      "val": "ae9eb98e864435675961cc47ca61c72ebe53db0863c754c30aeaa703e4b51234",
+      "test": "b57daceda2a925d1c6722e440023903287cf061747e524b4397a8bde81afea92"
+    },
+    "source_catalog_sha256": "32f2899f7f3116bf3d54380188f6945727161ce168b340a3aaf1ee95fc289e07",
+    "pretrain_sha256": "d6a257a15b29b8dedb448f289a3450d900752903c544278f3614b1f0d9ab3951",
+    "test_origin_audit": {
+      "historical_inventory_sha256": "202c122f4f967314ff4e457b7608a1955535713e68c49b43d6720daa4a836272",
+      "historical_inventory_splits": {
+        "train": 762,
+        "validation": 137
+      },
+      "historical_test_family_overlap": [],
+      "original_test_assignment_matches": 100,
+      "original_source_splits_sha256": "bbfb4f2e11c0f2b88bd03a9cbe413b73d1147ea7bb619343af8beaa748d2022b"
+    }
+  },
+  "dataset_summary": {
+    "typed_measures": true,
+    "train": 7003,
+    "validation": 1196,
+    "test": 1123,
+    "gp8_pages": 0,
+    "sparse_pages": {
+      "train": 0,
+      "validation": 0,
+      "first": 0,
+      "later": 0
+    },
+    "by_mode": {
+      "train": {
+        "tab": 2130,
+        "notation": 1824,
+        "both": 3049
+      },
+      "validation": {
+        "tab": 367,
+        "notation": 311,
+        "both": 518
+      },
+      "test": {
+        "tab": 338,
+        "notation": 293,
+        "both": 492
+      }
+    },
+    "annotations": {
+      "train": 162363,
+      "validation": 27840,
+      "test": 26055
+    },
+    "inventory_sha256": "d5318d0b40067647ab66604bb16c1a7273e91a9a4fa136d2f125e5c9373944f0"
+  },
+  "dataset_sources_sha256": "efaab1c36f802600389f17137203da4110b829e007f24011d60fc92bb7003bc9",
+  "evaluations": {
+    "val": {
+      "ap_50_95": 0.9044576817679327,
+      "ap_50": 0.975191727342123,
+      "categories": {
+        "measure": {
+          "ap_50_95": 0.9738481507984316,
+          "recall_50": 0.9996361387039261,
+          "ground_truth_boxes": 27483
+        },
+        "tempo_region": {
+          "ap_50_95": 0.8350672127374336,
+          "recall_50": 0.969187675070028,
+          "ground_truth_boxes": 357
+        }
+      },
+      "total_pages": 1196,
+      "matched_measure_type": {
+        "iou": 0.5,
+        "matched_measures": 27473,
+        "correct_measures": 27473,
+        "accuracy": 1.0
+      },
+      "mode_classification": {
+        "correct_pages": 1196,
+        "total_pages": 1196,
+        "accuracy": 1.0,
+        "unknown_pages": 0,
+        "confusion": {
+          "tab": {
+            "tab": 367
+          },
+          "notation": {
+            "notation": 311
+          },
+          "both": {
+            "both": 518
+          }
+        },
+        "correct_sources": 300
+      },
+      "exact_measure_count_pages": 1188,
+      "raw_exact_measure_count_pages": 1188,
+      "changed_count_pages": 0,
+      "exact_measure_count_sources": 292,
+      "total_sources": 300,
+      "detections": 27834,
+      "typed_detection": {
+        "ap_50_95": 0.9368864051111967,
+        "ap_50": 0.9826302400647569,
+        "categories": {
+          "measure_tab": {
+            "ap_50_95": 0.9851445287933658,
+            "recall_50": 0.9997816832223556,
+            "ground_truth_boxes": 9161
+          },
+          "measure_notation": {
+            "ap_50_95": 0.9461353785531675,
+            "recall_50": 0.9994542080558891,
+            "ground_truth_boxes": 9161
+          },
+          "measure_both": {
+            "ap_50_95": 0.98119850036082,
+            "recall_50": 0.9996725248335334,
+            "ground_truth_boxes": 9161
+          },
+          "tempo_region": {
+            "ap_50_95": 0.8350672127374336,
+            "recall_50": 0.969187675070028,
+            "ground_truth_boxes": 357
+          }
+        },
+        "total_pages": 1196
+      },
+      "by_mode": {
+        "both": {
+          "ap_50_95": 0.9088492569808908,
+          "ap_50": 0.9751810658041532,
+          "categories": {
+            "measure": {
+              "ap_50_95": 0.98119850036082,
+              "recall_50": 0.9996725248335334,
+              "ground_truth_boxes": 9161
+            },
+            "tempo_region": {
+              "ap_50_95": 0.8365000136009613,
+              "recall_50": 0.9663865546218487,
+              "ground_truth_boxes": 119
+            }
+          },
+          "total_pages": 518,
+          "matched_measure_type": {
+            "iou": 0.5,
+            "matched_measures": 9158,
+            "correct_measures": 9158,
+            "accuracy": 1.0
+          },
+          "mode_classification": {
+            "correct_pages": 518,
+            "total_pages": 518,
+            "accuracy": 1.0,
+            "unknown_pages": 0,
+            "confusion": {
+              "tab": {},
+              "notation": {},
+              "both": {
+                "both": 518
+              }
+            },
+            "correct_sources": 100
+          },
+          "exact_measure_count_pages": 516,
+          "raw_exact_measure_count_pages": 516,
+          "changed_count_pages": 0,
+          "exact_measure_count_sources": 98,
+          "total_sources": 100,
+          "typed_detection": {
+            "ap_50_95": 0.9088492569808908,
+            "ap_50": 0.9751810658041532,
+            "categories": {
+              "measure_tab": {
+                "ap_50_95": null,
+                "recall_50": null,
+                "ground_truth_boxes": 0
+              },
+              "measure_notation": {
+                "ap_50_95": null,
+                "recall_50": null,
+                "ground_truth_boxes": 0
+              },
+              "measure_both": {
+                "ap_50_95": 0.98119850036082,
+                "recall_50": 0.9996725248335334,
+                "ground_truth_boxes": 9161
+              },
+              "tempo_region": {
+                "ap_50_95": 0.8365000136009613,
+                "recall_50": 0.9663865546218487,
+                "ground_truth_boxes": 119
+              }
+            },
+            "total_pages": 518
+          }
+        },
+        "notation": {
+          "ap_50_95": 0.8910288775548719,
+          "ap_50": 0.9702348003728849,
+          "categories": {
+            "measure": {
+              "ap_50_95": 0.9461353785531675,
+              "recall_50": 0.9994542080558891,
+              "ground_truth_boxes": 9161
+            },
+            "tempo_region": {
+              "ap_50_95": 0.8359223765565762,
+              "recall_50": 0.957983193277311,
+              "ground_truth_boxes": 119
+            }
+          },
+          "total_pages": 311,
+          "matched_measure_type": {
+            "iou": 0.5,
+            "matched_measures": 9156,
+            "correct_measures": 9156,
+            "accuracy": 1.0
+          },
+          "mode_classification": {
+            "correct_pages": 311,
+            "total_pages": 311,
+            "accuracy": 1.0,
+            "unknown_pages": 0,
+            "confusion": {
+              "tab": {},
+              "notation": {
+                "notation": 311
+              },
+              "both": {}
+            },
+            "correct_sources": 100
+          },
+          "exact_measure_count_pages": 307,
+          "raw_exact_measure_count_pages": 307,
+          "changed_count_pages": 0,
+          "exact_measure_count_sources": 96,
+          "total_sources": 100,
+          "typed_detection": {
+            "ap_50_95": 0.8910288775548719,
+            "ap_50": 0.9702348003728849,
+            "categories": {
+              "measure_tab": {
+                "ap_50_95": null,
+                "recall_50": null,
+                "ground_truth_boxes": 0
+              },
+              "measure_notation": {
+                "ap_50_95": 0.9461353785531675,
+                "recall_50": 0.9994542080558891,
+                "ground_truth_boxes": 9161
+              },
+              "measure_both": {
+                "ap_50_95": null,
+                "recall_50": null,
+                "ground_truth_boxes": 0
+              },
+              "tempo_region": {
+                "ap_50_95": 0.8359223765565762,
+                "recall_50": 0.957983193277311,
+                "ground_truth_boxes": 119
+              }
+            },
+            "total_pages": 311
+          }
+        },
+        "tab": {
+          "ap_50_95": 0.9152826437446057,
+          "ap_50": 0.9850646081557308,
+          "categories": {
+            "measure": {
+              "ap_50_95": 0.9851445287933658,
+              "recall_50": 0.9997816832223556,
+              "ground_truth_boxes": 9161
+            },
+            "tempo_region": {
+              "ap_50_95": 0.8454207586958455,
+              "recall_50": 0.9831932773109243,
+              "ground_truth_boxes": 119
+            }
+          },
+          "total_pages": 367,
+          "matched_measure_type": {
+            "iou": 0.5,
+            "matched_measures": 9159,
+            "correct_measures": 9159,
+            "accuracy": 1.0
+          },
+          "mode_classification": {
+            "correct_pages": 367,
+            "total_pages": 367,
+            "accuracy": 1.0,
+            "unknown_pages": 0,
+            "confusion": {
+              "tab": {
+                "tab": 367
+              },
+              "notation": {},
+              "both": {}
+            },
+            "correct_sources": 100
+          },
+          "exact_measure_count_pages": 365,
+          "raw_exact_measure_count_pages": 365,
+          "changed_count_pages": 0,
+          "exact_measure_count_sources": 98,
+          "total_sources": 100,
+          "typed_detection": {
+            "ap_50_95": 0.9152826437446057,
+            "ap_50": 0.9850646081557308,
+            "categories": {
+              "measure_tab": {
+                "ap_50_95": 0.9851445287933658,
+                "recall_50": 0.9997816832223556,
+                "ground_truth_boxes": 9161
+              },
+              "measure_notation": {
+                "ap_50_95": null,
+                "recall_50": null,
+                "ground_truth_boxes": 0
+              },
+              "measure_both": {
+                "ap_50_95": null,
+                "recall_50": null,
+                "ground_truth_boxes": 0
+              },
+              "tempo_region": {
+                "ap_50_95": 0.8454207586958455,
+                "recall_50": 0.9831932773109243,
+                "ground_truth_boxes": 119
+              }
+            },
+            "total_pages": 367
+          }
+        }
+      },
+      "split": "val",
+      "postprocess": true,
+      "localization_categories": [
+        "measure",
+        "tempo_region"
+      ],
+      "model_provides_notation_type": true,
+      "threshold": 0.25,
+      "model_dir": "/mnt/data-4/flurry/guitarOCR-external/output/layout-typed-release-candidate/inference",
+      "model_sha256": {
+        "inference.json": "c58dd9cf680033fe42725813de94106c052e53d6d42e09507cccaf502a383d79",
+        "inference.pdiparams": "47c69ca1eaa983b1fba7a5fb6f2ea4163f5f177d6d2ebc31428d9b8a3ea1e116",
+        "inference.yml": "071c98b3f175e7c5ec7901c96fc5586df02714f83504d0235ca56489358dc84d"
+      },
+      "annotations_sha256": "efb9474029f20fa6d6501f980d817123e2cb083d7f9c0c89a05be79e4066ad53",
+      "versions": {
+        "paddlex": "3.7.2",
+        "pycocotools": "2.0.8"
+      }
+    },
+    "test": {
+      "ap_50_95": 0.9256598115553909,
+      "ap_50": 0.9949996677520102,
+      "categories": {
+        "measure": {
+          "ap_50_95": 0.9749680812723533,
+          "recall_50": 0.9996505939902166,
+          "ground_truth_boxes": 25758
+        },
+        "tempo_region": {
+          "ap_50_95": 0.8763515418384286,
+          "recall_50": 1.0,
+          "ground_truth_boxes": 297
+        }
+      },
+      "total_pages": 1123,
+      "matched_measure_type": {
+        "iou": 0.5,
+        "matched_measures": 25749,
+        "correct_measures": 25749,
+        "accuracy": 1.0
+      },
+      "mode_classification": {
+        "correct_pages": 1123,
+        "total_pages": 1123,
+        "accuracy": 1.0,
+        "unknown_pages": 0,
+        "confusion": {
+          "tab": {
+            "tab": 338
+          },
+          "notation": {
+            "notation": 293
+          },
+          "both": {
+            "both": 492
+          }
+        },
+        "correct_sources": 300
+      },
+      "exact_measure_count_pages": 1116,
+      "raw_exact_measure_count_pages": 1116,
+      "changed_count_pages": 0,
+      "exact_measure_count_sources": 293,
+      "total_sources": 300,
+      "detections": 26050,
+      "typed_detection": {
+        "ap_50_95": 0.9485419724630971,
+        "ap_50": 0.9950245863512526,
+        "categories": {
+          "measure_tab": {
+            "ap_50_95": 0.9947786433783177,
+            "recall_50": 1.0,
+            "ground_truth_boxes": 8586
+          },
+          "measure_notation": {
+            "ap_50_95": 0.9435272757994455,
+            "recall_50": 0.9991847193105055,
+            "ground_truth_boxes": 8586
+          },
+          "measure_both": {
+            "ap_50_95": 0.9795104288361967,
+            "recall_50": 0.9997670626601444,
+            "ground_truth_boxes": 8586
+          },
+          "tempo_region": {
+            "ap_50_95": 0.8763515418384286,
+            "recall_50": 1.0,
+            "ground_truth_boxes": 297
+          }
+        },
+        "total_pages": 1123
+      },
+      "by_mode": {
+        "both": {
+          "ap_50_95": 0.9325902395544473,
+          "ap_50": 0.995049504950495,
+          "categories": {
+            "measure": {
+              "ap_50_95": 0.9795104288361967,
+              "recall_50": 0.9997670626601444,
+              "ground_truth_boxes": 8586
+            },
+            "tempo_region": {
+              "ap_50_95": 0.885670050272698,
+              "recall_50": 1.0,
+              "ground_truth_boxes": 99
+            }
+          },
+          "total_pages": 492,
+          "matched_measure_type": {
+            "iou": 0.5,
+            "matched_measures": 8584,
+            "correct_measures": 8584,
+            "accuracy": 1.0
+          },
+          "mode_classification": {
+            "correct_pages": 492,
+            "total_pages": 492,
+            "accuracy": 1.0,
+            "unknown_pages": 0,
+            "confusion": {
+              "tab": {},
+              "notation": {},
+              "both": {
+                "both": 492
+              }
+            },
+            "correct_sources": 100
+          },
+          "exact_measure_count_pages": 490,
+          "raw_exact_measure_count_pages": 490,
+          "changed_count_pages": 0,
+          "exact_measure_count_sources": 98,
+          "total_sources": 100,
+          "typed_detection": {
+            "ap_50_95": 0.9325902395544473,
+            "ap_50": 0.995049504950495,
+            "categories": {
+              "measure_tab": {
+                "ap_50_95": null,
+                "recall_50": null,
+                "ground_truth_boxes": 0
+              },
+              "measure_notation": {
+                "ap_50_95": null,
+                "recall_50": null,
+                "ground_truth_boxes": 0
+              },
+              "measure_both": {
+                "ap_50_95": 0.9795104288361967,
+                "recall_50": 0.9997670626601444,
+                "ground_truth_boxes": 8586
+              },
+              "tempo_region": {
+                "ap_50_95": 0.885670050272698,
+                "recall_50": 1.0,
+                "ground_truth_boxes": 99
+              }
+            },
+            "total_pages": 492
+          }
+        },
+        "notation": {
+          "ap_50_95": 0.9160644415308615,
+          "ap_50": 0.9946534653465348,
+          "categories": {
+            "measure": {
+              "ap_50_95": 0.9435272757994455,
+              "recall_50": 0.9991847193105055,
+              "ground_truth_boxes": 8586
+            },
+            "tempo_region": {
+              "ap_50_95": 0.8886016072622774,
+              "recall_50": 1.0,
+              "ground_truth_boxes": 99
+            }
+          },
+          "total_pages": 293,
+          "matched_measure_type": {
+            "iou": 0.5,
+            "matched_measures": 8579,
+            "correct_measures": 8579,
+            "accuracy": 1.0
+          },
+          "mode_classification": {
+            "correct_pages": 293,
+            "total_pages": 293,
+            "accuracy": 1.0,
+            "unknown_pages": 0,
+            "confusion": {
+              "tab": {},
+              "notation": {
+                "notation": 293
+              },
+              "both": {}
+            },
+            "correct_sources": 100
+          },
+          "exact_measure_count_pages": 288,
+          "raw_exact_measure_count_pages": 288,
+          "changed_count_pages": 0,
+          "exact_measure_count_sources": 95,
+          "total_sources": 100,
+          "typed_detection": {
+            "ap_50_95": 0.9160644415308615,
+            "ap_50": 0.9946534653465348,
+            "categories": {
+              "measure_tab": {
+                "ap_50_95": null,
+                "recall_50": null,
+                "ground_truth_boxes": 0
+              },
+              "measure_notation": {
+                "ap_50_95": 0.9435272757994455,
+                "recall_50": 0.9991847193105055,
+                "ground_truth_boxes": 8586
+              },
+              "measure_both": {
+                "ap_50_95": null,
+                "recall_50": null,
+                "ground_truth_boxes": 0
+              },
+              "tempo_region": {
+                "ap_50_95": 0.8886016072622774,
+                "recall_50": 1.0,
+                "ground_truth_boxes": 99
+              }
+            },
+            "total_pages": 293
+          }
+        },
+        "tab": {
+          "ap_50_95": 0.9300416833103383,
+          "ap_50": 1.0,
+          "categories": {
+            "measure": {
+              "ap_50_95": 0.9947786433783177,
+              "recall_50": 1.0,
+              "ground_truth_boxes": 8586
+            },
+            "tempo_region": {
+              "ap_50_95": 0.8653047232423591,
+              "recall_50": 1.0,
+              "ground_truth_boxes": 99
+            }
+          },
+          "total_pages": 338,
+          "matched_measure_type": {
+            "iou": 0.5,
+            "matched_measures": 8586,
+            "correct_measures": 8586,
+            "accuracy": 1.0
+          },
+          "mode_classification": {
+            "correct_pages": 338,
+            "total_pages": 338,
+            "accuracy": 1.0,
+            "unknown_pages": 0,
+            "confusion": {
+              "tab": {
+                "tab": 338
+              },
+              "notation": {},
+              "both": {}
+            },
+            "correct_sources": 100
+          },
+          "exact_measure_count_pages": 338,
+          "raw_exact_measure_count_pages": 338,
+          "changed_count_pages": 0,
+          "exact_measure_count_sources": 100,
+          "total_sources": 100,
+          "typed_detection": {
+            "ap_50_95": 0.9300416833103383,
+            "ap_50": 1.0,
+            "categories": {
+              "measure_tab": {
+                "ap_50_95": 0.9947786433783177,
+                "recall_50": 1.0,
+                "ground_truth_boxes": 8586
+              },
+              "measure_notation": {
+                "ap_50_95": null,
+                "recall_50": null,
+                "ground_truth_boxes": 0
+              },
+              "measure_both": {
+                "ap_50_95": null,
+                "recall_50": null,
+                "ground_truth_boxes": 0
+              },
+              "tempo_region": {
+                "ap_50_95": 0.8653047232423591,
+                "recall_50": 1.0,
+                "ground_truth_boxes": 99
+              }
+            },
+            "total_pages": 338
+          }
+        }
+      },
+      "split": "test",
+      "postprocess": true,
+      "localization_categories": [
+        "measure",
+        "tempo_region"
+      ],
+      "model_provides_notation_type": true,
+      "threshold": 0.25,
+      "model_dir": "/mnt/data-4/flurry/guitarOCR-external/output/layout-typed-release-candidate/inference",
+      "model_sha256": {
+        "inference.json": "c58dd9cf680033fe42725813de94106c052e53d6d42e09507cccaf502a383d79",
+        "inference.pdiparams": "47c69ca1eaa983b1fba7a5fb6f2ea4163f5f177d6d2ebc31428d9b8a3ea1e116",
+        "inference.yml": "071c98b3f175e7c5ec7901c96fc5586df02714f83504d0235ca56489358dc84d"
+      },
+      "annotations_sha256": "9baff14d8c17c3d75372c9fd4d89f34503f8104f07fb0b593a7f4ff8e86a9b43",
+      "versions": {
+        "paddlex": "3.7.2",
+        "pycocotools": "2.0.8"
+      }
+    },
+    "sparse-val": {
+      "ap_50_95": 0.9202909693912578,
+      "ap_50": 0.9900803990173453,
+      "categories": {
+        "measure": {
+          "ap_50_95": 0.9865892405879054,
+          "recall_50": 0.9995964487489911,
+          "ground_truth_boxes": 24780
+        },
+        "tempo_region": {
+          "ap_50_95": 0.8539926981946101,
+          "recall_50": 0.9925093632958801,
+          "ground_truth_boxes": 267
+        }
+      },
+      "total_pages": 989,
+      "matched_measure_type": {
+        "iou": 0.5,
+        "matched_measures": 24770,
+        "correct_measures": 24770,
+        "accuracy": 1.0
+      },
+      "mode_classification": {
+        "correct_pages": 989,
+        "total_pages": 989,
+        "accuracy": 1.0,
+        "unknown_pages": 0,
+        "confusion": {
+          "tab": {
+            "tab": 989
+          },
+          "notation": {},
+          "both": {}
+        },
+        "correct_sources": 989
+      },
+      "exact_measure_count_pages": 979,
+      "raw_exact_measure_count_pages": 979,
+      "changed_count_pages": 0,
+      "exact_measure_count_sources": 979,
+      "total_sources": 989,
+      "detections": 25038,
+      "by_mode": {
+        "tab": {
+          "ap_50_95": 0.9202909693912578,
+          "ap_50": 0.9900803990173453,
+          "categories": {
+            "measure": {
+              "ap_50_95": 0.9865892405879054,
+              "recall_50": 0.9995964487489911,
+              "ground_truth_boxes": 24780
+            },
+            "tempo_region": {
+              "ap_50_95": 0.8539926981946101,
+              "recall_50": 0.9925093632958801,
+              "ground_truth_boxes": 267
+            }
+          },
+          "total_pages": 989,
+          "matched_measure_type": {
+            "iou": 0.5,
+            "matched_measures": 24770,
+            "correct_measures": 24770,
+            "accuracy": 1.0
+          },
+          "mode_classification": {
+            "correct_pages": 989,
+            "total_pages": 989,
+            "accuracy": 1.0,
+            "unknown_pages": 0,
+            "confusion": {
+              "tab": {
+                "tab": 989
+              },
+              "notation": {},
+              "both": {}
+            },
+            "correct_sources": 989
+          },
+          "exact_measure_count_pages": 979,
+          "raw_exact_measure_count_pages": 979,
+          "changed_count_pages": 0,
+          "exact_measure_count_sources": 979,
+          "total_sources": 989
+        }
+      },
+      "split": "val",
+      "postprocess": true,
+      "localization_categories": [
+        "measure",
+        "tempo_region"
+      ],
+      "model_provides_notation_type": true,
+      "threshold": 0.25,
+      "model_dir": "/mnt/data-4/flurry/guitarOCR-external/output/layout-typed-release-candidate/inference",
+      "model_sha256": {
+        "inference.json": "c58dd9cf680033fe42725813de94106c052e53d6d42e09507cccaf502a383d79",
+        "inference.pdiparams": "47c69ca1eaa983b1fba7a5fb6f2ea4163f5f177d6d2ebc31428d9b8a3ea1e116",
+        "inference.yml": "071c98b3f175e7c5ec7901c96fc5586df02714f83504d0235ca56489358dc84d"
+      },
+      "annotations_sha256": "aee601b9d5df60416b5afe2b816699ebc93ba7bf1b603b8797a999bf35e3c3a1",
+      "versions": {
+        "paddlex": "3.7.2",
+        "pycocotools": "2.0.8"
+      }
+    }
+  },
+  "previous_two_class_evaluations": {
+    "val": {
+      "ap_50_95": 0.9142909785641329,
+      "ap_50": 0.9800538694071509,
+      "categories": {
+        "measure": {
+          "ap_50_95": 0.9716256082565586,
+          "recall_50": 0.9995633664447112,
+          "ground_truth_boxes": 27483
+        },
+        "tempo_region": {
+          "ap_50_95": 0.8569563488717071,
+          "recall_50": 0.9775910364145658,
+          "ground_truth_boxes": 357
+        }
+      },
+      "total_pages": 1196,
+      "exact_measure_count_pages": 1185,
+      "raw_exact_measure_count_pages": 1185,
+      "changed_count_pages": 0,
+      "exact_measure_count_sources": 291,
+      "total_sources": 300,
+      "detections": 27843,
+      "by_mode": {
+        "both": {
+          "ap_50_95": 0.920098366765603,
+          "ap_50": 0.9848843631247266,
+          "categories": {
+            "measure": {
+              "ap_50_95": 0.9828049843750243,
+              "recall_50": 0.9996725248335334,
+              "ground_truth_boxes": 9161
+            },
+            "tempo_region": {
+              "ap_50_95": 0.8573917491561818,
+              "recall_50": 0.9831932773109243,
+              "ground_truth_boxes": 119
+            }
+          },
+          "total_pages": 518,
+          "exact_measure_count_pages": 516,
+          "raw_exact_measure_count_pages": 516,
+          "changed_count_pages": 0,
+          "exact_measure_count_sources": 98,
+          "total_sources": 100
+        },
+        "notation": {
+          "ap_50_95": 0.8997857596467015,
+          "ap_50": 0.9800023154804903,
+          "categories": {
+            "measure": {
+              "ap_50_95": 0.9433753945885154,
+              "recall_50": 0.9990175745006004,
+              "ground_truth_boxes": 9161
+            },
+            "tempo_region": {
+              "ap_50_95": 0.8561961247048877,
+              "recall_50": 0.9747899159663865,
+              "ground_truth_boxes": 119
+            }
+          },
+          "total_pages": 311,
+          "exact_measure_count_pages": 302,
+          "raw_exact_measure_count_pages": 302,
+          "changed_count_pages": 0,
+          "exact_measure_count_sources": 93,
+          "total_sources": 100
+        },
+        "tab": {
+          "ap_50_95": 0.9224617854048575,
+          "ap_50": 0.9851062029279851,
+          "categories": {
+            "measure": {
+              "ap_50_95": 0.9882102517547645,
+              "recall_50": 1.0,
+              "ground_truth_boxes": 9161
+            },
+            "tempo_region": {
+              "ap_50_95": 0.8567133190549502,
+              "recall_50": 0.9747899159663865,
+              "ground_truth_boxes": 119
+            }
+          },
+          "total_pages": 367,
+          "exact_measure_count_pages": 367,
+          "raw_exact_measure_count_pages": 367,
+          "changed_count_pages": 0,
+          "exact_measure_count_sources": 100,
+          "total_sources": 100
+        }
+      },
+      "split": "val",
+      "postprocess": true,
+      "threshold": 0.25,
+      "model_dir": "/mnt/data-4/flurry/guitarOCR-external/output/multimode-release-candidate/inference",
+      "model_sha256": {
+        "inference.json": "edcb2391bddcae7e31ae08e1f05cb2f82a5070254a21ddd86c18022b89483720",
+        "inference.pdiparams": "58a23c856d956c71ffb894ffd184da9f4300e086f4666c238bfbe7344b43e40f",
+        "inference.yml": "309084181d28145f64d2cf66886ca46d7e577689f2663331a065617b80523032"
+      },
+      "annotations_sha256": "ae9eb98e864435675961cc47ca61c72ebe53db0863c754c30aeaa703e4b51234",
+      "versions": {
+        "paddlex": "3.7.2",
+        "pycocotools": "2.0.8"
+      }
+    },
+    "test": {
+      "ap_50_95": 0.9353540319330379,
+      "ap_50": 0.995049504950495,
+      "categories": {
+        "measure": {
+          "ap_50_95": 0.972563122169625,
+          "recall_50": 0.999456479540337,
+          "ground_truth_boxes": 25758
+        },
+        "tempo_region": {
+          "ap_50_95": 0.8981449416964509,
+          "recall_50": 1.0,
+          "ground_truth_boxes": 297
+        }
+      },
+      "total_pages": 1123,
+      "exact_measure_count_pages": 1112,
+      "raw_exact_measure_count_pages": 1112,
+      "changed_count_pages": 0,
+      "exact_measure_count_sources": 289,
+      "total_sources": 300,
+      "detections": 26045,
+      "by_mode": {
+        "both": {
+          "ap_50_95": 0.9452429110042735,
+          "ap_50": 0.995049504950495,
+          "categories": {
+            "measure": {
+              "ap_50_95": 0.9790198401601206,
+              "recall_50": 0.9997670626601444,
+              "ground_truth_boxes": 8586
+            },
+            "tempo_region": {
+              "ap_50_95": 0.9114659818484262,
+              "recall_50": 1.0,
+              "ground_truth_boxes": 99
+            }
+          },
+          "total_pages": 492,
+          "exact_measure_count_pages": 490,
+          "raw_exact_measure_count_pages": 490,
+          "changed_count_pages": 0,
+          "exact_measure_count_sources": 98,
+          "total_sources": 100
+        },
+        "notation": {
+          "ap_50_95": 0.919301704207522,
+          "ap_50": 0.995049504950495,
+          "categories": {
+            "measure": {
+              "ap_50_95": 0.9367707781466184,
+              "recall_50": 0.9987188446307943,
+              "ground_truth_boxes": 8586
+            },
+            "tempo_region": {
+              "ap_50_95": 0.9018326302684256,
+              "recall_50": 1.0,
+              "ground_truth_boxes": 99
+            }
+          },
+          "total_pages": 293,
+          "exact_measure_count_pages": 285,
+          "raw_exact_measure_count_pages": 285,
+          "changed_count_pages": 0,
+          "exact_measure_count_sources": 92,
+          "total_sources": 100
+        },
+        "tab": {
+          "ap_50_95": 0.93627463344993,
+          "ap_50": 0.995049504950495,
+          "categories": {
+            "measure": {
+              "ap_50_95": 0.9876335443677725,
+              "recall_50": 0.9998835313300722,
+              "ground_truth_boxes": 8586
+            },
+            "tempo_region": {
+              "ap_50_95": 0.8849157225320875,
+              "recall_50": 1.0,
+              "ground_truth_boxes": 99
+            }
+          },
+          "total_pages": 338,
+          "exact_measure_count_pages": 337,
+          "raw_exact_measure_count_pages": 337,
+          "changed_count_pages": 0,
+          "exact_measure_count_sources": 99,
+          "total_sources": 100
+        }
+      },
+      "split": "test",
+      "postprocess": true,
+      "threshold": 0.25,
+      "model_dir": "/mnt/data-4/flurry/guitarOCR-external/output/multimode-release-candidate/inference",
+      "model_sha256": {
+        "inference.json": "edcb2391bddcae7e31ae08e1f05cb2f82a5070254a21ddd86c18022b89483720",
+        "inference.pdiparams": "58a23c856d956c71ffb894ffd184da9f4300e086f4666c238bfbe7344b43e40f",
+        "inference.yml": "309084181d28145f64d2cf66886ca46d7e577689f2663331a065617b80523032"
+      },
+      "annotations_sha256": "b57daceda2a925d1c6722e440023903287cf061747e524b4397a8bde81afea92",
+      "versions": {
+        "paddlex": "3.7.2",
+        "pycocotools": "2.0.8"
+      }
+    },
+    "sparse-val": {
+      "ap_50_95": 0.9276447584518358,
+      "ap_50": 0.9851485148514851,
+      "categories": {
+        "measure": {
+          "ap_50_95": 0.9851871237719508,
+          "recall_50": 0.9999192897497983,
+          "ground_truth_boxes": 24780
+        },
+        "tempo_region": {
+          "ap_50_95": 0.8701023931317209,
+          "recall_50": 0.9887640449438202,
+          "ground_truth_boxes": 267
+        }
+      },
+      "total_pages": 989,
+      "exact_measure_count_pages": 987,
+      "raw_exact_measure_count_pages": 987,
+      "changed_count_pages": 0,
+      "exact_measure_count_sources": 987,
+      "total_sources": 989,
+      "detections": 25046,
+      "by_mode": {
+        "tab": {
+          "ap_50_95": 0.9276447584518358,
+          "ap_50": 0.9851485148514851,
+          "categories": {
+            "measure": {
+              "ap_50_95": 0.9851871237719508,
+              "recall_50": 0.9999192897497983,
+              "ground_truth_boxes": 24780
+            },
+            "tempo_region": {
+              "ap_50_95": 0.8701023931317209,
+              "recall_50": 0.9887640449438202,
+              "ground_truth_boxes": 267
+            }
+          },
+          "total_pages": 989,
+          "exact_measure_count_pages": 987,
+          "raw_exact_measure_count_pages": 987,
+          "changed_count_pages": 0,
+          "exact_measure_count_sources": 987,
+          "total_sources": 989
+        }
+      },
+      "split": "val",
+      "postprocess": true,
+      "threshold": 0.25,
+      "model_dir": "/mnt/data-4/flurry/guitarOCR-external/output/multimode-release-candidate/inference",
+      "model_sha256": {
+        "inference.json": "edcb2391bddcae7e31ae08e1f05cb2f82a5070254a21ddd86c18022b89483720",
+        "inference.pdiparams": "58a23c856d956c71ffb894ffd184da9f4300e086f4666c238bfbe7344b43e40f",
+        "inference.yml": "309084181d28145f64d2cf66886ca46d7e577689f2663331a065617b80523032"
+      },
+      "annotations_sha256": "aee601b9d5df60416b5afe2b816699ebc93ba7bf1b603b8797a999bf35e3c3a1",
+      "versions": {
+        "paddlex": "3.7.2",
+        "pycocotools": "2.0.8"
+      }
+    }
+  },
+  "cpu_acceptance": {
+    "layout_model": "weights/pp_doclayout_v3_score_typed",
+    "paddle_python": "tools/webui-paddle-venv/bin/python",
+    "model_sha256": {
+      "inference.json": "c58dd9cf680033fe42725813de94106c052e53d6d42e09507cccaf502a383d79",
+      "inference.pdiparams": "47c69ca1eaa983b1fba7a5fb6f2ea4163f5f177d6d2ebc31428d9b8a3ea1e116",
+      "inference.yml": "071c98b3f175e7c5ec7901c96fc5586df02714f83504d0235ca56489358dc84d"
+    },
+    "cases": [
+      {
+        "sample": "tab",
+        "input": "database/gp8_multimode_smoke/pdf/tab/8fb1964371ac4691.pdf",
+        "input_sha256": "c7c42bf3c497fd58993c844f10ed455a667ed538d4113673b2ae606ef6dc5196",
+        "mode": "tab",
+        "measure_count": 4,
+        "all_record_types_correct": true,
+        "type_source": "pp_doclayout_v3",
+        "staff_line_type_classifier_disabled": true,
+        "layout_source": "auto",
+        "mode_setting": "auto",
+        "vector_pages": [
+          true
+        ],
+        "manifest": "output/layout-typed-cpu-tab/manifest.json",
+        "seconds": 6.669525621458888
+      },
+      {
+        "sample": "notation",
+        "input": "database/gp8_multimode_smoke/pdf/notation/8fb1964371ac4691.pdf",
+        "input_sha256": "e533008226d87b84d1a40789f2ee2f9d9f936ad000ede94565bcecb2d3a938fd",
+        "mode": "notation",
+        "measure_count": 4,
+        "all_record_types_correct": true,
+        "type_source": "pp_doclayout_v3",
+        "staff_line_type_classifier_disabled": true,
+        "layout_source": "auto",
+        "mode_setting": "auto",
+        "vector_pages": [
+          true
+        ],
+        "manifest": "output/layout-typed-cpu-notation/manifest.json",
+        "seconds": 6.640762297436595
+      },
+      {
+        "sample": "both",
+        "input": "database/gp8_multimode_smoke/pdf/both/8fb1964371ac4691.pdf",
+        "input_sha256": "de7d1de96acec27005c62daedc023cd81c6001216125dc707e7ad57ec00ccd9b",
+        "mode": "both",
+        "measure_count": 4,
+        "all_record_types_correct": true,
+        "type_source": "pp_doclayout_v3",
+        "staff_line_type_classifier_disabled": true,
+        "layout_source": "auto",
+        "mode_setting": "auto",
+        "vector_pages": [
+          true
+        ],
+        "manifest": "output/layout-typed-cpu-both/manifest.json",
+        "seconds": 6.577813196927309
+      },
+      {
+        "sample": "jixian",
+        "input": "jixian.pdf",
+        "input_sha256": "25ba9a16830fa8beec1224f1e4ced94d09499ff757e55c4c9888976569106944",
+        "mode": "both",
+        "measure_count": 17,
+        "all_record_types_correct": true,
+        "type_source": "pp_doclayout_v3",
+        "staff_line_type_classifier_disabled": true,
+        "layout_source": "auto",
+        "mode_setting": "auto",
+        "vector_pages": [
+          false
+        ],
+        "manifest": "output/layout-typed-cpu-jixian/manifest.json",
+        "seconds": 6.711795456707478
+      }
+    ]
+  },
+  "software_checks": {
+    "unit_tests": 62,
+    "browser_tests": 3,
+    "ruff": "passed",
+    "environment_and_hashes": {
+      "ok": true,
+      "system": "Linux-6.8.0-117-generic-x86_64-with-glibc2.39",
+      "python": "3.11.14",
+      "device": "cpu",
+      "versions": {
+        "numpy": "2.4.6",
+        "Pillow": "12.3.0",
+        "PyMuPDF": "1.28.2",
+        "PyGuitarPro": "0.11",
+        "fastapi": "0.141.1",
+        "uvicorn": "0.53.0",
+        "python-multipart": "0.0.32",
+        "torch": "2.14.0",
+        "transformers": "5.8.0",
+        "peft": "0.18.1",
+        "accelerate": "1.11.0"
+      },
+      "checks": [
+        {
+          "name": "numpy",
+          "ok": true,
+          "errors": [],
+          "fix": "\u91cd\u65b0\u8fd0\u884c install.bat \u6216 bash install.sh"
+        },
+        {
+          "name": "Pillow",
+          "ok": true,
+          "errors": [],
+          "fix": "\u91cd\u65b0\u8fd0\u884c install.bat \u6216 bash install.sh"
+        },
+        {
+          "name": "PyMuPDF",
+          "ok": true,
+          "errors": [],
+          "fix": "\u91cd\u65b0\u8fd0\u884c install.bat \u6216 bash install.sh"
+        },
+        {
+          "name": "PyGuitarPro",
+          "ok": true,
+          "errors": [],
+          "fix": "\u91cd\u65b0\u8fd0\u884c install.bat \u6216 bash install.sh"
+        },
+        {
+          "name": "fastapi",
+          "ok": true,
+          "errors": [],
+          "fix": "\u91cd\u65b0\u8fd0\u884c install.bat \u6216 bash install.sh"
+        },
+        {
+          "name": "uvicorn",
+          "ok": true,
+          "errors": [],
+          "fix": "\u91cd\u65b0\u8fd0\u884c install.bat \u6216 bash install.sh"
+        },
+        {
+          "name": "python-multipart",
+          "ok": true,
+          "errors": [],
+          "fix": "\u91cd\u65b0\u8fd0\u884c install.bat \u6216 bash install.sh"
+        },
+        {
+          "name": "torch",
+          "ok": true,
+          "errors": [],
+          "fix": "\u91cd\u65b0\u8fd0\u884c install.bat \u6216 bash install.sh"
+        },
+        {
+          "name": "transformers",
+          "ok": true,
+          "errors": [],
+          "fix": "\u91cd\u65b0\u8fd0\u884c install.bat \u6216 bash install.sh"
+        },
+        {
+          "name": "peft",
+          "ok": true,
+          "errors": [],
+          "fix": "\u91cd\u65b0\u8fd0\u884c install.bat \u6216 bash install.sh"
+        },
+        {
+          "name": "accelerate",
+          "ok": true,
+          "errors": [],
+          "fix": "\u91cd\u65b0\u8fd0\u884c install.bat \u6216 bash install.sh"
+        },
+        {
+          "name": "measure_ocr \u6743\u91cd",
+          "ok": true,
+          "errors": [],
+          "fix": "\u91cd\u65b0\u8fd0\u884c\u5b89\u88c5\u811a\u672c\uff1bGit \u68c0\u51fa\u4e5f\u53ef\u6267\u884c git lfs pull"
+        },
+        {
+          "name": "document_info \u6743\u91cd",
+          "ok": true,
+          "errors": [],
+          "fix": "\u91cd\u65b0\u8fd0\u884c\u5b89\u88c5\u811a\u672c\uff1bGit \u68c0\u51fa\u4e5f\u53ef\u6267\u884c git lfs pull"
+        },
+        {
+          "name": "layout \u6743\u91cd",
+          "ok": true,
+          "errors": [],
+          "fix": "\u91cd\u65b0\u8fd0\u884c\u5b89\u88c5\u811a\u672c\uff1bGit \u68c0\u51fa\u4e5f\u53ef\u6267\u884c git lfs pull"
+        },
+        {
+          "name": "GLM-OCR \u57fa\u5ea7",
+          "ok": true,
+          "errors": [],
+          "fix": "\u91cd\u65b0\u8fd0\u884c install.bat \u6216 bash install.sh\uff0c\u81ea\u52a8\u7ee7\u7eed\u4e0b\u8f7d"
+        },
+        {
+          "name": "\u8fd0\u7b97\u8bbe\u5907",
+          "ok": true,
+          "errors": [],
+          "fix": ""
+        },
+        {
+          "name": "Paddle \u7248\u9762\u73af\u5883",
+          "ok": true,
+          "errors": [],
+          "fix": "\u91cd\u65b0\u8fd0\u884c\u5b89\u88c5\u811a\u672c\uff1bLinux \u82e5\u7f3a libGL.so.1\uff1asudo apt-get install libgl1 libglib2.0-0"
+        }
+      ]
+    }
+  }
+}

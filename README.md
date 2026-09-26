@@ -2,7 +2,9 @@
 
 将吉他谱 **PDF（矢量或扫描件）和多张图片转换为可编辑的 GP5 文件**。在本地网页中逐步检查小节框、谱面信息和音符，保存人工修改后继续处理。
 
-当前面向规则排版乐谱。图片版面模型针对纯六线谱 TAB；五线谱和混合谱提供几何定位及识别入口，效果需要另行验证。手写谱和明显透视畸变不在现有训练范围内。
+当前面向规则排版乐谱。一套版面模型同时定位小节并识别纯 TAB、纯五线谱和五线谱＋TAB，默认自动识别谱面类型；混合谱的上下谱表按同一个小节裁取，每个小节的类型直接传给 GLM-OCR。训练数据与分谱面评测见[版面模型卡](weights/pp_doclayout_v3_score_joint_v3/README.md)。手写谱和明显透视畸变不在现有训练范围内。
+
+三项任务已完成扩充训练：2,799 个曲源、三种 Guitar Pro 原生排版，并加入扫描退化和技巧难例。数据规模、8 张 H100 的训练记录、新旧模型对照及小节表示修复见[扩充训练报告](docs/training-v3-report.md)。
 
 ![GuitarOCR 工作台](docs/images/webui.png)
 
@@ -52,12 +54,12 @@ bash start.sh
 **上传 → 调整小节框 → 校对标题、调弦和速度 → 识别并校对小节 → 下载 GP5**。
 
 - PDF 按页展开；多张图片可调整顺序。用缩略图、页码选择或上一页 / 下一页查看全部页面。
-- 自动定位有误时，可移动、缩放、删除和补画小节框。
+- 自动定位有误时，可移动、缩放、删除和补画小节框，也可纠正单个小节的谱面类型。
 - 识别可以停止后继续，也可以重试指定小节。识别失败的小节会标成待检查，确认后才能导出。
 - 修改曲名、作者、速度或变调夹会更新导出信息；修改调弦或框时，需要重新处理相关识别结果。
 - 保存后可刷新继续。下载完整项目 ZIP，可在另一台安装了 GuitarOCR 的电脑上恢复原图和编辑结果。
 
-先用自编的 [示例 PDF](examples/demo.pdf) 或 [示例图片](examples/demo.png) 试一次；[预期 GP5](examples/expected.gp5) 和 [M2 文本](examples/expected.m2) 可用于对照。M2 是本项目记录音符、节奏和奏法的文本格式。详细操作见 [WebUI 使用说明](docs/webui.md)。
+先用自编的 [示例 PDF](examples/demo.pdf) 或 [示例图片](examples/demo.png) 试一次；[预期 GP5](examples/expected.gp5) 和 [小节文本](examples/expected.score.txt) 可用于对照。小节文本是本项目记录音符、节奏和奏法的文本格式。详细操作见 [WebUI 使用说明](docs/webui.md)。
 
 ## 项目结构
 
@@ -72,11 +74,11 @@ bash start.sh
 | `datagen/` | 选源、GP8 导出、清单、裁图、标签和统一数据划分 |
 | `layout/` | PDF 渲染、小节与速度区域定位、裁图 |
 | `document_info/` | 标题、作者、调弦和速度读取 |
-| `measure_ocr/` | 顺序识别小节、音乐约束校验、M2 输出 |
+| `measure_ocr/` | 顺序识别小节、音乐约束校验、小节文本输出 |
 | `gp5_export/` | 指法与奏法映射、GP5 写出 |
 | `pipeline/` | 命令行整谱流程及状态汇总 |
 | `webapp/` | 本地工作台、人工编辑、任务与项目管理 |
-| `shared/` | M2、共用模型调用、默认参数、环境检查 |
+| `shared/` | 小节文本、共用模型调用、默认参数、环境检查 |
 | `scripts/` | 安装、启动和发布打包 |
 | `weights/` | 随项目发布的模型、模型卡与校验清单 |
 | `examples/`、`tests/`、`docs/` | 示例、回归验证和文档 |
@@ -85,15 +87,15 @@ bash start.sh
 
 ## 命令行与开发
 
-手动配置开发环境后，整谱识别和 M2 导出示例：
+手动配置开发环境后，整谱识别和小节文本导出示例：
 
 ```bash
 uv run --no-sync guitarocr-gp examples/demo.pdf --output output/demo
-uv run --no-sync python -m gp5_export.writer examples/expected.m2 output/demo.gp5 --mode tab
+uv run --no-sync python -m gp5_export.writer examples/expected.score.txt output/demo.gp5 --mode tab
 uv run --no-sync guitarocr-check --hashes
 ```
 
-- [安装与外部依赖](docs/setup.md) · [步骤接口](docs/workflow.md) · [M2 格式](docs/m2.md)
+- [安装与外部依赖](docs/setup.md) · [步骤接口](docs/workflow.md) · [小节文本格式](docs/score-text.md)
 - [数据生产](docs/data.md) · [训练与评测](docs/training.md) · [模型说明](weights/README.md)
 - [参与开发](CONTRIBUTING.md) · [原生构建](docs/native-build.md) · [验证记录](docs/validation.md)
 

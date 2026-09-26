@@ -46,7 +46,7 @@ def run(args: argparse.Namespace) -> dict:
             gp5 = read_result(exported, "gp5_export")["gp5"]
     return manifest.complete(
         **{key: recognized[key] for key in (
-            "mode", "measures", "m2", "recognition_log", "document_metadata", "tuning_used", "review_measures",
+            "mode", "measures", "m2", "score_text", "recognition_log", "document_metadata", "tuning_used", "review_measures",
         )},
         gp5=gp5,
     )
@@ -55,7 +55,7 @@ def run(args: argparse.Namespace) -> dict:
 def main() -> None:
     result = run(parse_args())
     print(json.dumps(
-        {key: result[key] for key in ("status", "mode", "measures", "review_measures", "m2", "gp5")},
+        {key: result[key] for key in ("status", "mode", "measures", "review_measures", "score_text", "gp5")},
         ensure_ascii=False, indent=2,
     ))
 

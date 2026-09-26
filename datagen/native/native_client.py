@@ -170,6 +170,7 @@ class NativeExportClient:
         official_score_output: str | os.PathLike[str],
         track_index: int = 0,
         capture_note_geometry: bool = True,
+        display_mode: str = "tab",
     ) -> dict[str, Any]:
         if self._handle is None:
             raise RuntimeError("Guitar Pro export pipe is closed")
@@ -179,6 +180,8 @@ class NativeExportClient:
             raise ValueError("track_index must be nonnegative")
         if type(capture_note_geometry) is not bool:
             raise TypeError("capture_note_geometry must be a boolean")
+        if display_mode not in {"tab", "notation", "both"}:
+            raise ValueError(f"Invalid display mode: {display_mode}")
         request: dict[str, Any] = {
             "cmd": "export",
             "input": os.path.abspath(input_path).replace("\\", "/"),
@@ -188,7 +191,8 @@ class NativeExportClient:
                 "\\", "/"
             ),
             "track_index": track_index,
-            "tab_only": True,
+            "tab_only": display_mode == "tab",
+            "display_mode": display_mode,
         }
         if not capture_note_geometry:
             request["capture_note_geometry"] = False

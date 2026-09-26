@@ -12,8 +12,8 @@ from measure_ocr.prompts import recognition_prompt
 from shared.constraints import validate_measure_target
 from measure_ocr.metrics import MeasureSequenceMetrics
 from shared.glm_backend import GlmBackend
-from shared.m2 import format_previous_measure_context
-from measure_ocr.recognizer import _active_time_signature, _full_measure_rest_target
+from shared.m2 import format_history_context
+from measure_ocr.recognizer import _rest_fallback_target
 
 
 def _write_json(path: Path, value: Any) -> None:
@@ -132,7 +132,8 @@ def _run_signature(args: argparse.Namespace, rows: list[dict[str, Any]]) -> str:
     manifest = args.manifest.resolve()
     manifest_stat = manifest.stat()
     value = {
-        "schema": 1,
+        "schema": 2,
+        "fallback_policy": "preserve_previous_bar_feel",
         "manifest": {
             "path": str(manifest),
             "size": manifest_stat.st_size,
@@ -148,6 +149,8 @@ def _run_signature(args: argparse.Namespace, rows: list[dict[str, Any]]) -> str:
         "context_source": getattr(args, "context_source", "gold"),
         "device": args.device,
     }
+    if getattr(args, "batch_size", 1) != 1:
+        value["batch_size"] = args.batch_size
     encoded = json.dumps(value, ensure_ascii=False, sort_keys=True).encode("utf-8")
     return sha256(encoded).hexdigest()
 
@@ -190,8 +193,22 @@ def _extract_m2(text: str) -> str:
     return value.strip().strip("`").strip()
 
 
+def _shard_rows(rows: list[dict], index: int, count: int, context_source: str) -> list[dict]:
+    if count < 1 or not 0 <= index < count:
+        raise ValueError("Require shards >= 1 and 0 <= shard-index < shards")
+    if context_source == "predicted":
+        # A whole source stays on one worker so predicted context is never lost.
+        sources = sorted({row["source_id"] for row in rows})
+        assigned = set(sources[index::count])
+        return [row for row in rows if row["source_id"] in assigned]
+    return rows[index::count]
+
+
 def run_inference(args: argparse.Namespace) -> None:
     context_source = getattr(args, "context_source", "gold")
+    batch_size = getattr(args, "batch_size", 1)
+    if batch_size < 1 or context_source == "predicted" and batch_size != 1:
+        raise ValueError("Use a positive batch size; predicted context requires batch-size 1")
     if context_source == "predicted" and args.max_samples:
         raise ValueError(
             "Predicted context requires complete sequences; use --max-samples 0 and optionally --max-sources"
@@ -214,6 +231,7 @@ def run_inference(args: argparse.Namespace) -> None:
             indexes[key] = expected_index + 1
     inference_images = _inference_images(rows, args.image_ablation)
     signature = _run_signature(args, rows)
+    rows = _shard_rows(rows, getattr(args, "shard_index", 0), getattr(args, "shards", 1), context_source)
     completed: dict[str, dict[str, Any]] = {}
     if args.predictions.is_file() and not args.resume:
         args.predictions.unlink()
@@ -230,9 +248,17 @@ def run_inference(args: argparse.Namespace) -> None:
                 completed[record["id"]] = record
 
     backend = None
+    batch_predictions = {}
     label_cache: dict[str, dict[str, Any]] = {}
     args.predictions.parent.mkdir(parents=True, exist_ok=True)
     histories = {}
+
+    def make_messages(row, context):
+        return [{"role": "user", "content": [
+            {"type": "image", "url": inference_images[row["id"]]},
+            {"type": "text", "text": recognition_prompt(row["mode"], context)},
+        ]}]
+
     with args.predictions.open("a", encoding="utf-8") as handle:
         for index, row in enumerate(rows, start=1):
             history = histories.setdefault((row["source_id"], row["mode"]), [])
@@ -243,24 +269,13 @@ def run_inference(args: argparse.Namespace) -> None:
                 row.get("previous_context")
                 if context_source == "gold"
                 else (
-                    format_previous_measure_context(history[-1], row["mode"])
+                    format_history_context(history, row["mode"])
                     if history
                     else "START"
                 )
             )
             backend = backend or GlmBackend(args.model, args.adapter, args.device)
-            messages = [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "image", "url": inference_images[row["id"]]},
-                        {
-                            "type": "text",
-                            "text": recognition_prompt(row["mode"], context),
-                        },
-                    ],
-                }
-            ]
+            messages = make_messages(row, context)
             label_path = str(row.get("label_json") or "")
             if label_path and label_path not in label_cache:
                 label_cache[label_path] = json.loads(
@@ -273,11 +288,19 @@ def run_inference(args: argparse.Namespace) -> None:
             predicted = ""
             constraint_errors: list[str] = []
             for attempt in range(1, args.maximum_attempts + 1):
-                raw, _count = backend.generate(
-                    messages,
-                    args.max_new_tokens,
-                    skip_special_tokens=False,
-                )
+                if batch_size > 1 and attempt == 1:
+                    if row["id"] not in batch_predictions:
+                        pending = [r for r in rows[index - 1:] if r["id"] not in completed][:batch_size]
+                        results = backend.generate_batch(
+                            [make_messages(r, r.get("previous_context")) for r in pending],
+                            args.max_new_tokens, skip_special_tokens=False,
+                        )
+                        batch_predictions.update((r["id"], result) for r, result in zip(pending, results, strict=True))
+                    raw, _count = batch_predictions.pop(row["id"])
+                else:
+                    raw, _count = backend.generate(
+                        messages, args.max_new_tokens, skip_special_tokens=False,
+                    )
                 predicted = _extract_m2(raw)
                 _parsed, constraint_errors = validate_measure_target(
                     predicted,
@@ -310,7 +333,7 @@ def run_inference(args: argparse.Namespace) -> None:
                 )
             raw_prediction = predicted
             if context_source == "predicted" and constraint_errors:
-                predicted = _full_measure_rest_target(_active_time_signature(history))
+                predicted = _rest_fallback_target(history)
             history.append(predicted)
             record = {
                 "context_source": context_source,
@@ -341,6 +364,8 @@ def run_inference(args: argparse.Namespace) -> None:
 def evaluate(predictions: Path, metrics_path: Path) -> dict[str, Any]:
     metrics = MeasureSequenceMetrics()
     by_mode: dict[str, MeasureSequenceMetrics] = {}
+    raw_metrics = MeasureSequenceMetrics()
+    raw_by_mode: dict[str, MeasureSequenceMetrics] = {}
     conditions, signatures, review = set(), set(), 0
     for line in predictions.read_text(encoding="utf-8").splitlines():
         if not line:
@@ -363,6 +388,12 @@ def evaluate(predictions: Path, metrics_path: Path) -> dict[str, Any]:
             tuning=row.get("tuning"),
             string_count=row.get("string_count"),
         )
+        raw_prediction = row.get("raw_prediction", row["predicted"])
+        for accumulator in (raw_metrics, raw_by_mode.setdefault(row["mode"], MeasureSequenceMetrics())):
+            accumulator.update(
+                row["expected"], raw_prediction, row["mode"],
+                tuning=row.get("tuning"), string_count=row.get("string_count"),
+            )
     if len(conditions) > 1 or len(signatures) > 1:
         raise ValueError("Evaluate each model/run and context condition separately")
     result = {
@@ -374,6 +405,9 @@ def evaluate(predictions: Path, metrics_path: Path) -> dict[str, Any]:
         else "ground_truth_crops_and_context",
         "overall": metrics.result(),
         "by_mode": {mode: value.result() for mode, value in sorted(by_mode.items())},
+        # Rest placeholders keep the sequence usable but are not valid OCR outputs.
+        "raw_overall": raw_metrics.result(),
+        "raw_by_mode": {mode: value.result() for mode, value in sorted(raw_by_mode.items())},
     }
     _write_json(metrics_path, result)
     return result
@@ -416,8 +450,11 @@ def main() -> None:
     parser.add_argument("--max-samples", type=int, default=600)
     parser.add_argument("--max-new-tokens", type=int, default=2048)
     parser.add_argument("--maximum-attempts", type=int, default=3)
+    parser.add_argument("--batch-size", type=int, default=1, help="Independent gold-context crops per generation batch")
     parser.add_argument("--seed", type=int, default=20260715)
     parser.add_argument("--device", default="cuda")
+    parser.add_argument("--shards", type=int, default=1)
+    parser.add_argument("--shard-index", type=int, default=0)
     parser.add_argument(
         "--image-ablation",
         choices=("none", "shuffled"),

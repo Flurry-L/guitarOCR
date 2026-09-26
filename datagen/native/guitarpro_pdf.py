@@ -103,6 +103,7 @@ class PdfExportJob:
     layout: Path
     official_score: Path
     track_index: int = 0
+    display_mode: str = "tab"
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,6 +174,7 @@ class GuitarProPdfExporter:
                 layout_output=job.layout,
                 official_score_output=job.official_score,
                 track_index=track_index,
+                display_mode=job.display_mode,
             )
             if result.get("ok") is not True:
                 _raise_native_failure(result, "Guitar Pro export failed")
@@ -182,6 +184,8 @@ class GuitarProPdfExporter:
                     "Guitar Pro export did not create: " + ", ".join(missing)
                 )
             layout = load_render_layout(job.layout)
+            if layout.get("display_mode", "tab") != job.display_mode:
+                raise ValueError("render layout display mode differs from the requested mode")
             official_score = _load_official_export_identity(job.official_score)
             if layout["source_track_index"] != track_index:
                 raise ValueError(
@@ -405,8 +409,8 @@ def validate_render_layout(layout: Any) -> None:
 
     has_geometry = isinstance(layout, Mapping) and "note_geometry" in layout
     root = _mapping(
-        {key: value for key, value in layout.items() if key != "note_geometry"}
-        if has_geometry
+        {key: value for key, value in layout.items() if key not in {"note_geometry", "display_mode"}}
+        if isinstance(layout, Mapping)
         else layout,
         "render layout root",
         _ROOT_FIELDS,
@@ -422,8 +426,11 @@ def validate_render_layout(layout: Any) -> None:
     )
     if has_geometry:
         validate_note_geometry(layout)
-    if root["tab_only"] is not True:
-        raise ValueError("render layout must describe a TAB-only export")
+    display_mode = layout.get("display_mode", "tab")
+    if display_mode not in {"tab", "notation", "both"}:
+        raise ValueError(f"Invalid render display mode: {display_mode}")
+    if root["tab_only"] is not (display_mode == "tab"):
+        raise ValueError("render layout tab_only disagrees with display_mode")
     tab_style = _mapping(
         root["tab_style"],
         "render layout tab_style",

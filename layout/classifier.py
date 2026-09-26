@@ -47,7 +47,7 @@ def _classify_fixed_scale(page: Image.Image) -> dict:
 
 
 def classify_notation_layout(page: Image.Image) -> dict:
-    """Classify TuxGuitar print layouts, normalizing common PDF raster scales."""
+    """Classify printed notation, normalizing common PDF raster scales."""
     candidates: list[tuple[float, Image.Image]] = [(1.0, page)]
     longest = max(page.size)
     if longest >= 600:
@@ -64,6 +64,18 @@ def classify_notation_layout(page: Image.Image) -> dict:
         result = _classify_fixed_scale(candidate)
         result["analysis_scale"] = scale
         results.append(result)
+    if not any(result["layout"] == "score_tab" for result in results):
+        # Thin GP8 staff lines in scanned PDFs can be lighter than the
+        # geometry detector's ink threshold, including when only the darker
+        # TAB staff was found. Enhance only the classification copy; the
+        # detector and OCR still receive the original page pixels.
+        for scale, candidate in candidates:
+            result = _classify_fixed_scale(candidate.convert("L").point(
+                lambda value: 0 if value < 230 else 255
+            ))
+            result["analysis_scale"] = scale
+            result["contrast_threshold"] = 230
+            results.append(result)
     # Paired score+TAB geometry is stronger evidence than an unpaired staff
     # guess. Otherwise choose the result with the greatest supported fraction.
     return max(

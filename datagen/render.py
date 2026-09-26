@@ -7,6 +7,7 @@ import subprocess
 import sys
 
 from datagen.files import _write_jsonl
+from datagen.inventory import source_catalog
 
 
 def render_modes(
@@ -23,11 +24,12 @@ def render_modes(
     ]
     if not labels:
         raise ValueError("No selected source labels found; run --phase select first")
-    import guitarpro
+    catalog = source_catalog(output)
+    from datagen.gp_sources import parse_song
 
     def instrument_kind(mode: str, source_id: str) -> str:
         prepared = output / "prepared" / mode / f"{source_id}.gp5"
-        song = guitarpro.parse(str(prepared))
+        song, _ = parse_song(prepared)
         if len(song.tracks) != 1:
             raise ValueError(f"Expected one prepared track: {prepared}")
         return "bass" if 32 <= int(song.tracks[0].channel.instrument) <= 39 else "guitar"
@@ -35,8 +37,9 @@ def render_modes(
     entries = [
         {
             "document_id": f"{mode}-{label['source_id']}",
-            "source_family_id": label["source_id"],
-            "split": "train",
+            "source_family_id": catalog[label["source_id"]]["family"],
+            "split": {"validation": "dev"}.get(catalog[label["source_id"]]["split"], catalog[label["source_id"]]["split"]),
+            "display_mode": mode,
             "instrument_kind": instrument_kind(mode, label["source_id"]),
             "source": f"{mode}/{label['source_id']}.gp5",
         }

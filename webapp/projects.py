@@ -21,6 +21,7 @@ PATH_FIELDS = {
     "recognition",
     "export",
     "m2",
+    "score_text",
     "recognition_log",
     "predictions",
     "gp5",

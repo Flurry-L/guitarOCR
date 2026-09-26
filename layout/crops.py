@@ -17,6 +17,7 @@ from layout.pdf_geometry import (
     extract_pdf_vector_tab_systems,
 )
 from layout.pdf_renderer import MODEL_RENDER_DPI
+from shared.layout_labels import MODES, mode_vote
 
 
 def _crop(page: Image.Image, bbox: list[float]) -> Image.Image:
@@ -90,8 +91,8 @@ def prepare_document_crops(
 ) -> tuple[str, list[dict[str, Any]]]:
     if layout_source not in {"auto", "image", "geometry"}:
         raise ValueError("Unknown layout source")
-    if layout_source == "image" and requested_mode not in {"tab", "auto"}:
-        raise ValueError("The image layout model currently supports TAB only")
+    if requested_mode not in {"auto", *MODES}:
+        raise ValueError("Unknown notation mode")
     if layout_source != "geometry":
         layout_model_dir = layout_model_dir or LAYOUT_MODEL
         candidate = paddle_python()
@@ -102,18 +103,14 @@ def prepare_document_crops(
     pages = pages if pages is not None else expand_inputs(inputs, rendered_root, temp_root, force_pdf_render)
     if not pages:
         raise ValueError("No supported PDF pages or images were found")
-    (output / "pages.json").write_text(json.dumps(pages, default=str))
-    if requested_mode == "auto":
-        with Image.open(pages[0]["image"]) as first:
-            requested_mode = _notation_mode(classify_notation_layout(first.convert("L"))["layout"])
     detected_layout: dict[Path, dict[str, Any]] = {}
     detected_pages = (
-        pages if layout_source == "image"
+        pages if layout_source == "image" or requested_mode == "auto"
         else [source for source in pages if not source.get("vector", bool(source.get("source_pdf")))]
     )
     if layout_source == "image" and layout_model_dir is None:
         raise ValueError("--layout-source image requires --layout-model-dir")
-    if layout_source != "geometry" and requested_mode == "tab" and detected_pages:
+    if layout_source != "geometry" and detected_pages:
         page_manifest = temp_root / "layout_pages.json"
         result_path = temp_root / "layout_boxes.json"
         temp_root.mkdir(parents=True, exist_ok=True)
@@ -129,7 +126,6 @@ def prepare_document_crops(
                 detected_pages, json.loads(result_path.read_text(encoding="utf-8")), strict=True
             )
         }
-    mode = requested_mode
     records = []
     measure_number = 1
     vector_cache: dict[tuple[Path, str], dict[int, list[dict[str, Any]]]] = {}
@@ -138,14 +134,31 @@ def prepare_document_crops(
     for page_index, source in enumerate(pages, start=1):
         with Image.open(source["image"]) as opened:
             page = opened.convert("L")
+        prediction = detected_layout.get(Path(source["image"]), {})
+        vote = mode_vote(prediction.get("measures", []))
+        mode = requested_mode
+        mode_source = "manual"
         if mode == "auto":
-            page_layout = classify_notation_layout(page)
-            detected_mode = _notation_mode(page_layout["layout"])
-            mode = detected_mode
+            mode, mode_source = vote["mode"], "pp_doclayout_v3"
+            if mode is None:
+                # Compatibility for old two-class models and an explicitly
+                # requested geometry-only run. Typed model predictions never
+                # depend on the staff-line classifier.
+                page_layout = classify_notation_layout(page)
+                if page_layout["layout"] != "unknown":
+                    mode = _notation_mode(page_layout["layout"])
+                mode_source = "staff_geometry"
+        if mode is None and prediction.get("measures"):
+            raise ValueError(f"Cannot determine notation type on page {page_index}; select a mode explicitly")
+        source["notation_mode"] = mode
+        source["notation_mode_source"] = mode_source
+        if vote["mode"]:
+            source["model_mode"] = vote["mode"]
+            source["mode_vote_fraction"] = vote["mode_vote_fraction"]
         boxes = []
         source_pdf = source.get("source_pdf")
         pdf_page = source.get("pdf_page")
-        if mode == "tab" and (
+        if (
             layout_source == "image"
             or Path(source["image"]) in detected_layout
         ):
@@ -178,7 +191,7 @@ def prepare_document_crops(
                         _measure_boxes(page, mode),
                         tab_system_cache[resolved_pdf].get(int(pdf_page), []),
                     )
-        if not boxes:
+        if not boxes and mode in MODES:
             boxes = _measure_boxes(page, mode)
             for box in boxes:
                 box["geometry_source"] = "pixel_staff_fallback"
@@ -195,6 +208,10 @@ def prepare_document_crops(
             draw.text((left + 2, top + 2), str(measure_number), fill=(220, 35, 35))
             records.append({
                 "measure_number": measure_number,
+                "mode": (box.get("mode") or mode) if requested_mode == "auto" else requested_mode,
+                "mode_source": mode_source,
+                **({"detected_mode": box["mode"]} if box.get("mode") else {}),
+                **({"score": float(box["score"])} if "score" in box else {}),
                 "page": page_index,
                 "system_index": box["system_index"],
                 "system_measure_index": box["system_measure_index"],
@@ -214,4 +231,10 @@ def prepare_document_crops(
     (output / "document_regions.json").write_text(
         json.dumps(regions, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
-    return mode, records
+    (output / "pages.json").write_text(json.dumps(pages, default=str))
+    document_mode = requested_mode
+    if document_mode == "auto":
+        document_mode = mode_vote(records)["mode"] or mode_vote([
+            {"mode": page.get("notation_mode")} for page in pages
+        ])["mode"] or "auto"
+    return document_mode, records

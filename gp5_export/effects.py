@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 from urllib.parse import unquote
+from shared.techniques import ornament_position
 
 
 def _duration(value: dict[str, Any], gm: Any) -> Any:
@@ -33,11 +34,14 @@ def _bend(effect_text: str, gm: Any) -> Any:
     value = int(value_text or 100)
     kind = _enum_member(gm.BendType, kind_text, gm.BendType.bend)
     point_value = max(0, round(value / 25))
-    points = [
-        gm.BendPoint(position=0, value=0),
-        gm.BendPoint(position=6, value=point_value),
-        gm.BendPoint(position=12, value=point_value),
-    ]
+    contours = {
+        "bend": [(0, 0), (6, point_value), (12, point_value)],
+        "bendRelease": [(0, 0), (6, point_value), (12, 0)],
+        "bendReleaseBend": [(0, 0), (4, point_value), (8, 0), (12, point_value)],
+        "prebend": [(0, point_value), (12, point_value)],
+        "prebendRelease": [(0, point_value), (6, point_value), (12, 0)],
+    }
+    points = [gm.BendPoint(position=x, value=y) for x, y in contours.get(kind.name, contours["bend"])]
     return gm.BendEffect(type=kind, value=value, points=points)
 
 
@@ -137,6 +141,26 @@ def _apply_note_effects(note: Any, effects: list[str], gm: Any) -> None:
             note.effect.tremoloPicking = gm.TremoloPickingEffect(
                 duration=gm.Duration(value=16)
             )
+        elif effect.startswith("trem:"):
+            note.effect.tremoloPicking = gm.TremoloPickingEffect(duration=gm.Duration(value=int(effect.split(":")[1])))
+        elif effect.startswith(("grace:", "trill:")):
+            parts = effect.split(":")
+            fret, pitch = ornament_position(parts[1])
+            if parts[1] == "x":
+                fret = max(0, int(note.value))
+            elif fret is None:
+                tuning = note.beat.voice.measure.track.strings
+                fret = pitch - next(s.value for s in tuning if s.number == note.string)
+            if not 0 <= fret <= 36:
+                raise ValueError("Ornament pitch cannot be played on the assigned string")
+            if parts[0] == "trill":
+                note.effect.trill = gm.TrillEffect(fret=fret, duration=gm.Duration(value=int(parts[2]) if len(parts) == 3 else 32))
+            else:
+                if len(parts) == 5:
+                    parts.insert(2, "32")
+                note.effect.grace = gm.GraceEffect(fret=fret, duration=int(parts[2]),
+                    transition=_enum_member(gm.GraceEffectTransition, parts[3], gm.GraceEffectTransition.none),
+                    isOnBeat=parts[4] == "1", isDead=parts[5] == "1")
 
 
 def _note(

@@ -1,0 +1,286 @@
+DETR:
+  backbone: PPHGNetV2
+  detr_head: DocLayoutV3Head
+  neck: MaskHybridEncoder
+  post_process: DocLayoutV3PostProcess
+  transformer: DocLayoutV3Transformer
+DocLayoutV3Head:
+  loss:
+    aux_loss: true
+    loss_coeff:
+      bbox: 5
+      class: 4
+      dice: 5
+      giou: 2
+      mask: 5
+      order: 50
+    matcher:
+      matcher_coeff:
+        bbox: 5
+        class: 4
+        dice: 5
+        giou: 2
+        mask: 5
+      name: HungarianMatcher
+    name: DocLayoutV3Loss
+    use_focal_loss: true
+    use_vfl: true
+    vfl_iou_type: mask
+DocLayoutV3Metric:
+  eval_mask: false
+DocLayoutV3PostProcess:
+  mask_stride: 4
+  num_top_queries: 300
+  resize_mask: false
+DocLayoutV3Transformer:
+  activation: relu
+  box_noise_scale: 1.0
+  dim_feedforward: 1024
+  dropout: 0.0
+  feat_strides:
+  - 8
+  - 16
+  - 32
+  label_noise_ratio: 0.5
+  learnt_init_query: false
+  mask_enhanced: true
+  nhead: 8
+  num_denoising: 0
+  num_levels: 3
+  num_queries: 300
+  position_embed_type: sine
+EvalDataset:
+  anno_path: annotations/instance_val.json
+  dataset_dir: /mnt/data-4/flurry/guitarOCR-external/database/gp8_joint_v3/datasets/layout_train_scan
+  image_dir: images
+  name: COCOInstSegDataset
+EvalReader:
+  batch_size: 1
+  drop_last: false
+  sample_transforms:
+  - Decode: {}
+  - Resize:
+      interp: 2
+      keep_ratio: false
+      target_size:
+      - 800
+      - 800
+  - NormalizeImage:
+      mean:
+      - 0.0
+      - 0.0
+      - 0.0
+      norm_type: none
+      std:
+      - 1.0
+      - 1.0
+      - 1.0
+  - Permute: {}
+  shuffle: false
+LearningRate:
+  base_lr: 2.0e-05
+  schedulers:
+  - !PiecewiseDecay
+    gamma:
+    - 1.0
+    milestones:
+    - 100
+    use_warmup: true
+    values: null
+  - !LinearWarmup
+    epochs: null
+    epochs_first: false
+    start_factor: 0.001
+    steps: 100
+MaskHybridEncoder:
+  encoder_layer:
+    activation: gelu
+    d_model: 256
+    dim_feedforward: 1024
+    dropout: 0.0
+    name: TransformerLayer
+    nhead: 8
+  expansion: 1.0
+  hidden_dim: 256
+  mask_feat_channels:
+  - 64
+  - 64
+  num_encoder_layers: 1
+  use_encoder_idx:
+  - 3
+OptimizerBuilder:
+  clip_grad_by_norm: 0.1
+  optimizer:
+    type: AdamW
+    weight_decay: 0.0001
+  regularizer: false
+PPHGNetV2:
+  arch: L
+  freeze_at: 0
+  freeze_norm: true
+  freeze_stem_only: true
+  lr_mult_list:
+  - 0.0
+  - 0.05
+  - 0.05
+  - 0.05
+  - 0.05
+  return_idx:
+  - 0
+  - 1
+  - 2
+  - 3
+TestDataset: !ImageFolder
+  anno_path: annotations/instance_val.json
+  dataset_dir: /mnt/data-4/flurry/guitarOCR-external/database/gp8_joint_v3/datasets/layout_train_scan
+  image_dir: ''
+  sample_num: -1
+  use_default_label: null
+TestReader:
+  batch_size: 1
+  drop_last: false
+  inputs_def:
+    image_shape:
+    - 3
+    - 800
+    - 800
+  sample_transforms:
+  - Decode: {}
+  - Resize:
+      interp: 2
+      keep_ratio: false
+      target_size:
+      - 800
+      - 800
+  - NormalizeImage:
+      mean:
+      - 0.0
+      - 0.0
+      - 0.0
+      norm_type: none
+      std:
+      - 1.0
+      - 1.0
+      - 1.0
+  - Permute: {}
+  shuffle: false
+TrainDataset:
+  anno_path: annotations/instance_train.json
+  data_fields:
+  - image
+  - gt_bbox
+  - gt_class
+  - gt_poly
+  - is_crowd
+  - gt_read_order
+  dataset_dir: /mnt/data-4/flurry/guitarOCR-external/database/gp8_joint_v3/datasets/layout_train_scan
+  image_dir: images
+  name: COCOInstSegDataset
+TrainReader:
+  batch_size: 4
+  batch_transforms:
+  - BatchRandomResize:
+      keep_ratio: false
+      random_interp: true
+      random_size: true
+      target_size:
+      - 672
+      - 704
+      - 736
+      - 768
+      - 800
+      - 800
+      - 800
+      - 800
+      - 832
+      - 864
+      - 896
+      - 928
+  - UnpackMask: {}
+  - NormalizeImage:
+      mean:
+      - 0.0
+      - 0.0
+      - 0.0
+      norm_type: none
+      std:
+      - 1.0
+      - 1.0
+      - 1.0
+  - NormalizeBox: {}
+  - BboxXYXY2XYWH: {}
+  - Permute: {}
+  collate_batch: false
+  drop_last: true
+  sample_transforms:
+  - Decode: {}
+  - Poly2MaskPack:
+      del_poly: true
+  - RandomDistort:
+      prob: 0.8
+  - UpdateBBoxFromMask: {}
+  - RandomExpand:
+      fill_value:
+      - 123.675
+      - 116.28
+      - 103.53
+      prob: 0.5
+      ratio: 1.5
+  - RandomCrop:
+      prob: 0.8
+      use_box_candidates: true
+  shuffle: true
+  use_shared_memory: true
+amp: false
+architecture: DETR
+ema_decay: 0.9999
+ema_decay_type: exponential
+ema_filter_no_grad: true
+enable_ce: false
+epoch: 6
+eval: true
+eval_size:
+- 800
+- 800
+export:
+  benchmark: false
+  fuse_conv_bn: false
+  nms: true
+  post_process: true
+export_with_pir: true
+filename: instancesegmodel_PP-DocLayoutV3
+find_unused_parameters: true
+fleet: false
+hidden_dim: 256
+log_iter: 10
+metric: DocLayoutV3Metric
+norm_type: sync_bn
+num_classes: 4
+num_prototypes: 32
+pdx_model_name: PP-DocLayoutV3
+pretrain_weights: /mnt/data-4/flurry/guitarOCR-external/output/pp_doclayout_v3_score_typed/best_model/best_model.pdparams
+print_flops: false
+print_params: false
+profiler_options: null
+proposals_path: sniper/proposals.json
+resume: null
+save_dir: /mnt/data-4/flurry/guitarOCR-external/output/pp_doclayout_v3_score_joint_v3
+save_prediction_only: false
+save_proposals: false
+snapshot_epoch: 1
+target_metrics: bbox
+to_static: false
+uniform_output_enabled: true
+use_ema: true
+use_focal_loss: true
+use_gpu: true
+use_iluvatar_gpu: false
+use_metax_gpu: false
+use_mlu: false
+use_npu: false
+use_vdl: true
+use_wandb: false
+use_xpu: false
+vdl_log_dir: /mnt/data-4/flurry/guitarOCR-external/output/pp_doclayout_v3_score_joint_v3
+with_mask: true
+worker_num: 4

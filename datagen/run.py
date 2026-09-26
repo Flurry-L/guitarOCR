@@ -34,6 +34,7 @@ def main() -> None:
     parser.add_argument("--wine-prefix-template", type=Path)
     parser.add_argument("--wine-python", type=Path)
     parser.add_argument("--workers", type=int, default=1)
+    parser.add_argument("--typed-measures", action="store_true", help="Build four-class layout labels including notation type")
     parser.add_argument(
         "--phase",
         choices=(
@@ -83,7 +84,7 @@ def main() -> None:
             args.workers,
         )
     if args.phase in {"all", "crop"}:
-        summary = crop_and_manifest(output, modes, args.dpi, args.seed)
+        summary = crop_and_manifest(output, modes, args.dpi, args.seed, args.workers)
         print(json.dumps(summary, ensure_ascii=False, indent=2))
 
     if args.phase in {"all", "datasets"}:
@@ -94,13 +95,13 @@ def main() -> None:
         inventory = output / "inventory"
         print(
             json.dumps(
-                build_inventory(output, inventory, seed=args.seed), ensure_ascii=False
+                build_inventory(output, inventory, dpi=args.dpi, seed=args.seed, modes=modes, workers=args.workers), ensure_ascii=False
             )
         )
         print(
             json.dumps(
                 {
-                    "layout": build_layout(inventory, output / "datasets" / "layout"),
+                    "layout": build_layout(inventory, output / "datasets" / "layout", typed_measures=args.typed_measures),
                     "information": build_info(
                         inventory, output / "datasets" / "document_info"
                     ),

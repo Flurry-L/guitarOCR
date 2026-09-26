@@ -3,13 +3,19 @@ import { $, el, action, notice } from "./dom.js";
 import { api, endpoint } from "./api.js";
 const colors = { measure: "#28785b", header: "#6189ac", tempo: "#b07628" };
 const names = { measure: "小节", header: "标题信息", tempo: "速度" };
+const modeNames = { tab: "TAB", notation: "五线谱", both: "五线谱 + TAB" };
 
 export function initBoxes({ start, go, render }) {
+  function boxMode(box) {
+    return $("mode").value !== "auto"
+      ? $("mode").value
+      : box.mode || ui.state.pages[box.page - 1]?.notation_mode || "";
+  }
   function loadPage() {
     if (!ui.state?.pages) return;
     const p = ui.state.pages[ui.pageIndex];
     $("pageLabel").textContent =
-      `第 ${ui.pageIndex + 1} / ${ui.state.pages.length} 页 · ${p.width} × ${p.height}`;
+      `第 ${ui.pageIndex + 1} / ${ui.state.pages.length} 页 · ${p.width} × ${p.height}${p.notation_mode ? ` · ${modeNames[p.notation_mode]}` : ""}`;
     ui.pageImage = null;
     $("canvas").setAttribute("aria-busy", "true");
     const img = new Image();
@@ -85,7 +91,7 @@ export function initBoxes({ start, go, render }) {
       if (box.page !== ui.pageIndex + 1) return;
       const b = el(
         "button",
-        box.kind === "measure" ? `小节 ${numberOf(i)}` : names[box.kind],
+        box.kind === "measure" ? `小节 ${numberOf(i)} · ${modeNames[boxMode(box)] || "待识别"}` : names[box.kind],
         i === ui.selected ? "active" : "",
       );
       b.onclick = () => {
@@ -96,6 +102,12 @@ export function initBoxes({ start, go, render }) {
       list.append(b);
     });
     $("coords").hidden = ui.selected < 0;
+    const selected = ui.boxes[ui.selected];
+    $("boxModeField").hidden = !selected || selected.kind !== "measure";
+    if (selected?.kind === "measure") {
+      $("boxMode").value = boxMode(selected);
+      $("boxMode").disabled = $("mode").value !== "auto";
+    }
     if (ui.selected >= 0)
       ui.boxes[ui.selected].bbox.forEach(
         (v, i) =>
@@ -271,6 +283,13 @@ export function initBoxes({ start, go, render }) {
   $("later").onclick = () => moveBox(1);
   $("mode").onchange = () => {
     ui.boxDirty = true;
+    renderBoxList();
+  };
+  $("boxMode").onchange = () => {
+    if (ui.selected < 0) return;
+    ui.boxes[ui.selected].mode = $("boxMode").value;
+    ui.boxDirty = true;
+    renderBoxList();
   };
   $("detect").onclick = action(async () => {
     if (

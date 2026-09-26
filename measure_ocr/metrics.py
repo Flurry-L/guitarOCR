@@ -162,9 +162,14 @@ class MeasureSequenceMetrics:
             for error in constraint_errors:
                 self.constraint_errors[error.split(":", 1)[0]] += 1
         if mode is not None:
-            if format_measure_target(expected, mode) == format_measure_target(
-                predicted, mode
-            ):
+            canonical_expected = format_measure_target(expected, mode)
+            try:
+                canonical_predicted = format_measure_target(predicted, mode)
+            except (ValueError, IndexError, KeyError):
+                # Syntactically parsed output may contain invalid technique
+                # parameters. Count the error without aborting an evaluation.
+                canonical_predicted = None
+            if canonical_expected == canonical_predicted:
                 self.exact += 1
         elif predicted_text == expected_text:
             self.exact += 1

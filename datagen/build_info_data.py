@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import unicodedata
 
 import pymupdf
 from PIL import Image
@@ -10,6 +11,14 @@ from PIL import Image
 from datagen.inventory import build_inventory, source_catalog
 
 from document_info.prompts import HEADER_PROMPT, TEMPO_PROMPT
+
+
+def _printed_text(value: str) -> str:
+    # PDF font mappings may encode Chinese glyphs as compatibility radicals.
+    # These supplemental radical glyphs used by GP8's CJK font have no NFKC
+    # decomposition. Normalize only the visibility check, never the OCR label.
+    value = value.translate(str.maketrans({"⻓": "长", "⻘": "青", "⻛": "风"}))
+    return " ".join(unicodedata.normalize("NFKC", value).casefold().split())
 
 
 def _target(field: str, value: object) -> dict:
@@ -163,9 +172,9 @@ def _gp8_samples(
                                     page.rect.width,
                                     header_bottom / image.height * page.rect.height,
                                 )
-                            ).casefold()
+                            )
                             if any(
-                                value.casefold() not in printed
+                                _printed_text(value) not in _printed_text(printed)
                                 for value in target.values()
                                 if value
                             ):
@@ -208,7 +217,8 @@ def _gp8_samples(
 
 
 def build_dataset(
-    source_root: Path | None, output_root: Path, gp8_export: Path | None = None
+    source_root: Path | None, output_root: Path, gp8_export: Path | None = None,
+    *, include_test: bool = False,
 ) -> dict[str, int]:
     if source_root is None:
         if gp8_export is None:
@@ -225,10 +235,10 @@ def build_dataset(
         .splitlines()
         if line.strip()
     ]
-    samples = {"train": [], "validation": []}
+    samples = {split: [] for split in (("train", "validation", "test") if include_test else ("train", "validation"))}
     counts = {"header": 0, "tempo": 0}
     rejected_headers = 0
-    families = {"train": set(), "validation": set()}
+    families = {split: set() for split in samples}
     for track in tracks:
         split = track["split"]
         if split not in samples:
@@ -270,10 +280,9 @@ def build_dataset(
                                     0, 0, pdf[0].rect.width, header_bottom_points
                                 )
                             )
-                            .casefold()
                         )
                     if any(
-                        value.casefold() not in printed
+                        _printed_text(value) not in _printed_text(printed)
                         for value in target.values()
                         if value
                     ):
@@ -288,6 +297,7 @@ def build_dataset(
                         header_image.save(destination)
                         sample = _target("header", target)
                         sample["images"] = [str(destination.resolve())]
+                        sample["provenance"] = {key: track.get(key) for key in ("source_id", "family", "mode", "split")}
                         samples[split].append(sample)
                         counts["header"] += 1
         ambiguous = _overlapping_tempos(layout["tempo_indications"])
@@ -319,6 +329,7 @@ def build_dataset(
             tempo_image.save(destination)
             sample = _target("tempo", target)
             sample["images"] = [str(destination.resolve())]
+            sample["provenance"] = {key: track.get(key) for key in ("source_id", "family", "mode", "split")}
             samples[split].append(sample)
             counts["tempo"] += 1
     gp8_added = 0
@@ -327,8 +338,8 @@ def build_dataset(
             gp8_export.resolve(), output_root, samples, counts, families
         )
         rejected_headers += gp8_rejected
-    if families["train"] & families["validation"]:
-        raise ValueError("Source families overlap between train and validation")
+    if any(families[left] & families[right] for left in families for right in families if left != right):
+        raise ValueError("Source families overlap between dataset splits")
     llamafactory = output_root / "llamafactory"
     llamafactory.mkdir(exist_ok=True)
     metadata = {}
@@ -367,10 +378,11 @@ def main() -> None:
     )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--gp8-export", type=Path)
+    parser.add_argument("--include-test", action="store_true")
     args = parser.parse_args()
     print(
         json.dumps(
-            build_dataset(args.source, args.output, args.gp8_export), ensure_ascii=False
+            build_dataset(args.source, args.output, args.gp8_export, include_test=args.include_test), ensure_ascii=False
         )
     )
 

@@ -1,0 +1,449 @@
+{
+  "selection": {
+    "selected_adapter": "output/glm_ocr_document_info_v3_lora",
+    "selected_checkpoint": 300,
+    "selection_data": "validation only",
+    "reason": "Best validation loss at step 300; full validation generation improves title (+3/585), artist (+2/585), tuning (+3/585), with tempo unchanged at 639/639. Held-out test not read for selection.",
+    "baseline_metrics": {
+      "artist": {
+        "correct": 568,
+        "total": 585,
+        "accuracy": 0.9709401709401709
+      },
+      "tempo_quarter": {
+        "correct": 639,
+        "total": 639,
+        "accuracy": 1.0
+      },
+      "title": {
+        "correct": 573,
+        "total": 585,
+        "accuracy": 0.9794871794871794
+      },
+      "tuning_name": {
+        "correct": 582,
+        "total": 585,
+        "accuracy": 0.9948717948717949
+      }
+    },
+    "candidate_metrics": {
+      "artist": {
+        "correct": 570,
+        "total": 585,
+        "accuracy": 0.9743589743589743
+      },
+      "tempo_quarter": {
+        "correct": 639,
+        "total": 639,
+        "accuracy": 1.0
+      },
+      "title": {
+        "correct": 576,
+        "total": 585,
+        "accuracy": 0.9846153846153847
+      },
+      "tuning_name": {
+        "correct": 585,
+        "total": 585,
+        "accuracy": 1.0
+      }
+    },
+    "artifacts": {
+      "dataset_sha256": "9acd5c46c8814c0cdbd0a826f176a044ddcbc103f28b41c90b3e7a0d15bff7ec",
+      "adapter_sha256": {
+        "adapter_config.json": "a167822248411ca623dc098063ee8978b6bc303e2e5b241c9ae3d5a6bf96b5e6",
+        "adapter_model.safetensors": "798f0d2a4c4e6748aff76cbe1fa42019a300b6f7875bfb6d1062f33b68815926"
+      }
+    }
+  },
+  "evaluations": {
+    "baseline_val": {
+      "both": {
+        "artist": {
+          "correct": 189,
+          "total": 195,
+          "accuracy": 0.9692307692307692
+        },
+        "tempo_quarter": {
+          "correct": 213,
+          "total": 213,
+          "accuracy": 1.0
+        },
+        "title": {
+          "correct": 191,
+          "total": 195,
+          "accuracy": 0.9794871794871794
+        },
+        "tuning_name": {
+          "correct": 194,
+          "total": 195,
+          "accuracy": 0.9948717948717949
+        }
+      },
+      "notation": {
+        "artist": {
+          "correct": 190,
+          "total": 195,
+          "accuracy": 0.9743589743589743
+        },
+        "tempo_quarter": {
+          "correct": 213,
+          "total": 213,
+          "accuracy": 1.0
+        },
+        "title": {
+          "correct": 191,
+          "total": 195,
+          "accuracy": 0.9794871794871794
+        },
+        "tuning_name": {
+          "correct": 194,
+          "total": 195,
+          "accuracy": 0.9948717948717949
+        }
+      },
+      "overall": {
+        "artist": {
+          "correct": 568,
+          "total": 585,
+          "accuracy": 0.9709401709401709
+        },
+        "tempo_quarter": {
+          "correct": 639,
+          "total": 639,
+          "accuracy": 1.0
+        },
+        "title": {
+          "correct": 573,
+          "total": 585,
+          "accuracy": 0.9794871794871794
+        },
+        "tuning_name": {
+          "correct": 582,
+          "total": 585,
+          "accuracy": 0.9948717948717949
+        }
+      },
+      "tab": {
+        "artist": {
+          "correct": 189,
+          "total": 195,
+          "accuracy": 0.9692307692307692
+        },
+        "tempo_quarter": {
+          "correct": 213,
+          "total": 213,
+          "accuracy": 1.0
+        },
+        "title": {
+          "correct": 191,
+          "total": 195,
+          "accuracy": 0.9794871794871794
+        },
+        "tuning_name": {
+          "correct": 194,
+          "total": 195,
+          "accuracy": 0.9948717948717949
+        }
+      },
+      "artifacts": {
+        "dataset_sha256": "9acd5c46c8814c0cdbd0a826f176a044ddcbc103f28b41c90b3e7a0d15bff7ec",
+        "adapter_sha256": {
+          "adapter_config.json": "6679a7f338b9db547c113c2c51f8653d2f56f1bd86320bfb3d8fbdfcfd25d254",
+          "adapter_model.safetensors": "6a096087756b5e6774e6f67e99ff526a4a5fa382f2ce3d9d2919126a5fa76e3d"
+        }
+      }
+    },
+    "baseline_test": {
+      "both": {
+        "artist": {
+          "correct": 195,
+          "total": 196,
+          "accuracy": 0.9948979591836735
+        },
+        "tempo_quarter": {
+          "correct": 196,
+          "total": 196,
+          "accuracy": 1.0
+        },
+        "title": {
+          "correct": 195,
+          "total": 196,
+          "accuracy": 0.9948979591836735
+        },
+        "tuning_name": {
+          "correct": 196,
+          "total": 196,
+          "accuracy": 1.0
+        }
+      },
+      "notation": {
+        "artist": {
+          "correct": 195,
+          "total": 196,
+          "accuracy": 0.9948979591836735
+        },
+        "tempo_quarter": {
+          "correct": 196,
+          "total": 196,
+          "accuracy": 1.0
+        },
+        "title": {
+          "correct": 195,
+          "total": 196,
+          "accuracy": 0.9948979591836735
+        },
+        "tuning_name": {
+          "correct": 196,
+          "total": 196,
+          "accuracy": 1.0
+        }
+      },
+      "overall": {
+        "artist": {
+          "correct": 585,
+          "total": 588,
+          "accuracy": 0.9948979591836735
+        },
+        "tempo_quarter": {
+          "correct": 588,
+          "total": 588,
+          "accuracy": 1.0
+        },
+        "title": {
+          "correct": 584,
+          "total": 588,
+          "accuracy": 0.9931972789115646
+        },
+        "tuning_name": {
+          "correct": 587,
+          "total": 588,
+          "accuracy": 0.9982993197278912
+        }
+      },
+      "tab": {
+        "artist": {
+          "correct": 195,
+          "total": 196,
+          "accuracy": 0.9948979591836735
+        },
+        "tempo_quarter": {
+          "correct": 196,
+          "total": 196,
+          "accuracy": 1.0
+        },
+        "title": {
+          "correct": 194,
+          "total": 196,
+          "accuracy": 0.9897959183673469
+        },
+        "tuning_name": {
+          "correct": 195,
+          "total": 196,
+          "accuracy": 0.9948979591836735
+        }
+      },
+      "artifacts": {
+        "dataset_sha256": "b3d8685e7b58067ebe1620fba280fc5464b32735a658b7eee516ca019039d82b",
+        "adapter_sha256": {
+          "adapter_config.json": "6679a7f338b9db547c113c2c51f8653d2f56f1bd86320bfb3d8fbdfcfd25d254",
+          "adapter_model.safetensors": "6a096087756b5e6774e6f67e99ff526a4a5fa382f2ce3d9d2919126a5fa76e3d"
+        }
+      }
+    },
+    "candidate_val": {
+      "both": {
+        "artist": {
+          "correct": 191,
+          "total": 195,
+          "accuracy": 0.9794871794871794
+        },
+        "tempo_quarter": {
+          "correct": 213,
+          "total": 213,
+          "accuracy": 1.0
+        },
+        "title": {
+          "correct": 192,
+          "total": 195,
+          "accuracy": 0.9846153846153847
+        },
+        "tuning_name": {
+          "correct": 195,
+          "total": 195,
+          "accuracy": 1.0
+        }
+      },
+      "notation": {
+        "artist": {
+          "correct": 190,
+          "total": 195,
+          "accuracy": 0.9743589743589743
+        },
+        "tempo_quarter": {
+          "correct": 213,
+          "total": 213,
+          "accuracy": 1.0
+        },
+        "title": {
+          "correct": 192,
+          "total": 195,
+          "accuracy": 0.9846153846153847
+        },
+        "tuning_name": {
+          "correct": 195,
+          "total": 195,
+          "accuracy": 1.0
+        }
+      },
+      "overall": {
+        "artist": {
+          "correct": 570,
+          "total": 585,
+          "accuracy": 0.9743589743589743
+        },
+        "tempo_quarter": {
+          "correct": 639,
+          "total": 639,
+          "accuracy": 1.0
+        },
+        "title": {
+          "correct": 576,
+          "total": 585,
+          "accuracy": 0.9846153846153847
+        },
+        "tuning_name": {
+          "correct": 585,
+          "total": 585,
+          "accuracy": 1.0
+        }
+      },
+      "tab": {
+        "artist": {
+          "correct": 189,
+          "total": 195,
+          "accuracy": 0.9692307692307692
+        },
+        "tempo_quarter": {
+          "correct": 213,
+          "total": 213,
+          "accuracy": 1.0
+        },
+        "title": {
+          "correct": 192,
+          "total": 195,
+          "accuracy": 0.9846153846153847
+        },
+        "tuning_name": {
+          "correct": 195,
+          "total": 195,
+          "accuracy": 1.0
+        }
+      },
+      "artifacts": {
+        "dataset_sha256": "9acd5c46c8814c0cdbd0a826f176a044ddcbc103f28b41c90b3e7a0d15bff7ec",
+        "adapter_sha256": {
+          "adapter_config.json": "a167822248411ca623dc098063ee8978b6bc303e2e5b241c9ae3d5a6bf96b5e6",
+          "adapter_model.safetensors": "798f0d2a4c4e6748aff76cbe1fa42019a300b6f7875bfb6d1062f33b68815926"
+        }
+      }
+    },
+    "candidate_test": {
+      "both": {
+        "artist": {
+          "correct": 196,
+          "total": 196,
+          "accuracy": 1.0
+        },
+        "tempo_quarter": {
+          "correct": 196,
+          "total": 196,
+          "accuracy": 1.0
+        },
+        "title": {
+          "correct": 195,
+          "total": 196,
+          "accuracy": 0.9948979591836735
+        },
+        "tuning_name": {
+          "correct": 196,
+          "total": 196,
+          "accuracy": 1.0
+        }
+      },
+      "notation": {
+        "artist": {
+          "correct": 196,
+          "total": 196,
+          "accuracy": 1.0
+        },
+        "tempo_quarter": {
+          "correct": 196,
+          "total": 196,
+          "accuracy": 1.0
+        },
+        "title": {
+          "correct": 195,
+          "total": 196,
+          "accuracy": 0.9948979591836735
+        },
+        "tuning_name": {
+          "correct": 196,
+          "total": 196,
+          "accuracy": 1.0
+        }
+      },
+      "overall": {
+        "artist": {
+          "correct": 588,
+          "total": 588,
+          "accuracy": 1.0
+        },
+        "tempo_quarter": {
+          "correct": 588,
+          "total": 588,
+          "accuracy": 1.0
+        },
+        "title": {
+          "correct": 585,
+          "total": 588,
+          "accuracy": 0.9948979591836735
+        },
+        "tuning_name": {
+          "correct": 588,
+          "total": 588,
+          "accuracy": 1.0
+        }
+      },
+      "tab": {
+        "artist": {
+          "correct": 196,
+          "total": 196,
+          "accuracy": 1.0
+        },
+        "tempo_quarter": {
+          "correct": 196,
+          "total": 196,
+          "accuracy": 1.0
+        },
+        "title": {
+          "correct": 195,
+          "total": 196,
+          "accuracy": 0.9948979591836735
+        },
+        "tuning_name": {
+          "correct": 196,
+          "total": 196,
+          "accuracy": 1.0
+        }
+      },
+      "artifacts": {
+        "dataset_sha256": "b3d8685e7b58067ebe1620fba280fc5464b32735a658b7eee516ca019039d82b",
+        "adapter_sha256": {
+          "adapter_config.json": "a167822248411ca623dc098063ee8978b6bc303e2e5b241c9ae3d5a6bf96b5e6",
+          "adapter_model.safetensors": "798f0d2a4c4e6748aff76cbe1fa42019a300b6f7875bfb6d1062f33b68815926"
+        }
+      }
+    }
+  }
+}

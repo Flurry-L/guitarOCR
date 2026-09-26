@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from copy import deepcopy
+from concurrent.futures import ProcessPoolExecutor
 import json
 from pathlib import Path
 
@@ -83,90 +84,123 @@ def source_catalog(root: Path, seed: int = 20260715) -> dict[str, dict]:
     return catalog
 
 
+def _inventory_track(job):
+    export_root, output, dpi, sid, assignment, mode = job
+    total = 0
+    documents = export_root / "native-export" / "documents" / f"{mode}-{sid}" / "tracks"
+    layouts = sorted(documents.glob("*/layout.json"))
+    if len(layouts) != 1:
+        raise ValueError(
+            f"Expected one exported {mode} track for {sid}, found {len(layouts)}; run --phase render"
+        )
+    source = layouts[0].parent
+    layout = json.loads(layouts[0].read_text(encoding="utf-8"))
+    if layout.get("display_mode", "tab") != mode:
+        raise ValueError(f"Rendered display mode differs from {mode}: {source}")
+    folder = Path("tracks") / mode / sid
+    destination = output / folder
+    destination.mkdir(parents=True, exist_ok=True)
+    annotations = {}
+    for system in layout["systems"]:
+        for box in system["measure_boxes"]:
+            annotations.setdefault(int(system["page"]), []).append(
+                ("measure", box["bbox_mm"])
+            )
+    for tempo in layout.get("tempo_indications", []):
+        annotations.setdefault(int(tempo["page"]), []).append(
+            ("tempo_region", tempo["bbox_mm"])
+        )
+    pages = []
+    with pymupdf.open(source / "score.pdf") as pdf:
+        if len(pdf) != len(layout["pages"]):
+            raise ValueError(f"PDF/layout page counts differ: {source}")
+        for index, page in enumerate(pdf):
+            number = index + 1
+            page_mm = layout["pages"][index]["bbox_mm"]
+            if int(layout["pages"][index]["index"]) != number:
+                raise ValueError(f"Invalid layout page order: {source}")
+            pix = page.get_pixmap(
+                matrix=pymupdf.Matrix(dpi / 72, dpi / 72), colorspace=pymupdf.csGRAY
+            )
+            image = folder / f"page_{number:03d}.png"
+            pix.save(output / image)
+            sx, sy = pix.width / page_mm[2], pix.height / page_mm[3]
+            rows = []
+            for kind, (x, y, w, h) in annotations.get(number, []):
+                rows.append(
+                    {
+                        "label": kind,
+                        "box": [
+                            (x - page_mm[0]) * sx,
+                            (y - page_mm[1]) * sy,
+                            (x + w - page_mm[0]) * sx,
+                            (y + h - page_mm[1]) * sy,
+                        ],
+                    }
+                )
+            pages.append(
+                {
+                    "page_index": index,
+                    "source_id": sid,
+                    "mode": mode,
+                    "renderer": "guitarpro8",
+                    "split": assignment["split"],
+                    "family": assignment["family"],
+                    "image": image.as_posix(),
+                    "image_size": [pix.width, pix.height],
+                    "page_bbox_mm": page_mm,
+                    "annotations": rows,
+                }
+            )
+            total += 1
+    (destination / "layout-pages.jsonl").write_text(
+        "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in pages),
+        encoding="utf-8",
+    )
+    return (
+        {
+            **assignment,
+            "mode": mode,
+            "renderer": "guitarpro8",
+            "sequence_id": f"{mode}-{sid}",
+            "source_track": str(source),
+            "folder": folder.as_posix(),
+            "errors": [],
+        },
+        total,
+    )
+
+
 def build_inventory(
-    export_root: Path, output: Path, dpi: int = 180, seed: int = 20260715
+    export_root: Path,
+    output: Path,
+    dpi: int = 180,
+    seed: int = 20260715,
+    modes: list[str] | None = None,
+    workers: int = 1,
 ) -> dict:
     export_root, output = export_root.resolve(), output.resolve()
     catalog = source_catalog(export_root, seed)
+    available = ("tab", "notation", "both")
+    if modes is None:
+        documents = export_root / "native-export" / "documents"
+        modes = [mode for mode in available if any(documents.glob(f"{mode}-*"))]
+    if not modes or len(set(modes)) != len(modes) or set(modes) - set(available):
+        raise ValueError(f"Invalid or missing rendered modes: {modes}")
     tracks = []
     total = 0
-    for sid, assignment in sorted(catalog.items()):
-        documents = (
-            export_root / "native-export" / "documents" / f"tab-{sid}" / "tracks"
-        )
-        layouts = sorted(documents.glob("*/layout.json"))
-        if len(layouts) != 1:
-            raise ValueError(
-                f"Expected one exported TAB track for {sid}, found {len(layouts)}; run --phase render"
-            )
-        source = layouts[0].parent
-        layout = json.loads(layouts[0].read_text(encoding="utf-8"))
-        folder = Path("tracks") / sid
-        destination = output / folder
-        destination.mkdir(parents=True, exist_ok=True)
-        annotations = {}
-        for system in layout["systems"]:
-            for box in system["measure_boxes"]:
-                annotations.setdefault(int(system["page"]), []).append(
-                    ("measure", box["bbox_mm"])
-                )
-        for tempo in layout.get("tempo_indications", []):
-            annotations.setdefault(int(tempo["page"]), []).append(
-                ("tempo_region", tempo["bbox_mm"])
-            )
-        pages = []
-        with pymupdf.open(source / "score.pdf") as pdf:
-            if len(pdf) != len(layout["pages"]):
-                raise ValueError(f"PDF/layout page counts differ: {source}")
-            for index, page in enumerate(pdf):
-                number = index + 1
-                page_mm = layout["pages"][index]["bbox_mm"]
-                if int(layout["pages"][index]["index"]) != number:
-                    raise ValueError(f"Invalid layout page order: {source}")
-                pix = page.get_pixmap(
-                    matrix=pymupdf.Matrix(dpi / 72, dpi / 72), colorspace=pymupdf.csGRAY
-                )
-                image = folder / f"page_{number:03d}.png"
-                pix.save(output / image)
-                sx, sy = pix.width / page_mm[2], pix.height / page_mm[3]
-                rows = []
-                for kind, (x, y, w, h) in annotations.get(number, []):
-                    rows.append(
-                        {
-                            "label": kind,
-                            "box": [
-                                (x - page_mm[0]) * sx,
-                                (y - page_mm[1]) * sy,
-                                (x + w - page_mm[0]) * sx,
-                                (y + h - page_mm[1]) * sy,
-                            ],
-                        }
-                    )
-                pages.append(
-                    {
-                        "page_index": index,
-                        "split": assignment["split"],
-                        "family": assignment["family"],
-                        "image": image.as_posix(),
-                        "image_size": [pix.width, pix.height],
-                        "page_bbox_mm": page_mm,
-                        "annotations": rows,
-                    }
-                )
-                total += 1
-        (destination / "layout-pages.jsonl").write_text(
-            "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in pages),
-            encoding="utf-8",
-        )
-        tracks.append(
-            {
-                **assignment,
-                "sequence_id": f"tab-{sid}",
-                "source_track": str(source),
-                "folder": folder.as_posix(),
-                "errors": [],
-            }
-        )
+    jobs = [
+        (export_root, output, dpi, sid, assignment, mode)
+        for sid, assignment in sorted(catalog.items())
+        for mode in modes
+    ]
+    if workers > 1:
+        with ProcessPoolExecutor(max_workers=workers) as pool:
+            results = list(pool.map(_inventory_track, jobs))
+    else:
+        results = list(map(_inventory_track, jobs))
+    tracks = [track for track, _ in results]
+    total = sum(count for _, count in results)
     (output / "track-index.jsonl").write_text(
         "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in tracks),
         encoding="utf-8",
@@ -178,11 +212,21 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--gp8-export", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--mode", action="append", choices=("tab", "notation", "both"))
+    parser.add_argument("--workers", type=int, default=1)
+    parser.add_argument("--dpi", type=int, default=180)
     parser.add_argument("--seed", type=int, default=20260715)
     args = parser.parse_args()
     print(
         json.dumps(
-            build_inventory(args.gp8_export, args.output, seed=args.seed),
+            build_inventory(
+                args.gp8_export,
+                args.output,
+                dpi=args.dpi,
+                seed=args.seed,
+                modes=args.mode,
+                workers=args.workers,
+            ),
             ensure_ascii=False,
         )
     )

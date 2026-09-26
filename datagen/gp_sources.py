@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
-from shared.m2 import format_measure_target
+from shared.m2 import format_measure_target, full_measure_rest_target, parse_measure_target
 
 
 SLIDE_NAMES = {
@@ -104,12 +104,19 @@ def encode_note(note: Any) -> dict[str, Any]:
         harmonic = _harmonic_token(getattr(effect, "harmonic", None))
         if harmonic:
             note_effects.append(harmonic)
-        if getattr(effect, "grace", None) is not None:
-            note_effects.append("grace")
-        if getattr(effect, "trill", None) is not None:
-            note_effects.append("trill")
-        if getattr(effect, "tremoloPicking", None) is not None:
-            note_effects.append("trem")
+        open_pitch = int(note.realValue) - int(note.value)
+        grace = getattr(effect, "grace", None)
+        if grace is not None:
+            note_effects.append("grace" if int(grace.fret) < 0 else (
+                f"grace:f{int(grace.fret)}p{open_pitch + int(grace.fret)}:{int(grace.duration)}:"
+                f"{_enum_name(grace.transition)}:{int(grace.isOnBeat)}:{int(grace.isDead)}"
+            ))
+        trill = getattr(effect, "trill", None)
+        if trill is not None:
+            note_effects.append("trill" if int(trill.fret) < 0 else f"trill:f{int(trill.fret)}p{open_pitch + int(trill.fret)}:{int(trill.duration.value)}")
+        tremolo = getattr(effect, "tremoloPicking", None)
+        if tremolo is not None:
+            note_effects.append(f"trem:{int(tremolo.duration.value)}")
     fret: int | str = int(getattr(note, "value", 0) or 0)
     if note_type == "dead":
         fret = "x"
@@ -199,6 +206,10 @@ def encode_measure(
         # must not become impossible OCR targets.
         if events and (voice_index == 0 or any(event["status"] != "empty" for event in events)):
             voices.append({"voice": voice_index, "events": events})
+    if not voices:
+        # An entirely empty source bar is printed as a full-measure rest by
+        # Guitar Pro. An empty "M2 |" target violates the OCR output contract.
+        voices = parse_measure_target(full_measure_rest_target((numerator, denominator)))["voices"]
     bars = []
     if bool(getattr(header, "isRepeatOpen", False)):
         bars.append("repeat_open")
@@ -301,9 +312,10 @@ def song_sequence_payload(song: Any, track_index: int, source_path: Path, source
             for event in voice["events"]:
                 notes = event.get("notes") or []
                 if event.get("status") == "normal" and notes:
-                    # MIDI velocity is not visible in GP8's printed output.
-                    # Normalize it so source-only playback data cannot leak
-                    # into the image-to-sequence target.
+                    # GP8 can print dynamic marks, but source per-note velocity
+                    # is not a reliable label for their location/visibility.
+                    # This dataset does not yet supervise printed dynamics;
+                    # do not require a velocity value on every note.
                     for note in notes:
                         note["velocity"] = 95
                 duration = event["duration"]

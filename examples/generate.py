@@ -6,6 +6,7 @@ import pymupdf
 
 from gp5_export.writer import write_targets_gp5
 from shared.m2 import format_measure_target, parse_measure_target
+from shared.score_text import display_score_text
 
 TARGETS = [
     "M2 time=4/4 | V0{@0:q:s1f0 @960:q:s1f1 @1920:q:s1f3 @2880:q:s1f0}",
@@ -24,6 +25,7 @@ def generate(root: Path):
     first["tempo_quarter"] = 120
     targets[0] = format_measure_target(first, "tab", preserve_playback=True)
     (root / "expected.m2").write_text("\n".join(targets) + "\n", encoding="utf-8")
+    (root / "expected.score.txt").write_text(display_score_text("\n".join(targets) + "\n"), encoding="utf-8")
     write_targets_gp5(
         targets,
         root / "expected.gp5",

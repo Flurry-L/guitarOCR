@@ -7,6 +7,7 @@ from pathlib import Path
 from PIL import Image
 
 from layout.postprocess import order_measure_boxes, refine_measure_boxes
+from shared.layout_labels import mode_vote
 
 
 def detect_pages(
@@ -33,7 +34,7 @@ def detect_pages(
                 if box.get("label") == "tempo_region"
                 and float(box.get("score", 0)) >= threshold
             ]
-            results.append({"measures": measures, "tempo_regions": tempos})
+            results.append({"measures": measures, "tempo_regions": tempos, **mode_vote(measures)})
         else:
             results.append(measures)
     return results

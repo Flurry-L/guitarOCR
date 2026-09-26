@@ -28,7 +28,7 @@ class BrowserWorkflow(unittest.TestCase):
         class DemoWorkflow(Workflow):
             fail_next = False
 
-            def detect(self, sid, mode="tab", source="auto"):
+            def detect(self, sid, mode="auto", source="auto"):
                 if self.fail_next:
                     self.fail_next = False
                     raise ValueError("测试用检测失败")
@@ -36,7 +36,7 @@ class BrowserWorkflow(unittest.TestCase):
                 return self.boxes(
                     sid,
                     [
-                        {"page": i + 1, "kind": "measure", "bbox": [30, 100, 200, 100]}
+                        {"page": i + 1, "kind": "measure", "bbox": [30, 100, 200, 100], "mode": "tab"}
                         for i in range(len(state["pages"]))
                     ],
                     mode,
@@ -136,6 +136,14 @@ class BrowserWorkflow(unittest.TestCase):
         page.locator("#eventRows tr").first.locator(".notes").fill("1:7")
         page.locator("#saveMeasure").click()
         expect(page.locator("#notice")).to_contain_text("第 1 小节已保存")
+        page.locator("#advanced summary").click()
+        raw = page.locator("#measureText").input_value()
+        self.assertTrue(raw.startswith("MEASURE "))
+        self.assertNotIn("M2", page.locator("#advanced").inner_text())
+        page.locator("#measureText").fill(raw.replace("s1f7", "s1f6"))
+        page.locator("#saveRaw").click()
+        expect(page.locator("#notice")).to_contain_text("第 1 小节已保存")
+        expect(page.locator("#eventRows tr").first.locator(".notes")).to_have_value("1:6")
         # A second tab starts with the same revision, then becomes stale.
         other = self.context.new_page()
         other.goto(page.url)
@@ -153,6 +161,13 @@ class BrowserWorkflow(unittest.TestCase):
         page.locator("#toExport").click()
         page.locator("#export").click()
         expect(page.locator("#downloadGP5")).to_be_visible()
+        with page.expect_download() as text_download:
+            page.locator("#downloadScoreText").click()
+        self.assertEqual(text_download.value.suggested_filename, "score.txt")
+        score_text = self.root / "browser-score.txt"
+        text_download.value.save_as(score_text)
+        self.assertTrue(score_text.read_text().startswith("MEASURE "))
+        self.assertNotIn("M2", score_text.read_text())
         with page.expect_download() as download:
             page.locator("#downloadGP5").click()
         output = self.root / "browser.gp5"
@@ -175,6 +190,7 @@ class BrowserWorkflow(unittest.TestCase):
         page.locator("#detect").click()
         expect(page.locator("#notice")).to_contain_text("测试用检测失败", timeout=15000)
         expect(page.locator("#detect")).to_be_enabled()
+        page.locator("#mode").select_option("tab")
         page.locator("#boxTool").select_option("measure")
         expect(page.locator("#canvas")).to_have_attribute("aria-busy", "false")
         canvas = page.locator("#canvas").bounding_box()
@@ -192,6 +208,23 @@ class BrowserWorkflow(unittest.TestCase):
         expect(page.locator("#boxList button")).to_have_count(1)
         expect(page.locator("#canvas")).to_have_attribute("aria-busy", "false")
         self.assertNotIn("测试用检测失败", page.locator("#notice").inner_text())
+        self.assertFalse(self.errors, self.errors)
+
+    def test_auto_type_and_per_measure_correction_survive_reload(self):
+        page = self.page
+        expect(page.locator("#mode")).to_have_value("auto")
+        self.detect()
+        expect(page.locator("#mode")).to_have_value("auto")
+        page.locator("#boxList button").first.click()
+        expect(page.locator("#boxMode")).to_have_value("tab")
+        page.locator("#boxMode").select_option("notation")
+        page.locator("#saveBoxes").click()
+        expect(page.locator('[data-panel="2"]')).to_have_class("panel active")
+        page.reload()
+        expect(page.locator("#mode")).to_have_value("auto")
+        page.locator("#boxList button").first.click()
+        expect(page.locator("#boxMode")).to_have_value("notation")
+        expect(page.locator("#pageLabel")).to_contain_text("五线谱")
         self.assertFalse(self.errors, self.errors)
 
 

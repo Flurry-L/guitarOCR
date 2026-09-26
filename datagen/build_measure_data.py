@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from concurrent.futures import ProcessPoolExecutor
+from contextlib import nullcontext
 from hashlib import sha256
 import json
 from pathlib import Path
@@ -14,7 +16,7 @@ from shared.m2 import format_previous_measure_context
 from measure_ocr.prompts import recognition_prompt
 
 
-MODES = ("tab",)
+MODES = ("tab", "notation", "both")
 # These classes are visually or structurally important but are much rarer than
 # ordinary fretted notes.  The main training file still contains every measure;
 # a second, bounded file repeats representative training-only hard cases once.
@@ -336,8 +338,110 @@ def _crop_measure(page: Image.Image, bbox_mm: list[float], dpi: int) -> Image.Im
     return page.crop((x0, y0, max(x0 + 1, x1), max(y0 + 1, y1)))
 
 
+def _crop_source(job):
+    label_path, label, output, modes, dpi, split = job
+    rows, failures = [], []
+    source_id = label["source_id"]
+    for mode in modes:
+        pdf_path = output / "pdf" / mode / f"{source_id}.pdf"
+        layout_path = output / "layout" / mode / f"{source_id}.layout.json"
+        if not pdf_path.is_file() or not layout_path.is_file():
+            failures.append(
+                {
+                    "source_id": source_id,
+                    "mode": mode,
+                    "error": "missing_pdf_or_layout",
+                }
+            )
+            continue
+        layout = json.loads(layout_path.read_text(encoding="utf-8"))
+        boxes = _measure_boxes(layout)
+        if len(boxes) != len(label["measures"]):
+            failures.append(
+                {
+                    "source_id": source_id,
+                    "mode": mode,
+                    "error": "measure_count_mismatch",
+                    "labels": len(label["measures"]),
+                    "boxes": len(boxes),
+                }
+            )
+            continue
+        crop_paths = [
+            output
+            / "crops"
+            / mode
+            / source_id
+            / f"m{int(measure['index']) + 1:04d}.png"
+            for measure in label["measures"]
+        ]
+        import pymupdf
+
+        with pymupdf.open(pdf_path) as document:
+            page_count = document.page_count
+        # Relabeling changes targets but not official PDF geometry. Avoid
+        # rasterizing thousands of PDFs again when every crop already
+        # exists; only the manifests/ShareGPT records need rewriting.
+        pages = (
+            _render_pdf_pages(pdf_path, dpi)
+            if any(not path.is_file() for path in crop_paths)
+            else None
+        )
+        for measure in label["measures"]:
+            index = int(measure["index"])
+            box = boxes[index]
+            page_index = int(box["page"]) - 1
+            if not 0 <= page_index < page_count:
+                failures.append(
+                    {
+                        "source_id": source_id,
+                        "mode": mode,
+                        "measure_index": index,
+                        "error": "page_index_out_of_range",
+                        "page": int(box["page"]),
+                        "pdf_pages": page_count,
+                    }
+                )
+                continue
+            crop_path = (
+                output / "crops" / mode / source_id / f"m{index + 1:04d}.png"
+            )
+            crop_path.parent.mkdir(parents=True, exist_ok=True)
+            if not crop_path.is_file():
+                assert pages is not None
+                crop = _crop_measure(pages[page_index], box["bbox_mm"], dpi)
+                crop.save(crop_path, format="PNG", compress_level=3)
+            target = measure["targets"][mode]
+            previous_context = "START"
+            if index > 0:
+                previous_context = format_previous_measure_context(
+                    label["measures"][index - 1]["targets"][mode], mode,
+                    active_metadata=label["measures"][index - 1],
+                )
+            rows.append(
+                {
+                    "id": f"{source_id}_{mode}_m{index + 1:04d}",
+                    "source_id": source_id,
+                    "split": split,
+                    "mode": mode,
+                    "measure_index": index,
+                    "image": str(crop_path.resolve()),
+                    "target": target,
+                    "previous_context": previous_context,
+                    "target_utf8_bytes": len(target.encode("utf-8")),
+                    "page": int(box["page"]),
+                    "bbox_mm": box["bbox_mm"],
+                    "staff_types": box["staff_types"],
+                    "semantic_tags": _measure_semantic_tags(measure),
+                    "label_json": str(label_path.resolve()),
+                    "source_gp": label["source_path"],
+                }
+            )
+    return label["source_id"], rows, failures
+
+
 def crop_and_manifest(
-    output: Path, modes: list[str], dpi: int, seed: int
+    output: Path, modes: list[str], dpi: int, seed: int, workers: int = 1
 ) -> dict[str, Any]:
     rows = []
     failures = []
@@ -371,103 +475,14 @@ def crop_and_manifest(
         technique_counts.update(label["statistics"].get("technique_counts", {}))
         if int(label["statistics"].get("multi_voice_measure_count", 0)):
             multi_voice_sources += 1
-        source_id = label["source_id"]
-        split = source_splits[source_id]
-        for mode in modes:
-            pdf_path = output / "pdf" / mode / f"{source_id}.pdf"
-            layout_path = output / "layout" / mode / f"{source_id}.layout.json"
-            if not pdf_path.is_file() or not layout_path.is_file():
-                failures.append(
-                    {
-                        "source_id": source_id,
-                        "mode": mode,
-                        "error": "missing_pdf_or_layout",
-                    }
-                )
-                continue
-            layout = json.loads(layout_path.read_text(encoding="utf-8"))
-            boxes = _measure_boxes(layout)
-            if len(boxes) != len(label["measures"]):
-                failures.append(
-                    {
-                        "source_id": source_id,
-                        "mode": mode,
-                        "error": "measure_count_mismatch",
-                        "labels": len(label["measures"]),
-                        "boxes": len(boxes),
-                    }
-                )
-                continue
-            crop_paths = [
-                output
-                / "crops"
-                / mode
-                / source_id
-                / f"m{int(measure['index']) + 1:04d}.png"
-                for measure in label["measures"]
-            ]
-            import pymupdf
-
-            with pymupdf.open(pdf_path) as document:
-                page_count = document.page_count
-            # Relabeling changes targets but not official PDF geometry. Avoid
-            # rasterizing thousands of PDFs again when every crop already
-            # exists; only the manifests/ShareGPT records need rewriting.
-            pages = (
-                _render_pdf_pages(pdf_path, dpi)
-                if any(not path.is_file() for path in crop_paths)
-                else None
-            )
-            for measure in label["measures"]:
-                index = int(measure["index"])
-                box = boxes[index]
-                page_index = int(box["page"]) - 1
-                if not 0 <= page_index < page_count:
-                    failures.append(
-                        {
-                            "source_id": source_id,
-                            "mode": mode,
-                            "measure_index": index,
-                            "error": "page_index_out_of_range",
-                            "page": int(box["page"]),
-                            "pdf_pages": page_count,
-                        }
-                    )
-                    continue
-                crop_path = (
-                    output / "crops" / mode / source_id / f"m{index + 1:04d}.png"
-                )
-                crop_path.parent.mkdir(parents=True, exist_ok=True)
-                if not crop_path.is_file():
-                    assert pages is not None
-                    crop = _crop_measure(pages[page_index], box["bbox_mm"], dpi)
-                    crop.save(crop_path, format="PNG", compress_level=3)
-                target = measure["targets"][mode]
-                previous_context = "START"
-                if index > 0:
-                    previous_context = format_previous_measure_context(
-                        label["measures"][index - 1]["targets"][mode], mode
-                    )
-                rows.append(
-                    {
-                        "id": f"{source_id}_{mode}_m{index + 1:04d}",
-                        "source_id": source_id,
-                        "split": split,
-                        "mode": mode,
-                        "measure_index": index,
-                        "image": str(crop_path.resolve()),
-                        "target": target,
-                        "previous_context": previous_context,
-                        "target_utf8_bytes": len(target.encode("utf-8")),
-                        "page": int(box["page"]),
-                        "bbox_mm": box["bbox_mm"],
-                        "staff_types": box["staff_types"],
-                        "semantic_tags": _measure_semantic_tags(measure),
-                        "label_json": str(label_path.resolve()),
-                        "source_gp": label["source_path"],
-                    }
-                )
-        print(f"[crop {source_index}/{len(label_paths)}] {source_id}", flush=True)
+    jobs = ((path, label, output, modes, dpi, source_splits[label["source_id"]])
+            for path, label in zip(label_paths, label_values))
+    with ProcessPoolExecutor(max_workers=workers) if workers > 1 else nullcontext() as pool:
+        results = pool.map(_crop_source, jobs) if pool else map(_crop_source, jobs)
+        for index, (source_id, source_rows, source_failures) in enumerate(results, 1):
+            rows.extend(source_rows)
+            failures.extend(source_failures)
+            print(f"[crop {index}/{len(label_paths)}] {source_id}", flush=True)
     expected_samples = sum(len(label["measures"]) for label in label_values) * len(
         modes
     )
@@ -592,8 +607,8 @@ def crop_and_manifest(
         "llamafactory": str(llama_root.resolve()),
         "failures": len(failures),
         "scope": (
-            "Official Guitar Pro 8 TAB measure crops paired with exact source-GP multi-voice "
-            "event sequences. Splits are disjoint by source SHA."
+            "Official Guitar Pro 8 TAB, notation and score+TAB measure crops paired with source-GP "
+            "multi-voice event sequences. Splits follow the grouped source catalog."
         ),
     }
     _write_json(output / "summary.json", summary)

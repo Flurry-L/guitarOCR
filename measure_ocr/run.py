@@ -1,4 +1,4 @@
-"""Recognize a layout stage's ordered crops and write an M2 sequence."""
+"""Recognize ordered crops and write score text plus the saved model sequence."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from shared.defaults import MODEL, MEASURE_ADAPTER
 from measure_ocr.recognizer import recognize_crops
 from shared.artifacts import read_result, write_json, write_result
 from shared.m2 import format_measure_target, parse_measure_target
+from shared.score_text import display_score_text
 
 
 def run(
@@ -111,13 +112,15 @@ def run(
         first = parse_measure_target(targets[0])
         first["tempo_quarter"] = int(metadata["tempo_quarter"])
         targets[0] = format_measure_target(
-            first, source["mode"], preserve_playback=True
+            first, records[0].get("mode") or source["mode"], preserve_playback=True
         )
     for row, target in zip(records, targets):
         row["target"] = target
     review = [row["measure_number"] for row in records if row.get("needs_review")]
     m2_path = output / "prediction.m2"
     m2_path.write_text("\n".join(targets) + "\n", encoding="utf-8")
+    score_path = output / "score.txt"
+    score_path.write_text(display_score_text("\n".join(targets) + "\n"), encoding="utf-8")
     return write_result(
         output,
         "measure_ocr",
@@ -126,6 +129,7 @@ def run(
         mode=source["mode"],
         measures=len(records),
         m2=str(m2_path),
+        score_text=str(score_path),
         recognition_log=str(log),
         records=records,
         review_measures=review,

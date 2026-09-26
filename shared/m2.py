@@ -4,6 +4,7 @@ from copy import deepcopy
 import re
 from typing import Any
 from urllib.parse import quote, unquote
+from shared.techniques import visible_effect
 
 
 DURATION_NAMES = {
@@ -40,14 +41,14 @@ def _duration_token(duration: dict[str, Any]) -> str:
     return token
 
 
-def _note_token(note: dict[str, Any], mode: str) -> str:
+def _note_token(note: dict[str, Any], mode: str, *, preserve_playback: bool = False) -> str:
     if mode == "notation":
         token = f"p{int(note['pitch'])}"
     elif mode == "both":
         token = f"s{int(note['string'])}f{note['fret']}p{int(note['pitch'])}"
     else:
         token = f"s{int(note['string'])}f{note['fret']}"
-    effects = note.get("effects") or []
+    effects = [visible_effect(effect, mode, preserve_playback=preserve_playback) for effect in note.get("effects") or []]
     velocity = int(note.get("velocity", 95))
     if velocity != 95:
         effects = [*effects, f"vel:{velocity}"]
@@ -111,15 +112,13 @@ def format_measure_target(measure: dict[str, Any], mode: str, *, preserve_playba
                     ))
                 else:
                     notes.sort(key=lambda note: (int(note["string"]), repr(note)))
-                payload = ",".join(_note_token(note, mode) for note in notes) or "z"
+                payload = ",".join(_note_token(note, mode, preserve_playback=preserve_playback) for note in notes) or "z"
             beat_effects = [
                 value
                 for value in (event.get("effects") or [])
-                # GP note velocity is playback state, not a printed dynamic
-                # mark. Official GP8 omits it in notation, TAB and score+TAB,
-                # so it cannot be a supervised OCR target in any mode. Keep
-                # parser/export support for legacy M2 strings, but never emit
-                # hidden velocity state from newly generated labels.
+                # A source velocity on every beat does not identify where a
+                # dynamic mark is actually printed. OCR dynamics supervision
+                # is not implemented; keep manual/legacy playback support.
                 if preserve_playback or not str(value).startswith("dyn:")
             ]
             if beat_effects:
@@ -136,7 +135,7 @@ def format_measure_target(measure: dict[str, Any], mode: str, *, preserve_playba
     return prefix + " | " + " || ".join(voice_tokens)
 
 
-def format_previous_measure_context(target: str, mode: str) -> str:
+def format_previous_measure_context(target: str, mode: str, *, active_metadata: dict[str, Any] | None = None) -> str:
     """Compact a previous M2 measure for autoregressive document recognition.
 
     Only the last event of each voice and printed continuity metadata are kept.
@@ -144,6 +143,12 @@ def format_previous_measure_context(target: str, mode: str) -> str:
     doubling the sequence length with an entire preceding measure.
     """
     measure = parse_measure_target(target)
+    # Clefs/key signatures are often printed only at the start of a system;
+    # later crops still need the prevailing signature to resolve pitch.
+    for field in ("time_signature", "key_signature"):
+        if not measure.get(field) and active_metadata and active_metadata.get(field):
+            measure[field] = active_metadata[field]
+            measure["print_" + field] = True
     context = {
         "time_signature": measure.get("time_signature"),
         "print_time_signature": bool(measure.get("print_time_signature")),
@@ -166,6 +171,20 @@ def format_previous_measure_context(target: str, mode: str) -> str:
         last = max(events, key=lambda event: int(event["start"]))
         context["voices"].append({"voice": int(voice["voice"]), "events": [last]})
     return format_measure_target(context, mode).replace("M2", "C2", 1)
+
+
+def format_history_context(targets: list[str], mode: str) -> str:
+    if not targets:
+        return "START"
+    active = {}
+    for target in reversed(targets):
+        measure = parse_measure_target(target)
+        for field in ("time_signature", "key_signature"):
+            if field not in active and measure.get(field):
+                active[field] = measure[field]
+        if len(active) == 2:
+            break
+    return format_previous_measure_context(targets[-1], mode, active_metadata=active)
 
 
 def _split_top_level(text: str, delimiter: str = ",") -> list[str]:
@@ -234,13 +253,17 @@ def parse_measure_target(text: str) -> dict[str, Any]:
     """Parse one strict M2 target into the canonical measure dictionary."""
 
     prefix, separator, voice_text = text.strip().partition("|")
-    if not separator or not prefix.strip().startswith("M2"):
+    if not separator or not prefix.split() or prefix.split()[0] != "M2":
         raise ValueError("M2 target must start with 'M2' and contain '|'")
     metadata: dict[str, str] = {}
     for token in prefix.strip().split()[1:]:
         key, equals, value = token.partition("=")
         if not equals:
             raise ValueError(f"Invalid M2 metadata token: {token!r}")
+        if key not in {"time", "tempo", "key", "feel", "bar", "rep", "alt", "section", "dir", "from"}:
+            raise ValueError(f"Unknown M2 metadata: {key}")
+        if key in metadata:
+            raise ValueError(f"Duplicate M2 metadata: {key}")
         metadata[key] = value
     measure: dict[str, Any] = {
         "time_signature": metadata.get("time"),
@@ -308,3 +331,34 @@ def parse_measure_target(text: str) -> dict[str, Any]:
             })
         measure["voices"].append({"voice": int(match.group("voice")), "events": events})
     return measure
+
+
+def full_measure_rest_target(time_signature: tuple[int, int]) -> str:
+    numerator, denominator = time_signature
+    total_ticks = max(1, round(3840 * numerator / denominator))
+    durations = (
+        (3840, "w"),
+        (2880, "h."),
+        (1920, "h"),
+        (1440, "q."),
+        (960, "q"),
+        (720, "e."),
+        (480, "e"),
+        (360, "s."),
+        (240, "s"),
+        (180, "t."),
+        (120, "t"),
+        (60, "f"),
+    )
+    events = []
+    start = 0
+    remaining = total_ticks
+    while remaining > 0:
+        ticks, token = next(
+            ((ticks, token) for ticks, token in durations if ticks <= remaining),
+            (remaining, f"d{max(1, round(3840 / remaining))}"),
+        )
+        events.append(f"@{start}:{token}:r")
+        start += ticks
+        remaining -= ticks
+    return "M2 | V0{" + " ".join(events) + "}"

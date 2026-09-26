@@ -5,6 +5,7 @@ from statistics import median
 
 import numpy as np
 from PIL import Image
+from shared.layout_labels import is_measure, measure_mode
 
 
 def _coordinates(box: dict) -> tuple[float, float, float, float]:
@@ -54,9 +55,10 @@ def _select_nonoverlapping(row: list[dict]) -> list[dict]:
 
 def order_measure_boxes(boxes: list[dict], minimum_score: float = 0.2) -> list[dict]:
     candidates = [
-        {**box, "coordinate": list(_coordinates(box))}
+        {**box, "coordinate": list(_coordinates(box)),
+         **({"mode": measure_mode(box["label"])} if measure_mode(box.get("label", "")) else {})}
         for box in boxes
-        if box.get("label") == "measure"
+        if is_measure(box.get("label", ""))
         and float(box.get("score", 0)) >= minimum_score
         and _coordinates(box)[2] > _coordinates(box)[0]
         and _coordinates(box)[3] > _coordinates(box)[1]
@@ -124,6 +126,9 @@ def refine_measure_boxes(image: Image.Image, boxes: list[dict]) -> list[dict]:
             current = {**box, "coordinate": list(_coordinates(box))}
             if merged:
                 previous = merged[-1]
+                if previous.get("mode") != current.get("mode"):
+                    merged.append(current)
+                    continue
                 left, top, right, bottom = _coordinates(previous)
                 next_left, next_top, next_right, next_bottom = _coordinates(current)
                 gap = next_left - right

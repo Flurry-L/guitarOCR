@@ -1,0 +1,38 @@
+Global:
+  model: PP-DocLayoutV3
+  mode: train
+  dataset_dir: database/gp8_layout_multimode_v1/datasets/layout
+  device: gpu:0,1,2,3,4,5,6,7
+  output: output/pp_doclayout_v3_score_multimode
+
+CheckDataset:
+  convert:
+    enable: false
+    src_dataset_type: null
+  split:
+    enable: false
+    train_percent: null
+    val_percent: null
+
+Train:
+  num_classes: 2
+  epochs_iters: 12
+  batch_size: 4
+  learning_rate: 0.00005
+  pretrain_weight_path: output/pp_doclayout_v3_score_sparse/0/0.pdparams
+  warmup_steps: 100
+  resume_path: null
+  log_interval: 10
+  eval_interval: 1
+  num_workers: 4
+
+Evaluate:
+  weight_path: output/pp_doclayout_v3_score_multimode/best_model/best_model.pdparams
+  log_interval: 10
+
+Export:
+  weight_path: output/pp_doclayout_v3_score_multimode/best_model/best_model.pdparams
+
+Predict:
+  batch_size: 1
+  model_dir: output/pp_doclayout_v3_score_multimode/best_model/inference

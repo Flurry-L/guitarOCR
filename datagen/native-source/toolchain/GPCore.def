@@ -1,5 +1,6 @@
 LIBRARY "GPCore.dll"
 EXPORTS
+    ?setProperty@Score@core@gp@@QEAAXW4ScoreProperty@23@AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
     ?masterTrack@Score@core@gp@@QEBA?AV?$shared_ptr@VMasterTrack@core@gp@@@std@@XZ
     ?hasLetRingThroughout@Track@core@gp@@QEBA_NXZ
     ?barCount@Track@core@gp@@QEBAIXZ

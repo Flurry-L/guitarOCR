@@ -2,6 +2,7 @@ import { ui } from "./state.js";
 import { $, el, action, notice } from "./dom.js";
 import { api, endpoint } from "./api.js";
 export function initMeasures({ start, go, renderExport }) {
+  const currentMode = () => ui.state.measures?.[ui.measureIndex]?.mode || ui.state.mode;
   $("recognize").onclick = action(async () => {
     if (
       ui.state.recognition &&
@@ -85,9 +86,9 @@ export function initMeasures({ start, go, renderExport }) {
   function noteText(notes) {
     return (notes || [])
       .map((n) =>
-        ui.state.mode === "notation"
+        currentMode() === "notation"
           ? String(n.pitch)
-          : `${n.string}:${n.fret}${ui.state.mode === "both" ? `:${n.pitch}` : ""}`,
+          : `${n.string}:${n.fret}${currentMode() === "both" ? `:${n.pitch}` : ""}`,
       )
       .join(",");
   }
@@ -95,7 +96,7 @@ export function initMeasures({ start, go, renderExport }) {
     const m = ui.state.measures[ui.measureIndex];
     $("measureSelect").value = ui.measureIndex;
     $("measureImage").src = m.url;
-    $("m2").value = m.target;
+    $("measureText").value = m.score_text;
     $("timeSignature").value = m.parsed.time_signature || "";
     $("measureTempo").value = m.parsed.tempo_quarter || "";
     $("reviewStatus").textContent = m.needs_review
@@ -111,9 +112,9 @@ export function initMeasures({ start, go, renderExport }) {
       ? "已保存人工校对结果"
       : "";
     $("notesHeading").textContent =
-      ui.state.mode === "notation"
+      currentMode() === "notation"
         ? "音符（MIDI 音高，逗号分隔）"
-        : ui.state.mode === "both"
+        : currentMode() === "both"
           ? "音符（弦:品:MIDI 音高）"
           : "音符（弦:品，逗号分隔）";
     ui.eventData = m.parsed.voices.flatMap((v) =>
@@ -233,7 +234,7 @@ export function initMeasures({ start, go, renderExport }) {
     ui.measureDirty = true;
     renderEvents();
   };
-  for (const id of ["timeSignature", "measureTempo", "m2"])
+  for (const id of ["timeSignature", "measureTempo", "measureText"])
     $(id).oninput = () => {
       ui.measureDirty = true;
     };
@@ -253,15 +254,15 @@ export function initMeasures({ start, go, renderExport }) {
             const match = s
               .trim()
               .match(
-                ui.state.mode === "notation"
+                currentMode() === "notation"
                   ? /^(\d+)$/
-                  : ui.state.mode === "both"
+                  : currentMode() === "both"
                     ? /^(\d+):(x|\d+):(\d+)$/
                     : /^(\d+):(x|\d+)$/,
               );
             if (!match)
               throw new Error("音符格式不正确，请按表头中的格式填写。");
-            if (ui.state.mode === "notation") {
+            if (currentMode() === "notation") {
               const old = e.notes.find((n) => n.pitch === +match[1]) || {};
               return { ...old, pitch: +match[1] };
             }
@@ -270,7 +271,7 @@ export function initMeasures({ start, go, renderExport }) {
               ...old,
               string: +match[1],
               fret: match[2] === "x" ? "x" : +match[2],
-              ...(ui.state.mode === "both" ? { pitch: +match[3] } : {}),
+              ...(currentMode() === "both" ? { pitch: +match[3] } : {}),
             };
           });
       }
@@ -286,7 +287,7 @@ export function initMeasures({ start, go, renderExport }) {
   }
   async function saveMeasure(raw) {
     const body = raw
-      ? { target: $("m2").value.trim(), reviewed: true }
+      ? { target: $("measureText").value.trim(), reviewed: true }
       : { measure: editedMeasure(), reviewed: true };
     ui.state = await api(
       endpoint(`/measures/${ui.measureIndex + 1}`),

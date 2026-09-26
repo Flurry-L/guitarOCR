@@ -3,62 +3,78 @@
   "models": [
     {
       "stage": "measure_ocr",
-      "path": "weights/glm_ocr_measure_sequence_v2_lora",
+      "path": "weights/glm_ocr_measure_sequence_v3_lora",
       "files": [
         {
           "name": "adapter_config.json",
           "bytes": 1110,
-          "sha256": "26c0011dba0679b0c931473d692ad0ca04a22ecaff6e8891126a12c601e7791a"
+          "sha256": "ca1ae11171589fab3b8b3b74ca4d2a802a601a152de9660e4932eadffb0d79e5"
         },
         {
           "name": "adapter_model.safetensors",
           "bytes": 31517928,
-          "sha256": "cd1f3f230c1c9b84af20e37a2e49c559109b599c4254c20dda4f37ac44bba712"
+          "sha256": "1bc79a3e487632f391cc4a89c97089e7636ce7a504aded1df115e2a90b5dbf68"
         }
       ],
       "base_model": "zai-org/GLM-OCR",
-      "base_revision": "ca5d8b3e287e52589e37c28385d9655ee4372f9d"
+      "base_revision": "ca5d8b3e287e52589e37c28385d9655ee4372f9d",
+      "training_artifact": "output/glm_ocr_measure_sequence_v3_lora",
+      "evaluation": "weights/glm_ocr_measure_sequence_v3_lora/evaluation.json"
     },
     {
       "stage": "document_info",
-      "path": "weights/glm_ocr_document_info_v2_lora",
+      "path": "weights/glm_ocr_document_info_v3_headers_lora",
       "files": [
         {
           "name": "adapter_config.json",
           "bytes": 1110,
-          "sha256": "6679a7f338b9db547c113c2c51f8653d2f56f1bd86320bfb3d8fbdfcfd25d254"
+          "sha256": "615fb3af045e7ff610dbbbafa58932c14477ee046401cc0b075c8cc3b2cf74a9"
         },
         {
           "name": "adapter_model.safetensors",
           "bytes": 31517928,
-          "sha256": "6a096087756b5e6774e6f67e99ff526a4a5fa382f2ce3d9d2919126a5fa76e3d"
+          "sha256": "5ef5b3f792acaa65095c64e1bad891b02f47b5476660112f9cc5bf106a5bbdb7"
         }
       ],
       "base_model": "zai-org/GLM-OCR",
-      "training_artifact": "output/glm_ocr_document_info_v2_lora",
-      "base_revision": "ca5d8b3e287e52589e37c28385d9655ee4372f9d"
+      "training_artifact": "output/glm_ocr_document_info_v3_headers_lora",
+      "base_revision": "ca5d8b3e287e52589e37c28385d9655ee4372f9d",
+      "evaluation": "weights/glm_ocr_document_info_v3_headers_lora/evaluation.json"
     },
     {
       "stage": "layout",
-      "path": "weights/pp_doclayout_v3_score_sparse",
+      "path": "weights/pp_doclayout_v3_score_joint_v3",
       "files": [
         {
           "name": "inference.json",
-          "bytes": 1218933,
-          "sha256": "672964a6880a0752d0617bc6f2564ca86833a1878e4f322800d368b2152abee6"
+          "bytes": 1220527,
+          "sha256": "603c7604fe7e87f317032694b938ec1addb255599de3e035ac265611a53d5c3a"
         },
         {
           "name": "inference.pdiparams",
-          "bytes": 129231083,
-          "sha256": "a5aa72a824aa15896c547dfbc835a1c364312d7d2bb7200a342363d9f4c3300a"
+          "bytes": 129233139,
+          "sha256": "37c588ef61adcb9d714b3a62eda2fea12f3a4f8ad0f4e80348b593da2a4ea510"
         },
         {
           "name": "inference.yml",
-          "bytes": 1216,
-          "sha256": "309084181d28145f64d2cf66886ca46d7e577689f2663331a065617b80523032"
+          "bytes": 1254,
+          "sha256": "071c98b3f175e7c5ec7901c96fc5586df02714f83504d0235ca56489358dc84d"
         }
       ],
-      "training_artifact": "output/pp_doclayout_v3_score_sparse/0/inference"
+      "training_artifact": "output/pp_doclayout_v3_score_joint_v3/best_model/inference",
+      "display_modes": [
+        "tab",
+        "notation",
+        "both"
+      ],
+      "evaluation": "weights/pp_doclayout_v3_score_joint_v3/evaluation.json",
+      "classes": [
+        "measure_tab",
+        "measure_notation",
+        "measure_both",
+        "tempo_region"
+      ],
+      "provides_notation_type": true
     }
   ],
   "base_model": {

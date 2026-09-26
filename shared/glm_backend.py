@@ -60,6 +60,36 @@ class GlmBackend:
         )
         return text, int(generated.shape[1] - length)
 
+    def generate_batch(
+        self,
+        messages: list[list[dict[str, Any]]],
+        max_new_tokens: int,
+        *,
+        skip_special_tokens: bool = True,
+    ) -> list[tuple[str, int]]:
+        """Decode independent crops together, with left padding for generation."""
+        import torch
+
+        if not messages:
+            return []
+        inputs = self.processor.apply_chat_template(
+            messages, tokenize=True, add_generation_prompt=True,
+            return_dict=True, return_tensors="pt",
+            processor_kwargs={"padding": True, "padding_side": "left"},
+        ).to(self.model.device)
+        inputs.pop("token_type_ids", None)
+        with torch.inference_mode():
+            generated = self.model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
+        generated = generated[:, inputs["input_ids"].shape[1]:]
+        eos = self.model.generation_config.eos_token_id
+        eos_ids = set(eos if isinstance(eos, list) else [eos])
+        result = []
+        for tokens in generated:
+            values = tokens.tolist()
+            end = next((i + 1 for i, token in enumerate(values) if token in eos_ids), len(values))
+            result.append((self.processor.decode(tokens[:end], skip_special_tokens=skip_special_tokens), end))
+        return result
+
 
 class BackendPool:
     """One lazy base model; lock adapter selection and generation together."""

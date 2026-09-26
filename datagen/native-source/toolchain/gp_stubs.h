@@ -1010,6 +1010,7 @@ public:
     std::shared_ptr<Track> track(unsigned int index) const;
     std::shared_ptr<MasterTrack> masterTrack() const;
     std::string property(ScoreProperty property) const;
+    void setProperty(ScoreProperty property, const std::string& value);
 
     // ?init@Score@core@gp@@QEAAXXZ：用默认空结构初始化 score。
     void init();

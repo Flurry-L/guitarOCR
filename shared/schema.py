@@ -9,6 +9,10 @@ STAGE_SCHEMA_VERSION = "1.0"
 
 class MeasureRecord(TypedDict, total=False):
     measure_number: int
+    mode: Mode
+    mode_source: str
+    detected_mode: Mode
+    score: float
     page: int
     bbox: list[float]
     image: str
@@ -22,7 +26,7 @@ class MeasureRecord(TypedDict, total=False):
 class StageResult(TypedDict, total=False):
     schema_version: str
     stage: Stage
-    mode: Mode
+    mode: Mode | Literal["auto"]
     status: str
     layout: str
     info: str
@@ -38,6 +42,7 @@ class StageResult(TypedDict, total=False):
     capo: int
     measures: int
     m2: str
+    score_text: str
     recognition_log: str
     review_measures: list[int]
     gp5: str

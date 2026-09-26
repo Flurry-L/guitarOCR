@@ -10,14 +10,14 @@
 | --- | --- | --- |
 | `layout.run` | PDF／图片路径列表 | `mode`、`inputs`、`info_source`、`regions`、`records` |
 | `document_info.run` | `layout` 清单 | `layout`、`document_metadata`、`title`、`artist`、`tuning_used`、`capo`、`predictions` |
-| `measure_ocr.run` | `layout`、`info` 清单 | `mode`、`measures`、`m2`、`recognition_log`、`records`、标题／作者／调弦等信息 |
+| `measure_ocr.run` | `layout`、`info` 清单 | `mode`、`measures`、`score_text`、`recognition_log`、`records`、标题／作者／调弦等信息 |
 | `gp5_export.run` | `recognition` 清单 | `gp5`、`encoding_report` |
 
-`layout.records` 按阅读顺序列出小节编号、页码、谱行编号、位置框、裁图路径和页面来源。`regions` 列出页眉和速度裁图。PDF 的几何定位、图片模型定位及回退逻辑在 `layout/` 内完成。
+`layout.records` 按阅读顺序列出小节编号、页码、谱行编号、位置框、裁图路径和页面来源，并保存各小节的 `mode`、`mode_source`，模型检测时还保留 `detected_mode` 和 `score`。`pages` 保存页面类型；顶层 `mode` 是文档的汇总类型，不覆盖各小节类型。`regions` 列出页眉和速度裁图。PDF 的几何定位、图片模型定位及回退逻辑在 `layout/` 内完成。
 
-谱面信息步骤根据 `info_source` 选择图片 OCR 或 PDF 信息提取，并处理用户传入的标题、作者、调弦和变调夹。小节 OCR 使用解析后的调弦，逐小节传递上一小节上下文，保留原来的约束校验、重试和整小节休止符回退。
+谱面信息步骤根据 `info_source` 选择图片 OCR 或 PDF 信息提取，并处理用户传入的标题、作者、调弦和变调夹。小节 OCR 按各记录的类型选择提示词和校验方式，使用解析后的调弦，逐小节传递上一小节上下文；类型变化时将视觉上下文重置为 `START`。没有小节类型字段的历史清单沿用顶层类型。保留原来的约束校验、重试和整小节休止符回退。
 
-总结果清单使用 `schema_version: "3.0"`，在 `stages` 中记录各步骤的状态和清单位置。失败时保留失败步骤及错误，后续步骤不执行。成功时汇总最终 M2、GP5、识别日志路径。
+总结果清单使用 `schema_version: "3.0"`，在 `stages` 中记录各步骤的状态和清单位置。失败时保留失败步骤及错误，后续步骤不执行。成功时汇总最终小节文本、GP5、识别日志路径。
 
 ## 重跑和恢复
 
@@ -35,7 +35,7 @@
 | 整谱识别文件的小节识别、重试部分 | `measure_ocr/recognizer.py` |
 | 整谱识别文件的参数和流程组织 | `pipeline/config.py`、`pipeline/run.py` |
 | PDF 信息提取、谱面信息 OCR | `document_info/pdf_metadata.py`、`document_info/image_ocr.py` |
-| M2 解析、格式化、音乐约束 | `shared/m2.py`、`shared/constraints.py` |
+| 小节解析、格式化、音乐约束 | `shared/m2.py`、`shared/constraints.py` |
 | GP 源谱解析、监督标签生成 | `datagen/gp_sources.py` |
 | GP8 数据集构建大文件 | `datagen/select_sources.py`、`render.py`、`build_measure_data.py`，由 `run.py` 调用 |
 | 版面／信息数据构建 | `datagen/build_layout_data.py`、`build_info_data.py` |
@@ -61,3 +61,5 @@ GP8 导出器既支持 `python -m datagen.export_scores`，也支持 `python dat
 清单字段类型集中在 `shared/schema.py`。Web 项目 revision 用于乐观并发检查：更新区域、信息、小节、重识别、导出和删除都需携带 `If-Match: <revision>`。任务状态独立保存在 job.json；成功的手动修复会清除旧错误。识别中断保存 ocr_task 与逐小节日志，用于同机续跑。
 
 `webapp/projects.py` 负责项目 ZIP。包内文件有 SHA-256 清单，内部引用转换为 project:// 相对路径；导入时校验路径、大小和哈希并建立新项目编号。跨机器迁移采用此入口；独立 CLI 阶段清单仍使用本机路径。
+
+面向用户的文本路径为 `score_text`，内容以 `MEASURE` 开头；阶段清单的旧内部序列字段继续保留，以兼容项目和既有调用。显示名称转换由 `shared/score_text.py` 处理，不改变模型训练协议。

@@ -32,12 +32,15 @@ def evaluate(dataset: Path, model_path: Path, adapter_path: Path, output: Path) 
                 predicted = json.loads(raw)
             except json.JSONDecodeError:
                 predicted = {}
+            if not isinstance(predicted, dict):
+                predicted = {}
             for key, value in expected.items():
                 total[key] = total.get(key, 0) + 1
-                correct[key] = correct.get(key, 0) + (predicted.get(key) == value)
+                correct[key] = correct.get(key, 0) + (key in predicted and predicted[key] == value)
             handle.write(json.dumps({
                 "image": row["images"][0], "expected": expected,
                 "predicted": predicted, "raw": raw,
+                "provenance": row.get("provenance", {}),
             }, ensure_ascii=False) + "\n")
             handle.flush()
     return {

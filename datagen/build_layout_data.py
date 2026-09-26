@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 from hashlib import sha256
 import json
 import shutil
@@ -10,6 +11,7 @@ import pymupdf
 from PIL import Image
 
 from datagen.inventory import build_inventory, source_catalog
+from shared.layout_labels import MODES, typed_annotations
 
 
 CATEGORIES = ("measure", "tempo_region")
@@ -87,8 +89,10 @@ def _gp8_pages(
 ) -> tuple[int, int, int]:
     added = 0
     catalog = source_catalog(export_root)
-    for document in sorted((export_root / "native-export" / "documents").glob("tab-*")):
-        source_id = document.name.removeprefix("tab-")
+    for document in sorted((export_root / "native-export" / "documents").iterdir()):
+        mode, _, source_id = document.name.partition("-")
+        if mode not in {"tab", "notation", "both"} or not document.is_dir():
+            continue
         label_path = export_root / "labels" / f"{source_id}.json"
         if not label_path.is_file():
             raise FileNotFoundError(label_path)
@@ -103,6 +107,8 @@ def _gp8_pages(
         if len(tracks) != 1:
             raise ValueError(f"Expected one rendered track: {document}")
         layout = json.loads(tracks[0].read_text(encoding="utf-8"))
+        if layout.get("display_mode", "tab") != mode:
+            raise ValueError(f"Rendered display mode differs from {mode}: {document}")
         pdf_path = tracks[0].with_name("score.pdf")
         boxes_by_page: dict[int, list[dict]] = {}
         for system in layout["systems"]:
@@ -157,6 +163,10 @@ def _gp8_pages(
                     image_id,
                     annotation_id,
                 )
+                splits[split]["images"][-1].update({
+                    "source_id": source_id, "family": family, "mode": mode,
+                    "renderer": "guitarpro8", "page_index": page_index,
+                })
                 image_id += 1
                 added += 1
     return image_id, annotation_id, added
@@ -341,6 +351,10 @@ def _sparse_native_pages(
                 image_id,
                 annotation_id,
             )
+            splits[split]["images"][-1].update({
+                "source_id": family, "family": family, "mode": "tab",
+                "renderer": "guitarpro8", "page_index": page_number - 1,
+            })
             image_id += 1
             counts[split] += 1
             counts[bucket] += 1
@@ -355,7 +369,9 @@ def build_dataset(
     sparse_native_root: Path | None = None,
     sparse_train_pages: int = 1500,
     sparse_validation_pages: int = 150,
-) -> dict[str, int]:
+    include_test: bool = False,
+    typed_measures: bool = False,
+) -> dict:
     if source_root is None:
         if gp8_export is None:
             raise ValueError("Provide --source inventory or --gp8-export")
@@ -375,6 +391,13 @@ def build_dataset(
         "train": {"images": [], "annotations": []},
         "validation": {"images": [], "annotations": []},
     }
+    if include_test:
+        splits["test"] = {"images": [], "annotations": []}
+    assigned_families = {}
+    for track in tracks:
+        previous = assigned_families.setdefault(track["family"], track["split"])
+        if previous != track["split"]:
+            raise ValueError(f"Source family crosses dataset splits: {track['family']}")
     families = {split: set() for split in splits}
     annotation_id = 1
     image_id = 1
@@ -390,6 +413,11 @@ def build_dataset(
             page = json.loads(line)
             if page["split"] != split or page["family"] != track["family"]:
                 raise ValueError(f"Split mismatch: {pages_file}")
+            page_mode = page.get("mode") or track.get("mode")
+            if typed_measures and page_mode not in MODES:
+                raise ValueError(f"Typed labels require explicit page display mode: {pages_file}")
+            if page.get("mode") and track.get("mode") and page["mode"] != track["mode"]:
+                raise ValueError(f"Display mode mismatch: {pages_file}")
             image_source = (source_root / page["image"]).resolve()
             if (
                 not image_source.is_relative_to(source_root)
@@ -408,6 +436,13 @@ def build_dataset(
                 image_id,
                 annotation_id,
             )
+            splits[split]["images"][-1].update({
+                "source_id": track.get("source_id", track["sequence_id"]),
+                "family": track["family"],
+                "mode": page_mode or "tab",
+                "renderer": page.get("renderer", track.get("renderer", "guitarpro8")),
+                "page_index": page["page_index"],
+            })
             image_id += 1
     gp8_pages = 0
     if gp8_export is not None:
@@ -435,16 +470,25 @@ def build_dataset(
     annotations_root = output_root / "annotations"
     annotations_root.mkdir(parents=True, exist_ok=True)
     for split, payload in splits.items():
-        name = "val" if split == "validation" else "train"
+        name = "val" if split == "validation" else split
+        payload = {**payload, "categories": categories}
+        if typed_measures:
+            payload = typed_annotations(payload)
         (annotations_root / f"instance_{name}.json").write_text(
-            json.dumps({**payload, "categories": categories}, ensure_ascii=False),
+            json.dumps(payload, ensure_ascii=False),
             encoding="utf-8",
         )
-    return {
+    summary = {
+        "typed_measures": typed_measures,
         **{split: len(payload["images"]) for split, payload in splits.items()},
         "gp8_pages": gp8_pages,
         "sparse_pages": sparse_pages,
+        "by_mode": {split: dict(Counter(image.get("mode", "tab") for image in payload["images"])) for split, payload in splits.items()},
+        "annotations": {split: len(payload["annotations"]) for split, payload in splits.items()},
+        "inventory_sha256": sha256((source_root / "track-index.jsonl").read_bytes()).hexdigest(),
     }
+    (output_root / "dataset_summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+    return summary
 
 
 def main() -> None:
@@ -459,6 +503,8 @@ def main() -> None:
     parser.add_argument("--sparse-native-root", type=Path)
     parser.add_argument("--sparse-train-pages", type=int, default=1500)
     parser.add_argument("--sparse-validation-pages", type=int, default=150)
+    parser.add_argument("--include-test", action="store_true", help="Write a held-out instance_test.json; never used by training")
+    parser.add_argument("--typed-measures", action="store_true", help="Label measures by native display mode (four detection classes)")
     args = parser.parse_args()
     print(
         json.dumps(
@@ -469,6 +515,8 @@ def main() -> None:
                 args.sparse_native_root,
                 args.sparse_train_pages,
                 args.sparse_validation_pages,
+                args.include_test,
+                args.typed_measures,
             ),
             ensure_ascii=False,
         )

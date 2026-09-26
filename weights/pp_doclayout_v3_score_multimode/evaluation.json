@@ -1,0 +1,1106 @@
+{
+  "schema_version": "1.0",
+  "recorded_at_utc": "2026-09-25T17:39:04.791208+00:00",
+  "release_path": "weights/pp_doclayout_v3_score_multimode",
+  "model_sha256": {
+    "inference.json": "edcb2391bddcae7e31ae08e1f05cb2f82a5070254a21ddd86c18022b89483720",
+    "inference.pdiparams": "58a23c856d956c71ffb894ffd184da9f4300e086f4666c238bfbe7344b43e40f",
+    "inference.yml": "309084181d28145f64d2cf66886ca46d7e577689f2663331a065617b80523032"
+  },
+  "training": {
+    "epochs": 12,
+    "selected_epoch_1_based": 8,
+    "selection_metric": "validation bbox AP@[0.50:0.95], both detection classes",
+    "selection_ap": 0.9207081816576985,
+    "validation_history": [
+      {
+        "metric": 0.8868463843587423,
+        "epoch": 1
+      },
+      {
+        "metric": 0.8849552073973468,
+        "epoch": 2
+      },
+      {
+        "metric": 0.889796108482334,
+        "epoch": 3
+      },
+      {
+        "metric": 0.9051015036732439,
+        "epoch": 4
+      },
+      {
+        "metric": 0.8984768273147055,
+        "epoch": 5
+      },
+      {
+        "metric": 0.9014891626779069,
+        "epoch": 6
+      },
+      {
+        "metric": 0.8918039341645861,
+        "epoch": 7
+      },
+      {
+        "metric": 0.9207081816576985,
+        "epoch": 8
+      },
+      {
+        "metric": 0.8930175197281799,
+        "epoch": 9
+      },
+      {
+        "metric": 0.9090199773761598,
+        "epoch": 10
+      },
+      {
+        "metric": 0.901718226548329,
+        "epoch": 11
+      },
+      {
+        "metric": 0.8975456648777306,
+        "epoch": 12
+      }
+    ],
+    "checkpoint": "output/pp_doclayout_v3_score_multimode/best_model/best_model.pdparams",
+    "config": "layout/configs/train_multimode.yaml",
+    "config_sha256": "01436dcf82ab0cff4f2b1f0e53a08c263fbbdbfc5f7db113025c93ebb2961c71",
+    "resolved_config_sha256": "90a6ad7df4521945be9eedf63b38ee71ebcc4bac51c686d40e81a9d87ac12cf4",
+    "logged_loss_count": 264,
+    "first_logged_loss": 24.865072,
+    "last_logged_loss": 8.157699
+  },
+  "data_audit": {
+    "dataset": "/mnt/data-4/flurry/guitarOCR-external/database/gp8_layout_multimode_v1/datasets/layout",
+    "splits": {
+      "train": {
+        "pages": 7003,
+        "families": 600,
+        "modes": {
+          "tab": 2130,
+          "notation": 1824,
+          "both": 3049
+        }
+      },
+      "val": {
+        "pages": 1196,
+        "families": 100,
+        "modes": {
+          "tab": 367,
+          "notation": 311,
+          "both": 518
+        }
+      },
+      "test": {
+        "pages": 1123,
+        "families": 100,
+        "modes": {
+          "tab": 338,
+          "notation": 293,
+          "both": 492
+        }
+      }
+    },
+    "annotation_sha256": {
+      "train": "bfe3ac590c5a39cfc1a4c14364c451f16ad611bb196890b21752cfaec82753af",
+      "val": "ae9eb98e864435675961cc47ca61c72ebe53db0863c754c30aeaa703e4b51234",
+      "test": "b57daceda2a925d1c6722e440023903287cf061747e524b4397a8bde81afea92"
+    },
+    "source_catalog_sha256": "32f2899f7f3116bf3d54380188f6945727161ce168b340a3aaf1ee95fc289e07",
+    "pretrain_sha256": "d6a257a15b29b8dedb448f289a3450d900752903c544278f3614b1f0d9ab3951",
+    "test_origin_audit": {
+      "historical_inventory_sha256": "202c122f4f967314ff4e457b7608a1955535713e68c49b43d6720daa4a836272",
+      "historical_inventory_splits": {
+        "train": 762,
+        "validation": 137
+      },
+      "historical_test_family_overlap": [],
+      "original_test_assignment_matches": 100,
+      "original_source_splits_sha256": "bbfb4f2e11c0f2b88bd03a9cbe413b73d1147ea7bb619343af8beaa748d2022b"
+    }
+  },
+  "dataset_summary": {
+    "train": 7003,
+    "validation": 1196,
+    "test": 1123,
+    "gp8_pages": 0,
+    "sparse_pages": {
+      "train": 0,
+      "validation": 0,
+      "first": 0,
+      "later": 0
+    },
+    "by_mode": {
+      "train": {
+        "tab": 2130,
+        "notation": 1824,
+        "both": 3049
+      },
+      "validation": {
+        "tab": 367,
+        "notation": 311,
+        "both": 518
+      },
+      "test": {
+        "tab": 338,
+        "notation": 293,
+        "both": 492
+      }
+    },
+    "annotations": {
+      "train": 162363,
+      "validation": 27840,
+      "test": 26055
+    },
+    "inventory_sha256": "d5318d0b40067647ab66604bb16c1a7273e91a9a4fa136d2f125e5c9373944f0"
+  },
+  "dataset_sources_sha256": "efaab1c36f802600389f17137203da4110b829e007f24011d60fc92bb7003bc9",
+  "evaluations": {
+    "val": {
+      "ap_50_95": 0.9142909785641329,
+      "ap_50": 0.9800538694071509,
+      "categories": {
+        "measure": {
+          "ap_50_95": 0.9716256082565586,
+          "recall_50": 0.9995633664447112,
+          "ground_truth_boxes": 27483
+        },
+        "tempo_region": {
+          "ap_50_95": 0.8569563488717071,
+          "recall_50": 0.9775910364145658,
+          "ground_truth_boxes": 357
+        }
+      },
+      "total_pages": 1196,
+      "exact_measure_count_pages": 1185,
+      "raw_exact_measure_count_pages": 1185,
+      "changed_count_pages": 0,
+      "exact_measure_count_sources": 291,
+      "total_sources": 300,
+      "detections": 27843,
+      "by_mode": {
+        "both": {
+          "ap_50_95": 0.920098366765603,
+          "ap_50": 0.9848843631247266,
+          "categories": {
+            "measure": {
+              "ap_50_95": 0.9828049843750243,
+              "recall_50": 0.9996725248335334,
+              "ground_truth_boxes": 9161
+            },
+            "tempo_region": {
+              "ap_50_95": 0.8573917491561818,
+              "recall_50": 0.9831932773109243,
+              "ground_truth_boxes": 119
+            }
+          },
+          "total_pages": 518,
+          "exact_measure_count_pages": 516,
+          "raw_exact_measure_count_pages": 516,
+          "changed_count_pages": 0,
+          "exact_measure_count_sources": 98,
+          "total_sources": 100
+        },
+        "notation": {
+          "ap_50_95": 0.8997857596467015,
+          "ap_50": 0.9800023154804903,
+          "categories": {
+            "measure": {
+              "ap_50_95": 0.9433753945885154,
+              "recall_50": 0.9990175745006004,
+              "ground_truth_boxes": 9161
+            },
+            "tempo_region": {
+              "ap_50_95": 0.8561961247048877,
+              "recall_50": 0.9747899159663865,
+              "ground_truth_boxes": 119
+            }
+          },
+          "total_pages": 311,
+          "exact_measure_count_pages": 302,
+          "raw_exact_measure_count_pages": 302,
+          "changed_count_pages": 0,
+          "exact_measure_count_sources": 93,
+          "total_sources": 100
+        },
+        "tab": {
+          "ap_50_95": 0.9224617854048575,
+          "ap_50": 0.9851062029279851,
+          "categories": {
+            "measure": {
+              "ap_50_95": 0.9882102517547645,
+              "recall_50": 1.0,
+              "ground_truth_boxes": 9161
+            },
+            "tempo_region": {
+              "ap_50_95": 0.8567133190549502,
+              "recall_50": 0.9747899159663865,
+              "ground_truth_boxes": 119
+            }
+          },
+          "total_pages": 367,
+          "exact_measure_count_pages": 367,
+          "raw_exact_measure_count_pages": 367,
+          "changed_count_pages": 0,
+          "exact_measure_count_sources": 100,
+          "total_sources": 100
+        }
+      },
+      "split": "val",
+      "postprocess": true,
+      "threshold": 0.25,
+      "model_dir": "/mnt/data-4/flurry/guitarOCR-external/output/multimode-release-candidate/inference",
+      "model_sha256": {
+        "inference.json": "edcb2391bddcae7e31ae08e1f05cb2f82a5070254a21ddd86c18022b89483720",
+        "inference.pdiparams": "58a23c856d956c71ffb894ffd184da9f4300e086f4666c238bfbe7344b43e40f",
+        "inference.yml": "309084181d28145f64d2cf66886ca46d7e577689f2663331a065617b80523032"
+      },
+      "annotations_sha256": "ae9eb98e864435675961cc47ca61c72ebe53db0863c754c30aeaa703e4b51234",
+      "versions": {
+        "paddlex": "3.7.2",
+        "pycocotools": "2.0.8"
+      }
+    },
+    "test": {
+      "ap_50_95": 0.9353540319330379,
+      "ap_50": 0.995049504950495,
+      "categories": {
+        "measure": {
+          "ap_50_95": 0.972563122169625,
+          "recall_50": 0.999456479540337,
+          "ground_truth_boxes": 25758
+        },
+        "tempo_region": {
+          "ap_50_95": 0.8981449416964509,
+          "recall_50": 1.0,
+          "ground_truth_boxes": 297
+        }
+      },
+      "total_pages": 1123,
+      "exact_measure_count_pages": 1112,
+      "raw_exact_measure_count_pages": 1112,
+      "changed_count_pages": 0,
+      "exact_measure_count_sources": 289,
+      "total_sources": 300,
+      "detections": 26045,
+      "by_mode": {
+        "both": {
+          "ap_50_95": 0.9452429110042735,
+          "ap_50": 0.995049504950495,
+          "categories": {
+            "measure": {
+              "ap_50_95": 0.9790198401601206,
+              "recall_50": 0.9997670626601444,
+              "ground_truth_boxes": 8586
+            },
+            "tempo_region": {
+              "ap_50_95": 0.9114659818484262,
+              "recall_50": 1.0,
+              "ground_truth_boxes": 99
+            }
+          },
+          "total_pages": 492,
+          "exact_measure_count_pages": 490,
+          "raw_exact_measure_count_pages": 490,
+          "changed_count_pages": 0,
+          "exact_measure_count_sources": 98,
+          "total_sources": 100
+        },
+        "notation": {
+          "ap_50_95": 0.919301704207522,
+          "ap_50": 0.995049504950495,
+          "categories": {
+            "measure": {
+              "ap_50_95": 0.9367707781466184,
+              "recall_50": 0.9987188446307943,
+              "ground_truth_boxes": 8586
+            },
+            "tempo_region": {
+              "ap_50_95": 0.9018326302684256,
+              "recall_50": 1.0,
+              "ground_truth_boxes": 99
+            }
+          },
+          "total_pages": 293,
+          "exact_measure_count_pages": 285,
+          "raw_exact_measure_count_pages": 285,
+          "changed_count_pages": 0,
+          "exact_measure_count_sources": 92,
+          "total_sources": 100
+        },
+        "tab": {
+          "ap_50_95": 0.93627463344993,
+          "ap_50": 0.995049504950495,
+          "categories": {
+            "measure": {
+              "ap_50_95": 0.9876335443677725,
+              "recall_50": 0.9998835313300722,
+              "ground_truth_boxes": 8586
+            },
+            "tempo_region": {
+              "ap_50_95": 0.8849157225320875,
+              "recall_50": 1.0,
+              "ground_truth_boxes": 99
+            }
+          },
+          "total_pages": 338,
+          "exact_measure_count_pages": 337,
+          "raw_exact_measure_count_pages": 337,
+          "changed_count_pages": 0,
+          "exact_measure_count_sources": 99,
+          "total_sources": 100
+        }
+      },
+      "split": "test",
+      "postprocess": true,
+      "threshold": 0.25,
+      "model_dir": "/mnt/data-4/flurry/guitarOCR-external/output/multimode-release-candidate/inference",
+      "model_sha256": {
+        "inference.json": "edcb2391bddcae7e31ae08e1f05cb2f82a5070254a21ddd86c18022b89483720",
+        "inference.pdiparams": "58a23c856d956c71ffb894ffd184da9f4300e086f4666c238bfbe7344b43e40f",
+        "inference.yml": "309084181d28145f64d2cf66886ca46d7e577689f2663331a065617b80523032"
+      },
+      "annotations_sha256": "b57daceda2a925d1c6722e440023903287cf061747e524b4397a8bde81afea92",
+      "versions": {
+        "paddlex": "3.7.2",
+        "pycocotools": "2.0.8"
+      }
+    },
+    "sparse-val": {
+      "ap_50_95": 0.9276447584518358,
+      "ap_50": 0.9851485148514851,
+      "categories": {
+        "measure": {
+          "ap_50_95": 0.9851871237719508,
+          "recall_50": 0.9999192897497983,
+          "ground_truth_boxes": 24780
+        },
+        "tempo_region": {
+          "ap_50_95": 0.8701023931317209,
+          "recall_50": 0.9887640449438202,
+          "ground_truth_boxes": 267
+        }
+      },
+      "total_pages": 989,
+      "exact_measure_count_pages": 987,
+      "raw_exact_measure_count_pages": 987,
+      "changed_count_pages": 0,
+      "exact_measure_count_sources": 987,
+      "total_sources": 989,
+      "detections": 25046,
+      "by_mode": {
+        "tab": {
+          "ap_50_95": 0.9276447584518358,
+          "ap_50": 0.9851485148514851,
+          "categories": {
+            "measure": {
+              "ap_50_95": 0.9851871237719508,
+              "recall_50": 0.9999192897497983,
+              "ground_truth_boxes": 24780
+            },
+            "tempo_region": {
+              "ap_50_95": 0.8701023931317209,
+              "recall_50": 0.9887640449438202,
+              "ground_truth_boxes": 267
+            }
+          },
+          "total_pages": 989,
+          "exact_measure_count_pages": 987,
+          "raw_exact_measure_count_pages": 987,
+          "changed_count_pages": 0,
+          "exact_measure_count_sources": 987,
+          "total_sources": 989
+        }
+      },
+      "split": "val",
+      "postprocess": true,
+      "threshold": 0.25,
+      "model_dir": "/mnt/data-4/flurry/guitarOCR-external/output/multimode-release-candidate/inference",
+      "model_sha256": {
+        "inference.json": "edcb2391bddcae7e31ae08e1f05cb2f82a5070254a21ddd86c18022b89483720",
+        "inference.pdiparams": "58a23c856d956c71ffb894ffd184da9f4300e086f4666c238bfbe7344b43e40f",
+        "inference.yml": "309084181d28145f64d2cf66886ca46d7e577689f2663331a065617b80523032"
+      },
+      "annotations_sha256": "aee601b9d5df60416b5afe2b816699ebc93ba7bf1b603b8797a999bf35e3c3a1",
+      "versions": {
+        "paddlex": "3.7.2",
+        "pycocotools": "2.0.8"
+      }
+    },
+    "baseline-val": {
+      "ap_50_95": 0.6806321024322894,
+      "ap_50": 0.8595188722290057,
+      "categories": {
+        "measure": {
+          "ap_50_95": 0.5391942783519457,
+          "recall_50": 0.8653713204526434,
+          "ground_truth_boxes": 27483
+        },
+        "tempo_region": {
+          "ap_50_95": 0.8220699265126331,
+          "recall_50": 0.957983193277311,
+          "ground_truth_boxes": 357
+        }
+      },
+      "total_pages": 1196,
+      "exact_measure_count_pages": 597,
+      "raw_exact_measure_count_pages": 597,
+      "changed_count_pages": 1,
+      "exact_measure_count_sources": 148,
+      "total_sources": 300,
+      "detections": 36940,
+      "by_mode": {
+        "both": {
+          "ap_50_95": 0.4327277294631809,
+          "ap_50": 0.6109222281711685,
+          "categories": {
+            "measure": {
+              "ap_50_95": 0.0425912050536618,
+              "recall_50": 0.6125968780700797,
+              "ground_truth_boxes": 9161
+            },
+            "tempo_region": {
+              "ap_50_95": 0.8228642538727001,
+              "recall_50": 0.957983193277311,
+              "ground_truth_boxes": 119
+            }
+          },
+          "total_pages": 518,
+          "exact_measure_count_pages": 4,
+          "raw_exact_measure_count_pages": 4,
+          "changed_count_pages": 0,
+          "exact_measure_count_sources": 0,
+          "total_sources": 100
+        },
+        "notation": {
+          "ap_50_95": 0.7311133858170742,
+          "ap_50": 0.9648987501919424,
+          "categories": {
+            "measure": {
+              "ap_50_95": 0.6423854405466021,
+              "recall_50": 0.9836262416766729,
+              "ground_truth_boxes": 9161
+            },
+            "tempo_region": {
+              "ap_50_95": 0.8198413310875464,
+              "recall_50": 0.957983193277311,
+              "ground_truth_boxes": 119
+            }
+          },
+          "total_pages": 311,
+          "exact_measure_count_pages": 227,
+          "raw_exact_measure_count_pages": 227,
+          "changed_count_pages": 1,
+          "exact_measure_count_sources": 49,
+          "total_sources": 100
+        },
+        "tab": {
+          "ap_50_95": 0.9069710882329197,
+          "ap_50": 0.9702970297029703,
+          "categories": {
+            "measure": {
+              "ap_50_95": 0.9872114872082616,
+              "recall_50": 0.9998908416111778,
+              "ground_truth_boxes": 9161
+            },
+            "tempo_region": {
+              "ap_50_95": 0.8267306892575778,
+              "recall_50": 0.957983193277311,
+              "ground_truth_boxes": 119
+            }
+          },
+          "total_pages": 367,
+          "exact_measure_count_pages": 366,
+          "raw_exact_measure_count_pages": 366,
+          "changed_count_pages": 0,
+          "exact_measure_count_sources": 99,
+          "total_sources": 100
+        }
+      },
+      "split": "val",
+      "postprocess": true,
+      "threshold": 0.25,
+      "model_dir": "/mnt/data-4/flurry/guitarOCR-external/weights/pp_doclayout_v3_score_sparse",
+      "model_sha256": {
+        "inference.json": "672964a6880a0752d0617bc6f2564ca86833a1878e4f322800d368b2152abee6",
+        "inference.pdiparams": "a5aa72a824aa15896c547dfbc835a1c364312d7d2bb7200a342363d9f4c3300a",
+        "inference.yml": "309084181d28145f64d2cf66886ca46d7e577689f2663331a065617b80523032"
+      },
+      "annotations_sha256": "ae9eb98e864435675961cc47ca61c72ebe53db0863c754c30aeaa703e4b51234",
+      "versions": {
+        "paddlex": "3.7.2",
+        "pycocotools": "2.0.8"
+      }
+    },
+    "baseline-test": {
+      "ap_50_95": 0.7019057632303408,
+      "ap_50": 0.8770560338737314,
+      "categories": {
+        "measure": {
+          "ap_50_95": 0.5386990089035572,
+          "recall_50": 0.8437378678468825,
+          "ground_truth_boxes": 25758
+        },
+        "tempo_region": {
+          "ap_50_95": 0.8651125175571244,
+          "recall_50": 1.0,
+          "ground_truth_boxes": 297
+        }
+      },
+      "total_pages": 1123,
+      "exact_measure_count_pages": 549,
+      "raw_exact_measure_count_pages": 549,
+      "changed_count_pages": 1,
+      "exact_measure_count_sources": 147,
+      "total_sources": 300,
+      "detections": 34764,
+      "by_mode": {
+        "both": {
+          "ap_50_95": 0.4543031208448732,
+          "ap_50": 0.6155485668417925,
+          "categories": {
+            "measure": {
+              "ap_50_95": 0.03764630726320506,
+              "recall_50": 0.5474027486606103,
+              "ground_truth_boxes": 8586
+            },
+            "tempo_region": {
+              "ap_50_95": 0.8709599344265414,
+              "recall_50": 1.0,
+              "ground_truth_boxes": 99
+            }
+          },
+          "total_pages": 492,
+          "exact_measure_count_pages": 1,
+          "raw_exact_measure_count_pages": 1,
+          "changed_count_pages": 0,
+          "exact_measure_count_sources": 0,
+          "total_sources": 100
+        },
+        "notation": {
+          "ap_50_95": 0.7612850489357771,
+          "ap_50": 0.9898376606863917,
+          "categories": {
+            "measure": {
+              "ap_50_95": 0.6588311178561358,
+              "recall_50": 0.983927323549965,
+              "ground_truth_boxes": 8586
+            },
+            "tempo_region": {
+              "ap_50_95": 0.8637389800154184,
+              "recall_50": 1.0,
+              "ground_truth_boxes": 99
+            }
+          },
+          "total_pages": 293,
+          "exact_measure_count_pages": 211,
+          "raw_exact_measure_count_pages": 211,
+          "changed_count_pages": 1,
+          "exact_measure_count_sources": 48,
+          "total_sources": 100
+        },
+        "tab": {
+          "ap_50_95": 0.9280715089129355,
+          "ap_50": 0.995049504950495,
+          "categories": {
+            "measure": {
+              "ap_50_95": 0.9888586468241727,
+              "recall_50": 0.9998835313300722,
+              "ground_truth_boxes": 8586
+            },
+            "tempo_region": {
+              "ap_50_95": 0.8672843710016984,
+              "recall_50": 1.0,
+              "ground_truth_boxes": 99
+            }
+          },
+          "total_pages": 338,
+          "exact_measure_count_pages": 337,
+          "raw_exact_measure_count_pages": 337,
+          "changed_count_pages": 0,
+          "exact_measure_count_sources": 99,
+          "total_sources": 100
+        }
+      },
+      "split": "test",
+      "postprocess": true,
+      "threshold": 0.25,
+      "model_dir": "/mnt/data-4/flurry/guitarOCR-external/weights/pp_doclayout_v3_score_sparse",
+      "model_sha256": {
+        "inference.json": "672964a6880a0752d0617bc6f2564ca86833a1878e4f322800d368b2152abee6",
+        "inference.pdiparams": "a5aa72a824aa15896c547dfbc835a1c364312d7d2bb7200a342363d9f4c3300a",
+        "inference.yml": "309084181d28145f64d2cf66886ca46d7e577689f2663331a065617b80523032"
+      },
+      "annotations_sha256": "b57daceda2a925d1c6722e440023903287cf061747e524b4397a8bde81afea92",
+      "versions": {
+        "paddlex": "3.7.2",
+        "pycocotools": "2.0.8"
+      }
+    },
+    "baseline-sparse-val": {
+      "ap_50_95": 0.9173155373508886,
+      "ap_50": 0.9851485148514851,
+      "categories": {
+        "measure": {
+          "ap_50_95": 0.9886537460563662,
+          "recall_50": 0.9998789346246973,
+          "ground_truth_boxes": 24780
+        },
+        "tempo_region": {
+          "ap_50_95": 0.8459773286454109,
+          "recall_50": 0.9812734082397003,
+          "ground_truth_boxes": 267
+        }
+      },
+      "total_pages": 989,
+      "exact_measure_count_pages": 985,
+      "raw_exact_measure_count_pages": 985,
+      "changed_count_pages": 0,
+      "exact_measure_count_sources": 985,
+      "total_sources": 989,
+      "detections": 25045,
+      "by_mode": {
+        "tab": {
+          "ap_50_95": 0.9173155373508886,
+          "ap_50": 0.9851485148514851,
+          "categories": {
+            "measure": {
+              "ap_50_95": 0.9886537460563662,
+              "recall_50": 0.9998789346246973,
+              "ground_truth_boxes": 24780
+            },
+            "tempo_region": {
+              "ap_50_95": 0.8459773286454109,
+              "recall_50": 0.9812734082397003,
+              "ground_truth_boxes": 267
+            }
+          },
+          "total_pages": 989,
+          "exact_measure_count_pages": 985,
+          "raw_exact_measure_count_pages": 985,
+          "changed_count_pages": 0,
+          "exact_measure_count_sources": 985,
+          "total_sources": 989
+        }
+      },
+      "split": "val",
+      "postprocess": true,
+      "threshold": 0.25,
+      "model_dir": "/mnt/data-4/flurry/guitarOCR-external/weights/pp_doclayout_v3_score_sparse",
+      "model_sha256": {
+        "inference.json": "672964a6880a0752d0617bc6f2564ca86833a1878e4f322800d368b2152abee6",
+        "inference.pdiparams": "a5aa72a824aa15896c547dfbc835a1c364312d7d2bb7200a342363d9f4c3300a",
+        "inference.yml": "309084181d28145f64d2cf66886ca46d7e577689f2663331a065617b80523032"
+      },
+      "annotations_sha256": "aee601b9d5df60416b5afe2b816699ebc93ba7bf1b603b8797a999bf35e3c3a1",
+      "versions": {
+        "paddlex": "3.7.2",
+        "pycocotools": "2.0.8"
+      }
+    }
+  },
+  "acceptance": {
+    "cpu_native_samples": [
+      {
+        "input": "database/gp8_multimode_smoke/pdf/tab/8fb1964371ac4691.pdf",
+        "expected_mode": "tab",
+        "mode": "tab",
+        "measures": 4,
+        "manifest": "/mnt/data-4/flurry/guitarOCR-external/output/multimode-cpu-acceptance/tab/manifest.json",
+        "paddle_python": "tools/webui-paddle-venv/bin/python"
+      },
+      {
+        "input": "database/gp8_multimode_smoke/pdf/notation/8fb1964371ac4691.pdf",
+        "expected_mode": "notation",
+        "mode": "notation",
+        "measures": 4,
+        "manifest": "/mnt/data-4/flurry/guitarOCR-external/output/multimode-cpu-acceptance/notation/manifest.json",
+        "paddle_python": "tools/webui-paddle-venv/bin/python"
+      },
+      {
+        "input": "database/gp8_multimode_smoke/pdf/both/8fb1964371ac4691.pdf",
+        "expected_mode": "both",
+        "mode": "both",
+        "measures": 4,
+        "manifest": "/mnt/data-4/flurry/guitarOCR-external/output/multimode-cpu-acceptance/both/manifest.json",
+        "paddle_python": "tools/webui-paddle-venv/bin/python"
+      }
+    ],
+    "scanned_pdf": {
+      "input": "jixian.pdf",
+      "input_sha256": "25ba9a16830fa8beec1224f1e4ced94d09499ff757e55c4c9888976569106944",
+      "page_image_sha256": "117bb6ab079b96df180d26b69b78defcea6d847237b55eb0e643e55e46d605a8",
+      "layout_source": "image",
+      "requested_mode": "auto",
+      "detected_mode": "both",
+      "expected_measures": 17,
+      "old_model_measures": 35,
+      "new_model_measures": 17,
+      "default_model_used": true,
+      "paddle_python": "tools/webui-paddle-venv/bin/python",
+      "overlay": "output/jixian-layout-multimode/overlays/page_001.png"
+    },
+    "classifier_validation_sample": [
+      {
+        "image": "page_0000001.png",
+        "mode": "tab",
+        "layout": "tab_only",
+        "ok": true
+      },
+      {
+        "image": "page_0000003.png",
+        "mode": "notation",
+        "layout": "score_only",
+        "ok": true
+      },
+      {
+        "image": "page_0000005.png",
+        "mode": "both",
+        "layout": "score_tab",
+        "ok": true
+      },
+      {
+        "image": "page_0000144.png",
+        "mode": "tab",
+        "layout": "tab_only",
+        "ok": true
+      },
+      {
+        "image": "page_0000149.png",
+        "mode": "notation",
+        "layout": "score_only",
+        "ok": true
+      },
+      {
+        "image": "page_0000153.png",
+        "mode": "both",
+        "layout": "score_tab",
+        "ok": true
+      },
+      {
+        "image": "page_0000200.png",
+        "mode": "tab",
+        "layout": "tab_only",
+        "ok": true
+      },
+      {
+        "image": "page_0000204.png",
+        "mode": "notation",
+        "layout": "score_only",
+        "ok": true
+      },
+      {
+        "image": "page_0000208.png",
+        "mode": "both",
+        "layout": "score_tab",
+        "ok": true
+      },
+      {
+        "image": "page_0000258.png",
+        "mode": "tab",
+        "layout": "tab_only",
+        "ok": true
+      },
+      {
+        "image": "page_0000262.png",
+        "mode": "notation",
+        "layout": "score_only",
+        "ok": true
+      },
+      {
+        "image": "page_0000265.png",
+        "mode": "both",
+        "layout": "score_tab",
+        "ok": true
+      },
+      {
+        "image": "page_0000283.png",
+        "mode": "tab",
+        "layout": "tab_only",
+        "ok": true
+      },
+      {
+        "image": "page_0000292.png",
+        "mode": "notation",
+        "layout": "score_only",
+        "ok": true
+      },
+      {
+        "image": "page_0000299.png",
+        "mode": "both",
+        "layout": "score_tab",
+        "ok": true
+      },
+      {
+        "image": "page_0000408.png",
+        "mode": "tab",
+        "layout": "tab_only",
+        "ok": true
+      },
+      {
+        "image": "page_0000411.png",
+        "mode": "notation",
+        "layout": "score_only",
+        "ok": true
+      },
+      {
+        "image": "page_0000414.png",
+        "mode": "both",
+        "layout": "score_tab",
+        "ok": true
+      },
+      {
+        "image": "page_0000429.png",
+        "mode": "tab",
+        "layout": "tab_only",
+        "ok": true
+      },
+      {
+        "image": "page_0000434.png",
+        "mode": "notation",
+        "layout": "score_only",
+        "ok": true
+      },
+      {
+        "image": "page_0000438.png",
+        "mode": "both",
+        "layout": "score_tab",
+        "ok": true
+      },
+      {
+        "image": "page_0000574.png",
+        "mode": "tab",
+        "layout": "tab_only",
+        "ok": true
+      },
+      {
+        "image": "page_0000577.png",
+        "mode": "notation",
+        "layout": "score_only",
+        "ok": true
+      },
+      {
+        "image": "page_0000580.png",
+        "mode": "both",
+        "layout": "score_tab",
+        "ok": true
+      },
+      {
+        "image": "page_0000651.png",
+        "mode": "tab",
+        "layout": "tab_only",
+        "ok": true
+      },
+      {
+        "image": "page_0000654.png",
+        "mode": "notation",
+        "layout": "score_only",
+        "ok": true
+      },
+      {
+        "image": "page_0000656.png",
+        "mode": "both",
+        "layout": "score_tab",
+        "ok": true
+      },
+      {
+        "image": "page_0000716.png",
+        "mode": "tab",
+        "layout": "tab_only",
+        "ok": true
+      },
+      {
+        "image": "page_0000720.png",
+        "mode": "notation",
+        "layout": "score_tab",
+        "ok": false
+      },
+      {
+        "image": "page_0000723.png",
+        "mode": "both",
+        "layout": "score_tab",
+        "ok": true
+      },
+      {
+        "image": "page_0000983.png",
+        "mode": "tab",
+        "layout": "tab_only",
+        "ok": true
+      },
+      {
+        "image": "page_0000985.png",
+        "mode": "notation",
+        "layout": "score_only",
+        "ok": true
+      },
+      {
+        "image": "page_0000987.png",
+        "mode": "both",
+        "layout": "score_tab",
+        "ok": true
+      },
+      {
+        "image": "page_0001034.png",
+        "mode": "tab",
+        "layout": "tab_only",
+        "ok": true
+      },
+      {
+        "image": "page_0001039.png",
+        "mode": "notation",
+        "layout": "score_only",
+        "ok": true
+      },
+      {
+        "image": "page_0001043.png",
+        "mode": "both",
+        "layout": "score_tab",
+        "ok": true
+      },
+      {
+        "image": "page_0001089.png",
+        "mode": "tab",
+        "layout": "tab_only",
+        "ok": true
+      },
+      {
+        "image": "page_0001092.png",
+        "mode": "notation",
+        "layout": "score_only",
+        "ok": true
+      },
+      {
+        "image": "page_0001095.png",
+        "mode": "both",
+        "layout": "score_tab",
+        "ok": true
+      },
+      {
+        "image": "page_0001121.png",
+        "mode": "tab",
+        "layout": "tab_only",
+        "ok": true
+      },
+      {
+        "image": "page_0001124.png",
+        "mode": "notation",
+        "layout": "score_only",
+        "ok": true
+      },
+      {
+        "image": "page_0001127.png",
+        "mode": "both",
+        "layout": "score_tab",
+        "ok": true
+      },
+      {
+        "image": "page_0001156.png",
+        "mode": "tab",
+        "layout": "tab_only",
+        "ok": true
+      },
+      {
+        "image": "page_0001159.png",
+        "mode": "notation",
+        "layout": "score_only",
+        "ok": true
+      },
+      {
+        "image": "page_0001162.png",
+        "mode": "both",
+        "layout": "score_tab",
+        "ok": true
+      },
+      {
+        "image": "page_0001176.png",
+        "mode": "tab",
+        "layout": "tab_only",
+        "ok": true
+      },
+      {
+        "image": "page_0001181.png",
+        "mode": "notation",
+        "layout": "score_only",
+        "ok": true
+      },
+      {
+        "image": "page_0001186.png",
+        "mode": "both",
+        "layout": "score_tab",
+        "ok": true
+      },
+      {
+        "image": "page_0001194.png",
+        "mode": "tab",
+        "layout": "tab_only",
+        "ok": true
+      },
+      {
+        "image": "page_0001201.png",
+        "mode": "notation",
+        "layout": "score_only",
+        "ok": true
+      },
+      {
+        "image": "page_0001206.png",
+        "mode": "both",
+        "layout": "score_tab",
+        "ok": true
+      },
+      {
+        "image": "page_0001311.png",
+        "mode": "tab",
+        "layout": "tab_only",
+        "ok": true
+      },
+      {
+        "image": "page_0001315.png",
+        "mode": "notation",
+        "layout": "score_only",
+        "ok": true
+      },
+      {
+        "image": "page_0001318.png",
+        "mode": "both",
+        "layout": "score_tab",
+        "ok": true
+      },
+      {
+        "image": "page_0001361.png",
+        "mode": "tab",
+        "layout": "tab_only",
+        "ok": true
+      },
+      {
+        "image": "page_0001366.png",
+        "mode": "notation",
+        "layout": "score_only",
+        "ok": true
+      },
+      {
+        "image": "page_0001371.png",
+        "mode": "both",
+        "layout": "score_tab",
+        "ok": true
+      },
+      {
+        "image": "page_0001523.png",
+        "mode": "tab",
+        "layout": "tab_only",
+        "ok": true
+      },
+      {
+        "image": "page_0001526.png",
+        "mode": "notation",
+        "layout": "score_only",
+        "ok": true
+      },
+      {
+        "image": "page_0001528.png",
+        "mode": "both",
+        "layout": "score_tab",
+        "ok": true
+      }
+    ]
+  }
+}

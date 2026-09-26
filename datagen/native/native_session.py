@@ -255,6 +255,7 @@ class NativeExportSession:
         layout_output: Path,
         official_score_output: Path,
         track_index: int = 0,
+        display_mode: str = "tab",
     ) -> dict[str, Any]:
         if self.client is None:
             raise RuntimeError("Guitar Pro native export session is not open")
@@ -264,6 +265,8 @@ class NativeExportSession:
             layout_output=layout_output,
             official_score_output=official_score_output,
             track_index=track_index,
+            display_mode=display_mode,
+            capture_note_geometry=display_mode == "tab",
         )
 
     def list_tracks(self, input_path: Path) -> dict[str, Any]:

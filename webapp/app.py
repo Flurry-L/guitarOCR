@@ -19,7 +19,7 @@ from urllib.parse import urlparse
 import pymupdf
 from PIL import Image
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, FiniteFloat, StrictInt
 
@@ -28,10 +28,11 @@ from webapp.projects import export_project, import_project
 from layout.pages import IMAGE_FORMATS, IMAGE_SUFFIXES
 from shared.artifacts import write_json
 from shared.tasks import Cancelled
+from shared.score_text import display_error
 
 
 class Detection(BaseModel):
-    mode: str = Field(default="tab", pattern="^(auto|tab|notation|both)$")
+    mode: str = Field(default="auto", pattern="^(auto|tab|notation|both)$")
     source: str = Field(default="auto", pattern="^(auto|image|geometry)$")
 
 
@@ -39,6 +40,7 @@ class Region(BaseModel):
     page: int = Field(ge=1, le=100)
     kind: Literal["measure", "header", "tempo"]
     bbox: tuple[FiniteFloat, FiniteFloat, FiniteFloat, FiniteFloat]
+    mode: Literal["tab", "notation", "both"] | None = None
 
 
 class Metadata(BaseModel):
@@ -53,7 +55,7 @@ class Metadata(BaseModel):
 
 class Boxes(BaseModel):
     boxes: list[Region] = Field(max_length=5000)
-    mode: str = Field(default="tab", pattern="^(tab|notation|both)$")
+    mode: str = Field(default="auto", pattern="^(auto|tab|notation|both)$")
 
 
 class Correction(BaseModel):
@@ -138,7 +140,7 @@ def create_app(
 
     @app.exception_handler(ValueError)
     async def invalid(request, error):
-        return JSONResponse({"detail": str(error)}, status_code=400)
+        return JSONResponse({"detail": display_error(str(error))}, status_code=400)
 
     @app.exception_handler(FileNotFoundError)
     async def missing(request, error):
@@ -209,7 +211,7 @@ def create_app(
                 except Exception as error:
                     logging.exception("Session %s failed", sid)
                     outcome = dict(
-                        status="failed", error=f"{type(error).__name__}: {error}"
+                        status="failed", error=display_error(f"{type(error).__name__}: {error}")
                     )
                 else:
                     outcome = dict(status="complete", message="处理完成")
@@ -366,7 +368,10 @@ def create_app(
             )
             # Serialization happens after this lock is released.
             job = jobs.get(sid)
-            return {**state, "job": job.copy() if job is not None else None}
+            public_job = job.copy() if job is not None else None
+            if public_job and public_job.get("error"):
+                public_job["error"] = display_error(public_job["error"])
+            return {**state, "job": public_job}
 
     @app.post("/api/sessions/{sid}/detect")
     def detect(sid: str, body: Detection, request: Request):
@@ -454,6 +459,14 @@ def create_app(
             jobs.pop(sid, None)
             return {"deleted": True}
 
+    @app.get("/api/sessions/{sid}/score.txt")
+    def score_text(sid: str):
+        return Response(
+            workflow.score_text(sid),
+            media_type="text/plain; charset=utf-8",
+            headers={"Content-Disposition": 'attachment; filename="score.txt"', "Cache-Control": "no-store"},
+        )
+
     @app.get("/api/sessions/{sid}/files/{filename:path}")
     def asset(sid: str, filename: str):
         root = workflow.directory(sid)
@@ -462,6 +475,7 @@ def create_app(
             ".png",
             ".gp5",
             ".m2",
+            ".txt",
             ".json",
         }:
             raise HTTPException(404, "文件不存在")

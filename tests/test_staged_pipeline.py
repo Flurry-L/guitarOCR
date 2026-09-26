@@ -20,6 +20,7 @@ from pipeline.config import parse_args
 from pipeline.run import run as run_pipeline
 from shared.artifacts import read_result
 from shared.m2 import parse_measure_target
+from shared.score_text import model_score_text
 
 
 TARGET = "M2 time=4/4 | V0{@0:q:s1f0,s2f1 @960:q:s1f1,s2f2 @1920:h:s2f3,s3f0}"
@@ -55,6 +56,9 @@ class StagedPipelineTest(unittest.TestCase):
         combined = run_pipeline(self.arguments(self.root / "combined"))
         self.assertEqual(combined["status"], "complete")
         self.assertEqual(combined["measures"], 3)
+        readable = Path(combined["score_text"]).read_text(encoding="utf-8")
+        self.assertTrue(readable.startswith("MEASURE "))
+        self.assertEqual(model_score_text(readable), Path(combined["m2"]).read_text(encoding="utf-8"))
         self.assertEqual(list(combined["stages"]), ["layout", "document_info", "measure_ocr", "gp5_export"])
         for entry in combined["stages"].values():
             self.assertEqual(entry["status"], "complete")

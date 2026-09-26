@@ -1,0 +1,2641 @@
+{
+  "stage": "document_info",
+  "candidate": "output/glm_ocr_document_info_v3_headers_lora",
+  "selected_step": 400,
+  "selection_basis": "Minimum validation loss, non-regression on every mixed validation field, corrected real subtitle/artist regression. Independent test has not been evaluated.",
+  "adapter_sha256": {
+    "adapter_model.safetensors": "5ef5b3f792acaa65095c64e1bad891b02f47b5476660112f9cc5bf106a5bbdb7",
+    "adapter_config.json": "615fb3af045e7ff610dbbbafa58932c14477ee046401cc0b075c8cc3b2cf74a9"
+  },
+  "validation": {
+    "baseline": {
+      "overall": {
+        "both": {
+          "artist": {
+            "correct": 200,
+            "total": 255,
+            "accuracy": 0.7843137254901961
+          },
+          "tempo_quarter": {
+            "correct": 273,
+            "total": 273,
+            "accuracy": 1.0
+          },
+          "title": {
+            "correct": 251,
+            "total": 255,
+            "accuracy": 0.984313725490196
+          },
+          "tuning_name": {
+            "correct": 254,
+            "total": 255,
+            "accuracy": 0.996078431372549
+          }
+        },
+        "notation": {
+          "artist": {
+            "correct": 199,
+            "total": 255,
+            "accuracy": 0.7803921568627451
+          },
+          "tempo_quarter": {
+            "correct": 273,
+            "total": 273,
+            "accuracy": 1.0
+          },
+          "title": {
+            "correct": 251,
+            "total": 255,
+            "accuracy": 0.984313725490196
+          },
+          "tuning_name": {
+            "correct": 254,
+            "total": 255,
+            "accuracy": 0.996078431372549
+          }
+        },
+        "overall": {
+          "artist": {
+            "correct": 599,
+            "total": 765,
+            "accuracy": 0.7830065359477124
+          },
+          "tempo_quarter": {
+            "correct": 819,
+            "total": 819,
+            "accuracy": 1.0
+          },
+          "title": {
+            "correct": 753,
+            "total": 765,
+            "accuracy": 0.984313725490196
+          },
+          "tuning_name": {
+            "correct": 762,
+            "total": 765,
+            "accuracy": 0.996078431372549
+          }
+        },
+        "tab": {
+          "artist": {
+            "correct": 200,
+            "total": 255,
+            "accuracy": 0.7843137254901961
+          },
+          "tempo_quarter": {
+            "correct": 273,
+            "total": 273,
+            "accuracy": 1.0
+          },
+          "title": {
+            "correct": 251,
+            "total": 255,
+            "accuracy": 0.984313725490196
+          },
+          "tuning_name": {
+            "correct": 254,
+            "total": 255,
+            "accuracy": 0.996078431372549
+          }
+        }
+      },
+      "groups": {
+        "original": {
+          "both": {
+            "artist": {
+              "correct": 189,
+              "total": 195,
+              "accuracy": 0.9692307692307692
+            },
+            "tempo_quarter": {
+              "correct": 213,
+              "total": 213,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 191,
+              "total": 195,
+              "accuracy": 0.9794871794871794
+            },
+            "tuning_name": {
+              "correct": 194,
+              "total": 195,
+              "accuracy": 0.9948717948717949
+            }
+          },
+          "notation": {
+            "artist": {
+              "correct": 189,
+              "total": 195,
+              "accuracy": 0.9692307692307692
+            },
+            "tempo_quarter": {
+              "correct": 213,
+              "total": 213,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 191,
+              "total": 195,
+              "accuracy": 0.9794871794871794
+            },
+            "tuning_name": {
+              "correct": 194,
+              "total": 195,
+              "accuracy": 0.9948717948717949
+            }
+          },
+          "overall": {
+            "artist": {
+              "correct": 567,
+              "total": 585,
+              "accuracy": 0.9692307692307692
+            },
+            "tempo_quarter": {
+              "correct": 639,
+              "total": 639,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 573,
+              "total": 585,
+              "accuracy": 0.9794871794871794
+            },
+            "tuning_name": {
+              "correct": 582,
+              "total": 585,
+              "accuracy": 0.9948717948717949
+            }
+          },
+          "tab": {
+            "artist": {
+              "correct": 189,
+              "total": 195,
+              "accuracy": 0.9692307692307692
+            },
+            "tempo_quarter": {
+              "correct": 213,
+              "total": 213,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 191,
+              "total": 195,
+              "accuracy": 0.9794871794871794
+            },
+            "tuning_name": {
+              "correct": 194,
+              "total": 195,
+              "accuracy": 0.9948717948717949
+            }
+          }
+        },
+        "supplement_clean": {
+          "both": {
+            "artist": {
+              "correct": 5,
+              "total": 30,
+              "accuracy": 0.16666666666666666
+            },
+            "tempo_quarter": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "tuning_name": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            }
+          },
+          "notation": {
+            "artist": {
+              "correct": 5,
+              "total": 30,
+              "accuracy": 0.16666666666666666
+            },
+            "tempo_quarter": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "tuning_name": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            }
+          },
+          "overall": {
+            "artist": {
+              "correct": 15,
+              "total": 90,
+              "accuracy": 0.16666666666666666
+            },
+            "tempo_quarter": {
+              "correct": 90,
+              "total": 90,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 90,
+              "total": 90,
+              "accuracy": 1.0
+            },
+            "tuning_name": {
+              "correct": 90,
+              "total": 90,
+              "accuracy": 1.0
+            }
+          },
+          "tab": {
+            "artist": {
+              "correct": 5,
+              "total": 30,
+              "accuracy": 0.16666666666666666
+            },
+            "tempo_quarter": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "tuning_name": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            }
+          }
+        },
+        "supplement_scan": {
+          "both": {
+            "artist": {
+              "correct": 6,
+              "total": 30,
+              "accuracy": 0.2
+            },
+            "tempo_quarter": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "tuning_name": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            }
+          },
+          "notation": {
+            "artist": {
+              "correct": 5,
+              "total": 30,
+              "accuracy": 0.16666666666666666
+            },
+            "tempo_quarter": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "tuning_name": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            }
+          },
+          "overall": {
+            "artist": {
+              "correct": 17,
+              "total": 90,
+              "accuracy": 0.18888888888888888
+            },
+            "tempo_quarter": {
+              "correct": 90,
+              "total": 90,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 90,
+              "total": 90,
+              "accuracy": 1.0
+            },
+            "tuning_name": {
+              "correct": 90,
+              "total": 90,
+              "accuracy": 1.0
+            }
+          },
+          "tab": {
+            "artist": {
+              "correct": 6,
+              "total": 30,
+              "accuracy": 0.2
+            },
+            "tempo_quarter": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "tuning_name": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            }
+          }
+        }
+      }
+    },
+    "candidate": {
+      "overall": {
+        "both": {
+          "artist": {
+            "correct": 248,
+            "total": 255,
+            "accuracy": 0.9725490196078431
+          },
+          "tempo_quarter": {
+            "correct": 273,
+            "total": 273,
+            "accuracy": 1.0
+          },
+          "title": {
+            "correct": 251,
+            "total": 255,
+            "accuracy": 0.984313725490196
+          },
+          "tuning_name": {
+            "correct": 254,
+            "total": 255,
+            "accuracy": 0.996078431372549
+          }
+        },
+        "notation": {
+          "artist": {
+            "correct": 249,
+            "total": 255,
+            "accuracy": 0.9764705882352941
+          },
+          "tempo_quarter": {
+            "correct": 273,
+            "total": 273,
+            "accuracy": 1.0
+          },
+          "title": {
+            "correct": 251,
+            "total": 255,
+            "accuracy": 0.984313725490196
+          },
+          "tuning_name": {
+            "correct": 254,
+            "total": 255,
+            "accuracy": 0.996078431372549
+          }
+        },
+        "overall": {
+          "artist": {
+            "correct": 746,
+            "total": 765,
+            "accuracy": 0.9751633986928104
+          },
+          "tempo_quarter": {
+            "correct": 819,
+            "total": 819,
+            "accuracy": 1.0
+          },
+          "title": {
+            "correct": 753,
+            "total": 765,
+            "accuracy": 0.984313725490196
+          },
+          "tuning_name": {
+            "correct": 762,
+            "total": 765,
+            "accuracy": 0.996078431372549
+          }
+        },
+        "tab": {
+          "artist": {
+            "correct": 249,
+            "total": 255,
+            "accuracy": 0.9764705882352941
+          },
+          "tempo_quarter": {
+            "correct": 273,
+            "total": 273,
+            "accuracy": 1.0
+          },
+          "title": {
+            "correct": 251,
+            "total": 255,
+            "accuracy": 0.984313725490196
+          },
+          "tuning_name": {
+            "correct": 254,
+            "total": 255,
+            "accuracy": 0.996078431372549
+          }
+        }
+      },
+      "groups": {
+        "original": {
+          "both": {
+            "artist": {
+              "correct": 189,
+              "total": 195,
+              "accuracy": 0.9692307692307692
+            },
+            "tempo_quarter": {
+              "correct": 213,
+              "total": 213,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 191,
+              "total": 195,
+              "accuracy": 0.9794871794871794
+            },
+            "tuning_name": {
+              "correct": 194,
+              "total": 195,
+              "accuracy": 0.9948717948717949
+            }
+          },
+          "notation": {
+            "artist": {
+              "correct": 189,
+              "total": 195,
+              "accuracy": 0.9692307692307692
+            },
+            "tempo_quarter": {
+              "correct": 213,
+              "total": 213,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 191,
+              "total": 195,
+              "accuracy": 0.9794871794871794
+            },
+            "tuning_name": {
+              "correct": 194,
+              "total": 195,
+              "accuracy": 0.9948717948717949
+            }
+          },
+          "overall": {
+            "artist": {
+              "correct": 567,
+              "total": 585,
+              "accuracy": 0.9692307692307692
+            },
+            "tempo_quarter": {
+              "correct": 639,
+              "total": 639,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 573,
+              "total": 585,
+              "accuracy": 0.9794871794871794
+            },
+            "tuning_name": {
+              "correct": 582,
+              "total": 585,
+              "accuracy": 0.9948717948717949
+            }
+          },
+          "tab": {
+            "artist": {
+              "correct": 189,
+              "total": 195,
+              "accuracy": 0.9692307692307692
+            },
+            "tempo_quarter": {
+              "correct": 213,
+              "total": 213,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 191,
+              "total": 195,
+              "accuracy": 0.9794871794871794
+            },
+            "tuning_name": {
+              "correct": 194,
+              "total": 195,
+              "accuracy": 0.9948717948717949
+            }
+          }
+        },
+        "supplement_clean": {
+          "both": {
+            "artist": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "tempo_quarter": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "tuning_name": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            }
+          },
+          "notation": {
+            "artist": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "tempo_quarter": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "tuning_name": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            }
+          },
+          "overall": {
+            "artist": {
+              "correct": 90,
+              "total": 90,
+              "accuracy": 1.0
+            },
+            "tempo_quarter": {
+              "correct": 90,
+              "total": 90,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 90,
+              "total": 90,
+              "accuracy": 1.0
+            },
+            "tuning_name": {
+              "correct": 90,
+              "total": 90,
+              "accuracy": 1.0
+            }
+          },
+          "tab": {
+            "artist": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "tempo_quarter": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "tuning_name": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            }
+          }
+        },
+        "supplement_scan": {
+          "both": {
+            "artist": {
+              "correct": 29,
+              "total": 30,
+              "accuracy": 0.9666666666666667
+            },
+            "tempo_quarter": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "tuning_name": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            }
+          },
+          "notation": {
+            "artist": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "tempo_quarter": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "tuning_name": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            }
+          },
+          "overall": {
+            "artist": {
+              "correct": 89,
+              "total": 90,
+              "accuracy": 0.9888888888888889
+            },
+            "tempo_quarter": {
+              "correct": 90,
+              "total": 90,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 90,
+              "total": 90,
+              "accuracy": 1.0
+            },
+            "tuning_name": {
+              "correct": 90,
+              "total": 90,
+              "accuracy": 1.0
+            }
+          },
+          "tab": {
+            "artist": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "tempo_quarter": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "tuning_name": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            }
+          }
+        }
+      }
+    }
+  },
+  "real_acceptance": [
+    {
+      "image": "/mnt/data-4/flurry/guitarOCR-external/output/jixian-joint-v3-baseline/01_layout/document_crops/header.png",
+      "expected": {
+        "title": "击弦练习曲",
+        "artist": "成田工作室",
+        "tuning_name": "Standard"
+      },
+      "predicted": {
+        "title": "击弦练习曲",
+        "artist": "成田工作室",
+        "tuning_name": "Standard"
+      },
+      "raw": "{\"title\":\"击弦练习曲\",\"artist\":\"成田工作室\",\"tuning_name\":\"Standard\"}",
+      "provenance": {
+        "mode": "both",
+        "kind": "real_acceptance"
+      }
+    },
+    {
+      "image": "/mnt/data-4/flurry/guitarOCR-external/output/jixian-joint-v3-baseline/01_layout/document_crops/tempo_p001_000.png",
+      "expected": {
+        "tempo_quarter": 130
+      },
+      "predicted": {
+        "tempo_quarter": 130
+      },
+      "raw": "{\"tempo_quarter\":130}",
+      "provenance": {
+        "mode": "both",
+        "kind": "real_acceptance"
+      }
+    }
+  ],
+  "test": {
+    "baseline": {
+      "overall": {
+        "both": {
+          "artist": {
+            "correct": 205,
+            "total": 256,
+            "accuracy": 0.80078125
+          },
+          "tempo_quarter": {
+            "correct": 256,
+            "total": 256,
+            "accuracy": 1.0
+          },
+          "title": {
+            "correct": 255,
+            "total": 256,
+            "accuracy": 0.99609375
+          },
+          "tuning_name": {
+            "correct": 256,
+            "total": 256,
+            "accuracy": 1.0
+          }
+        },
+        "notation": {
+          "artist": {
+            "correct": 205,
+            "total": 256,
+            "accuracy": 0.80078125
+          },
+          "tempo_quarter": {
+            "correct": 256,
+            "total": 256,
+            "accuracy": 1.0
+          },
+          "title": {
+            "correct": 255,
+            "total": 256,
+            "accuracy": 0.99609375
+          },
+          "tuning_name": {
+            "correct": 256,
+            "total": 256,
+            "accuracy": 1.0
+          }
+        },
+        "overall": {
+          "artist": {
+            "correct": 613,
+            "total": 768,
+            "accuracy": 0.7981770833333334
+          },
+          "tempo_quarter": {
+            "correct": 768,
+            "total": 768,
+            "accuracy": 1.0
+          },
+          "title": {
+            "correct": 764,
+            "total": 768,
+            "accuracy": 0.9947916666666666
+          },
+          "tuning_name": {
+            "correct": 767,
+            "total": 768,
+            "accuracy": 0.9986979166666666
+          }
+        },
+        "tab": {
+          "artist": {
+            "correct": 203,
+            "total": 256,
+            "accuracy": 0.79296875
+          },
+          "tempo_quarter": {
+            "correct": 256,
+            "total": 256,
+            "accuracy": 1.0
+          },
+          "title": {
+            "correct": 254,
+            "total": 256,
+            "accuracy": 0.9921875
+          },
+          "tuning_name": {
+            "correct": 255,
+            "total": 256,
+            "accuracy": 0.99609375
+          }
+        },
+        "artifacts": {
+          "dataset_sha256": "522c598b472b013fce20185e047b89abda3e1fcbcd46f2237f8c2f7cbe447b22",
+          "adapter_sha256": {
+            "adapter_config.json": "6679a7f338b9db547c113c2c51f8653d2f56f1bd86320bfb3d8fbdfcfd25d254",
+            "adapter_model.safetensors": "6a096087756b5e6774e6f67e99ff526a4a5fa382f2ce3d9d2919126a5fa76e3d"
+          }
+        }
+      },
+      "groups": {
+        "original": {
+          "both": {
+            "artist": {
+              "correct": 195,
+              "total": 196,
+              "accuracy": 0.9948979591836735
+            },
+            "tempo_quarter": {
+              "correct": 196,
+              "total": 196,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 195,
+              "total": 196,
+              "accuracy": 0.9948979591836735
+            },
+            "tuning_name": {
+              "correct": 196,
+              "total": 196,
+              "accuracy": 1.0
+            }
+          },
+          "notation": {
+            "artist": {
+              "correct": 195,
+              "total": 196,
+              "accuracy": 0.9948979591836735
+            },
+            "tempo_quarter": {
+              "correct": 196,
+              "total": 196,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 195,
+              "total": 196,
+              "accuracy": 0.9948979591836735
+            },
+            "tuning_name": {
+              "correct": 196,
+              "total": 196,
+              "accuracy": 1.0
+            }
+          },
+          "overall": {
+            "artist": {
+              "correct": 585,
+              "total": 588,
+              "accuracy": 0.9948979591836735
+            },
+            "tempo_quarter": {
+              "correct": 588,
+              "total": 588,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 584,
+              "total": 588,
+              "accuracy": 0.9931972789115646
+            },
+            "tuning_name": {
+              "correct": 587,
+              "total": 588,
+              "accuracy": 0.9982993197278912
+            }
+          },
+          "tab": {
+            "artist": {
+              "correct": 195,
+              "total": 196,
+              "accuracy": 0.9948979591836735
+            },
+            "tempo_quarter": {
+              "correct": 196,
+              "total": 196,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 194,
+              "total": 196,
+              "accuracy": 0.9897959183673469
+            },
+            "tuning_name": {
+              "correct": 195,
+              "total": 196,
+              "accuracy": 0.9948979591836735
+            }
+          }
+        },
+        "supplement_clean": {
+          "both": {
+            "artist": {
+              "correct": 4,
+              "total": 30,
+              "accuracy": 0.13333333333333333
+            },
+            "tempo_quarter": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "tuning_name": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            }
+          },
+          "notation": {
+            "artist": {
+              "correct": 4,
+              "total": 30,
+              "accuracy": 0.13333333333333333
+            },
+            "tempo_quarter": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "tuning_name": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            }
+          },
+          "overall": {
+            "artist": {
+              "correct": 12,
+              "total": 90,
+              "accuracy": 0.13333333333333333
+            },
+            "tempo_quarter": {
+              "correct": 90,
+              "total": 90,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 90,
+              "total": 90,
+              "accuracy": 1.0
+            },
+            "tuning_name": {
+              "correct": 90,
+              "total": 90,
+              "accuracy": 1.0
+            }
+          },
+          "tab": {
+            "artist": {
+              "correct": 4,
+              "total": 30,
+              "accuracy": 0.13333333333333333
+            },
+            "tempo_quarter": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "tuning_name": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            }
+          }
+        },
+        "supplement_scan": {
+          "both": {
+            "artist": {
+              "correct": 6,
+              "total": 30,
+              "accuracy": 0.2
+            },
+            "tempo_quarter": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "tuning_name": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            }
+          },
+          "notation": {
+            "artist": {
+              "correct": 6,
+              "total": 30,
+              "accuracy": 0.2
+            },
+            "tempo_quarter": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "tuning_name": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            }
+          },
+          "overall": {
+            "artist": {
+              "correct": 16,
+              "total": 90,
+              "accuracy": 0.17777777777777778
+            },
+            "tempo_quarter": {
+              "correct": 90,
+              "total": 90,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 90,
+              "total": 90,
+              "accuracy": 1.0
+            },
+            "tuning_name": {
+              "correct": 90,
+              "total": 90,
+              "accuracy": 1.0
+            }
+          },
+          "tab": {
+            "artist": {
+              "correct": 4,
+              "total": 30,
+              "accuracy": 0.13333333333333333
+            },
+            "tempo_quarter": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "tuning_name": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            }
+          }
+        }
+      }
+    },
+    "candidate": {
+      "overall": {
+        "both": {
+          "artist": {
+            "correct": 254,
+            "total": 256,
+            "accuracy": 0.9921875
+          },
+          "tempo_quarter": {
+            "correct": 256,
+            "total": 256,
+            "accuracy": 1.0
+          },
+          "title": {
+            "correct": 255,
+            "total": 256,
+            "accuracy": 0.99609375
+          },
+          "tuning_name": {
+            "correct": 256,
+            "total": 256,
+            "accuracy": 1.0
+          }
+        },
+        "notation": {
+          "artist": {
+            "correct": 254,
+            "total": 256,
+            "accuracy": 0.9921875
+          },
+          "tempo_quarter": {
+            "correct": 256,
+            "total": 256,
+            "accuracy": 1.0
+          },
+          "title": {
+            "correct": 255,
+            "total": 256,
+            "accuracy": 0.99609375
+          },
+          "tuning_name": {
+            "correct": 256,
+            "total": 256,
+            "accuracy": 1.0
+          }
+        },
+        "overall": {
+          "artist": {
+            "correct": 761,
+            "total": 768,
+            "accuracy": 0.9908854166666666
+          },
+          "tempo_quarter": {
+            "correct": 768,
+            "total": 768,
+            "accuracy": 1.0
+          },
+          "title": {
+            "correct": 765,
+            "total": 768,
+            "accuracy": 0.99609375
+          },
+          "tuning_name": {
+            "correct": 768,
+            "total": 768,
+            "accuracy": 1.0
+          }
+        },
+        "tab": {
+          "artist": {
+            "correct": 253,
+            "total": 256,
+            "accuracy": 0.98828125
+          },
+          "tempo_quarter": {
+            "correct": 256,
+            "total": 256,
+            "accuracy": 1.0
+          },
+          "title": {
+            "correct": 255,
+            "total": 256,
+            "accuracy": 0.99609375
+          },
+          "tuning_name": {
+            "correct": 256,
+            "total": 256,
+            "accuracy": 1.0
+          }
+        },
+        "artifacts": {
+          "dataset_sha256": "522c598b472b013fce20185e047b89abda3e1fcbcd46f2237f8c2f7cbe447b22",
+          "adapter_sha256": {
+            "adapter_config.json": "615fb3af045e7ff610dbbbafa58932c14477ee046401cc0b075c8cc3b2cf74a9",
+            "adapter_model.safetensors": "5ef5b3f792acaa65095c64e1bad891b02f47b5476660112f9cc5bf106a5bbdb7"
+          }
+        }
+      },
+      "groups": {
+        "original": {
+          "both": {
+            "artist": {
+              "correct": 194,
+              "total": 196,
+              "accuracy": 0.9897959183673469
+            },
+            "tempo_quarter": {
+              "correct": 196,
+              "total": 196,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 195,
+              "total": 196,
+              "accuracy": 0.9948979591836735
+            },
+            "tuning_name": {
+              "correct": 196,
+              "total": 196,
+              "accuracy": 1.0
+            }
+          },
+          "notation": {
+            "artist": {
+              "correct": 194,
+              "total": 196,
+              "accuracy": 0.9897959183673469
+            },
+            "tempo_quarter": {
+              "correct": 196,
+              "total": 196,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 195,
+              "total": 196,
+              "accuracy": 0.9948979591836735
+            },
+            "tuning_name": {
+              "correct": 196,
+              "total": 196,
+              "accuracy": 1.0
+            }
+          },
+          "overall": {
+            "artist": {
+              "correct": 581,
+              "total": 588,
+              "accuracy": 0.9880952380952381
+            },
+            "tempo_quarter": {
+              "correct": 588,
+              "total": 588,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 585,
+              "total": 588,
+              "accuracy": 0.9948979591836735
+            },
+            "tuning_name": {
+              "correct": 588,
+              "total": 588,
+              "accuracy": 1.0
+            }
+          },
+          "tab": {
+            "artist": {
+              "correct": 193,
+              "total": 196,
+              "accuracy": 0.9846938775510204
+            },
+            "tempo_quarter": {
+              "correct": 196,
+              "total": 196,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 195,
+              "total": 196,
+              "accuracy": 0.9948979591836735
+            },
+            "tuning_name": {
+              "correct": 196,
+              "total": 196,
+              "accuracy": 1.0
+            }
+          }
+        },
+        "supplement_clean": {
+          "both": {
+            "artist": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "tempo_quarter": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "tuning_name": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            }
+          },
+          "notation": {
+            "artist": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "tempo_quarter": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "tuning_name": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            }
+          },
+          "overall": {
+            "artist": {
+              "correct": 90,
+              "total": 90,
+              "accuracy": 1.0
+            },
+            "tempo_quarter": {
+              "correct": 90,
+              "total": 90,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 90,
+              "total": 90,
+              "accuracy": 1.0
+            },
+            "tuning_name": {
+              "correct": 90,
+              "total": 90,
+              "accuracy": 1.0
+            }
+          },
+          "tab": {
+            "artist": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "tempo_quarter": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "tuning_name": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            }
+          }
+        },
+        "supplement_scan": {
+          "both": {
+            "artist": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "tempo_quarter": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "tuning_name": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            }
+          },
+          "notation": {
+            "artist": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "tempo_quarter": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "tuning_name": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            }
+          },
+          "overall": {
+            "artist": {
+              "correct": 90,
+              "total": 90,
+              "accuracy": 1.0
+            },
+            "tempo_quarter": {
+              "correct": 90,
+              "total": 90,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 90,
+              "total": 90,
+              "accuracy": 1.0
+            },
+            "tuning_name": {
+              "correct": 90,
+              "total": 90,
+              "accuracy": 1.0
+            }
+          },
+          "tab": {
+            "artist": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "tempo_quarter": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "title": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            },
+            "tuning_name": {
+              "correct": 30,
+              "total": 30,
+              "accuracy": 1.0
+            }
+          }
+        }
+      }
+    }
+  },
+  "approved_for_default": true,
+  "data": {
+    "seed": 20260929,
+    "extra_header_repeats": 6,
+    "source_sha256": {
+      "base_train": "e26d1c8a49061bfa1016c0c1c99962d912bcf5809c44304db8d12df36ea604b2",
+      "base_validation": "9acd5c46c8814c0cdbd0a826f176a044ddcbc103f28b41c90b3e7a0d15bff7ec",
+      "base_test": "b3d8685e7b58067ebe1620fba280fc5464b32735a658b7eee516ca019039d82b",
+      "extra_train": "b63e94d71ee835a3b8b640942fe9b373ff9e61f246627785d1589edbd8f89917",
+      "extra_validation": "c53cc74b2ca720e03d9cac7cc6f31e9f362b05ac5454805ced7a672466afd264",
+      "extra_test": "0a924cf525ac2e4494ec0bdc4ce3f3d84fd52277bdfa8918cc442ea3439bcdec"
+    },
+    "splits": {
+      "train": {
+        "base": 15029,
+        "extra": 711,
+        "samples": 23808,
+        "families": 2398
+      },
+      "validation": {
+        "base": 1224,
+        "extra": 180,
+        "samples": 1584,
+        "families": 199
+      },
+      "test": {
+        "base": 1176,
+        "extra": 180,
+        "samples": 1536,
+        "families": 200
+      }
+    },
+    "augmentation": "scan_v1 crop=True; generated degradation, not real scans",
+    "generated_images": 4828,
+    "dataset_sha256": {
+      "document_info_test.json": "522c598b472b013fce20185e047b89abda3e1fcbcd46f2237f8c2f7cbe447b22",
+      "document_info_train.json": "ad44f3d141c78ff2ffaab3f4e9cdb1a659291ad3890063995872b2fa5598eff3",
+      "document_info_validation.json": "9e3193ed19313264b9201960e0f1dc2cb0f1d37506331b324794e1b2ec077ab9"
+    }
+  },
+  "native_audit": {
+    "documents": 540,
+    "metadata_exact": true,
+    "missing_pdf_text": [],
+    "input_catalog_sha256": "6d3349b30073a0178d37695fb3bce523233af98298e22363e75ac25e86952f12"
+  },
+  "tokenization": {
+    "train": {
+      "samples": 23808,
+      "max_tokens": 901,
+      "at_cutoff": 0
+    },
+    "validation": {
+      "samples": 1584,
+      "max_tokens": 883,
+      "at_cutoff": 0
+    }
+  },
+  "prior_candidate_regression": {
+    "candidate_steps": [
+      300,
+      400,
+      471
+    ],
+    "input": "jixian.pdf",
+    "expected_artist": "成田工作室",
+    "predicted_artist": "中级课",
+    "action": "Restore v2 default pending subtitle robustness correction; existing v3 retained as evaluated candidate."
+  },
+  "training_state": {
+    "best_global_step": 400,
+    "best_metric": 0.0035731529351323843,
+    "best_model_checkpoint": "output/glm_ocr_document_info_v3_headers_lora/checkpoint-400",
+    "epoch": 2.0,
+    "eval_steps": 100,
+    "global_step": 496,
+    "is_hyper_param_search": false,
+    "is_local_process_zero": true,
+    "is_world_process_zero": true,
+    "log_history": [
+      {
+        "epoch": 0.04032258064516129,
+        "grad_norm": 0.06129487603902817,
+        "learning_rate": 6e-06,
+        "loss": 0.04531584084033966,
+        "step": 10
+      },
+      {
+        "epoch": 0.08064516129032258,
+        "grad_norm": 0.7030207514762878,
+        "learning_rate": 9.998293741288236e-06,
+        "loss": 0.012609884142875671,
+        "step": 20
+      },
+      {
+        "epoch": 0.12096774193548387,
+        "grad_norm": 0.0013887988170608878,
+        "learning_rate": 9.979111702141557e-06,
+        "loss": 0.00585596077144146,
+        "step": 30
+      },
+      {
+        "epoch": 0.16129032258064516,
+        "grad_norm": 0.17254723608493805,
+        "learning_rate": 9.938696872778057e-06,
+        "loss": 0.008628146350383758,
+        "step": 40
+      },
+      {
+        "epoch": 0.20161290322580644,
+        "grad_norm": 0.0015971725806593895,
+        "learning_rate": 9.877221597110638e-06,
+        "loss": 0.0045943684875965115,
+        "step": 50
+      },
+      {
+        "epoch": 0.24193548387096775,
+        "grad_norm": 0.08716683089733124,
+        "learning_rate": 9.794948028653793e-06,
+        "loss": 0.0064601019024848935,
+        "step": 60
+      },
+      {
+        "epoch": 0.28225806451612906,
+        "grad_norm": 0.22377842664718628,
+        "learning_rate": 9.692227012603195e-06,
+        "loss": 0.004239245504140854,
+        "step": 70
+      },
+      {
+        "epoch": 0.3225806451612903,
+        "grad_norm": 0.0013382462784647942,
+        "learning_rate": 9.569496589700878e-06,
+        "loss": 0.004158306494355201,
+        "step": 80
+      },
+      {
+        "epoch": 0.3629032258064516,
+        "grad_norm": 0.1977207511663437,
+        "learning_rate": 9.427280128266049e-06,
+        "loss": 0.004382544755935669,
+        "step": 90
+      },
+      {
+        "epoch": 0.4032258064516129,
+        "grad_norm": 0.0011783336522057652,
+        "learning_rate": 9.266184092357297e-06,
+        "loss": 0.0035099569708108903,
+        "step": 100
+      },
+      {
+        "epoch": 0.4032258064516129,
+        "eval_loss": 0.005103330127894878,
+        "eval_runtime": 14.7783,
+        "eval_samples_per_second": 107.184,
+        "eval_steps_per_second": 3.383,
+        "step": 100
+      },
+      {
+        "epoch": 0.4435483870967742,
+        "grad_norm": 0.11933158338069916,
+        "learning_rate": 9.086895455583532e-06,
+        "loss": 0.0036172673106193544,
+        "step": 110
+      },
+      {
+        "epoch": 0.4838709677419355,
+        "grad_norm": 0.13282161951065063,
+        "learning_rate": 8.890178771592198e-06,
+        "loss": 0.003598959743976593,
+        "step": 120
+      },
+      {
+        "epoch": 0.5241935483870968,
+        "grad_norm": 0.0011739128967747092,
+        "learning_rate": 8.676872913727212e-06,
+        "loss": 0.003289254754781723,
+        "step": 130
+      },
+      {
+        "epoch": 0.5645161290322581,
+        "grad_norm": 0.17190100252628326,
+        "learning_rate": 8.447887497760025e-06,
+        "loss": 0.00326923169195652,
+        "step": 140
+      },
+      {
+        "epoch": 0.6048387096774194,
+        "grad_norm": 0.0011698596645146608,
+        "learning_rate": 8.204199002948541e-06,
+        "loss": 0.002481367439031601,
+        "step": 150
+      },
+      {
+        "epoch": 0.6451612903225806,
+        "grad_norm": 0.113959901034832,
+        "learning_rate": 7.946846607965207e-06,
+        "loss": 0.002604106068611145,
+        "step": 160
+      },
+      {
+        "epoch": 0.6854838709677419,
+        "grad_norm": 0.20173969864845276,
+        "learning_rate": 7.676927759451385e-06,
+        "loss": 0.002691807597875595,
+        "step": 170
+      },
+      {
+        "epoch": 0.7258064516129032,
+        "grad_norm": 0.0009789032628759742,
+        "learning_rate": 7.395593492095365e-06,
+        "loss": 0.002559766173362732,
+        "step": 180
+      },
+      {
+        "epoch": 0.7661290322580645,
+        "grad_norm": 0.09236607700586319,
+        "learning_rate": 7.104043520190971e-06,
+        "loss": 0.0025594692677259447,
+        "step": 190
+      },
+      {
+        "epoch": 0.8064516129032258,
+        "grad_norm": 0.000984187819994986,
+        "learning_rate": 6.803521121608126e-06,
+        "loss": 0.00216157678514719,
+        "step": 200
+      },
+      {
+        "epoch": 0.8064516129032258,
+        "eval_loss": 0.004068039823323488,
+        "eval_runtime": 14.9353,
+        "eval_samples_per_second": 106.058,
+        "eval_steps_per_second": 3.348,
+        "step": 200
+      },
+      {
+        "epoch": 0.8467741935483871,
+        "grad_norm": 0.08282408863306046,
+        "learning_rate": 6.4953078359921085e-06,
+        "loss": 0.0036289125680923464,
+        "step": 210
+      },
+      {
+        "epoch": 0.8870967741935484,
+        "grad_norm": 0.5137042999267578,
+        "learning_rate": 6.180717999800305e-06,
+        "loss": 0.002378816343843937,
+        "step": 220
+      },
+      {
+        "epoch": 0.9274193548387096,
+        "grad_norm": 0.000948701286688447,
+        "learning_rate": 5.8610931414811224e-06,
+        "loss": 0.0025985445827245712,
+        "step": 230
+      },
+      {
+        "epoch": 0.967741935483871,
+        "grad_norm": 0.1512645184993744,
+        "learning_rate": 5.537796260696095e-06,
+        "loss": 0.00285690538585186,
+        "step": 240
+      },
+      {
+        "epoch": 1.0080645161290323,
+        "grad_norm": 0.2734767496585846,
+        "learning_rate": 5.212206015980742e-06,
+        "loss": 0.0030780164524912834,
+        "step": 250
+      },
+      {
+        "epoch": 1.0483870967741935,
+        "grad_norm": 0.0011263479245826602,
+        "learning_rate": 4.885710845630134e-06,
+        "loss": 0.0017113573849201202,
+        "step": 260
+      },
+      {
+        "epoch": 1.0887096774193548,
+        "grad_norm": 0.09997284412384033,
+        "learning_rate": 4.559703046879916e-06,
+        "loss": 0.002297995612025261,
+        "step": 270
+      },
+      {
+        "epoch": 1.129032258064516,
+        "grad_norm": 0.17801906168460846,
+        "learning_rate": 4.2355728386313696e-06,
+        "loss": 0.0024790946394205094,
+        "step": 280
+      },
+      {
+        "epoch": 1.1693548387096775,
+        "grad_norm": 0.001007395563647151,
+        "learning_rate": 3.914702433039268e-06,
+        "loss": 0.002849866636097431,
+        "step": 290
+      },
+      {
+        "epoch": 1.2096774193548387,
+        "grad_norm": 0.19422708451747894,
+        "learning_rate": 3.5984601412434894e-06,
+        "loss": 0.002711469680070877,
+        "step": 300
+      },
+      {
+        "epoch": 1.2096774193548387,
+        "eval_loss": 0.003840581513941288,
+        "eval_runtime": 17.8485,
+        "eval_samples_per_second": 88.747,
+        "eval_steps_per_second": 2.801,
+        "step": 300
+      },
+      {
+        "epoch": 1.25,
+        "grad_norm": 0.001005675527267158,
+        "learning_rate": 3.288194538379732e-06,
+        "loss": 0.0015982285141944886,
+        "step": 310
+      },
+      {
+        "epoch": 1.2903225806451613,
+        "grad_norm": 0.06922656297683716,
+        "learning_rate": 2.9852287127519342e-06,
+        "loss": 0.0017722852528095246,
+        "step": 320
+      },
+      {
+        "epoch": 1.3306451612903225,
+        "grad_norm": 0.12424691021442413,
+        "learning_rate": 2.690854623690041e-06,
+        "loss": 0.0024057522416114805,
+        "step": 330
+      },
+      {
+        "epoch": 1.370967741935484,
+        "grad_norm": 0.004271684214472771,
+        "learning_rate": 2.4063275921533387e-06,
+        "loss": 0.002654081955552101,
+        "step": 340
+      },
+      {
+        "epoch": 1.4112903225806452,
+        "grad_norm": 0.12172479927539825,
+        "learning_rate": 2.132860947573464e-06,
+        "loss": 0.002468854933977127,
+        "step": 350
+      },
+      {
+        "epoch": 1.4516129032258065,
+        "grad_norm": 0.0008772704750299454,
+        "learning_rate": 1.8716208537649766e-06,
+        "loss": 0.0014326653443276882,
+        "step": 360
+      },
+      {
+        "epoch": 1.4919354838709677,
+        "grad_norm": 0.07263156026601791,
+        "learning_rate": 1.6237213359676917e-06,
+        "loss": 0.0015688979998230933,
+        "step": 370
+      },
+      {
+        "epoch": 1.532258064516129,
+        "grad_norm": 0.24146172404289246,
+        "learning_rate": 1.390219530227378e-06,
+        "loss": 0.0017990585416555404,
+        "step": 380
+      },
+      {
+        "epoch": 1.5725806451612905,
+        "grad_norm": 0.0017182276351377368,
+        "learning_rate": 1.1721111753731923e-06,
+        "loss": 0.0033197380602359773,
+        "step": 390
+      },
+      {
+        "epoch": 1.6129032258064515,
+        "grad_norm": 0.10948533564805984,
+        "learning_rate": 9.703263668157598e-07,
+        "loss": 0.0026460980996489527,
+        "step": 400
+      },
+      {
+        "epoch": 1.6129032258064515,
+        "eval_loss": 0.0035731529351323843,
+        "eval_runtime": 14.5909,
+        "eval_samples_per_second": 108.561,
+        "eval_steps_per_second": 3.427,
+        "step": 400
+      },
+      {
+        "epoch": 1.653225806451613,
+        "grad_norm": 0.0008877431391738355,
+        "learning_rate": 7.85725590273288e-07,
+        "loss": 0.0015758033841848373,
+        "step": 410
+      },
+      {
+        "epoch": 1.6935483870967742,
+        "grad_norm": 0.058209601789712906,
+        "learning_rate": 6.190960523393735e-07,
+        "loss": 0.002840453013777733,
+        "step": 420
+      },
+      {
+        "epoch": 1.7338709677419355,
+        "grad_norm": 0.07605684548616409,
+        "learning_rate": 4.7114832354035354e-07,
+        "loss": 0.0016674209386110307,
+        "step": 430
+      },
+      {
+        "epoch": 1.7741935483870968,
+        "grad_norm": 0.0007659974507987499,
+        "learning_rate": 3.4251330819743247e-07,
+        "loss": 0.0018060991540551185,
+        "step": 440
+      },
+      {
+        "epoch": 1.814516129032258,
+        "grad_norm": 0.1317099928855896,
+        "learning_rate": 2.3373955401524095e-07,
+        "loss": 0.0024912208318710327,
+        "step": 450
+      },
+      {
+        "epoch": 1.8548387096774195,
+        "grad_norm": 0.0008872997132129967,
+        "learning_rate": 1.4529091286973994e-07,
+        "loss": 0.0018770866096019744,
+        "step": 460
+      },
+      {
+        "epoch": 1.8951612903225805,
+        "grad_norm": 0.1080293282866478,
+        "learning_rate": 7.754456277073219e-08,
+        "loss": 0.0027952417731285095,
+        "step": 470
+      },
+      {
+        "epoch": 1.935483870967742,
+        "grad_norm": 0.10516384989023209,
+        "learning_rate": 3.078939943409187e-08,
+        "loss": 0.0018008776009082795,
+        "step": 480
+      },
+      {
+        "epoch": 1.9758064516129032,
+        "grad_norm": 0.004933007061481476,
+        "learning_rate": 5.224804322631616e-09,
+        "loss": 0.0018416425213217736,
+        "step": 490
+      },
+      {
+        "epoch": 2.0,
+        "eval_loss": 0.0036181213799864054,
+        "eval_runtime": 14.3545,
+        "eval_samples_per_second": 110.349,
+        "eval_steps_per_second": 3.483,
+        "step": 496
+      },
+      {
+        "epoch": 2.0,
+        "step": 496,
+        "total_flos": 1.2753192139043635e+17,
+        "train_loss": 0.003958250074872687,
+        "train_runtime": 1061.2009,
+        "train_samples_per_second": 44.87,
+        "train_steps_per_second": 0.467
+      }
+    ],
+    "logging_steps": 10,
+    "max_steps": 496,
+    "num_input_tokens_seen": 0,
+    "num_train_epochs": 2,
+    "save_steps": 100,
+    "stateful_callbacks": {
+      "EarlyStoppingCallback": {
+        "args": {
+          "early_stopping_patience": 3,
+          "early_stopping_threshold": 0.0
+        },
+        "attributes": {
+          "early_stopping_patience_counter": 1
+        }
+      },
+      "TrainerControl": {
+        "args": {
+          "should_epoch_stop": false,
+          "should_evaluate": false,
+          "should_log": false,
+          "should_save": true,
+          "should_training_stop": true
+        },
+        "attributes": {}
+      }
+    },
+    "total_flos": 1.2753192139043635e+17,
+    "train_batch_size": 12,
+    "trial_name": null,
+    "trial_params": null
+  },
+  "published_at_utc": "2026-09-26T07:16:25.686099+00:00",
+  "training_artifact": "output/glm_ocr_document_info_v3_headers_lora",
+  "training_config_sha256": "737d29dec65fefe163e316debd72247a9a48de5254432d36f9fc7e0358310f8e",
+  "full_pipeline_acceptance": {
+    "adapter": "output/joint-v3-measure-final",
+    "info_adapter": "weights/glm_ocr_document_info_v3_headers_lora",
+    "layout": "weights/pp_doclayout_v3_score_joint_v3",
+    "adapter_sha256": "1bc79a3e487632f391cc4a89c97089e7636ce7a504aded1df115e2a90b5dbf68",
+    "info_adapter_sha256": "5ef5b3f792acaa65095c64e1bad891b02f47b5476660112f9cc5bf106a5bbdb7",
+    "layout_sha256": "37c588ef61adcb9d714b3a62eda2fea12f3a4f8ad0f4e80348b593da2a4ea510",
+    "cases": [
+      {
+        "case": "jixian",
+        "pdf": "jixian.pdf",
+        "input_sha256": "25ba9a16830fa8beec1224f1e4ced94d09499ff757e55c4c9888976569106944",
+        "result": {
+          "schema_version": "3.0",
+          "status": "complete",
+          "inputs": [
+            "/mnt/data-4/flurry/guitarOCR-external/jixian.pdf"
+          ],
+          "stages": {
+            "layout": {
+              "status": "complete",
+              "manifest": "/mnt/data-4/flurry/guitarOCR-external/output/joint-v3-candidate-pipeline-jixian/01_layout/manifest.json"
+            },
+            "document_info": {
+              "status": "complete",
+              "manifest": "/mnt/data-4/flurry/guitarOCR-external/output/joint-v3-candidate-pipeline-jixian/02_document_info/manifest.json"
+            },
+            "measure_ocr": {
+              "status": "complete",
+              "manifest": "/mnt/data-4/flurry/guitarOCR-external/output/joint-v3-candidate-pipeline-jixian/03_measure_ocr/manifest.json"
+            },
+            "gp5_export": {
+              "status": "complete",
+              "manifest": "/mnt/data-4/flurry/guitarOCR-external/output/joint-v3-candidate-pipeline-jixian/04_gp5_export/manifest.json"
+            }
+          },
+          "mode": "both",
+          "measures": 17,
+          "m2": "/mnt/data-4/flurry/guitarOCR-external/output/joint-v3-candidate-pipeline-jixian/03_measure_ocr/prediction.m2",
+          "recognition_log": "/mnt/data-4/flurry/guitarOCR-external/output/joint-v3-candidate-pipeline-jixian/03_measure_ocr/recognition.jsonl",
+          "document_metadata": {
+            "source": "image_document_info_lora",
+            "title": "击弦练习曲",
+            "artist": "成田工作室",
+            "tuning_name": "Standard",
+            "tempo_quarter": 130,
+            "tuning_midi_high_to_low": [
+              64,
+              59,
+              55,
+              50,
+              45,
+              40
+            ]
+          },
+          "tuning_used": [
+            64,
+            59,
+            55,
+            50,
+            45,
+            40
+          ],
+          "review_measures": [],
+          "gp5": "/mnt/data-4/flurry/guitarOCR-external/output/joint-v3-candidate-pipeline-jixian/04_gp5_export/PRE.gp5"
+        },
+        "metrics": {
+          "samples": 17,
+          "syntax_valid_rate": 1.0,
+          "exact_match_rate": 1.0,
+          "core_exact_rate": 1.0,
+          "rhythm_exact_rate": 1.0,
+          "note_fields_exact_rate": 1.0,
+          "technique_exact_rate": 1.0,
+          "constraint_valid_rate": 1.0,
+          "metadata_accuracy": 1.0,
+          "metadata_exact_rate": 1.0,
+          "metadata_field": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "event_onset": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "duration_accuracy_on_aligned_events": 1.0,
+          "status_accuracy_on_aligned_events": 1.0,
+          "note_exact": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "string_accuracy": 1.0,
+          "fret_accuracy": 1.0,
+          "pitch_accuracy": 1.0,
+          "technique": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "technique_by_class": {
+            "hammer": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "expected": 80,
+              "predicted": 80
+            },
+            "pick_down": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "expected": 40,
+              "predicted": 40
+            },
+            "pick_up": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "expected": 8,
+              "predicted": 8
+            },
+            "tie": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "expected": 1,
+              "predicted": 1
+            }
+          },
+          "counts": {
+            "expected_events": 129,
+            "predicted_events": 129,
+            "expected_notes": 129,
+            "predicted_notes": 129
+          },
+          "parse_errors": {},
+          "constraint_errors": {}
+        },
+        "gp5": {
+          "title": "击弦练习曲",
+          "artist": "成田工作室",
+          "measures": 17,
+          "tempo": 130
+        },
+        "metadata_correct": true
+      },
+      {
+        "case": "native-tab",
+        "pdf": "database/gp8_headers_v3/native-export/documents/tab-3edd835f4ddd7ce2/tracks/track-000-Acoustic-Guitar/score.pdf",
+        "input_sha256": "dfe63434ad449f62a89974f1c1e8a4e416b1d9ca544b048d7e0032eb4de6012f",
+        "result": {
+          "schema_version": "3.0",
+          "status": "complete",
+          "inputs": [
+            "/mnt/data-4/flurry/guitarOCR-external/database/gp8_headers_v3/native-export/documents/tab-3edd835f4ddd7ce2/tracks/track-000-Acoustic-Guitar/score.pdf"
+          ],
+          "stages": {
+            "layout": {
+              "status": "complete",
+              "manifest": "/mnt/data-4/flurry/guitarOCR-external/output/joint-v3-candidate-pipeline-native-tab/01_layout/manifest.json"
+            },
+            "document_info": {
+              "status": "complete",
+              "manifest": "/mnt/data-4/flurry/guitarOCR-external/output/joint-v3-candidate-pipeline-native-tab/02_document_info/manifest.json"
+            },
+            "measure_ocr": {
+              "status": "complete",
+              "manifest": "/mnt/data-4/flurry/guitarOCR-external/output/joint-v3-candidate-pipeline-native-tab/03_measure_ocr/manifest.json"
+            },
+            "gp5_export": {
+              "status": "complete",
+              "manifest": "/mnt/data-4/flurry/guitarOCR-external/output/joint-v3-candidate-pipeline-native-tab/04_gp5_export/manifest.json"
+            }
+          },
+          "mode": "tab",
+          "measures": 4,
+          "m2": "/mnt/data-4/flurry/guitarOCR-external/output/joint-v3-candidate-pipeline-native-tab/03_measure_ocr/prediction.m2",
+          "recognition_log": "/mnt/data-4/flurry/guitarOCR-external/output/joint-v3-candidate-pipeline-native-tab/03_measure_ocr/recognition.jsonl",
+          "document_metadata": {
+            "source": "image_document_info_lora",
+            "title": "晨光小品 153",
+            "artist": "晴空音乐教室",
+            "tuning_name": "Standard",
+            "tempo_quarter": 120,
+            "tuning_midi_high_to_low": [
+              64,
+              59,
+              55,
+              50,
+              45,
+              40
+            ]
+          },
+          "tuning_used": [
+            64,
+            59,
+            55,
+            50,
+            45,
+            40
+          ],
+          "review_measures": [],
+          "gp5": "/mnt/data-4/flurry/guitarOCR-external/output/joint-v3-candidate-pipeline-native-tab/04_gp5_export/PRE.gp5"
+        },
+        "metrics": {
+          "samples": 4,
+          "syntax_valid_rate": 1.0,
+          "exact_match_rate": 1.0,
+          "core_exact_rate": 1.0,
+          "rhythm_exact_rate": 1.0,
+          "note_fields_exact_rate": 1.0,
+          "technique_exact_rate": 1.0,
+          "constraint_valid_rate": 1.0,
+          "metadata_accuracy": 1.0,
+          "metadata_exact_rate": 1.0,
+          "metadata_field": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "event_onset": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "duration_accuracy_on_aligned_events": 1.0,
+          "status_accuracy_on_aligned_events": 1.0,
+          "note_exact": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "string_accuracy": 1.0,
+          "fret_accuracy": 1.0,
+          "pitch_accuracy": 0.0,
+          "technique": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "technique_by_class": {
+            "let": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "expected": 53,
+              "predicted": 53
+            }
+          },
+          "counts": {
+            "expected_events": 53,
+            "predicted_events": 53,
+            "expected_notes": 53,
+            "predicted_notes": 53
+          },
+          "parse_errors": {},
+          "constraint_errors": {}
+        },
+        "gp5": {
+          "title": "晨光小品 153",
+          "artist": "晴空音乐教室",
+          "measures": 4,
+          "tempo": 120
+        },
+        "metadata_correct": true
+      },
+      {
+        "case": "native-notation",
+        "pdf": "database/gp8_headers_v3/native-export/documents/notation-3edd835f4ddd7ce2/tracks/track-000-Acoustic-Guitar/score.pdf",
+        "input_sha256": "a79e05122c6030e32372152346190f8cb79fbfcbd7a6ef9cc1b651a5311c7c05",
+        "result": {
+          "schema_version": "3.0",
+          "status": "complete",
+          "inputs": [
+            "/mnt/data-4/flurry/guitarOCR-external/database/gp8_headers_v3/native-export/documents/notation-3edd835f4ddd7ce2/tracks/track-000-Acoustic-Guitar/score.pdf"
+          ],
+          "stages": {
+            "layout": {
+              "status": "complete",
+              "manifest": "/mnt/data-4/flurry/guitarOCR-external/output/joint-v3-candidate-pipeline-native-notation/01_layout/manifest.json"
+            },
+            "document_info": {
+              "status": "complete",
+              "manifest": "/mnt/data-4/flurry/guitarOCR-external/output/joint-v3-candidate-pipeline-native-notation/02_document_info/manifest.json"
+            },
+            "measure_ocr": {
+              "status": "complete",
+              "manifest": "/mnt/data-4/flurry/guitarOCR-external/output/joint-v3-candidate-pipeline-native-notation/03_measure_ocr/manifest.json"
+            },
+            "gp5_export": {
+              "status": "complete",
+              "manifest": "/mnt/data-4/flurry/guitarOCR-external/output/joint-v3-candidate-pipeline-native-notation/04_gp5_export/manifest.json"
+            }
+          },
+          "mode": "notation",
+          "measures": 4,
+          "m2": "/mnt/data-4/flurry/guitarOCR-external/output/joint-v3-candidate-pipeline-native-notation/03_measure_ocr/prediction.m2",
+          "recognition_log": "/mnt/data-4/flurry/guitarOCR-external/output/joint-v3-candidate-pipeline-native-notation/03_measure_ocr/recognition.jsonl",
+          "document_metadata": {
+            "source": "image_document_info_lora",
+            "title": "晨光小品 153",
+            "artist": "晴空音乐教室",
+            "tuning_name": "Standard",
+            "tempo_quarter": 120,
+            "tuning_midi_high_to_low": [
+              64,
+              59,
+              55,
+              50,
+              45,
+              40
+            ]
+          },
+          "tuning_used": [
+            64,
+            59,
+            55,
+            50,
+            45,
+            40
+          ],
+          "review_measures": [],
+          "gp5": "/mnt/data-4/flurry/guitarOCR-external/output/joint-v3-candidate-pipeline-native-notation/04_gp5_export/PRE.gp5"
+        },
+        "metrics": {
+          "samples": 4,
+          "syntax_valid_rate": 1.0,
+          "exact_match_rate": 0.75,
+          "core_exact_rate": 0.75,
+          "rhythm_exact_rate": 1.0,
+          "note_fields_exact_rate": 0.75,
+          "technique_exact_rate": 0.75,
+          "constraint_valid_rate": 1.0,
+          "metadata_accuracy": 1.0,
+          "metadata_exact_rate": 1.0,
+          "metadata_field": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "event_onset": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "duration_accuracy_on_aligned_events": 1.0,
+          "status_accuracy_on_aligned_events": 1.0,
+          "note_exact": {
+            "precision": 0.7735849056603774,
+            "recall": 0.7735849056603774,
+            "f1": 0.7735849056603775
+          },
+          "string_accuracy": 0.0,
+          "fret_accuracy": 0.0,
+          "pitch_accuracy": 0.7735849056603774,
+          "technique": {
+            "precision": 0.7735849056603774,
+            "recall": 0.7735849056603774,
+            "f1": 0.7735849056603775
+          },
+          "technique_by_class": {
+            "let": {
+              "precision": 0.7735849056603774,
+              "recall": 0.7735849056603774,
+              "f1": 0.7735849056603775,
+              "expected": 53,
+              "predicted": 53
+            }
+          },
+          "counts": {
+            "expected_events": 53,
+            "predicted_events": 53,
+            "expected_notes": 53,
+            "predicted_notes": 53
+          },
+          "parse_errors": {},
+          "constraint_errors": {}
+        },
+        "gp5": {
+          "title": "晨光小品 153",
+          "artist": "晴空音乐教室",
+          "measures": 4,
+          "tempo": 120
+        },
+        "metadata_correct": true
+      },
+      {
+        "case": "native-both",
+        "pdf": "database/gp8_headers_v3/native-export/documents/both-3edd835f4ddd7ce2/tracks/track-000-Acoustic-Guitar/score.pdf",
+        "input_sha256": "55d4530127fdfe15b841ab7f38e9f4968824a88b03bf8eeba73ab84d2e56b48c",
+        "result": {
+          "schema_version": "3.0",
+          "status": "complete",
+          "inputs": [
+            "/mnt/data-4/flurry/guitarOCR-external/database/gp8_headers_v3/native-export/documents/both-3edd835f4ddd7ce2/tracks/track-000-Acoustic-Guitar/score.pdf"
+          ],
+          "stages": {
+            "layout": {
+              "status": "complete",
+              "manifest": "/mnt/data-4/flurry/guitarOCR-external/output/joint-v3-candidate-pipeline-native-both/01_layout/manifest.json"
+            },
+            "document_info": {
+              "status": "complete",
+              "manifest": "/mnt/data-4/flurry/guitarOCR-external/output/joint-v3-candidate-pipeline-native-both/02_document_info/manifest.json"
+            },
+            "measure_ocr": {
+              "status": "complete",
+              "manifest": "/mnt/data-4/flurry/guitarOCR-external/output/joint-v3-candidate-pipeline-native-both/03_measure_ocr/manifest.json"
+            },
+            "gp5_export": {
+              "status": "complete",
+              "manifest": "/mnt/data-4/flurry/guitarOCR-external/output/joint-v3-candidate-pipeline-native-both/04_gp5_export/manifest.json"
+            }
+          },
+          "mode": "both",
+          "measures": 4,
+          "m2": "/mnt/data-4/flurry/guitarOCR-external/output/joint-v3-candidate-pipeline-native-both/03_measure_ocr/prediction.m2",
+          "recognition_log": "/mnt/data-4/flurry/guitarOCR-external/output/joint-v3-candidate-pipeline-native-both/03_measure_ocr/recognition.jsonl",
+          "document_metadata": {
+            "source": "image_document_info_lora",
+            "title": "晨光小品 153",
+            "artist": "晴空音乐教室",
+            "tuning_name": "Standard",
+            "tempo_quarter": 120,
+            "tuning_midi_high_to_low": [
+              64,
+              59,
+              55,
+              50,
+              45,
+              40
+            ]
+          },
+          "tuning_used": [
+            64,
+            59,
+            55,
+            50,
+            45,
+            40
+          ],
+          "review_measures": [],
+          "gp5": "/mnt/data-4/flurry/guitarOCR-external/output/joint-v3-candidate-pipeline-native-both/04_gp5_export/PRE.gp5"
+        },
+        "metrics": {
+          "samples": 4,
+          "syntax_valid_rate": 1.0,
+          "exact_match_rate": 1.0,
+          "core_exact_rate": 1.0,
+          "rhythm_exact_rate": 1.0,
+          "note_fields_exact_rate": 1.0,
+          "technique_exact_rate": 1.0,
+          "constraint_valid_rate": 1.0,
+          "metadata_accuracy": 1.0,
+          "metadata_exact_rate": 1.0,
+          "metadata_field": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "event_onset": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "duration_accuracy_on_aligned_events": 1.0,
+          "status_accuracy_on_aligned_events": 1.0,
+          "note_exact": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "string_accuracy": 1.0,
+          "fret_accuracy": 1.0,
+          "pitch_accuracy": 1.0,
+          "technique": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "technique_by_class": {
+            "let": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "expected": 53,
+              "predicted": 53
+            }
+          },
+          "counts": {
+            "expected_events": 53,
+            "predicted_events": 53,
+            "expected_notes": 53,
+            "predicted_notes": 53
+          },
+          "parse_errors": {},
+          "constraint_errors": {}
+        },
+        "gp5": {
+          "title": "晨光小品 153",
+          "artist": "晴空音乐教室",
+          "measures": 4,
+          "tempo": 120
+        },
+        "metadata_correct": true
+      }
+    ]
+  },
+  "default_runtime_acceptance": {
+    "command": "CUDA_VISIBLE_DEVICES=4 OMP_NUM_THREADS=1 .venv/bin/python -m pipeline.run jixian.pdf --output output/joint-v3-default-final-jixian --max-new-tokens 2048 --maximum-attempts 3",
+    "default_models": {
+      "measure_ocr": "weights/glm_ocr_measure_sequence_v3_lora",
+      "document_info": "weights/glm_ocr_document_info_v3_headers_lora",
+      "layout": "weights/pp_doclayout_v3_score_joint_v3"
+    },
+    "weight_sha256": {
+      "weights/glm_ocr_measure_sequence_v3_lora/adapter_model.safetensors": "1bc79a3e487632f391cc4a89c97089e7636ce7a504aded1df115e2a90b5dbf68",
+      "weights/glm_ocr_document_info_v3_headers_lora/adapter_model.safetensors": "5ef5b3f792acaa65095c64e1bad891b02f47b5476660112f9cc5bf106a5bbdb7",
+      "weights/pp_doclayout_v3_score_joint_v3/inference.pdiparams": "37c588ef61adcb9d714b3a62eda2fea12f3a4f8ad0f4e80348b593da2a4ea510"
+    },
+    "input_sha256": "25ba9a16830fa8beec1224f1e4ced94d09499ff757e55c4c9888976569106944",
+    "metrics": {
+      "samples": 17,
+      "syntax_valid_rate": 1.0,
+      "exact_match_rate": 1.0,
+      "core_exact_rate": 1.0,
+      "rhythm_exact_rate": 1.0,
+      "note_fields_exact_rate": 1.0,
+      "technique_exact_rate": 1.0,
+      "constraint_valid_rate": 1.0,
+      "metadata_accuracy": 1.0,
+      "metadata_exact_rate": 1.0,
+      "metadata_field": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      },
+      "event_onset": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      },
+      "duration_accuracy_on_aligned_events": 1.0,
+      "status_accuracy_on_aligned_events": 1.0,
+      "note_exact": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      },
+      "string_accuracy": 1.0,
+      "fret_accuracy": 1.0,
+      "pitch_accuracy": 1.0,
+      "technique": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      },
+      "technique_by_class": {
+        "hammer": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "expected": 80,
+          "predicted": 80
+        },
+        "pick_down": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "expected": 40,
+          "predicted": 40
+        },
+        "pick_up": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "expected": 8,
+          "predicted": 8
+        },
+        "tie": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "expected": 1,
+          "predicted": 1
+        }
+      },
+      "counts": {
+        "expected_events": 129,
+        "predicted_events": 129,
+        "expected_notes": 129,
+        "predicted_notes": 129
+      },
+      "parse_errors": {},
+      "constraint_errors": {}
+    },
+    "title": "击弦练习曲",
+    "artist": "成田工作室",
+    "tempo": 130,
+    "needs_review": 0,
+    "first_attempts": 17,
+    "deterministic_repairs": 0,
+    "gp5": "/mnt/data-4/flurry/guitarOCR-external/output/joint-v3-default-final-jixian/04_gp5_export/PRE.gp5"
+  },
+  "final_integration_checks": {
+    "unit_tests": 81,
+    "browser_tests": 3,
+    "ruff": "passed",
+    "diff_check": "passed",
+    "environment_cuda_and_all_weight_hashes": "passed",
+    "report_links": "passed",
+    "default_pipeline_jixian": "17/17 core and full; metadata and GP5 parse correct; first attempts with no repairs"
+  }
+}

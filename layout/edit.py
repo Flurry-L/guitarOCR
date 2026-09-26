@@ -7,6 +7,7 @@ from pathlib import Path
 from PIL import Image
 from layout.crops import _crop
 from shared.artifacts import write_result
+from shared.layout_labels import MODES, mode_vote
 
 
 def save_layout(pages: list[dict], boxes: list[dict], output: Path, mode: str) -> Path:
@@ -17,7 +18,7 @@ def save_layout(pages: list[dict], boxes: list[dict], output: Path, mode: str) -
         }
         for page in pages
     ]
-    if mode not in {"tab", "notation", "both"}:
+    if mode not in {"auto", *MODES}:
         raise ValueError("请选择 TAB、五线谱或混合谱")
     if len(boxes) > 5000:
         raise ValueError("框数量过多")
@@ -42,7 +43,13 @@ def save_layout(pages: list[dict], boxes: list[dict], output: Path, mode: str) -
                 or y + h > image.height + 0.01
             ):
                 raise ValueError("框必须位于页面内，宽高至少为 2 像素")
-        validated.append({"page": page, "kind": box["kind"], "bbox": bbox})
+        item = {"page": page, "kind": box["kind"], "bbox": bbox}
+        if box["kind"] == "measure":
+            notation = mode if mode != "auto" else (box.get("mode") or pages[page - 1].get("notation_mode"))
+            if notation not in MODES:
+                raise ValueError("小节谱面类型尚未确定，请先自动检测或手动选择谱面类型")
+            item["mode"] = notation
+        validated.append(item)
     if not any(b["kind"] == "measure" for b in validated):
         raise ValueError("请至少添加一个小节框")
     if sum(b["kind"] == "header" for b in validated) > 1:
@@ -61,6 +68,8 @@ def save_layout(pages: list[dict], boxes: list[dict], output: Path, mode: str) -
                 records.append(
                     {
                         "measure_number": len(records) + 1,
+                        "mode": box["mode"],
+                        "mode_source": "edited" if mode == "auto" else "manual",
                         "page": box["page"],
                         "system_index": 0,
                         "system_measure_index": len(records),
@@ -78,10 +87,15 @@ def save_layout(pages: list[dict], boxes: list[dict], output: Path, mode: str) -
                     "RGB"
                 ).save(path)
                 regions.append({**box, "image": str(path.resolve())})
+    for index, page in enumerate(pages, 1):
+        vote = mode_vote([row for row in records if row["page"] == index])
+        if vote["mode"]:
+            page["notation_mode"] = vote["mode"]
+            page["notation_mode_source"] = "edited" if mode == "auto" else "manual"
     return write_result(
         output,
         "layout",
-        mode=mode,
+        mode=mode if mode != "auto" else mode_vote(records)["mode"],
         inputs=[str(p["image"]) for p in pages],
         pages=pages,
         records=records,

@@ -236,7 +236,7 @@ function render() {
   ui.boxes = structuredClone(ui.state.boxes || []);
   ui.pageIndex = Math.min(ui.pageIndex, ui.state.pages.length - 1);
   ui.selected = -1;
-  $("mode").value = ui.state.mode;
+  $("mode").value = ui.state.mode_setting || ui.state.mode;
   $("projectId").textContent =
     `项目 ${ui.sid.slice(0, 8)} · ${ui.state.pages.length} 页`;
   $("deleteProject").hidden = false;
@@ -316,10 +316,10 @@ function renderExport() {
   }
   $("downloadProject").hidden = false;
   $("downloadProject").href = endpoint("/archive");
-  $("downloadM2").hidden = !ui.state.m2_url;
-  if (ui.state.m2_url) {
-    $("downloadM2").href = ui.state.m2_url;
-    $("downloadM2").download = "prediction.m2";
+  $("downloadScoreText").hidden = !ui.state.score_text_url;
+  if (ui.state.score_text_url) {
+    $("downloadScoreText").href = ui.state.score_text_url;
+    $("downloadScoreText").download = "score.txt";
   }
   $("downloadGP5").hidden = !ui.state.gp5_url;
   $("export").textContent = ui.state.gp5_url ? "重新生成 GP5" : "生成 GP5";

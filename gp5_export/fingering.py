@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from typing import Any
+from shared.techniques import ornament_pitches
 
 
 def _choose_position(pitch: int, tuning: list[int], used_strings: set[int]) -> tuple[int, int]:
@@ -41,7 +42,7 @@ def _assign_positions(
         values = []
         for string, open_pitch in enumerate(tuning, start=1):
             fret = pitch - open_pitch
-            if not 0 <= fret <= 36:
+            if not 0 <= fret <= 36 or any(not 0 <= p - open_pitch <= 36 for p in ornament_pitches(note)):
                 continue
             previous_pitch, previous_fret = previous.get(string, (-10_000, -1))
             tie_match = tie and previous_pitch == pitch
@@ -63,8 +64,7 @@ def _assign_positions(
                     fret = previous_fret
             values.append((float(cost), string, fret))
         if not values:
-            string, fret = _choose_position(pitch, tuning, set())
-            values = [(10_000.0, string, fret)]
+            raise ValueError(f"Pitch {pitch} or its ornament cannot be played with the current tuning")
         candidates.append(sorted(values))
 
     order = sorted(range(len(notes)), key=lambda index: (len(candidates[index]), index))
@@ -90,16 +90,7 @@ def _assign_positions(
     if best is not None:
         return best[1]
 
-    # Malformed source chords can exceed the string count.  Preserve every
-    # note deterministically even though GP5 cannot make such a chord fully
-    # playable, instead of silently dropping a note.
-    used: set[int] = set()
-    fallback = []
-    for values in candidates:
-        value = next((item for item in values if item[1] not in used), values[0])
-        used.add(value[1])
-        fallback.append((value[1], value[2]))
-    return fallback
+    raise ValueError("Chord cannot be assigned to distinct strings; correct pitches or tuning")
 
 
 def _tie_reservation_note_ids(
@@ -210,7 +201,7 @@ def _plan_notation_voice_positions(
                 values = []
                 for string, open_pitch in enumerate(tuning, start=1):
                     fret = pitch - open_pitch
-                    if not 0 <= fret <= 36:
+                    if not 0 <= fret <= 36 or any(not 0 <= p - open_pitch <= 36 for p in ornament_pitches(note)):
                         continue
                     if tie and state[string - 1] != pitch:
                         continue

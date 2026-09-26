@@ -7,10 +7,21 @@ from unittest.mock import patch
 from PIL import Image
 
 from layout.crops import prepare_document_crops
+from pipeline.config import parse_args
 
 
 class ImageLayoutPipelineTest(unittest.TestCase):
     def test_pdf_page_uses_image_layout_when_requested(self):
+        for notation_mode in ("tab", "notation", "both"):
+            with self.subTest(mode=notation_mode):
+                args = parse_args([
+                    "score.pdf", "--output", "output/test",
+                    "--mode", notation_mode, "--layout-source", "image",
+                ])
+                self.assertEqual(args.mode, notation_mode)
+                self.check_image_layout(notation_mode)
+
+    def check_image_layout(self, notation_mode):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             page = root / "page.png"
@@ -51,11 +62,11 @@ class ImageLayoutPipelineTest(unittest.TestCase):
                 ),
             ):
                 mode, records = prepare_document_crops(
-                    [pdf], root / "result", "tab", False,
+                    [pdf], root / "result", notation_mode, False,
                     root / "layout_model", root / "python", "image",
                 )
 
-            self.assertEqual(mode, "tab")
+            self.assertEqual(mode, notation_mode)
             self.assertEqual(len(records), 1)
             self.assertEqual(records[0]["geometry_source"], "pp_doclayout_v3")
             self.assertTrue(Path(records[0]["image"]).is_file())

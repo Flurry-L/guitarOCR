@@ -4,6 +4,7 @@ import re
 from typing import Any
 
 from shared.m2 import parse_measure_target
+from shared.techniques import ornament_position
 
 
 _NOTE_EFFECTS = {
@@ -46,6 +47,23 @@ def _valid_note_effect(effect: str) -> bool:
         return bool(effect.partition(":")[2])
     if effect.startswith("bend:"):
         return re.fullmatch(r"bend:[^:]+:-?\d+", effect) is not None
+    if effect.startswith(("grace:", "trill:", "trem:")):
+        parts = effect.split(":")
+        try:
+            if parts[0] == "trem":
+                return len(parts) == 2 and int(parts[1]) in {8, 16, 32}
+            fret, pitch = ornament_position(parts[1])
+            if (fret is not None and not 0 <= fret <= 36) or (pitch is not None and not 0 <= pitch <= 127):
+                return False
+            if parts[0] == "trill":
+                return parts[1] != "x" and (len(parts) == 2 or len(parts) == 3 and int(parts[2]) in {16, 32, 64})
+            if len(parts) == 6:
+                if int(parts[2]) not in {8, 16, 32, 64, 128}:
+                    return False
+                del parts[2]
+            return len(parts) == 5 and parts[2] in {"none", "slide", "bend", "hammer"} and parts[3] in {"0", "1", "-"} and parts[4] in {"0", "1"} and (parts[1] != "x" or parts[4] == "1")
+        except (ValueError, IndexError):
+            return False
     return False
 
 
@@ -104,10 +122,14 @@ def validate_measure_target(
     maximum_string = string_count or (len(tuning) if tuning else 8)
     for voice in measure.get("voices", []):
         voice_id = int(voice["voice"])
+        if voice_id not in {0, 1}:
+            errors.append(f"unsupported_gp5_voice:V{voice_id}")
         if voice_id in voice_ids:
             errors.append(f"duplicate_voice:V{voice_id}")
         voice_ids.add(voice_id)
         events = voice.get("events") or []
+        if not events:
+            errors.append(f"empty_voice:V{voice_id}")
         starts = [int(event["start"]) for event in events]
         if any(start < 0 for start in starts):
             errors.append(f"negative_event_start:V{voice_id}")
@@ -146,6 +168,7 @@ def validate_measure_target(
                         errors.append(f"invalid_fret:{location}")
                     if (
                         mode == "both"
+                        and has_pitch
                         and tuning
                         and fret != "x"
                         and 1 <= string <= len(tuning)

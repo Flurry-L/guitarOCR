@@ -7,7 +7,8 @@ import tempfile
 from pathlib import Path
 from typing import Any, Iterable
 
-from shared.m2 import parse_measure_target
+from shared.m2 import parse_measure_target, full_measure_rest_target
+from shared.score_text import model_score_text, display_error
 from shared.tuning import DEFAULT_TUNING
 from gp5_export.fingering import _assign_positions, _tie_reservation_note_ids, _plan_notation_voice_positions
 from gp5_export.effects import _duration, _enum_member, _note, _apply_beat_effects
@@ -43,9 +44,16 @@ def targets_to_song(
     if mode not in {"tab", "notation", "both"}:
         raise ValueError(f"Unsupported display mode: {mode}")
     tuning_values = [int(value) for value in tuning]
-    measures = [parse_measure_target(target) for target in targets if target.strip()]
+    try:
+        measures = [parse_measure_target(model_score_text(target)) for target in targets if target.strip()]
+    except ValueError as error:
+        raise ValueError(display_error(str(error))) from None
     if not measures:
-        raise ValueError("At least one M2 measure target is required")
+        raise ValueError("At least one measure is required")
+    if any(int(v["voice"]) not in {0, 1} for m in measures for v in m["voices"]):
+        raise ValueError("GP5 supports only V0 and V1; refusing to discard additional voices")
+    if any(len({v["voice"] for v in m["voices"]}) != len(m["voices"]) for m in measures):
+        raise ValueError("Duplicate voices would lose notes in GP5")
 
     song = gm.Song(title=title, artist=artist)
     song.measureHeaders = []
@@ -124,7 +132,22 @@ def targets_to_song(
             voice = gm.Voice(measure, beats=[])
             voice_data = voices_by_index.get(voice_index)
             if voice_data is not None:
+                cursor = 0
                 for event in voice_data["events"]:
+                    event_start = int(event.get("start", 0))
+                    if event_start < cursor:
+                        raise ValueError(f"Overlapping events in measure {index} V{voice_index}; GP5 cannot preserve them")
+                    if event_start > cursor:
+                        # GP5 serializes durations, not Beat.start. Materialize
+                        # an explicit M2 gap so saving cannot shift later notes.
+                        rests = parse_measure_target(full_measure_rest_target((event_start - cursor, 3840)))["voices"][0]["events"]
+                        for rest in rests:
+                            duration = _duration(rest["duration"], gm)
+                            voice.beats.append(gm.Beat(voice=voice, start=start + cursor,
+                                                      duration=duration, status=gm.BeatStatus.rest))
+                            cursor += duration.time
+                        if cursor != event_start:
+                            raise ValueError(f"Unrepresentable event gap in measure {index} V{voice_index}")
                     for effect in event.get("effects") or []:
                         if str(effect).startswith("dyn:"):
                             current_velocity[voice_index] = int(
@@ -188,6 +211,7 @@ def targets_to_song(
                         beat, list(event.get("effects") or []), len(tuning_values), gm
                     )
                     voice.beats.append(beat)
+                    cursor = event_start + beat.duration.time
             measure.voices.append(voice)
         track.measures.append(measure)
         start += numerator * gm.Duration.quarterTime * 4 // denominator
@@ -260,7 +284,7 @@ def write_targets_gp5(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Convert one-M2-measure-per-line text to GP5.")
+    parser = argparse.ArgumentParser(description="Convert score text (one measure per line) to GP5.")
     parser.add_argument("input", type=Path)
     parser.add_argument("output", type=Path)
     parser.add_argument("--mode", choices=("tab", "notation", "both"), default="both")
