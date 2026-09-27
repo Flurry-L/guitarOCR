@@ -1,0 +1,76 @@
+{
+  "class_extension": {
+    "source_checkpoint_sha256": "492991597116bb790e7dd4e10ff93a3029ce3b823cc60175c8b15bd686312092",
+    "expanded_checkpoint_sha256": "bbc4b8ea2c5b33981b331be4e7777fab08c4b2eab9092ad27baa613c92b98036",
+    "old_classes": 4,
+    "classes": 6,
+    "seed": 20260927,
+    "inherited_tensors_verified_equal": true
+  },
+  "architecture": "PP-DocLayoutV3",
+  "hardware": "NVIDIA H100 80GB",
+  "selection_metric": "validation raw six-class bbox AP",
+  "training_phases": [
+    {
+      "gpus": 8,
+      "epochs": 6,
+      "batch_size_per_gpu": 4,
+      "learning_rate": 2e-05,
+      "warmup_steps": 100,
+      "num_classes": 6,
+      "dataset_dir": "database/pitch_training/datasets/layout_scan",
+      "config_sha256": "59658b4485c30e9f82d6ed8a866604b41d5789294019b341744881a4b2d6a316",
+      "initial_checkpoint_sha256": "bbc4b8ea2c5b33981b331be4e7777fab08c4b2eab9092ad27baa613c92b98036",
+      "selected_epoch": 6,
+      "best_validation_ap": 0.8219393397199193,
+      "checkpoint_sha256": "b187dae4543a4f7025b82a897af04ef594191e6b27eebbc0b1ee9c31bfa49c39"
+    },
+    {
+      "gpus": 4,
+      "epochs": 3,
+      "batch_size_per_gpu": 4,
+      "learning_rate": 1e-05,
+      "warmup_steps": 100,
+      "num_classes": 6,
+      "dataset_dir": "database/pitch_training/datasets/layout_complete",
+      "config_sha256": "8c59af9bcd45c06e90db8d40eba949128baf24f8107f63ca256cd343a024d5d5",
+      "initial_checkpoint_sha256": "b187dae4543a4f7025b82a897af04ef594191e6b27eebbc0b1ee9c31bfa49c39",
+      "selected_epoch": 3,
+      "best_validation_ap": 0.8639031570711035,
+      "checkpoint_sha256": "76ef95deb434130bae617a82185c5109c81a70ec40f0d6b014d22aefe5d64a40"
+    },
+    {
+      "gpus": 8,
+      "epochs": 6,
+      "batch_size_per_gpu": 3,
+      "learning_rate": 1.5e-05,
+      "warmup_steps": 50,
+      "num_classes": 6,
+      "dataset_dir": "database/pitch_training/datasets/layout_complete",
+      "config_sha256": "3a721b8bc52ed4eb5b2afdcc649296255acbb56f5d2226c5b0f60a6a48cea9ac",
+      "initial_checkpoint_sha256": "76ef95deb434130bae617a82185c5109c81a70ec40f0d6b014d22aefe5d64a40",
+      "selected_epoch": 5,
+      "best_validation_ap": 0.893329728469699,
+      "checkpoint_sha256": "b21f33687658b444de57328e7f88e9d4ccb19281f9a300b4d6df173c611c077b"
+    }
+  ],
+  "final_dataset": {
+    "train": {
+      "pages": 7023,
+      "boxes": 206139
+    },
+    "val": {
+      "pages": 675,
+      "boxes": 20296
+    },
+    "test": {
+      "pages": 668,
+      "boxes": 20225
+    }
+  },
+  "annotation_sha256": {
+    "train": "3dbfaac9b94b87a1cebb7244dec06ad7450c7a61e354a49cbb4a527009a4422c",
+    "val": "cb2af9aa85342c5fdf8a7bff5b68d0f9a4d7162e8d055fc5166179c3588f11f0",
+    "test": "2d64828603f5e50efcf3f70a1c8e7b0d4898c2d6fe5707c041883fb4d5441edd"
+  }
+}

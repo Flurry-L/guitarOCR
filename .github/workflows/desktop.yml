@@ -1,0 +1,58 @@
+name: Build desktop installers
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            platform: linux-x64
+            bundles: deb,appimage
+          - runner: windows-latest
+            platform: windows-x64
+            bundles: nsis
+          - runner: macos-15
+            platform: macos-arm64
+            bundles: dmg
+          - runner: macos-15-intel
+            platform: macos-x64
+            bundles: dmg
+    runs-on: ${{ matrix.runner }}
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+      - run: npm ci
+        working-directory: desktop
+      - run: cargo fetch --locked --manifest-path desktop/src-tauri/Cargo.toml
+      - run: python scripts/prepare_desktop.py
+      - run: node --test tests/score-editor.test.mjs
+      - run: cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml
+      - run: npm run build -- --bundles ${{ matrix.bundles }} -- --locked
+        working-directory: desktop
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GuitarOCR-${{ matrix.platform }}
+          if-no-files-found: error
+          path: |
+            desktop/src-tauri/target/release/bundle/**/*.exe
+            desktop/src-tauri/target/release/bundle/**/*.dmg
+            desktop/src-tauri/target/release/bundle/**/*.deb
+            desktop/src-tauri/target/release/bundle/**/*.AppImage

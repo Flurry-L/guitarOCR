@@ -1,0 +1,604 @@
+{
+  "base_model": "zai-org/GLM-OCR",
+  "base_revision": "ca5d8b3e287e52589e37c28385d9655ee4372f9d",
+  "hardware": "8 NVIDIA H100 80GB",
+  "source_registry_sha256": "a04c1656dd83de5558a393cdd3b6154b4b00f17acd8d76d952eb6fd9e5d81c5b",
+  "training_phases": [
+    {
+      "hyperparameters": {
+        "model_name_or_path": "tools/models/GLM-OCR",
+        "trust_remote_code": true,
+        "flash_attn": "fa2",
+        "stage": "sft",
+        "do_train": true,
+        "finetuning_type": "lora",
+        "lora_rank": 8,
+        "lora_alpha": 16,
+        "lora_dropout": 0.05,
+        "lora_target": "all",
+        "freeze_vision_tower": false,
+        "freeze_multi_modal_projector": true,
+        "dataset_dir": "database/instrument_training/datasets/measure_mixed/llamafactory",
+        "dataset": "measure_train,measure_train_hardcases,measure_train_scan",
+        "mix_strategy": "concat",
+        "eval_dataset": "measure_validation",
+        "template": "glm_ocr",
+        "cutoff_len": 3072,
+        "preprocessing_num_workers": 16,
+        "overwrite_cache": true,
+        "tokenized_path": "database/instrument_training/datasets/measure_mixed/tokenized",
+        "output_dir": "output/instrument-training/measure-model",
+        "logging_steps": 20,
+        "save_steps": 250,
+        "eval_steps": 250,
+        "eval_strategy": "steps",
+        "save_total_limit": 4,
+        "plot_loss": true,
+        "overwrite_output_dir": false,
+        "report_to": "none",
+        "per_device_train_batch_size": 16,
+        "per_device_eval_batch_size": 4,
+        "gradient_accumulation_steps": 2,
+        "learning_rate": 2e-05,
+        "num_train_epochs": 2,
+        "train_sampling_strategy": "group_by_length",
+        "early_stopping_steps": 4,
+        "lr_scheduler_type": "cosine",
+        "warmup_ratio": 0.03,
+        "bf16": true,
+        "gradient_checkpointing": true,
+        "adapter_name_or_path": "weights/measure_ocr",
+        "load_best_model_at_end": true,
+        "metric_for_best_model": "eval_loss",
+        "greater_is_better": false,
+        "dataloader_num_workers": 4,
+        "ddp_timeout": 18000,
+        "seed": 20260927,
+        "data_seed": 20260927
+      },
+      "config_sha256": "dfa338b369909f6fa05ed15e1cb5d1ba312e02b2fd7a7d0f44ff303ae92afdc9",
+      "data": {
+        "measure_train": {
+          "path": "database/instrument_training/datasets/measure_mixed/llamafactory/measure_train.json",
+          "sha256": "e4d21fee5cb98989f748aa71887d71264cfdb05e6e377a2a4645263b940b0cef"
+        },
+        "measure_train_hardcases": {
+          "path": "database/instrument_training/datasets/measure_mixed/llamafactory/measure_train_hardcases.json",
+          "sha256": "288972db62dde71a3ccae9c6307222d81e08925cd7ebbe175c20e5ee0bbf71e8"
+        },
+        "measure_train_scan": {
+          "path": "database/instrument_training/datasets/measure_mixed/llamafactory/measure_train_scan.json",
+          "sha256": "52a30e6a95d926fb84d10d547e70177b53855af5fb9a59420df2e66b698742df"
+        },
+        "measure_validation": {
+          "path": "database/instrument_training/datasets/measure_mixed/llamafactory/measure_validation.json",
+          "sha256": "fd0c1b7edb473cf4b7393d4b41f2191f94bfc20b04b7878cb79d0fb09f601c72"
+        }
+      },
+      "initial_adapter_sha256": "1bc79a3e487632f391cc4a89c97089e7636ce7a504aded1df115e2a90b5dbf68",
+      "selected_step": 3250,
+      "trained_steps": 3250,
+      "trained_epochs": 1.3200649878147848,
+      "best_validation_loss": 0.011631017550826073,
+      "selection_metric": "last saved checkpoint before native-audited continuation",
+      "notes": "Initial instrument training preceded the native note/onset audit. Continued on the corrected subset; initial labels are not treated as native-verified."
+    },
+    {
+      "hyperparameters": {
+        "model_name_or_path": "tools/models/GLM-OCR",
+        "trust_remote_code": true,
+        "flash_attn": "fa2",
+        "stage": "sft",
+        "do_train": true,
+        "finetuning_type": "lora",
+        "lora_rank": 8,
+        "lora_alpha": 16,
+        "lora_dropout": 0.05,
+        "lora_target": "all",
+        "freeze_vision_tower": false,
+        "freeze_multi_modal_projector": true,
+        "dataset_dir": "database/instrument_training/datasets/measure_verified/llamafactory",
+        "dataset": "measure_train,measure_train_hardcases,measure_train_scan",
+        "mix_strategy": "concat",
+        "eval_dataset": "measure_validation",
+        "template": "glm_ocr",
+        "cutoff_len": 3072,
+        "preprocessing_num_workers": 16,
+        "overwrite_cache": true,
+        "tokenized_path": "database/instrument_training/datasets/measure_verified/tokenized",
+        "output_dir": "output/instrument-training/measure-refined",
+        "logging_steps": 20,
+        "save_steps": 200,
+        "eval_steps": 200,
+        "eval_strategy": "steps",
+        "save_total_limit": 4,
+        "plot_loss": true,
+        "overwrite_output_dir": false,
+        "report_to": "none",
+        "per_device_train_batch_size": 16,
+        "per_device_eval_batch_size": 4,
+        "gradient_accumulation_steps": 2,
+        "learning_rate": 1e-05,
+        "num_train_epochs": 1,
+        "train_sampling_strategy": "group_by_length",
+        "early_stopping_steps": 4,
+        "lr_scheduler_type": "cosine",
+        "warmup_ratio": 0.03,
+        "bf16": true,
+        "gradient_checkpointing": true,
+        "adapter_name_or_path": "output/instrument-training/measure-model/checkpoint-3250",
+        "load_best_model_at_end": true,
+        "metric_for_best_model": "eval_loss",
+        "greater_is_better": false,
+        "dataloader_num_workers": 4,
+        "ddp_timeout": 18000,
+        "seed": 20260927,
+        "data_seed": 20260927
+      },
+      "config_sha256": "00354bdb38e934f0c33db0522c5a606240666dd30cc7b645d774ddc3552a90aa",
+      "data": {
+        "measure_train": {
+          "path": "database/instrument_training/datasets/measure_verified/llamafactory/measure_train.json",
+          "sha256": "93ebae9a734b820ebf7b2213a281e373863107bf9425cff7ef812f2b8f71ae1b"
+        },
+        "measure_train_hardcases": {
+          "path": "database/instrument_training/datasets/measure_verified/llamafactory/measure_train_hardcases.json",
+          "sha256": "e62a5062809756f08d6b4cbc28d426558c314a682099b865c2a5382e760fbb62"
+        },
+        "measure_train_scan": {
+          "path": "database/instrument_training/datasets/measure_verified/llamafactory/measure_train_scan.json",
+          "sha256": "139ffd37b6fb24e29adf6903ac2c85b1912887bcb807c54995ee482eb80cd1a6"
+        },
+        "measure_validation": {
+          "path": "database/instrument_training/datasets/measure_verified/llamafactory/measure_validation.json",
+          "sha256": "065bae2228f993cbcba35e5bffcb67d532b46c704045670592871a7696728401"
+        }
+      },
+      "initial_adapter_sha256": "576a0a0dc8ccc26784414f91c1e5aa24e2a97bde527495bc1991a81efbefe09d",
+      "selected_step": 1400,
+      "trained_steps": 2127,
+      "trained_epochs": 1.0,
+      "best_validation_loss": 0.009819445200264454,
+      "selection_metric": "minimum validation loss"
+    },
+    {
+      "hyperparameters": {
+        "model_name_or_path": "tools/models/GLM-OCR",
+        "trust_remote_code": true,
+        "flash_attn": "fa2",
+        "stage": "sft",
+        "do_train": true,
+        "finetuning_type": "lora",
+        "lora_rank": 8,
+        "lora_alpha": 16,
+        "lora_dropout": 0.05,
+        "lora_target": "all",
+        "freeze_vision_tower": false,
+        "freeze_multi_modal_projector": true,
+        "dataset_dir": "database/pitch_training/datasets/measure_mixed/llamafactory",
+        "dataset": "measure_train,measure_train_hardcases,measure_train_scan",
+        "mix_strategy": "concat",
+        "eval_dataset": "measure_validation",
+        "template": "glm_ocr",
+        "cutoff_len": 3072,
+        "preprocessing_num_workers": 16,
+        "overwrite_cache": true,
+        "tokenized_path": "database/pitch_training/datasets/measure_mixed/tokenized",
+        "output_dir": "output/instrument-training/measure-pitch",
+        "logging_steps": 20,
+        "save_steps": 200,
+        "eval_steps": 200,
+        "eval_strategy": "steps",
+        "save_total_limit": 4,
+        "plot_loss": true,
+        "overwrite_output_dir": false,
+        "report_to": "none",
+        "per_device_train_batch_size": 16,
+        "per_device_eval_batch_size": 4,
+        "gradient_accumulation_steps": 2,
+        "learning_rate": 1e-05,
+        "num_train_epochs": 1.5,
+        "train_sampling_strategy": "group_by_length",
+        "early_stopping_steps": 4,
+        "lr_scheduler_type": "cosine",
+        "warmup_ratio": 0.03,
+        "bf16": true,
+        "gradient_checkpointing": true,
+        "adapter_name_or_path": "output/instrument-training/measure-refined",
+        "load_best_model_at_end": true,
+        "metric_for_best_model": "eval_loss",
+        "greater_is_better": false,
+        "dataloader_num_workers": 4,
+        "ddp_timeout": 18000,
+        "seed": 20260927,
+        "data_seed": 20260927
+      },
+      "config_sha256": "6611fa8390b8c63a28d87ecc7a873ebc2ee8968ca76dcd030d2842693014d155",
+      "data": {
+        "measure_train": {
+          "path": "database/pitch_training/datasets/measure_mixed/llamafactory/measure_train.json",
+          "sha256": "624561475e5489c1317ea705920cbbc960c45f57119ffbda2e1edacdc65c94de"
+        },
+        "measure_train_hardcases": {
+          "path": "database/pitch_training/datasets/measure_mixed/llamafactory/measure_train_hardcases.json",
+          "sha256": "e8e4afc0bb214445b865aa8251b68edbc56ad8a7c4e3c1a4fece5172efed472e"
+        },
+        "measure_train_scan": {
+          "path": "database/pitch_training/datasets/measure_mixed/llamafactory/measure_train_scan.json",
+          "sha256": "9140cf9131b46a16cc4d63110208e20e5a0b5ecc7e32397c5c54151873aab997"
+        },
+        "measure_validation": {
+          "path": "database/pitch_training/datasets/measure_mixed/llamafactory/measure_validation.json",
+          "sha256": "3f36ebca8f717bbb1e8f52d68cd393389f31a0ef58cb863eb122370f111e580f"
+        }
+      },
+      "initial_adapter_sha256": "b58f56120e84643e26c58c3162af7dec86392f8e48c449f6008c615a6e77e3b5",
+      "selected_step": 800,
+      "trained_steps": 1600,
+      "trained_epochs": 1.1299894030377957,
+      "best_validation_loss": 0.012129480950534344,
+      "selection_metric": "minimum validation loss",
+      "continuation_step": 1600,
+      "continuation_adapter_sha256": "585f3a79a33dc25dc09a678ab964fc03563a2fa4452c87fb3abd45d974981a04"
+    },
+    {
+      "purpose": "Initialize written-note output before aligning previous context to the written key and pitches",
+      "continued_from_step": 200,
+      "initial_adapter_sha256": "585f3a79a33dc25dc09a678ab964fc03563a2fa4452c87fb3abd45d974981a04",
+      "continuation_adapter_sha256": "cd842d5fd5a52e46a1721bd56887a5d82da600b1da412e8d7ec8ce0bd6a1b1df",
+      "best_validation_loss": 0.022641416639089584,
+      "training_data_sha256": "f76cd715520386347b86c5afada299e7b01c6696cb8d32d33860d8e4c680a1df",
+      "learning_rate": 2e-05,
+      "global_batch_size": 256
+    },
+    {
+      "hyperparameters": {
+        "model_name_or_path": "tools/models/GLM-OCR",
+        "trust_remote_code": true,
+        "flash_attn": "fa2",
+        "stage": "sft",
+        "do_train": true,
+        "finetuning_type": "lora",
+        "lora_rank": 8,
+        "lora_alpha": 16,
+        "lora_dropout": 0.05,
+        "lora_target": "all",
+        "freeze_vision_tower": false,
+        "freeze_multi_modal_projector": true,
+        "dataset_dir": "database/pitch_training/datasets/measure_written",
+        "dataset": "measure_train,measure_train_hardcases,measure_train_scan",
+        "mix_strategy": "concat",
+        "eval_dataset": "measure_validation",
+        "template": "glm_ocr",
+        "cutoff_len": 3072,
+        "preprocessing_num_workers": 16,
+        "overwrite_cache": true,
+        "tokenized_path": "database/pitch_training/datasets/measure_written/tokenized",
+        "output_dir": "output/instrument-training/measure-written",
+        "logging_steps": 20,
+        "save_steps": 200,
+        "eval_steps": 200,
+        "eval_strategy": "steps",
+        "save_total_limit": 4,
+        "plot_loss": true,
+        "overwrite_output_dir": false,
+        "report_to": "none",
+        "per_device_train_batch_size": 16,
+        "per_device_eval_batch_size": 4,
+        "gradient_accumulation_steps": 2,
+        "learning_rate": 2e-05,
+        "num_train_epochs": 2,
+        "train_sampling_strategy": "group_by_length",
+        "early_stopping_steps": 4,
+        "lr_scheduler_type": "cosine",
+        "warmup_ratio": 0.03,
+        "bf16": true,
+        "gradient_checkpointing": true,
+        "adapter_name_or_path": "output/instrument-training/diagnostics/written-before-context/checkpoint-200",
+        "load_best_model_at_end": true,
+        "metric_for_best_model": "eval_loss",
+        "greater_is_better": false,
+        "dataloader_num_workers": 4,
+        "ddp_timeout": 18000,
+        "seed": 20260927,
+        "data_seed": 20260927
+      },
+      "config_sha256": "7e85d6196a4f0a39c77f518226b3f0fb064bb2cd42c2120f0389893bdeaca68f",
+      "data": {
+        "measure_train": {
+          "path": "database/pitch_training/datasets/measure_written/measure_train.json",
+          "sha256": "8d30e30c975df92cd55b22c68d9760641e92ac2d96a9d1be002dbf457d577b1e"
+        },
+        "measure_train_hardcases": {
+          "path": "database/pitch_training/datasets/measure_written/measure_train_hardcases.json",
+          "sha256": "8ffcebc1fc81d091cfd17990a0482e18ad2786fe502f24d85a2f6abd82c5cffc"
+        },
+        "measure_train_scan": {
+          "path": "database/pitch_training/datasets/measure_written/measure_train_scan.json",
+          "sha256": "e538b03aa9d9869c3eb7deab70c3b58a7f9917054fa62356dd00808f9cf339c5"
+        },
+        "measure_validation": {
+          "path": "database/pitch_training/datasets/measure_written/measure_validation.json",
+          "sha256": "c5ede924eb605319579ad3b691b53d17878d0c7f89ff4820d63301dfd4f335d8"
+        }
+      },
+      "initial_adapter_sha256": "cd842d5fd5a52e46a1721bd56887a5d82da600b1da412e8d7ec8ce0bd6a1b1df",
+      "selected_step": 1776,
+      "trained_steps": 1776,
+      "trained_epochs": 2.0,
+      "best_validation_loss": 0.015482189133763313,
+      "selection_metric": "minimum validation loss"
+    }
+  ],
+  "final_dataset": {
+    "train": {
+      "samples": 187241,
+      "groups": {
+        "bass/notation": 19082,
+        "bass/both": 19061,
+        "bass/tab": 19100,
+        "pitched/notation": 15725,
+        "guitar/notation": 32541,
+        "guitar/both": 32716,
+        "guitar/tab": 32706,
+        "drums/notation": 16310
+      },
+      "excluded": [],
+      "manifest_sha256": "ab04ce6342f171fe1474ff2302ac9ed50b969cfba5446d3b3dfe649b66926e2d"
+    },
+    "validation": {
+      "samples": 2659,
+      "groups": {
+        "bass/both": 353,
+        "bass/notation": 351,
+        "bass/tab": 300,
+        "drums/notation": 105,
+        "guitar/both": 343,
+        "guitar/notation": 339,
+        "guitar/tab": 300,
+        "pitched/notation": 568
+      },
+      "excluded": [],
+      "manifest_sha256": "d63764d8f9b1053321d6432e039114cbf4bfc59a2cf7b454fb338d6e29548f0a"
+    },
+    "test": {
+      "samples": 2300,
+      "groups": {
+        "bass/both": 400,
+        "bass/notation": 400,
+        "bass/tab": 400,
+        "drums/notation": 100,
+        "guitar/both": 300,
+        "guitar/notation": 300,
+        "guitar/tab": 300,
+        "pitched/notation": 100
+      },
+      "excluded": [],
+      "manifest_sha256": "dddd9f68b053acc8756ea586ac1bd19e29885a6645b39468ca784a49cfe61c13"
+    },
+    "hardcases": 20000,
+    "scan": 20000
+  },
+  "native_verified_previous_dataset": {
+    "measure_train": 400300,
+    "train_groups": {
+      "bass/both/4": 17636,
+      "bass/notation/4": 17636,
+      "bass/tab/4": 17636,
+      "pitched/notation/6": 43900,
+      "bass/both/5": 13664,
+      "bass/notation/5": 13664,
+      "bass/tab/5": 13664,
+      "bass/both/6": 15904,
+      "bass/notation/6": 15904,
+      "bass/tab/6": 15904,
+      "guitar/both/7": 6634,
+      "guitar/notation/7": 6634,
+      "guitar/tab/7": 6634,
+      "drums/notation/6": 23669,
+      "guitar/both/4": 5649,
+      "guitar/notation/4": 5649,
+      "guitar/tab/4": 5649,
+      "bass/both/7": 228,
+      "bass/notation/7": 228,
+      "bass/tab/7": 228,
+      "pitched/notation/5": 378,
+      "pitched/notation/4": 1108,
+      "guitar/both/5": 375,
+      "guitar/notation/5": 375,
+      "guitar/tab/5": 375,
+      "pitched/notation/7": 314,
+      "guitar/notation/6": 50117,
+      "guitar/tab/6": 50272,
+      "guitar/both/6": 50272
+    },
+    "measure_validation": 2000,
+    "validation_groups": {
+      "bass/both/4": 100,
+      "bass/both/5": 100,
+      "bass/both/6": 100,
+      "bass/notation/4": 100,
+      "bass/notation/5": 100,
+      "bass/notation/6": 100,
+      "bass/tab/4": 100,
+      "bass/tab/5": 100,
+      "bass/tab/6": 100,
+      "drums/notation/6": 100,
+      "guitar/both/4": 100,
+      "guitar/both/6": 100,
+      "guitar/both/7": 100,
+      "guitar/notation/4": 100,
+      "guitar/notation/6": 100,
+      "guitar/notation/7": 100,
+      "guitar/tab/4": 100,
+      "guitar/tab/6": 100,
+      "guitar/tab/7": 100,
+      "pitched/notation/6": 92,
+      "pitched/notation/4": 4,
+      "pitched/notation/7": 3,
+      "pitched/notation/5": 1
+    },
+    "measure_test": 2258,
+    "test_groups": {
+      "bass/both/4": 100,
+      "bass/both/5": 100,
+      "bass/both/6": 100,
+      "bass/both/7": 86,
+      "bass/notation/4": 100,
+      "bass/notation/5": 100,
+      "bass/notation/6": 100,
+      "bass/notation/7": 86,
+      "bass/tab/4": 100,
+      "bass/tab/5": 100,
+      "bass/tab/6": 100,
+      "bass/tab/7": 86,
+      "drums/notation/6": 100,
+      "guitar/both/4": 100,
+      "guitar/both/6": 100,
+      "guitar/both/7": 100,
+      "guitar/notation/4": 100,
+      "guitar/notation/6": 100,
+      "guitar/notation/7": 100,
+      "guitar/tab/4": 100,
+      "guitar/tab/6": 100,
+      "guitar/tab/7": 100,
+      "pitched/notation/6": 91,
+      "pitched/notation/4": 5,
+      "pitched/notation/7": 1,
+      "pitched/notation/5": 3
+    },
+    "measure_train_hardcases": 43985,
+    "measure_train_scan": 100086,
+    "excluded_native_mismatch_sources": 800,
+    "alignment_reports": {
+      "output/instrument-training/instrument_training-alignment.json": "343ca47546f8ca38a06c8a507e77100df2dc53df87770c757c4290d1b07117d5",
+      "output/instrument-training/gp8_joint_v3-alignment.json": "5af44c20b7c652403085f3e8789269ad0fcb16f963e6c7b11ac34dea085b2229"
+    }
+  },
+  "source_pitch_offset_audit": {
+    "scope": "Source extraction now folds hidden offsets into sounding pitches for melodic instruments. Guitar/bass retain independent capo. Existing dataset snapshots remain immutable.",
+    "sources": [
+      {
+        "source_id": "b2aaceeee9e097e2",
+        "split": "train",
+        "source_capo": 12,
+        "normalized_capo": 0,
+        "native_note_onset_differences": 2,
+        "unchanged_from_prior_native_audit": true
+      },
+      {
+        "source_id": "1f4786672099916e",
+        "split": "train",
+        "source_capo": 12,
+        "normalized_capo": 0,
+        "native_note_onset_differences": 0,
+        "unchanged_from_prior_native_audit": true
+      },
+      {
+        "source_id": "98f2426a192edb61",
+        "split": "train",
+        "source_capo": 3,
+        "normalized_capo": 0,
+        "native_note_onset_differences": 0,
+        "unchanged_from_prior_native_audit": true
+      },
+      {
+        "source_id": "b8e96c34b6544082",
+        "split": "train",
+        "source_capo": 12,
+        "normalized_capo": 0,
+        "native_note_onset_differences": 0,
+        "unchanged_from_prior_native_audit": true
+      },
+      {
+        "source_id": "e1e5ff7bb946e022",
+        "split": "train",
+        "source_capo": 12,
+        "normalized_capo": 0,
+        "native_note_onset_differences": 0,
+        "unchanged_from_prior_native_audit": true
+      },
+      {
+        "source_id": "67573cf8a3607205",
+        "split": "train",
+        "source_capo": 3,
+        "normalized_capo": 0,
+        "native_note_onset_differences": 240,
+        "unchanged_from_prior_native_audit": true
+      },
+      {
+        "source_id": "1506f4c5dbd7c3c5",
+        "split": "test",
+        "source_capo": 12,
+        "normalized_capo": 0,
+        "native_note_onset_differences": 45,
+        "unchanged_from_prior_native_audit": true
+      },
+      {
+        "source_id": "8b814af9b30d77ec",
+        "split": "train",
+        "source_capo": 12,
+        "normalized_capo": 0,
+        "native_note_onset_differences": 0,
+        "unchanged_from_prior_native_audit": true
+      },
+      {
+        "source_id": "83d25451588c5833",
+        "split": "train",
+        "source_capo": 12,
+        "normalized_capo": 0,
+        "native_note_onset_differences": 0,
+        "unchanged_from_prior_native_audit": true
+      },
+      {
+        "source_id": "5c4fcd9e7bf5409a",
+        "split": "train",
+        "source_capo": 12,
+        "normalized_capo": 0,
+        "native_note_onset_differences": 0,
+        "unchanged_from_prior_native_audit": true
+      },
+      {
+        "source_id": "a200e3f5581e73de",
+        "split": "validation",
+        "source_capo": 12,
+        "normalized_capo": 0,
+        "native_note_onset_differences": 0,
+        "unchanged_from_prior_native_audit": true
+      }
+    ],
+    "existing_native_mismatch_sources_remain_excluded": [
+      "b2aaceeee9e097e2",
+      "67573cf8a3607205",
+      "1506f4c5dbd7c3c5"
+    ],
+    "benchmark_impact": "The only selected validation crop and its simulated scan are rests with rest-only previous context. No independent test or sequence benchmark contains these sources; expected notes and evaluation inputs are unchanged."
+  },
+  "final_technique_coverage": {
+    "measure_train": {
+      "samples": 187241,
+      "targets_with": {
+        "ottava:": 11905,
+        "bend:": 3462,
+        "grace": 95,
+        "trill": 3
+      }
+    },
+    "measure_train_hardcases": {
+      "samples": 20000,
+      "targets_with": {
+        "bend:": 2371,
+        "grace": 221,
+        "trill": 6
+      }
+    },
+    "measure_train_scan": {
+      "samples": 20000,
+      "targets_with": {
+        "bend:": 456,
+        "grace": 28,
+        "trill": 1
+      }
+    }
+  }
+}

@@ -1,0 +1,7 @@
+#newProject,
+.project-import,
+#dropzone,
+#fileList,
+[data-panel="0"] .footer {
+  display: none !important;
+}

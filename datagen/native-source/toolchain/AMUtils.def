@@ -1,0 +1,9 @@
+LIBRARY "AMUtils.dll"
+EXPORTS
+    ?numerator@rational@utils@am@@QEBAHXZ
+    ?openHandle@FileSystem@filesystem@am@@QEAA?AV?$unique_ptr@VFileHandle@filesystem@am@@V?$function@$$A6AXPEAVFileHandle@filesystem@am@@@Z@std@@@std@@AEBVQString@@W4Mode@123@@Z
+    ?denominator@rational@utils@am@@QEBAHXZ
+    ?write@FileHandle@filesystem@am@@QEAAJPEBXJ@Z
+    ??1RAMFileSystem@filesystem@am@@UEAA@XZ
+    ??0RAMFileSystem@filesystem@am@@QEAA@XZ
+    ??0RealFileSystem@filesystem@am@@QEAA@AEBVQString@@@Z

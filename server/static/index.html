@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>GuitarOCR</title>
+    <link rel="stylesheet" href="/server-static/style.css" />
+    <script type="module" src="/server-static/app.js"></script>
+  </head>
+  <body>
+    <header>
+      <a class="brand" href="/">Guitar<span>OCR</span></a>
+      <button id="loginButton" type="button">登录</button>
+      <nav id="navigation" hidden>
+        <button data-view="projects" class="selected">我的乐谱</button
+        ><button data-view="account">账号</button
+        ><button data-view="admin" id="adminTab" hidden>管理</button
+        ><button id="logout">退出</button>
+      </nav>
+    </header>
+    <main>
+      <div id="notice" role="status" aria-live="polite" hidden></div>
+      <dialog
+        id="auth"
+        class="login"
+        aria-labelledby="authTitle"
+        aria-describedby="authReason"
+      >
+        <div class="heading">
+          <h2 id="authTitle">登录</h2>
+          <button id="closeAuth" type="button" aria-label="关闭登录窗口">
+            关闭
+          </button>
+        </div>
+        <p id="authReason">
+          登录后可使用服务器 GPU，并在账号中保存任务和结果。
+        </p>
+        <p id="authNotice" class="error" role="alert" hidden></p>
+        <form id="authForm">
+          <label
+            >用户名<input
+              id="username"
+              name="username"
+              autocomplete="username"
+              required
+              minlength="3"
+              maxlength="32"
+              pattern="[a-zA-Z0-9_\-]+"
+              aria-describedby="usernameHint"
+          /></label>
+          <p id="usernameHint" class="hint">
+            3 至 32 个字母、数字、下划线或连字符。
+          </p>
+          <label
+            >密码<input
+              id="password"
+              name="password"
+              type="password"
+              autocomplete="current-password"
+              required
+              minlength="10"
+              maxlength="128"
+              aria-describedby="passwordHint passwordStorage"
+          /></label>
+          <p id="passwordHint" class="hint">
+            至少 10
+            个字符。请设置本站专用密码，避免复用常用密码或使用容易猜到的密码。
+          </p>
+          <p id="passwordStorage" class="hint">
+            服务器只保存加入随机盐后计算的 scrypt
+            密码哈希，不保存明文密码。登录时通过重新计算哈希来核验。
+          </p>
+          <button id="authSubmit" class="primary" type="submit">登录</button
+          ><button id="authToggle" type="button">创建账号</button>
+        </form>
+      </dialog>
+      <section data-view="projects">
+        <div class="heading">
+          <h1>把乐谱转换为 GP5</h1>
+          <span id="identity" class="muted"></span>
+        </div>
+        <p>上传单轨谱的 PDF 或图片，识别后可逐小节校对、下载。钢琴双谱表和总谱尚不支持自动分轨。</p>
+        <p>登录后由服务器 GPU 识别，适合手机和低端电脑。任务可能排队，关闭网页后仍会继续处理，可回来查看结果或取消任务。</p>
+        <p class="hint">识别耗时取决于页数、音符密度和服务器负载。有 NVIDIA 显卡的设备也可<a href="https://github.com/Flurry-L/guitarOCR/blob/main/docs/setup.md" target="_blank" rel="noreferrer">自行部署</a>。</p>
+        <form id="uploadForm" class="upload">
+          <label class="file"
+            >选择 PDF 或图片<input
+              id="files"
+              type="file"
+              accept=".pdf,.png,.jpg,.jpeg,.bmp,.tif,.tiff"
+              multiple
+              required
+          /></label>
+          <p id="gpuUnavailable" class="error" hidden>本站尚未启用 GPU 推理。</p>
+          <button class="primary" id="uploadButton" type="submit" disabled>
+            上传并识别
+          </button>
+          <p id="limits" class="hint"></p>
+        </form>
+        <div id="history" hidden>
+        <div class="heading history-heading">
+          <h2 id="historyTitle">识别记录</h2>
+          <button id="saveAccount" type="button">登录并保存到账号</button>
+        </div>
+        <p id="sessionHint" class="hint"></p>
+        <p id="empty" class="empty" hidden>
+          上传乐谱后，可在这里查看进度和结果，或取消任务。
+        </p>
+        <div id="projects" class="project-list"></div>
+        </div>
+      </section>
+      <section data-view="account" hidden>
+        <h1>账号</h1>
+        <h2>使用记录</h2>
+        <div id="usage" class="stats"></div>
+        <p class="hint">
+          时长记录任务占用工作进程的时间，包括模型加载和预处理。
+        </p>
+        <h2>修改密码</h2>
+        <form id="passwordForm" class="narrow">
+          <label
+            >当前密码<input
+              name="current"
+              type="password"
+              autocomplete="current-password"
+              required
+              maxlength="128" /></label
+          ><label
+            >新密码<input
+              name="password"
+              type="password"
+              autocomplete="new-password"
+              required
+              minlength="10"
+              maxlength="128"
+              aria-describedby="newPasswordHint"
+          /></label>
+          <p id="newPasswordHint" class="hint">
+            至少 10
+            个字符。请使用本站专用密码，避免复用常用密码或使用容易猜到的密码。服务器只保存加随机盐的
+            scrypt 哈希。
+          </p>
+          <button type="submit" class="primary">保存密码</button>
+        </form>
+      </section>
+      <section data-view="admin" hidden>
+        <h1>服务管理</h1>
+        <div class="heading">
+          <h2>更新</h2>
+          <button id="checkUpdate">检查更新</button>
+        </div>
+        <div class="update">
+          <p id="updateMessage">正在读取版本信息</p>
+          <p id="updateVersion" class="hint"></p>
+          <p id="updateError" class="error" hidden></p>
+          <button id="applyUpdate" class="primary" hidden>安装更新</button>
+          <p class="hint">
+            更新会等待当前任务结束，再短暂重启服务。任务和结果会保留。
+          </p>
+        </div>
+        <div class="heading">
+          <h2>用户</h2>
+          <label class="inline"
+            ><input id="registration" type="checkbox" />允许新用户注册</label
+          >
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>用户名</th>
+                <th>项目</th>
+                <th>GPU 用时</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="users"></tbody>
+          </table>
+        </div>
+        <h2>待处理任务</h2>
+        <div id="adminJobs"></div>
+      </section>
+    </main>
+    <footer>GuitarOCR</footer>
+  </body>
+</html>
