@@ -53,3 +53,47 @@ test('project snapshots and editing drafts have separate lifetimes', () => {
   receiveProject({id:'second',revision:9,pages:[{}],boxes:[]});
   assert.equal(ui.state.revision,9);
 });
+
+import {alphaTab,engrave} from '../webapp/static/score-engraving.js';
+const eventWith = (notes,effects=[]) => ({start:0,duration:{value:4},status:'normal',notes,effects});
+function engravedState(mode,instrument,events,context={},stringTuning=tuning) {
+  return {mode,metadata:{instrument,tuning_used:stringTuning},measures:[{mode,pitch_context:context,
+    parsed:{time_signature:'4/4',voices:[{voice:0,events}]}}]};
+}
+test('engraving maps TAB string order and preserves conflicting OCR pitches without rewriting source',()=>{
+  const state=engravedState('both','guitar',[eventWith([{string:1,fret:3,pitch:66,effects:['bend:bend:100']}])]);
+  const original=structuredClone(state);
+  const result=engrave(state,new alphaTab.Settings()),beat=result.beats.get('0:0:0'),note=beat.notes[0];
+  assert.equal(note.string,6);
+  assert.equal(note.realValue,67);
+  assert.equal(note.displayValueWithoutBend,78); // Faithful to explicit OCR F#5, despite TAB G4.
+  assert.deepEqual(result.sourceOf.get(note),{mi:0,vi:0,ei:0,ni:0,string:1});
+  assert.equal(note.bendPoints.at(-1).value,4); // alphaTab measures bends in quarter tones.
+  assert.deepEqual(state,original);
+});
+test('engraving retains transposed written notes, clef octave, tuplets and cross-bar ties',()=>{
+  const first=eventWith([{pitch:70,effects:[]}],['ottava:12']);
+  first.duration={value:8,tuplet_enters:3,tuplet_times:2};
+  const state=engravedState('notation','pitched',[first],{instrument_transpose:-2,clef:'G2',clef_octave:0});
+  state.measures.push({...structuredClone(state.measures[0]),parsed:{voices:[{voice:0,events:[
+    eventWith([{pitch:70,effects:['tie']}],['ottava:12'])]}]}});
+  const result=engrave(state,new alphaTab.Settings()),beat=result.beats.get('0:0:0');
+  assert.equal(beat.notes[0].displayValueWithoutBend,60);
+  assert.equal(beat.ottava,1);
+  assert.equal(beat.displayDuration,320);
+  assert.equal(result.beats.get('1:0:0').notes[0].tieOrigin,beat.notes[0]);
+  state.measures[0].pitch_context.clef_octave=-12;
+  assert.equal(engrave(state,new alphaTab.Settings()).beats.get('0:0:0').notes[0].displayValueWithoutBend,72);
+});
+test('engraving handles percussion, non-six-string TAB and sparse voice numbers',()=>{
+  const drums=engravedState('notation','drums',[eventWith([{pitch:38,effects:[]}])]);
+  drums.measures[0].parsed.voices[0].voice=1;
+  const percussion=engrave(drums,new alphaTab.Settings()).beats.get('0:0:0');
+  assert.equal(percussion.voice.index,1);
+  assert.equal(percussion.notes[0].percussionArticulation,38);
+  assert.equal(percussion.voice.bar.staff.showTablature,false);
+  const bass=engravedState('tab','bass',[eventWith([{string:5,fret:2,effects:[]}])],{},[43,38,33,28,23]);
+  const note=engrave(bass,new alphaTab.Settings()).beats.get('0:0:0').notes[0];
+  assert.equal(note.string,1);
+  assert.equal(note.realValue,25);
+});

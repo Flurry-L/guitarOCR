@@ -217,7 +217,7 @@
       </section>
       <section data-panel="3" class="panel">
         <div class="section-head">
-          <div><h2>校对乐谱</h2><p>点击任意小节编辑，红色小节识别失败，黄色小节需要核对。</p></div>
+          <div><h2>校对乐谱</h2><p>在谱面上点选音符，用工具栏或键盘修改，随时对照原谱。</p></div>
           <div class="row">
             <button id="resumeOcr" hidden>继续识别</button>
             <button id="retryIssues" hidden>重试待检查小节</button>
@@ -228,30 +228,16 @@
         <div id="reviewEditor" hidden>
           <div class="overview-toolbar">
             <span id="recognitionSummary" class="muted"></span>
-            <button id="nextIssue">检查标记的小节</button>
+            <div class="row"><label class="zoom-control">谱面大小 <select id="scoreZoom"><option value="0.9">90%</option><option value="1.1" selected>110%</option><option value="1.3">130%</option><option value="1.5">150%</option></select></label><button id="nextIssue">下一个待检查小节</button></div>
           </div>
-          <div class="score-paper">
-            <h2 id="scoreTitle"></h2><p id="scoreCredits"></p>
-            <div id="scoreOverview" aria-label="完整识别乐谱"></div>
-          </div>
-        </div>
-        <div class="footer"><span class="muted">保存后的修改会更新整谱。未标记的小节也可以编辑。</span><button id="toExport" class="primary">导出 GP5 →</button></div>
-        <dialog id="measureDialog" aria-labelledby="measureDialogTitle">
-          <div class="editor-heading">
-            <h2 id="measureDialogTitle">编辑小节</h2><span id="reviewStatus" class="pill"></span>
-            <button id="closeMeasure" class="quiet">返回整谱</button>
-          </div>
-          <div class="review-toolbar">
-            <button id="prevMeasure" aria-label="上一小节">←</button>
-            <select id="measureSelect" aria-label="选择小节"></select>
-            <button id="nextMeasure" aria-label="下一小节">→</button>
-            <button id="retryMeasure" class="quiet">重新识别此小节</button>
-          </div>
-          <div class="score-source"><h3>原谱</h3><div class="crop"><img id="measureImage" alt="当前小节原图" /></div></div>
-          <div id="fallback" class="hint warning" hidden></div>
-          <div class="score-heading"><h3>编辑谱面</h3><label>编辑方式 <select id="editMode"><option value="score">谱面</option><option value="text">小节文本</option></select></label></div>
-          <div id="scoreEditor">
-            <div class="editor-tools" role="toolbar" aria-label="乐谱编辑工具">
+          <div id="scoreEditor" class="score-workspace">
+            <div class="score-document">
+              <div class="editor-tools" role="toolbar" aria-label="乐谱编辑工具">
+                <div class="editor-navigation">
+                  <div class="row"><button id="prevMeasure" aria-label="上一小节">‹</button><select id="measureSelect" aria-label="选择小节"></select><button id="nextMeasure" aria-label="下一小节">›</button><span id="reviewStatus" class="pill"></span></div>
+                  <div class="row"><button id="showSource" class="mobile-source">原谱</button><span id="saveStatus" class="muted small"></span><button id="saveMeasure" class="primary">确认小节</button></div>
+                </div>
+            <div class="note-tools">
               <div class="score-toolbar">
                 <label>声部 <select id="editorVoice"><option value="0">1</option><option value="1">2</option></select></label>
                 <div id="durationTools" class="tool-group" aria-label="音符时值">
@@ -267,23 +253,31 @@
                 <button id="addEvent">插入音符</button><button id="deleteEvent">删除此拍</button>
               </div>
             </div>
-            <div id="scoreScroll" class="score-scroll"><div id="scoreCanvas" tabindex="0" aria-label="可编辑谱面"></div></div>
-            <p id="scoreWarning" class="hint warning" hidden></p>
-            <p id="selectedNote" class="muted small"></p>
-            <div id="fretTools" class="score-toolbar"><span>输入品位</span><div id="fretButtons" class="tool-group"></div><label>品区 <select id="fretRange"><option value="0">0–12</option><option value="12">12–24</option><option value="24">24–30</option></select></label></div>
+                <div class="score-toolbar effect-tools" aria-label="奏法"><span class="muted small">奏法</span><button data-effect="tie" title="与前一个同音延音">延音线</button><button data-effect="hammer">击勾弦</button><button data-effect="sl">滑音</button><button data-effect="pm">掌闷音</button><button data-effect="vib">颤音</button><button data-effect="stacc">断奏</button><button data-effect="accent">重音</button><select id="bendValue" aria-label="推弦"><option value="">无推弦</option><option value="bend:bend:50">半音推弦</option><option value="bend:bend:100">全音推弦</option><option value="bend:bendRelease:100">推弦回落</option></select></div>
+                <div class="note-inputs">            <div id="fretTools" class="score-toolbar"><span>输入品位</span><div id="fretButtons" class="tool-group"></div><label>品区 <select id="fretRange"><option value="0">0–12</option><option value="12">12–24</option><option value="24">24–30</option></select></label></div>
             <div id="pitchTools" class="score-toolbar" hidden><span>插入音高</span><div id="pitchButtons" class="tool-group"></div><label>八度 <select id="pitchOctave"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4" selected>4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option></select></label></div>
             <div id="drumTools" class="score-toolbar" hidden><label>鼓件 <select id="drumValue"></select></label><button id="placeDrum">放入当前拍</button></div>
-            <p id="editHint" class="muted small"></p>
+                </div>
+                <div class="editor-cursor"><span id="selectedNote" class="muted small"></span><button id="discardMeasure" class="quiet" hidden>放弃修改</button></div>
+                <div id="measureFeedback" role="status" aria-live="polite" hidden></div>
+              </div>
+              <div class="score-paper"><h2 id="scoreTitle"></h2><p id="scoreCredits"></p><div id="scoreCanvas" tabindex="0" role="application" aria-label="可编辑整谱，方向键移动，数字键输入品位"></div><p id="scoreWarning" class="hint warning" hidden></p></div>
+            </div>
+            <aside class="score-reference">
+              <div class="reference-heading"><h3 id="currentMeasureTitle">原谱</h3><button id="retryMeasure" class="quiet">重新识别</button></div>
+              <button id="sourceZoom" class="crop" aria-label="放大原谱"><img id="measureImage" alt="选中小节的原谱" /></button>
+              <div id="fallback" class="hint warning" hidden></div>
+              <p id="editHint" class="muted small"></p>
             <details class="measure-settings"><summary>拍号、速度与起点</summary><div class="score-toolbar">
               <label>拍号 <input id="timeSignature" placeholder="沿用上一小节" size="8" /></label>
               <label>速度 <input id="measureTempo" type="number" placeholder="沿用" min="1" max="999" /></label>
               <label>当前拍起点 <input id="eventStart" type="number" min="0" step="0.0625" /></label>
             </div></details>
+              <details class="measure-settings"><summary>小节文本</summary><label>编辑方式 <select id="editMode"><option value="score">谱面</option><option value="text">文本</option></select></label><div id="textEditor" hidden><textarea id="measureText" aria-label="小节文本" rows="7" spellcheck="false"></textarea></div></details>
+            </aside>
           </div>
-          <div id="textEditor" hidden><textarea id="measureText" aria-label="小节文本" rows="5" spellcheck="false"></textarea><p class="muted small">奏法、反复等详细内容可在此编辑。</p></div>
-          <div id="measureFeedback" role="status" aria-live="polite" hidden></div>
-          <div class="footer review-footer"><span id="saveStatus" class="muted"></span><div class="row"><button id="discardMeasure" class="quiet" hidden>放弃修改</button><button id="saveMeasure" class="primary">确认此小节</button></div></div>
-        </dialog>
+        </div>
+        <div class="footer"><span class="muted">红色小节识别失败，黄色小节需要核对。</span><button id="toExport" class="primary">导出 GP5 →</button></div>
       </section>
       <section data-panel="4" class="panel">
         <div class="section-head">
@@ -308,6 +302,7 @@
         <button id="deleteProject" class="quiet" hidden>删除项目</button>
       </footer>
     </main>
+    <dialog id="sourceDialog" aria-label="原谱大图"><button id="closeSource">关闭</button><img id="largeSource" alt="当前小节原谱大图" /></dialog>
     <script type="module" src="/static/app.js"></script>
   </body>
 </html>

@@ -20,7 +20,8 @@ class DesktopTest(unittest.TestCase):
             with TestClient(create_app(Workspace(Path(directory)), inference_enabled=False),
                             base_url='http://127.0.0.1') as client:
                 self.assertFalse(client.get('/api/config').json()['inference_enabled'])
-                self.assertEqual(client.get('/static/vendor/vexflow.js').status_code, 200)
+                for asset in ('alphaTab.mjs', 'alphaTab.core.mjs', 'font/Bravura.woff2'):
+                    self.assertEqual(client.get(f'/static/vendor/{asset}').status_code, 200)
                 for action in ('detect', 'information', 'recognize'):
                     result = client.post(f'/api/sessions/unused/{action}', json={})
                     self.assertEqual(result.status_code, 409, result.text)
@@ -46,6 +47,8 @@ from webapp.app import create_app
 from shared.defaults import MODEL
 app = create_app(Workspace(Path(sys.argv[2])), inference_enabled=False)
 assert Path('webapp/static/metadata-editor.js').is_file()
+assert Path('webapp/static/vendor/alphaTab.core.mjs').is_file()
+assert Path('webapp/static/vendor/font/Bravura.woff2').is_file()
 assert MODEL == Path.cwd() / 'tools/models/GLM-OCR'
 assert 'torch' not in sys.modules and 'paddle' not in sys.modules
 """, site_packages, str(Path(directory) / "projects")], cwd=bundle,

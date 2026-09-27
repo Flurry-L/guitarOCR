@@ -20,7 +20,7 @@ from scripts.model_bundle import build_bundle  # noqa: E402
 DEST = ROOT / 'desktop/src-tauri/resources'
 UV_VERSION = '0.12.17'
 DIRECTORIES = ('layout', 'document_info', 'measure_ocr', 'gp5_export', 'pipeline', 'shared', 'webapp')
-SUFFIXES = {'.py', '.json', '.yaml', '.html', '.css', '.js'}
+SUFFIXES = {'.py', '.json', '.yaml', '.html', '.css', '.js', '.mjs', '.woff2'}
 
 
 def backend_files(root):
@@ -31,7 +31,7 @@ def backend_files(root):
                      and (p.suffix in SUFFIXES or p.name.endswith('LICENSE'))
                      and '__pycache__' not in p.parts and not p.is_symlink())
     paths.extend(root / p for p in ('pyproject.toml', 'uv.lock', 'README.md', 'THIRD_PARTY_NOTICES.md',
-                                   'weights/manifest.json', 'scripts/launcher.py', 'scripts/downloads.py',
+                                   'weights/manifest.json', 'webapp/static/vendor/README.md', 'scripts/launcher.py', 'scripts/downloads.py',
                                    'scripts/desktop_runtime.py', 'scripts/bootstrap-uv.toml',
                                    'scripts/model_bundle.py', 'scripts/progress.py'))
     paths.extend(p for p in (root / 'weights').rglob('*.json') if p.is_file() and not p.is_symlink())

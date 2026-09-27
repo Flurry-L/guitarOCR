@@ -37,7 +37,8 @@
           "SimpChinese",
           "English"
         ],
-        "displayLanguageSelector": false
+        "displayLanguageSelector": false,
+        "compression": "zlib"
       },
       "webviewInstallMode": {
         "type": "downloadBootstrapper"

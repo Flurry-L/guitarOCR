@@ -6,7 +6,7 @@
 | --- | --- |
 | [pypdfium2 / PDFium](https://github.com/pypdfium2-team/pypdfium2) | 封装采用 Apache-2.0 或 BSD-3-Clause，PDFium 采用 BSD 风格许可。二进制还附带第三方许可，分发时一并保留。 |
 | [pdfplumber](https://github.com/jsvine/pdfplumber) / pdfminer.six | MIT；用于提取 PDF 文字与位置。 |
-| [VexFlow 4.2.5](https://github.com/0xfe/vexflow) / Bravura | VexFlow 为 MIT；Bravura 为 SIL OFL-1.1。本地绘制校对谱面，许可保存在 `webapp/static/vendor/`。 |
+| [alphaTab 1.8.4](https://github.com/CoderLine/alphaTab/tree/v1.8.4) / Bravura | alphaTab 为 MPL-2.0；Bravura 为 SIL OFL-1.1。用于校对谱面的排版与点选，许可和对应源码地址保存在 `webapp/static/vendor/`。 |
 | [Tauri](https://tauri.app) / [uv](https://github.com/astral-sh/uv) | MIT 或 Apache-2.0；桌面安装包附带组件许可。系统 WebView 由操作系统提供。 |
 | ReportLab | BSD；仅用于生成测试 PDF。 |
 | [PyGuitarPro](https://github.com/Perlence/PyGuitarPro) | LGPL-3.0-only。作为可替换的独立 Python 包使用；分发时保留许可及版权说明，并履行适用的修改与源码提供义务。 |

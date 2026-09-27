@@ -1,7 +1,10 @@
-VexFlow 4.2.5，使用仅包含 Bravura 字体的构建。来源：
-https://registry.npmjs.org/vexflow/-/vexflow-4.2.5.tgz
+alphaTab 1.8.4 用于整谱排版和音符位置查询，播放器关闭。
 
-`vexflow.js` 来自包内 `build/cjs/vexflow-bravura.js`，仅移除 sourceMappingURL。
-VexFlow 为 MIT 许可，Bravura 为 SIL Open Font License 1.1；许可文本随文件保留。
+`alphaTab.mjs`、`alphaTab.core.mjs` 分别来自 npm 包 `@coderline/alphatab@1.8.4` 的
+`dist/alphaTab.min.mjs`、`dist/alphaTab.core.min.mjs`，文件内容未修改。
+`font/Bravura.woff2` 来自同一包的 `dist/font/Bravura.woff2`。
 
-文件 SHA256：`32bc0a820abefb71ceaad348ab01f871760e1d744f249d6c46a44165e50c26e8`
+alphaTab 使用 MPL-2.0，许可见 `alphaTab-LICENSE`，集成组件声明保留在 JS 文件头。
+对应源码：https://github.com/CoderLine/alphaTab/tree/v1.8.4
+发行包：https://registry.npmjs.org/@coderline/alphatab/-/alphatab-1.8.4.tgz
+Bravura 使用 SIL OFL-1.1，许可见 `Bravura-LICENSE`。
