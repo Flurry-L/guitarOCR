@@ -10,7 +10,7 @@
 
 版面模型预测 TAB、五线谱和混合谱，每个小节的类型传给 OCR。页面与整谱类型按检测分数汇总，投票占比不代表校准概率。界面可手动纠正。
 
-Git 用户执行 `git lfs pull` 获取权重；启动 ZIP 包含任务权重。基座由安装器下载到 `tools/models/GLM-OCR`。文件哈希和基座 revision 见 [manifest.json](manifest.json)，可运行 `uv run --no-sync guitarocr-check --hashes` 检查。
+桌面安装包和启动 ZIP 包含全部模型，首次本机识别时在本地展开，基座保存在 `tools/models/GLM-OCR`。Git 用户执行 `git lfs pull` 获取任务权重，基座由安装器下载。文件哈希和基座 revision 见 [manifest.json](manifest.json)，可运行 `uv run --no-sync guitarocr-check --hashes` 检查。
 
 | 任务 | 训练参数 | 评测记录 | 标签与来源 |
 | --- | --- | --- | --- |

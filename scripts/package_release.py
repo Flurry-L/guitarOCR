@@ -7,11 +7,11 @@ from pathlib import Path
 import subprocess
 import sys
 import tomllib
-from zipfile import ZipFile, ZIP_DEFLATED
+from zipfile import ZipFile, ZipInfo, ZIP_DEFLATED, ZIP_STORED
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from shared.model_files import verify_files  # noqa: E402
+from scripts.model_bundle import build_bundle  # noqa: E402
 
 DIRECTORIES = {
     "datagen",
@@ -46,13 +46,7 @@ EXCLUDE = {"__pycache__", ".pytest_cache", ".ruff_cache", ".git", ".venv", "runt
 
 def build(output):
     manifest = json.loads((ROOT / "weights/manifest.json").read_text(encoding="utf-8"))
-    errors = [
-        error
-        for model in manifest["models"]
-        for error in verify_files(ROOT / model["path"], model["files"])
-    ]
-    if errors:
-        raise ValueError("Cannot package incomplete weights: " + "; ".join(errors))
+    bundle = build_bundle(ROOT, output / 'models.tar.xz')
     version = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
         "project"
     ]["version"]
@@ -67,11 +61,7 @@ def build(output):
         "repository": "Flurry-L/guitarOCR",
         "commit": commit,
         "models": [model["path"] for model in manifest["models"]],
-    }
-    model_files = {
-        (ROOT / model["path"] / item["name"]).resolve()
-        for model in manifest["models"]
-        for item in model["files"]
+        "bundled_models": True,
     }
     output.mkdir(parents=True, exist_ok=True)
     destination = output / f"{prefix}.zip"
@@ -85,7 +75,7 @@ def build(output):
                 continue
             if any(part in EXCLUDE for part in path.relative_to(ROOT).parts):
                 continue
-            if path.suffix in {".safetensors", ".pdiparams", ".pdparams", ".pt"} and path.resolve() not in model_files:
+            if path.suffix in {".safetensors", ".pdiparams", ".pdparams", ".pt"}:
                 continue
             if path.name == ".env" or (
                 path.name.startswith(".env.") and path.name != ".env.example"
@@ -107,15 +97,29 @@ def build(output):
         contents = (json.dumps(release, indent=2) + "\n").encode()
         archive.writestr(f"{prefix}/release.json", contents)
         checksums.append(f"{sha256(contents).hexdigest()}  release.json")
-        for path in sorted(files):
+        for path in sorted(set(files)):
             relative = path.relative_to(ROOT).as_posix()
             contents = path.read_bytes()
             if path.suffix == ".bat" or path.name == "使用说明.txt":
                 contents = contents.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
             archive.writestr(f"{prefix}/{relative}", contents)
             checksums.append(f"{sha256(contents).hexdigest()}  {relative}")
+        # The model archive is already compressed; stream it without keeping
+        # several gigabytes in memory or compressing it a second time.
+        entry = ZipInfo(f'{prefix}/models.tar.xz')
+        entry.compress_type = ZIP_STORED
+        with bundle.open('rb') as source, archive.open(entry, 'w', force_zip64=True) as dest:
+            digest = sha256()
+            while block := source.read(8 * 1024 * 1024):
+                dest.write(block)
+                digest.update(block)
+        checksums.append(f'{digest.hexdigest()}  models.tar.xz')
         archive.writestr(f"{prefix}/SHA256SUMS", "\n".join(checksums) + "\n")
-    digest = sha256(destination.read_bytes()).hexdigest()
+    with destination.open('rb') as source:
+        digest = sha256()
+        for block in iter(lambda: source.read(8 * 1024 * 1024), b''):
+            digest.update(block)
+    digest = digest.hexdigest()
     destination.with_suffix(".zip.sha256").write_text(
         f"{digest}  {destination.name}\n", encoding="utf-8"
     )

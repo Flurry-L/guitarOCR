@@ -25,6 +25,8 @@ sys.path.insert(0, str(ROOT))
 from shared.defaults import environment_python  # noqa: E402
 from shared.model_files import verify_files  # noqa: E402
 from scripts.downloads import acquire_base_model  # noqa: E402
+from scripts.model_bundle import restore_bundle  # noqa: E402
+from scripts.progress import progress  # noqa: E402
 
 PYPI_MIRROR = "https://pypi.tuna.tsinghua.edu.cn/simple"
 TORCH_MIRROR = "https://mirror.sjtu.edu.cn/pytorch-wheels"
@@ -110,6 +112,7 @@ def install_fingerprint():
         "weights/manifest.json",
         "scripts/launcher.py",
         "scripts/downloads.py",
+        "scripts/model_bundle.py",
         "shared/defaults.py",
         "shared/model_files.py",
     ):
@@ -335,7 +338,18 @@ def install(args, uv, tools):
         f"开始安装：{'NVIDIA GPU' if device == 'cuda' else 'CPU（识别较慢）'}。首次需要下载数 GB，请保持窗口开启。",
         flush=True,
     )
-    acquire_weights(manifest)
+    progress('models', '正在准备包内模型')
+    bundle = Path(os.environ.get('GUITAROCR_BUNDLED_MODELS', ROOT / 'models.tar.xz'))
+    release = ROOT / 'release.json'
+    bundled = release.is_file() and json.loads(release.read_text(encoding='utf-8')).get('bundled_models')
+    if bundle.is_file():
+        restore_bundle(bundle, ROOT, manifest)
+    elif bundled:
+        raise ValueError('安装包缺少模型压缩文件，请重新下载安装包。')
+    else:
+        acquire_weights(manifest)
+        acquire_base_model(manifest['base_model'], ROOT)
+    progress('ocr', '正在准备识别环境')
     app_python = environment_python(tools / "webui-venv")
     layout_python = environment_python(tools / "webui-paddle-venv")
     for folder in (app_python, layout_python):
@@ -350,6 +364,7 @@ def install(args, uv, tools):
                     folder.parent.parent,
                 ],
             )
+    progress('ocr', '正在安装识别依赖', detail='包含 PyTorch，首次下载较大。')
     requirements = export_requirements(uv, app_python, device)
     requirements_path = tools / "webui-requirements.txt"
     requirements_path.write_text(requirements, encoding="utf-8")
@@ -370,6 +385,7 @@ def install(args, uv, tools):
     run_uv(uv, ["pip", "install", "--python", app_python, "--no-deps", "-e", ROOT])
     # Paddle's CPU runtime keeps both platforms on the same supported package set.
     # GLM is the dominant workload and uses the chosen GPU independently.
+    progress('layout', '正在安装版面检测依赖')
     run_uv(
         uv,
         [
@@ -388,13 +404,12 @@ def install(args, uv, tools):
     run_uv(uv, ["pip", "install", "--python", layout_python, "--no-deps", "-e", ROOT])
     base = manifest["base_model"]
     model = ROOT / base["path"]
-    acquire_base_model(base, ROOT)
+    progress('check', '正在检查本机识别环境')
     run(
         [
             app_python,
             "-m",
             "shared.environment",
-            "--hashes",
             "--device",
             device,
             "--layout-python",

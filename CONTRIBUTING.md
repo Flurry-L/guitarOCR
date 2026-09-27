@@ -47,7 +47,7 @@ uv run --no-sync python -m unittest discover -s tests -v
 
 模型默认路径由 `shared/defaults.py` 相对安装目录解析；显式传入的路径优先。`scripts/launcher.py` 负责安装和环境复用判断，桌面启动器也使用它。`shared/model_files.py` 提供不加载模型的文件校验，安装、诊断和打包共用。
 
-取得当前权重后执行 `uv run --no-project --python 3.11 scripts/package_release.py`，生成启动 ZIP 和校验文件。发布前从解压后的包验证启动、项目恢复和 GP5 导出。启动 ZIP 不包含测试和 CI 配置。桌面后端的文件范围由 `scripts/prepare_desktop.py` 的 `backend_files` 定义；移动模块后检查打包后的独立环境能导入工作台。
+取得当前任务权重和 GLM-OCR 基座后执行 `uv run --no-project --python 3.11 scripts/package_release.py`，生成启动 ZIP 和校验文件。发布前从解压后的包验证启动、项目恢复和 GP5 导出。启动 ZIP 不包含测试和 CI 配置。桌面后端的文件范围由 `scripts/prepare_desktop.py` 的 `backend_files` 定义；移动模块后检查打包后的独立环境能导入工作台。模型文件由 `weights/manifest.json` 指定，打包前校验，生成的 `models.tar.xz` 随包提供；构建缓存保存在 `tools/model-bundles/`。
 
 模型变更需更新 `weights/manifest.json`、模型说明、训练配置和评测结果。数据、模型缓存、用户项目及私人曲谱放在 Git 忽略的目录中。
 
@@ -62,7 +62,7 @@ uv run --no-sync python -m unittest discover -s tests -v
 ```bash
 npm ci --prefix desktop
 cargo fetch --locked --manifest-path desktop/src-tauri/Cargo.toml
-python scripts/prepare_desktop.py
+python scripts/prepare_desktop.py --fetch-models
 npm run build --prefix desktop -- -- --locked
 ```
 

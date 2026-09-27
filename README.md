@@ -12,21 +12,21 @@
 
 | 系统 | 安装包 |
 | --- | --- |
-| Windows x64 | [安装程序](https://github.com/Flurry-L/guitarOCR/releases/download/v0.2.1/GuitarOCR_0.2.1_x64-setup.exe) |
-| macOS Apple Silicon | [DMG](https://github.com/Flurry-L/guitarOCR/releases/download/v0.2.1/GuitarOCR_0.2.1_aarch64.dmg) |
-| macOS Intel | [DMG](https://github.com/Flurry-L/guitarOCR/releases/download/v0.2.1/GuitarOCR_0.2.1_x64.dmg) |
-| Linux x64 | [DEB](https://github.com/Flurry-L/guitarOCR/releases/download/v0.2.1/GuitarOCR_0.2.1_amd64.deb) · [AppImage](https://github.com/Flurry-L/guitarOCR/releases/download/v0.2.1/GuitarOCR_0.2.1_amd64.AppImage) |
+| Windows x64 | [安装程序](https://github.com/Flurry-L/guitarOCR/releases/download/v0.2.2/GuitarOCR_0.2.2_x64-setup.exe) |
+| macOS Apple Silicon | [DMG](https://github.com/Flurry-L/guitarOCR/releases/download/v0.2.2/GuitarOCR_0.2.2_aarch64.dmg) |
+| macOS Intel | [DMG](https://github.com/Flurry-L/guitarOCR/releases/download/v0.2.2/GuitarOCR_0.2.2_x64.dmg) |
+| Linux x64 | [DEB](https://github.com/Flurry-L/guitarOCR/releases/download/v0.2.2/GuitarOCR_0.2.2_amd64.deb) · [AppImage](https://github.com/Flurry-L/guitarOCR/releases/download/v0.2.2/GuitarOCR_0.2.2_amd64.AppImage) |
 
 安装包尚未签名或公证。本机 GPU 识别支持 Windows / Linux x64；macOS 可连接服务器，或在本机校对和导出。使用方式见[安装说明](docs/setup.md)。
 
-也可下载包含任务权重的 [GuitarOCR-0.2.1.zip](https://github.com/Flurry-L/guitarOCR/releases/download/v0.2.1/GuitarOCR-0.2.1.zip)，完整解压到可写文件夹，无需 Git：
+也可下载包含完整模型的 [GuitarOCR-0.2.2.zip](https://github.com/Flurry-L/guitarOCR/releases/download/v0.2.2/GuitarOCR-0.2.2.zip)，完整解压到可写文件夹，无需 Git：
 
 - Windows 双击 `start.bat`。
 - Linux x64 在项目目录运行 `bash start.sh`。
 
-首次启动会安装 Python、依赖和 GLM-OCR 基座，需要下载数 GB，建议预留 20 GB 磁盘。安装后打开 http://127.0.0.1:7860，使用期间保留启动窗口。中断后重跑同一脚本即可。
+桌面安装包和启动 ZIP 均包含 GLM-OCR 基座、两套 OCR 适配器和版面模型，约 2 GB。首次本机识别会联网安装 Python 和运行依赖，仍需下载数 GB，建议预留 25 GB 磁盘。安装后打开 http://127.0.0.1:7860，使用期间保留启动窗口。中断后重跑同一脚本即可。
 
-Python、Python 包、PyTorch 和 OCR 基座默认使用国内源，失败时尝试官方源。ZIP 下载仍需访问 GitHub，uv 和 Windows C++ 运行库从官方站点下载。安装失败见[故障排查](docs/setup.md#故障排查)。
+Python、Python 包和 PyTorch 默认使用国内源，失败时尝试官方源。ZIP 下载仍需访问 GitHub，uv 和 Windows C++ 运行库从官方站点下载。安装失败见[故障排查](docs/setup.md#故障排查)。
 
 ## 转换乐谱
 

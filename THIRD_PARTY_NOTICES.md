@@ -18,7 +18,7 @@
 
 ## 模型与素材
 
-GLM-OCR 基座的模型卡声明 MIT，来源固定为 [zai-org/GLM-OCR](https://huggingface.co/zai-org/GLM-OCR/tree/ca5d8b3e287e52589e37c28385d9655ee4372f9d)。魔搭下载源使用相同文件校验值。
+GLM-OCR 基座的模型卡声明 MIT，来源固定为 [zai-org/GLM-OCR](https://huggingface.co/zai-org/GLM-OCR/tree/ca5d8b3e287e52589e37c28385d9655ee4372f9d)。魔搭下载源使用相同文件校验值。桌面安装包和启动 ZIP 附带原始模型卡及 MIT 许可文本，见 `weights/licenses/`。PP-DocLayout 使用 Apache-2.0，同目录附带其许可。
 
 仓库中的微调权重尚未单独声明许可证。模型目录保留训练来源和评测记录，完整训练素材的授权记录仍需补齐。
 

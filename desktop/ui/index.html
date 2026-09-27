@@ -1,12 +1,13 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GuitarOCR</title><link rel="stylesheet" href="style.css"><script defer src="app.js"></script></head><body>
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GuitarOCR</title><link rel="stylesheet" href="style.css"><script type="module" src="app.js"></script></head><body>
 <header><strong>Guitar<span>OCR</span></strong><span>桌面工作台</span></header>
 <main><h1>识别与校对乐谱</h1><p>打开工作台后，导入乐谱，点选音符校对，再导出 GP5。</p>
 <section><h2>连接 GPU 服务</h2><p>适合所有电脑。识别在服务器运行，关闭桌面窗口后仍会继续。</p>
 <form id="remote"><label for="serverUrl">服务地址</label><div class="row"><input id="serverUrl" type="url" placeholder="https://ocr.example.com" required><button type="submit">连接</button></div></form></section>
 <section><h2>在这台电脑上使用</h2><p id="localHint">有 NVIDIA 显卡可安装本机识别环境。仅校对与导出无需模型。</p>
 <div class="row"><button id="localGpu">使用本机 GPU</button><button id="localEdit" class="secondary">仅校对与导出</button></div>
-<p class="small">首次本机识别需下载数 GB，建议预留 20 GB 空间、8 GB 显存和 16 GB 内存。安装完成后复用环境。</p></section>
+<p id="gpuHint" class="small">安装包已含完整模型。首次本机识别仍需联网安装 Python 和运行依赖，约数 GB。建议预留 25 GB 空间、8 GB 显存和 16 GB 内存。</p></section>
 <div id="status" role="status" aria-live="polite" hidden></div>
+<section id="installProgress" aria-label="安装进度" hidden><ol id="installStages"></ol><p id="progressLabel" role="status" aria-live="polite"></p><progress id="progressBar" aria-label="当前步骤进度"></progress><p id="progressDetail" class="small"></p><ul id="downloadList"></ul></section>
 <details id="logPanel" hidden><summary>安装与运行日志</summary><pre id="logs"></pre></details>
 <div class="row footer"><button id="stop" class="secondary" hidden>停止本机服务</button><button id="showData" class="quiet">打开数据目录</button></div>
 <p class="small">关闭本机服务会停止本机任务，已保存的项目保留在数据目录。</p>

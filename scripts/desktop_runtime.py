@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from scripts import launcher  # noqa: E402
 from shared.defaults import MODEL, environment_python  # noqa: E402
+from scripts.progress import progress  # noqa: E402
 
 
 def install_edit(uv, tools):
@@ -24,6 +25,7 @@ def install_edit(uv, tools):
     stamp = tools / 'desktop-edit.json'
     if python.is_file() and stamp.exists() and stamp.read_text() == fingerprint:
         return python
+    progress('editor', '正在安装校对与导出依赖')
     launcher.run_uv(uv, ['venv', '--python', '3.11', '--allow-existing', python.parent.parent])
     requirements = launcher.run_uv(uv, ['export', '--frozen', '--extra', 'webui', '--no-dev',
                                        '--no-hashes', '--no-emit-project', '--format', 'requirements-txt'], capture=True)
@@ -81,6 +83,7 @@ def main():
             python = environment_python(tools / 'webui-venv')
         else:
             python = install_edit(uv, tools)
+    progress('check', '正在启动工作台')
     # The Tauri parent owns the process group / Windows Job, including this child.
     result = subprocess.run([str(python), str(Path(__file__).resolve()), '--serve',
                              '--mode', args.mode, '--output', str(args.output)])

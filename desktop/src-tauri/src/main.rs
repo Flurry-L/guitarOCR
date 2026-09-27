@@ -212,6 +212,12 @@ fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
     Ok(())
 }
 fn log(app: &tauri::AppHandle, line: &str) {
+    if let Some(message) = line.strip_prefix("GUITAROCR_PROGRESS ") {
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(message) {
+            let _ = app.emit_to("main", "runtime-progress", value);
+            return;
+        }
+    }
     let _ = app.emit_to("main", "runtime-log", line);
     if let Ok(dir) = data(app) {
         if let Ok(mut f) = fs::OpenOptions::new()
@@ -321,6 +327,16 @@ fn start(app: &tauri::AppHandle, mode: &str) -> Result<Url, String> {
     .arg(root.join("projects"))
     .current_dir(&backend)
     .env("GUITAROCR_UV", &uv)
+    .env("GUITAROCR_DESKTOP", "1")
+    .env(
+        "GUITAROCR_BUNDLED_MODELS",
+        resource.join("models/models.tar.xz"),
+    )
+    .env("HF_HUB_OFFLINE", "1")
+    .env("TRANSFORMERS_OFFLINE", "1")
+    .env("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "1")
+    .env("UV_NO_PROGRESS", "false")
+    .env("UV_COLOR", "never")
     .env("PYTHONUTF8", "1")
     .env("PYTHONUNBUFFERED", "1")
     .env("UV_PYTHON_INSTALL_DIR", root.join("python"))

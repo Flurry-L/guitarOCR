@@ -9,7 +9,7 @@ Windows 运行安装程序，macOS 打开 DMG 后将应用拖入 Applications，
 启动后选择：
 
 - **连接 GPU 服务**：填写已部署服务的 HTTPS 地址，登录后提交识别。关闭窗口后服务器仍继续处理。
-- **使用本机 GPU**：支持 Windows / Linux x64，首次下载 Python、依赖和模型。
+- **使用本机 GPU**：支持 Windows / Linux x64，模型已随安装包提供，首次联网安装 Python 和运行依赖。
 - **仅校对与导出**：下载 Python 和基础依赖，恢复项目备份后编辑和导出 GP5。macOS 也可使用。
 
 安装包尚未签名或公证，系统可能提示未知发布者。Windows 缺少 WebView2 时，安装程序会从 Microsoft 下载；本机 GPU 环境还需 [Microsoft Visual C++ x64 运行库](https://aka.ms/vs/17/release/vc_redist.x64.exe)。
@@ -48,7 +48,7 @@ sudo apt-get install -y curl ca-certificates libgl1 libglib2.0-0
 | GPU 识别 | 至少 8 GB 显存、16 GB 内存 | GPU 算力、显存容量与带宽 |
 | CPU 识别 | 至少 16 GB 内存，适合试用 | CPU 性能、内存带宽，速度较慢 |
 
-安装和缓存建议预留 20 GB 磁盘。以上是选配建议，消费级最低配置尚未实测。GLM-OCR 基座约 13.3 亿参数，运行时还需要视觉特征和生成缓存；大图、长小节和并发任务会增加内存需求，不足时可能加载失败或中断。
+安装和缓存建议预留 25 GB 磁盘。以上是选配建议，消费级最低配置尚未实测。GLM-OCR 基座约 13.3 亿参数，运行时还需要视觉特征和生成缓存；大图、长小节和并发任务会增加内存需求，不足时可能加载失败或中断。
 
 识别耗时取决于硬件、页数、图像尺寸和音符密度，远程服务还需计算上传与排队时间。目前没有可用于估算普通电脑耗时的实测基准。
 
@@ -65,7 +65,7 @@ sudo apt-get install -y curl ca-certificates libgl1 libglib2.0-0
 
 已有 uv 配置优先用于普通依赖；`UV_PYTHON_INSTALL_MIRROR` 可指定 Python 来源，`HF_ENDPOINT` 可指定模型来源。ZIP、uv 和 Windows C++ 运行库仍需访问各自的官方站点。
 
-任务权重随安装 ZIP 提供，桌面端在启用本机识别时下载。缺失或损坏的权重从 GitHub 对应提交修复。基座的 revision 和文件哈希见 `weights/manifest.json`。
+桌面安装包和启动 ZIP 已包含完整模型，约 2 GB。首次本机识别会展开包内模型并记录版本，之后直接复用本地文件。桌面窗口显示当前安装步骤、正在下载的组件和包内模型的展开进度。Python 与运行依赖仍需联网安装。源码安装才需要下载模型，版本和文件哈希见 `weights/manifest.json`。
 
 默认模型路径相对安装目录解析，可用 `--model`、`--adapter`、`--info-adapter`、`--layout-model-dir` 覆盖。多人服务将模型位置写入配置文件。
 

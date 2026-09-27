@@ -23,8 +23,11 @@ jobs:
     runs-on: ${{ matrix.runner }}
     env:
       PYTHONUTF8: '1'
+      APPIMAGE_COMP: xz
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -42,15 +45,29 @@ jobs:
       - run: npm ci
         working-directory: desktop
       - run: cargo fetch --locked --manifest-path desktop/src-tauri/Cargo.toml
-      - run: python scripts/prepare_desktop.py
+      - uses: actions/cache@v4
+        with:
+          path: |
+            tools/models/GLM-OCR
+            tools/model-bundles
+          key: desktop-models-${{ hashFiles('weights/manifest.json') }}
+      - run: python scripts/prepare_desktop.py --fetch-models
       - run: node --test tests/score-editor.test.mjs
       - run: cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml
       - run: npm run build -- --bundles ${{ matrix.bundles }} -- --locked
         working-directory: desktop
+      - name: Check release asset sizes
+        shell: python
+        run: |
+          from pathlib import Path
+          for path in Path('desktop/src-tauri/target/release/bundle').rglob('*'):
+              if path.suffix in {'.exe', '.dmg', '.deb', '.AppImage'} and path.is_file():
+                  assert path.stat().st_size < 2**31, f'{path} exceeds the GitHub asset limit'
       - uses: actions/upload-artifact@v4
         with:
           name: GuitarOCR-${{ matrix.platform }}
           if-no-files-found: error
+          compression-level: 0
           path: |
             desktop/src-tauri/target/release/bundle/**/*.exe
             desktop/src-tauri/target/release/bundle/**/*.dmg
