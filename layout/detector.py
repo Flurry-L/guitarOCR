@@ -11,19 +11,21 @@ from shared.layout_labels import mode_vote, PITCH_REGION_LABELS
 
 
 def detect_pages(
-    pages: list[str], model_dir: Path, threshold: float, include_tempo: bool = False
+    pages: list[str], model_dir: Path, threshold: float, include_tempo: bool = False,
+    *, model=None, batch_size: int = 4,
 ) -> list[list[dict] | dict]:
-    import paddle
-    from paddlex import create_model
+    if model is None:
+        import paddle
+        from paddlex import create_model
 
-    device = "gpu:0" if paddle.is_compiled_with_cuda() and paddle.device.cuda.device_count() else "cpu"
-    model = create_model(model_name="PP-DocLayoutV3", model_dir=str(model_dir), device=device)
+        device = "gpu:0" if paddle.is_compiled_with_cuda() and paddle.device.cuda.device_count() else "cpu"
+        model = create_model(model_name="PP-DocLayoutV3", model_dir=str(model_dir), device=device)
     results = []
-    for page in pages:
-        prediction = next(iter(model.predict(
-            page, batch_size=1, threshold=threshold,
+    predictions = model.predict(
+            pages, batch_size=batch_size, threshold=threshold,
             layout_shape_mode="rect", filter_overlap_boxes=False,
-        )))
+        ) if pages else []
+    for page, prediction in zip(pages, predictions, strict=True):
         boxes = deduplicate_pitch_boxes(prediction.json["res"]["boxes"])
         ordered = order_measure_boxes(boxes, threshold)
         with Image.open(page) as image:

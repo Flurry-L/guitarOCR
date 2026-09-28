@@ -2,30 +2,40 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 from pathlib import Path
 
 from shared.defaults import MODEL, INFO_ADAPTER
 
-from shared.glm_backend import GlmBackend
+from shared.glm_backend import create_backend
 
 
-def evaluate(dataset: Path, model_path: Path, adapter_path: Path, output: Path) -> dict:
+def evaluate(dataset: Path, model_path: Path, adapter_path: Path, output: Path, batch_size: int = 8) -> dict:
     rows = json.loads(dataset.read_text(encoding="utf-8"))
-    backend = GlmBackend(model_path, adapter_path, "cuda")
+    started = time.perf_counter()
+    backend = create_backend(model_path, adapter_path, "cuda")
+    loaded = time.perf_counter()
     correct = {}
     total = {}
+    generated_tokens = 0
     output.parent.mkdir(parents=True, exist_ok=True)
+    def messages(row):
+        prompt = row["messages"][0]["content"].removeprefix("<image>")
+        return [{
+            "role": "user",
+            "content": [
+                {"type": "image", "url": row["images"][0]},
+                {"type": "text", "text": prompt},
+            ],
+        }]
+    def generated():
+        for start in range(0, len(rows), batch_size):
+            batch = rows[start:start + batch_size]
+            yield from zip(batch, backend.generate_batch([messages(row) for row in batch], 128), strict=True)
+
     with output.open("w", encoding="utf-8") as handle:
-        for row in rows:
-            prompt = row["messages"][0]["content"].removeprefix("<image>")
-            messages = [{
-                "role": "user",
-                "content": [
-                    {"type": "image", "url": row["images"][0]},
-                    {"type": "text", "text": prompt},
-                ],
-            }]
-            raw, _count = backend.generate(messages, 128)
+        for row, (raw, _count) in generated():
+            generated_tokens += _count
             raw = raw.strip()
             expected = json.loads(row["messages"][1]["content"])
             try:
@@ -43,6 +53,13 @@ def evaluate(dataset: Path, model_path: Path, adapter_path: Path, output: Path) 
                 "provenance": row.get("provenance", {}),
             }, ensure_ascii=False) + "\n")
             handle.flush()
+    output.with_suffix('.runtime.json').write_text(json.dumps({
+        'samples':len(rows), 'generated_tokens':generated_tokens,
+        'startup_seconds':loaded-started, 'inference_seconds':time.perf_counter()-loaded,
+        'speculation':getattr(backend, 'metrics', []),
+    }, indent=2))
+    if hasattr(backend, 'close'):
+        backend.close()
     return {
         key: {"correct": correct[key], "total": count, "accuracy": correct[key] / count}
         for key, count in total.items()
@@ -55,8 +72,9 @@ def main() -> None:
     parser.add_argument("--model", type=Path, default=MODEL)
     parser.add_argument("--adapter", type=Path, default=INFO_ADAPTER)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument('--batch-size', type=int, default=8)
     args = parser.parse_args()
-    print(json.dumps(evaluate(args.dataset, args.model, args.adapter, args.output), indent=2))
+    print(json.dumps(evaluate(args.dataset, args.model, args.adapter, args.output, args.batch_size), indent=2))
 
 
 if __name__ == "__main__":

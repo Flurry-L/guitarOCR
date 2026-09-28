@@ -9,7 +9,7 @@ from document_info.prompts import (
 )
 from shared.instruments import INSTRUMENTS
 from shared.tuning import tuning_from_name
-from shared.glm_backend import GlmBackend
+from shared.glm_backend import create_backend
 from shared.pitch_context import explicit_transposition
 
 
@@ -71,26 +71,31 @@ def recognize_document_info(
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     if not regions:
         return {}, []
-    backend = backend or GlmBackend(model_path, adapter_path, device)
+    backend = backend or create_backend(model_path, adapter_path, device)
 
     predictions = []
     metadata: dict[str, Any] = {"source": "image_document_info_lora"}
+    messages = []
     for region in regions:
+        kind = str(region['kind'])
+        prompt = {'header': HEADER_PROMPT, 'tempo': TEMPO_PROMPT, 'staff': STAFF_PROMPT,
+                  'clef': CLEF_PROMPT, 'transposition': TRANSPOSITION_PROMPT}[kind]
+        messages.append([{'role': 'user', 'content': [
+            {'type': 'image', 'url': region['image']}, {'type': 'text', 'text': prompt},
+        ]}])
+    outputs = []
+    for offset in range(0, len(regions), 8):
         if cancelled and cancelled():
             from shared.tasks import Cancelled
 
             raise Cancelled("已取消谱面信息识别")
+        batch = messages[offset:offset + 8]
+        if hasattr(backend, 'generate_batch'):
+            outputs.extend(backend.generate_batch(batch, 128))
+        else:
+            outputs.extend(backend.generate(message, 128) for message in batch)
+    for region, (raw, _count) in zip(regions, outputs, strict=True):
         kind = str(region["kind"])
-        prompt = {"header": HEADER_PROMPT, "tempo": TEMPO_PROMPT, "staff": STAFF_PROMPT,
-                  "clef": CLEF_PROMPT, "transposition": TRANSPOSITION_PROMPT}[kind]
-        messages = [{
-            "role": "user",
-            "content": [
-                {"type": "image", "url": region["image"]},
-                {"type": "text", "text": prompt},
-            ],
-        }]
-        raw, _count = backend.generate(messages, 128)
         if cancelled and cancelled():
             from shared.tasks import Cancelled
 

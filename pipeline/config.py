@@ -22,11 +22,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=MEASURE_ADAPTER,
     )
     parser.add_argument("--device", default="cuda")
-    parser.add_argument("--max-new-tokens", type=int, default=512)
+    parser.add_argument("--max-new-tokens", type=int, default=2048)
     parser.add_argument(
         "--max-new-tokens-ceiling",
         type=int,
-        default=2048,
+        default=4096,
         help=(
             "upper bound for adaptive structural retries; unterminated optional "
             "text retries retain --max-new-tokens"
@@ -60,7 +60,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--title")
     parser.add_argument("--artist")
     parser.add_argument("--tuning")
-    parser.add_argument("--capo", type=int, default=0)
+    parser.add_argument("--capo", type=int, help='Override a printed capo position; 0 means no capo')
     parser.add_argument("--instrument", choices=("guitar", "bass", "pitched", "drums"))
     parser.add_argument("--midi-program", type=int)
     parser.add_argument("--transpose", type=int, help="Sounding minus written pitch in semitones")

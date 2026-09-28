@@ -298,6 +298,11 @@ $("export").onclick = action(async () => {
     setBusy(false);
   }
   renderExport();
+  if (!ui.state.gp5_url) {
+    notice("部分小节需要检查，请核对延音、音高和时值。");
+    go(3); openIssue();
+    return;
+  }
   notice("GP5 已生成，可以下载。");
   if (ui.state.encoding_url) {
     const report = await api(ui.state.encoding_url);

@@ -408,6 +408,9 @@ glm-ocr = [
     { name = "torchvision" },
     { name = "transformers" },
 ]
+training = [
+    { name = "liger-kernel" },
+]
 webui = [
     { name = "fastapi" },
     { name = "python-multipart" },
@@ -420,6 +423,7 @@ requires-dist = [
     { name = "fastapi", marker = "extra == 'webui'", specifier = ">=0.115,<1" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27,<1" },
     { name = "huggingface-hub", marker = "extra == 'glm-ocr'", specifier = ">=1.23,<2" },
+    { name = "liger-kernel", marker = "extra == 'training'", specifier = ">=0.8.3,<0.9" },
     { name = "numpy", specifier = ">=1.26,<3" },
     { name = "pdfplumber", specifier = ">=0.11.10,<1" },
     { name = "peft", marker = "extra == 'glm-ocr'", specifier = "==0.18.1" },
@@ -435,7 +439,7 @@ requires-dist = [
     { name = "transformers", marker = "extra == 'glm-ocr'", specifier = "==5.8.0" },
     { name = "uvicorn", marker = "extra == 'webui'", specifier = ">=0.30,<1" },
 ]
-provides-extras = ["webui", "dev", "glm-ocr"]
+provides-extras = ["webui", "dev", "glm-ocr", "training"]
 
 [[package]]
 name = "h11"
@@ -530,6 +534,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/df/bf/f7da0350254c0ed7c72f3e33cef02e048281fec7ecec5f032d4aac52226b/jinja2-3.1.6.tar.gz", hash = "sha256:0137fb05990d35f1275a587e9aee6d56da821fc83491a0fb838183be43f66d6d", size = 245115, upload-time = "2025-03-05T20:05:02.478Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/62/a1/3d680cbfd5f4b8f15abc1d571870c5fc3e594bb582bc3b64ea099db13e56/jinja2-3.1.6-py3-none-any.whl", hash = "sha256:85ece4451f492d0c13c5dd7c13a64681a86afae63a5f347908daf103ce6d2f67", size = 134899, upload-time = "2025-03-05T20:05:00.369Z" },
+]
+
+[[package]]
+name = "liger-kernel"
+version = "0.8.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "torch" },
+    { name = "triton" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/06/2f/30d51933d4f53da7c78cc972b7a24cf4292e19e249f5f0c3946e71684562/liger_kernel-0.8.3.tar.gz", hash = "sha256:a5b2a1e297da9e4e8a95b7f303d5b73d1a2fdd023b72d380164f12854551e168", size = 6756028, upload-time = "2026-09-16T18:57:26.309Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/67/9f/9d1d35fd945b9c84024a46caaf19200d1bfbe536f24f3f1ab6a38480f26c/liger_kernel-0.8.3-py3-none-any.whl", hash = "sha256:c22541c11ba0102b8989e3be3ace3fecc81737dc3f7a7e63e2c587c153eede90", size = 887607, upload-time = "2026-09-16T18:57:24.435Z" },
 ]
 
 [[package]]

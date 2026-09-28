@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from pathlib import Path
+import time
 from typing import Any, Iterator
 
 from shared.artifacts import write_json
@@ -13,6 +14,7 @@ class RunManifest:
     def __init__(self, output: Path, inputs: list[Path]) -> None:
         self.output = output.resolve()
         self.path = self.output / "manifest.json"
+        self.started = time.perf_counter()
         self.value: dict[str, Any] = {
             "schema_version": "3.0", "status": "running",
             "inputs": [str(path.resolve()) for path in inputs], "stages": {},
@@ -24,6 +26,7 @@ class RunManifest:
         output = self.output / directory
         entry = {"status": "running", "manifest": str(output / "manifest.json")}
         self.value["stages"][name] = entry
+        started = time.perf_counter()
         write_json(self.path, self.value)
         try:
             yield output
@@ -34,10 +37,12 @@ class RunManifest:
         else:
             entry["status"] = "complete"
         finally:
+            entry['seconds'] = time.perf_counter() - started
             write_json(self.path, self.value)
 
     def complete(self, **summary: Any) -> dict[str, Any]:
         self.value.update(summary)
         self.value["status"] = "needs_review" if summary.get("review_measures") else "complete"
+        self.value['seconds'] = time.perf_counter() - self.started
         write_json(self.path, self.value)
         return self.value

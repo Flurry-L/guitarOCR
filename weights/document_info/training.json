@@ -1,193 +1,63 @@
 {
+  "date": "2026-09-28",
   "base_model": "zai-org/GLM-OCR",
-  "base_revision": "ca5d8b3e287e52589e37c28385d9655ee4372f9d",
-  "hardware": "8 NVIDIA H100 80GB",
-  "source_registry_sha256": "a04c1656dd83de5558a393cdd3b6154b4b00f17acd8d76d952eb6fd9e5d81c5b",
-  "training_phases": [
-    {
-      "hyperparameters": {
-        "model_name_or_path": "tools/models/GLM-OCR",
-        "trust_remote_code": true,
-        "stage": "sft",
-        "do_train": true,
-        "finetuning_type": "lora",
-        "lora_rank": 8,
-        "lora_alpha": 16,
-        "lora_dropout": 0.05,
-        "lora_target": "all",
-        "freeze_vision_tower": false,
-        "freeze_multi_modal_projector": true,
-        "dataset_dir": "database/pitch_training/datasets/info_complete",
-        "dataset": "document_info_train",
-        "eval_dataset": "document_info_validation_quick",
-        "template": "glm_ocr",
-        "cutoff_len": 1024,
-        "preprocessing_num_workers": 16,
-        "overwrite_cache": true,
-        "output_dir": "output/instrument-training/info-pitch",
-        "logging_steps": 10,
-        "save_steps": 200,
-        "eval_steps": 200,
-        "eval_strategy": "steps",
-        "save_total_limit": 3,
-        "plot_loss": true,
-        "overwrite_output_dir": false,
-        "report_to": "none",
-        "per_device_train_batch_size": 12,
-        "per_device_eval_batch_size": 4,
-        "gradient_accumulation_steps": 1,
-        "train_sampling_strategy": "group_by_length",
-        "learning_rate": 2e-05,
-        "num_train_epochs": 2,
-        "lr_scheduler_type": "cosine",
-        "warmup_ratio": 0.03,
-        "bf16": true,
-        "gradient_checkpointing": true,
-        "adapter_name_or_path": "weights/document_info",
-        "load_best_model_at_end": true,
-        "metric_for_best_model": "eval_loss",
-        "greater_is_better": false,
-        "dataloader_num_workers": 4,
-        "ddp_timeout": 18000,
-        "seed": 20260929,
-        "data_seed": 20260929,
-        "flash_attn": "fa2",
-        "tokenized_path": "database/pitch_training/datasets/info_complete/tokenized",
-        "early_stopping_steps": 4
-      },
-      "config_sha256": "9b8d08eabd65b788c78fc40f352a1fb3d33518b986f8854055407725210b4617",
-      "data": {
-        "document_info_train": {
-          "path": "database/pitch_training/datasets/info_complete/document_info_train.json",
-          "sha256": "48df0b614eb103afce651bbbd79c262b8553e3c5ca9baf0d2b8d73cbdc7c41ce"
-        },
-        "document_info_validation_quick": {
-          "path": "database/pitch_training/datasets/info_complete/document_info_validation_quick.json",
-          "sha256": "4e579c5c735b3da7a090c654697b8093e7456b29f2cad6c6a9aa3d3702505654"
-        }
-      },
-      "initial_adapter_sha256": "5ef5b3f792acaa65095c64e1bad891b02f47b5476660112f9cc5bf106a5bbdb7",
-      "selected_step": 2140,
-      "trained_steps": 2140,
-      "trained_epochs": 2.0,
-      "best_validation_loss": 0.003424174152314663,
-      "selection_metric": "minimum validation loss"
-    },
-    {
-      "hyperparameters": {
-        "model_name_or_path": "tools/models/GLM-OCR",
-        "trust_remote_code": true,
-        "stage": "sft",
-        "do_train": true,
-        "finetuning_type": "lora",
-        "lora_rank": 8,
-        "lora_alpha": 16,
-        "lora_dropout": 0.05,
-        "lora_target": "all",
-        "freeze_vision_tower": false,
-        "freeze_multi_modal_projector": true,
-        "dataset_dir": "database/pitch_training/datasets/info_clef_corrected",
-        "dataset": "document_info_train",
-        "eval_dataset": "document_info_validation_quick",
-        "template": "glm_ocr",
-        "cutoff_len": 1024,
-        "preprocessing_num_workers": 16,
-        "overwrite_cache": true,
-        "output_dir": "output/instrument-training/info-complete",
-        "logging_steps": 10,
-        "save_steps": 200,
-        "eval_steps": 200,
-        "eval_strategy": "steps",
-        "save_total_limit": 3,
-        "plot_loss": true,
-        "overwrite_output_dir": false,
-        "report_to": "none",
-        "per_device_train_batch_size": 12,
-        "per_device_eval_batch_size": 4,
-        "gradient_accumulation_steps": 1,
-        "train_sampling_strategy": "group_by_length",
-        "learning_rate": 1e-05,
-        "num_train_epochs": 1.5,
-        "lr_scheduler_type": "cosine",
-        "warmup_ratio": 0.03,
-        "bf16": true,
-        "gradient_checkpointing": true,
-        "adapter_name_or_path": "output/instrument-training/info-pitch",
-        "load_best_model_at_end": true,
-        "metric_for_best_model": "eval_loss",
-        "greater_is_better": false,
-        "dataloader_num_workers": 4,
-        "ddp_timeout": 18000,
-        "seed": 20260929,
-        "data_seed": 20260929,
-        "flash_attn": "fa2",
-        "tokenized_path": "database/pitch_training/datasets/info_clef_corrected/tokenized",
-        "early_stopping_steps": 4
-      },
-      "config_sha256": "8d528151c1d07bc05b31b94fbc0c51423e6fadbb248181c5dd793df53a30f5c0",
-      "data": {
-        "document_info_train": {
-          "path": "database/pitch_training/datasets/info_clef_corrected/document_info_train.json",
-          "sha256": "31f2149d3d3d555d3cf586b216b054f285f7e592aa41717ab3ab953304b638d3"
-        },
-        "document_info_validation_quick": {
-          "path": "database/pitch_training/datasets/info_clef_corrected/document_info_validation_quick.json",
-          "sha256": "5ad570115b430e08c976e621832975d0bcd104adcefb1a2e83a3801a3ff96421"
-        }
-      },
-      "initial_adapter_sha256": "c31d252f1f4c82ff545747e00d24e95911e20d9af47d6abf705654ff315ca152",
-      "selected_step": 1400,
-      "trained_steps": 1605,
-      "trained_epochs": 1.5,
-      "best_validation_loss": 0.0017933945637196302,
-      "selection_metric": "minimum validation loss",
-      "notes": "TAB clef glyphs corrected from native PDF text; correction provenance is stored below."
-    }
-  ],
-  "label_audit": {
-    "clef_labels": {
-      "F4": 12099,
-      "tab": 11608,
-      "G2": 17357,
-      "percussion": 5614
-    },
-    "files": {
-      "document_info_train.json": {
-        "samples": 102689,
-        "corrected": {
-          "('F4', 'tab')": 5833,
-          "('G2', 'tab')": 5796
-        },
-        "source_sha256": "48df0b614eb103afce651bbbd79c262b8553e3c5ca9baf0d2b8d73cbdc7c41ce",
-        "sha256": "31f2149d3d3d555d3cf586b216b054f285f7e592aa41717ab3ab953304b638d3"
-      },
-      "document_info_test.json": {
-        "samples": 9911,
-        "corrected": {
-          "('F4', 'tab')": 562,
-          "('G2', 'tab')": 628
-        },
-        "source_sha256": "337a52b9f9cdd0ea1c42522f5953eddee132f78e45b5cbac052f3a1a4367035b",
-        "sha256": "931df70d7bd5755ef1fb8c00e0d2c51934b748a301e573780009a4e458abefbe"
-      },
-      "document_info_validation_quick.json": {
-        "samples": 2013,
-        "corrected": {
-          "('G2', 'tab')": 46,
-          "('F4', 'tab')": 50
-        },
-        "source_sha256": "4e579c5c735b3da7a090c654697b8093e7456b29f2cad6c6a9aa3d3702505654",
-        "sha256": "5ad570115b430e08c976e621832975d0bcd104adcefb1a2e83a3801a3ff96421"
-      },
-      "document_info_validation.json": {
-        "samples": 9900,
-        "corrected": {
-          "('G2', 'tab')": 614,
-          "('F4', 'tab')": 572
-        },
-        "source_sha256": "f47160524b2a47eb3637d0f709355b6278f23c0f45df9ecd6402535822c00184",
-        "sha256": "d08adfb9e439d52edde1e2d27a7ce52b5e9c58eb23eb65fff74c33d4fe83f432"
-      }
-    }
+  "steps": 1200,
+  "train_samples": 215597,
+  "validation_samples": 15332,
+  "mtp_steps": 1000,
+  "native_mtp_tokens": 2,
+  "selected_adapter": "output/parallel-score/info-mtp-adapter",
+  "prior_weights": "output/parallel-score/weights-before-parallel/document_info",
+  "config": {
+    "model_name_or_path": "tools/models/GLM-OCR",
+    "trust_remote_code": true,
+    "stage": "sft",
+    "do_train": true,
+    "finetuning_type": "lora",
+    "lora_rank": 8,
+    "lora_alpha": 16,
+    "lora_dropout": 0.05,
+    "lora_target": "all",
+    "freeze_vision_tower": false,
+    "freeze_multi_modal_projector": true,
+    "dataset_dir": "database/parallel_score_final/info",
+    "dataset": "document_info_train",
+    "eval_dataset": "document_info_validation",
+    "template": "glm_ocr",
+    "cutoff_len": 1024,
+    "preprocessing_num_workers": 16,
+    "overwrite_cache": true,
+    "output_dir": "output/parallel-score/info-balanced-model",
+    "logging_steps": 20,
+    "save_steps": 400,
+    "eval_steps": 400,
+    "eval_strategy": "steps",
+    "save_total_limit": 3,
+    "plot_loss": true,
+    "overwrite_output_dir": false,
+    "report_to": "none",
+    "per_device_train_batch_size": 32,
+    "per_device_eval_batch_size": 16,
+    "gradient_accumulation_steps": 1,
+    "train_sampling_strategy": "group_by_length",
+    "learning_rate": 5e-06,
+    "num_train_epochs": 1.5,
+    "lr_scheduler_type": "cosine",
+    "warmup_ratio": 0.03,
+    "bf16": true,
+    "gradient_checkpointing": true,
+    "adapter_name_or_path": "output/parallel-score/info-model",
+    "load_best_model_at_end": true,
+    "metric_for_best_model": "eval_loss",
+    "greater_is_better": false,
+    "dataloader_num_workers": 4,
+    "ddp_timeout": 18000,
+    "seed": 20260929,
+    "data_seed": 20260929,
+    "flash_attn": "fa2",
+    "tokenized_path": "database/parallel_score_final/info/tokenized_balanced",
+    "early_stopping_steps": 4,
+    "max_steps": 1200,
+    "disable_gradient_checkpointing": false
   }
 }

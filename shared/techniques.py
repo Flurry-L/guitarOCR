@@ -39,9 +39,14 @@ def visible_effect(effect: str, mode: str, *, preserve_playback: bool = False) -
 
 
 def ornament_pitches(note: dict) -> list[int]:
+    """Pitches that must fit the export slot, including default trill playback."""
     pitches = []
     for effect in note.get("effects", []):
-        if effect.startswith(("grace:", "trill:")):
+        if effect == "trill" and "pitch" in note:
+            # Notation prints no auxiliary pitch. The GP5 exporter uses the
+            # next semitone, which still needs room in its 0..30 fret range.
+            pitches.append(int(note["pitch"]) + 1)
+        elif effect.startswith(("grace:", "trill:")):
             _, pitch = ornament_position(effect.split(":")[1])
             if pitch is not None:
                 pitches.append(pitch)

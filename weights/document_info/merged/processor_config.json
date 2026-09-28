@@ -1,0 +1,63 @@
+{
+  "image_processor": {
+    "do_convert_rgb": true,
+    "do_normalize": true,
+    "do_rescale": true,
+    "do_resize": true,
+    "image_mean": [
+      0.48145466,
+      0.4578275,
+      0.40821073
+    ],
+    "image_processor_type": "Glm46VImageProcessor",
+    "image_std": [
+      0.26862954,
+      0.26130258,
+      0.27577711
+    ],
+    "merge_size": 2,
+    "patch_size": 14,
+    "resample": 3,
+    "rescale_factor": 0.00392156862745098,
+    "size": {
+      "longest_edge": 9633792,
+      "shortest_edge": 12544
+    },
+    "temporal_patch_size": 2
+  },
+  "processor_class": "Glm46VProcessor",
+  "video_processor": {
+    "do_convert_rgb": true,
+    "do_normalize": true,
+    "do_rescale": true,
+    "do_resize": true,
+    "do_sample_frames": true,
+    "fps": 2,
+    "image_mean": [
+      0.48145466,
+      0.4578275,
+      0.40821073
+    ],
+    "image_std": [
+      0.26862954,
+      0.26130258,
+      0.27577711
+    ],
+    "max_duration": 300,
+    "max_image_size": {
+      "longest_edge": 47040000
+    },
+    "merge_size": 2,
+    "num_frames": 16,
+    "patch_size": 14,
+    "resample": 3,
+    "rescale_factor": 0.00392156862745098,
+    "return_metadata": false,
+    "size": {
+      "longest_edge": 9633792,
+      "shortest_edge": 12544
+    },
+    "temporal_patch_size": 2,
+    "video_processor_type": "Glm46VVideoProcessor"
+  }
+}

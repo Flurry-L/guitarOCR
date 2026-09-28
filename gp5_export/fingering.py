@@ -9,6 +9,46 @@ from shared.techniques import ornament_pitches
 MAX_MELODIC_FRET = 30
 
 
+def notation_fingering_errors(measure, tuning):
+    """Check visible pitches and ornaments before choosing export positions."""
+    errors = []
+    for voice in measure['voices']:
+        for event in voice['events']:
+            notes = event.get('notes', [])
+            if not notes:
+                continue
+            candidates = []
+            invalid = False
+            for note in notes:
+                pitches = [int(note['pitch']), *ornament_pitches(note)]
+                strings = [i for i, open_pitch in enumerate(tuning)
+                           if 'dead' in note.get('effects', [])
+                           or all(0 <= pitch - open_pitch <= MAX_MELODIC_FRET for pitch in pitches)]
+                if not strings:
+                    errors.append(f"V{voice['voice']} at {event['start']}: pitch {note['pitch']} or its ornament cannot be played with tuning {tuning}")
+                    invalid = True
+                candidates.append(strings)
+            if invalid:
+                continue
+            # Feasibility only needs bipartite matching, not the exporter's
+            # search for the most comfortable fingering and sustained strings.
+            owners = {}
+
+            def assign(index, visited):
+                for string in candidates[index]:
+                    if string in visited:
+                        continue
+                    visited.add(string)
+                    if string not in owners or assign(owners[string], visited):
+                        owners[string] = index
+                        return True
+                return False
+
+            if not all(assign(i, set()) for i in range(len(notes))):
+                errors.append(f"V{voice['voice']} at {event['start']}: chord cannot fit distinct strings with tuning {tuning}")
+    return errors
+
+
 def _choose_position(pitch: int, tuning: list[int], used_strings: set[int]) -> tuple[int, int]:
     candidates = []
     for string, open_pitch in enumerate(tuning, start=1):
@@ -40,6 +80,10 @@ def _assign_positions(
             else:
                 fret = 0 if fret_value == "x" else int(fret_value)
             candidates.append([(0.0, string, fret)])
+            continue
+        if 'dead' in note.get('effects', []):
+            candidates.append([(float(string in reservations) * 2000, string, 0)
+                               for string in range(1, len(tuning) + 1)])
             continue
         pitch = int(note["pitch"])
         tie = "tie" in (note.get("effects") or [])

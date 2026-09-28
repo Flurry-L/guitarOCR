@@ -183,9 +183,6 @@ def apply_pitch_regions(records, predictions, *, instrument="guitar", transpose=
                         explicit_transposition.add(_staff(record))
                         pending.discard("instrument_transpose")
             elif parsed.get("kind") == "capo":
-                # Capo crops have no positive training coverage yet. Preserve
-                # the reading for inspection; export uses confirmed track metadata.
-                unresolved.add(index)
                 if parsed.get("capo") is None:
                     pending.add("capo")
                 else:

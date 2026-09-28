@@ -129,7 +129,17 @@ def run_once(config, store, workflow, stop):
                 for key, default in config.model_paths().items():
                     setattr(workflow, key, Path(pinned.get(key, default)))
                 if workflow.pool.model_path != workflow.model.resolve():
+                    workflow.pool.close()
                     workflow.pool = BackendPool(workflow.model, workflow.device)
+                from layout.persistent import LayoutBackend
+                from shared.defaults import LAYOUT_MODEL, paddle_python
+
+                detector = workflow.layout_detector
+                model_path = Path(workflow.layout_model or LAYOUT_MODEL).resolve()
+                python_path = Path(workflow.layout_python or paddle_python()).absolute()
+                if isinstance(detector, LayoutBackend) and (detector.model != model_path or detector.python != python_path):
+                    detector.close()
+                    workflow.layout_detector = LayoutBackend(model_path, python_path, workflow.device)
                 execute(config, store, workflow, job, stop)
     except Cancelled:
         # A graceful worker shutdown is a retry, an explicit user cancellation is final.
@@ -152,6 +162,10 @@ def run(config, device="cuda:0"):
     signal.signal(signal.SIGINT, lambda *_: stop.set())
     store = Store(config.database)
     workflow = make_workflow(config, device)
-    while not stop.is_set():
-        if not run_once(config, store, workflow, stop):
-            stop.wait(1)
+    try:
+        workflow.warmup()
+        while not stop.is_set():
+            if not run_once(config, store, workflow, stop):
+                stop.wait(1)
+    finally:
+        workflow.close()

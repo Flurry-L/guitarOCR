@@ -29,7 +29,7 @@ GP5 和备份保存到系统「下载」目录，重名时自动另取名称；�
 | 换端口 | `start.bat --port 7861` | `bash start.sh --port 7861` |
 | 不打开浏览器 | `start.bat --no-browser` | `bash start.sh --no-browser` |
 
-脚本安装 uv、Python 3.11 和固定版本依赖。NVIDIA 驱动 580 或更新版本可自动使用 CUDA 13，否则使用 CPU。Paddle 版面检测默认在独立 CPU 环境运行。无需提前安装 Python 或 CUDA Toolkit。Linux CPU 和 H100 环境已实测，Windows 完整模型安装仍需实机验收。
+脚本安装 uv、Python 3.11 和固定版本依赖。NVIDIA 驱动 580 或更新版本可自动使用 CUDA 13，否则使用 CPU。Linux CUDA 安装使用 GPU 版面检测及独立 vLLM 推理环境；其他安装使用 Transformers 和独立 Paddle 环境。无需提前安装 Python 或 CUDA Toolkit。本次完整流程和性能评估使用 Linux、H100。
 
 Ubuntu / Debian 系统依赖：
 
@@ -37,7 +37,7 @@ Ubuntu / Debian 系统依赖：
 sudo apt-get install -y curl ca-certificates libgl1 libglib2.0-0
 ```
 
-环境保存在 `tools/webui-venv/` 和 `tools/webui-paddle-venv/`，项目在 `output/webui/`，日志在 `output/logs/`。
+环境保存在 `tools/webui-venv/`、`tools/webui-paddle-venv/` 和 Linux CUDA 使用的 `tools/vllm-venv/`，项目在 `output/webui/`，日志在 `output/logs/`。
 
 ## 硬件要求
 
@@ -45,12 +45,12 @@ sudo apt-get install -y curl ca-certificates libgl1 libglib2.0-0
 
 | 本机方式 | 建议配置 | 主要影响因素 |
 | --- | --- | --- |
-| GPU 识别 | 至少 8 GB 显存、16 GB 内存 | GPU 算力、显存容量与带宽 |
-| CPU 识别 | 至少 16 GB 内存，适合试用 | CPU 性能、内存带宽，速度较慢 |
+| GPU 识别 | 建议 24 GB 显存、32 GB 内存 | 两套常驻 OCR 引擎、视觉缓存及小节批量 |
+| CPU 识别 | 建议 32 GB 内存，适合试用 | CPU 性能、内存带宽，速度较慢 |
 
-安装和缓存建议预留 25 GB 磁盘。以上是选配建议，消费级最低配置尚未实测。GLM-OCR 基座约 13.3 亿参数，运行时还需要视觉特征和生成缓存；大图、长小节和并发任务会增加内存需求，不足时可能加载失败或中断。
+当前源码版本建议为模型、独立推理环境和编译缓存预留 50 GB 磁盘。GLM-OCR 基座约 13.3 亿参数，两个 OCR 任务分别提供合并模型和 LoRA 适配器。大图、长小节和并发任务会增加显存与内存需求。
 
-识别耗时取决于硬件、页数、图像尺寸和音符密度，远程服务还需计算上传与排队时间。目前没有可用于估算普通电脑耗时的实测基准。
+工作台在启动时预热模型，之后同一首谱内的小节批量识别。H100 的首次加载、预热后识别和完整 PDF 结果见[模型评测](model-evaluation.md)。远程服务还需计算上传与排队时间。
 
 ## 下载源与模型路径
 

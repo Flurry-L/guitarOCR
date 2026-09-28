@@ -139,7 +139,9 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     $('reviewStatus').className=`pill ${reviewKind(m)}`;
     $('fallback').hidden=!m.needs_review;
     $('fallback').textContent=m.timing_errors?.length?`${m.timing_errors.join('；')}。请调整起点或时值。`
-      :m.fallback_reason?.length?'识别失败，当前为休止占位。请对照原图修改；原谱确为休止时可直接确认。'
+      :m.export_errors?.length?m.export_errors.join('；')
+      :m.fingering_errors?.length?'音高或和弦与当前调弦不匹配，请核对音符和调弦。'
+      :m.fallback_reason?.length?'该小节未通过识别检查，请对照原图核对音符、奏法和音高。'
       :'请对照原谱核对谱号、移调和音高，确认后即可导出。';
   }
   function updateMeasureControls() {

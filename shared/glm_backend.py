@@ -2,16 +2,34 @@
 
 from __future__ import annotations
 
-from contextlib import nullcontext
 from dataclasses import dataclass
+from collections import OrderedDict
 from pathlib import Path
 from threading import RLock
 from typing import Any
 
 
+def create_backend(model_path, adapter_path, device):
+    """Use a published accelerated model when its runtime is available."""
+    import json
+    import os
+
+    config = Path(adapter_path) / 'inference.json' if adapter_path else Path(model_path) / 'inference.json'
+    if device.startswith('cuda') and config.exists() and os.environ.get('GUITAROCR_BACKEND', 'auto') != 'transformers':
+        from shared.vllm_backend import VllmBackend, engine_python
+
+        if engine_python().is_file():
+            settings = json.loads(config.read_text())
+            merged = config.parent / settings['model']
+            if merged.is_dir():
+                return VllmBackend(merged, device, options=settings.get('options'))
+    return GlmBackend(model_path, adapter_path, device)
+
+
 class GlmBackend:
     def __init__(
-        self, model_path: Path, adapter_path: Path | None, device: str
+        self, model_path: Path, adapter_path: Path | None, device: str,
+        *, merge_adapter: bool = True,
     ) -> None:
         import torch
         from peft import PeftModel
@@ -31,7 +49,9 @@ class GlmBackend:
         )
         if adapter_path is not None:
             model = PeftModel.from_pretrained(model, adapter_path)
-        self.model = model.to(device=device, dtype=dtype).eval()
+        model = model.to(device=device, dtype=dtype).eval()
+        self.model = model.merge_and_unload().eval() if adapter_path is not None and merge_adapter else model
+        self.batch_limit = None
 
     def generate(
         self,
@@ -72,6 +92,27 @@ class GlmBackend:
 
         if not messages:
             return []
+        if self.batch_limit is not None and len(messages) > self.batch_limit:
+            limit = self.batch_limit
+            return [result for start in range(0, len(messages), limit)
+                    for result in self.generate_batch(messages[start:start + limit], max_new_tokens,
+                                                      skip_special_tokens=skip_special_tokens)]
+        try:
+            return self._generate_batch(messages, max_new_tokens, skip_special_tokens)
+        except torch.cuda.OutOfMemoryError:
+            if len(messages) == 1:
+                raise
+            self.batch_limit = max(1, len(messages) // 2)
+        # Leave the exception frame before freeing the failed generation's KV cache.
+        import gc
+
+        gc.collect()
+        torch.cuda.empty_cache()
+        return self.generate_batch(messages, max_new_tokens, skip_special_tokens=skip_special_tokens)
+
+    def _generate_batch(self, messages, max_new_tokens, skip_special_tokens):
+        import torch
+
         inputs = self.processor.apply_chat_template(
             messages, tokenize=True, add_generation_prompt=True,
             return_dict=True, return_tensors="pt",
@@ -92,49 +133,72 @@ class GlmBackend:
 
 
 class BackendPool:
-    """One lazy base model; lock adapter selection and generation together."""
+    """Cache fixed, merged task models and serialize GPU generation."""
 
     def __init__(self, model_path: Path, device: str):
         self.model_path = model_path.resolve()
         self.device = device
         self.lock = RLock()
         self.backend = None
-        self.adapters = {}
+        self.backends = OrderedDict()
 
     def adapter(self, path: Path | None):
         path = path.resolve() if path is not None else None
         return _AdapterBackend(self, path)
 
-    def _load_adapter(self, path: Path) -> None:
-        if path in self.adapters:
-            return
-        name = f"adapter_{len(self.adapters)}"
-        if self.adapters:
-            self.backend.model.load_adapter(path, adapter_name=name)
-        else:
-            from peft import PeftModel
+    def prepare(self, paths):
+        """Load the two resident task engines concurrently before a score arrives."""
+        from concurrent.futures import ThreadPoolExecutor
 
-            self.backend.model = PeftModel.from_pretrained(
-                self.backend.model, path, adapter_name=name
-            ).eval()
-        self.adapters[path] = name
-
-    def _generate(self, path: Path | None, *args, **kwargs):
+        paths = list(dict.fromkeys(Path(p).resolve() if p is not None else None for p in paths))
+        if len(paths) > 2:
+            raise ValueError('A recognition workspace has two resident task models')
         with self.lock:
-            if self.backend is None:
-                self.backend = GlmBackend(self.model_path, path, self.device)
-                if path is not None:
-                    self.adapters[path] = "default"
-            if path is not None:
-                self._load_adapter(path)
-                self.backend.model.set_adapter(self.adapters[path])
-            context = (
-                self.backend.model.disable_adapter()
-                if path is None and self.adapters
-                else nullcontext()
-            )
-            with context:
-                return self.backend.generate(*args, **kwargs)
+            missing = [p for p in paths if p not in self.backends]
+            for path in list(self.backends):
+                if path not in paths:
+                    previous = self.backends.pop(path)
+                    if self.backend is previous:
+                        self.backend = None
+                    if hasattr(previous, 'close'):
+                        previous.close()
+            failures = []
+            with ThreadPoolExecutor(max_workers=2) as workers:
+                futures = [(path, workers.submit(create_backend, self.model_path, path, self.device)) for path in missing]
+                for path, future in futures:
+                    try:
+                        self.backends[path] = future.result()
+                    except Exception as error:
+                        failures.append(error)
+            if failures:
+                raise failures[0]
+
+    def _get_backend(self, path: Path | None):
+        with self.lock:
+            if path not in self.backends:
+                while len(self.backends) >= 2:
+                    _, previous = self.backends.popitem(last=False)
+                    if self.backend is previous:
+                        self.backend = None
+                    if hasattr(previous, 'close'):
+                        previous.close()
+                    del previous
+                self.backends[path] = create_backend(self.model_path, path, self.device)
+            self.backends.move_to_end(path)
+            self.backend = self.backends[path]
+            return self.backend
+
+    def _generate(self, path: Path | None, method: str, *args, **kwargs):
+        with self.lock:
+            return getattr(self._get_backend(path), method)(*args, **kwargs)
+
+    def close(self):
+        with self.lock:
+            self.backend = None
+            for backend in self.backends.values():
+                if hasattr(backend, 'close'):
+                    backend.close()
+            self.backends.clear()
 
 
 @dataclass(frozen=True)
@@ -142,5 +206,13 @@ class _AdapterBackend:
     pool: BackendPool
     path: Path | None
 
+    @property
+    def supports_ragged_batch(self):
+        with self.pool.lock:
+            return getattr(self.pool._get_backend(self.path), 'supports_ragged_batch', False)
+
     def generate(self, *args, **kwargs):
-        return self.pool._generate(self.path, *args, **kwargs)
+        return self.pool._generate(self.path, "generate", *args, **kwargs)
+
+    def generate_batch(self, *args, **kwargs):
+        return self.pool._generate(self.path, "generate_batch", *args, **kwargs)

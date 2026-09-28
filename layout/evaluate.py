@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 from collections import defaultdict
-from hashlib import sha256
 from importlib.metadata import version
 import json
 from pathlib import Path
@@ -275,11 +274,11 @@ def evaluate(
         "model_provides_notation_type": bool(typed_detections) or any(row["predicted_mode"] for row in counts),
         "threshold": threshold,
         "model_dir": str(model_dir.resolve()),
-        "model_sha256": {
-            path.name: sha256(path.read_bytes()).hexdigest()
+        "model_files": {
+            path.name: path.stat().st_size
             for path in sorted(model_dir.glob("inference.*"))
         },
-        "annotations_sha256": sha256(annotation_file.read_bytes()).hexdigest(),
+        "annotations": str(annotation_file.resolve()),
         "versions": {name: version(name) for name in ("paddlex", "pycocotools")},
     }
     output.parent.mkdir(parents=True, exist_ok=True)

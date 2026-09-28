@@ -62,11 +62,18 @@ def correct_measure(source, number, target=None, measure=None, reviewed=False):
         raise ValueError(correction_message(errors))
     if timing_errors := gp5_timing_errors(target):
         raise ValueError("；".join(timing_errors) + "，请调整起点或时值")
+    if mode == 'notation' and source.get('instrument', 'guitar') in {'guitar', 'bass'}:
+        from gp5_export.fingering import notation_fingering_errors
+
+        if fingering_errors := notation_fingering_errors(parsed, source['tuning_used']):
+            raise ValueError('音高或和弦超出当前调弦的可演奏范围，请调整音符或调弦：' + '; '.join(fingering_errors[:3]))
     changed = target != row["target"]
     row.update(
         target=target,
         manually_edited=changed or row.get("manually_edited", False),
         timing_errors=[],
+        fingering_errors=[],
+        export_errors=[],
     )
     if reviewed:
         row["needs_review"] = False

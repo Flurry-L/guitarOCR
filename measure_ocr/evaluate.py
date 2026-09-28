@@ -307,7 +307,7 @@ def run_inference(args: argparse.Namespace) -> None:
             print(f"[{index}/{len(rows)}] {row['id']}", flush=True)
 
 
-def evaluate(predictions: Path, metrics_path: Path) -> dict[str, Any]:
+def evaluate(predictions: Path, metrics_path: Path | None) -> dict[str, Any]:
     metrics = MeasureSequenceMetrics()
     by_mode: dict[str, MeasureSequenceMetrics] = {}
     raw_metrics = MeasureSequenceMetrics()
@@ -325,20 +325,16 @@ def evaluate(predictions: Path, metrics_path: Path) -> dict[str, Any]:
         conditions.add(row.get("context_source", "gold"))
         signatures.add(row.get("run_signature"))
         review += int(row.get("needs_review", bool(row.get("constraint_errors"))))
-        metrics.update(
+        sample = MeasureSequenceMetrics()
+        sample.update(
             row["expected"],
             row["predicted"],
             row["mode"],
             tuning=row.get("tuning"),
             string_count=row.get("string_count"),
         )
-        by_mode.setdefault(row["mode"], MeasureSequenceMetrics()).update(
-            row["expected"],
-            row["predicted"],
-            row["mode"],
-            tuning=row.get("tuning"),
-            string_count=row.get("string_count"),
-        )
+        metrics.merge(sample)
+        by_mode.setdefault(row["mode"], MeasureSequenceMetrics()).merge(sample)
         raw_prediction = row.get("raw_prediction", row["predicted"])
         instrument = row.get("instrument", "guitar")
         groups = [by_instrument.setdefault(instrument, MeasureSequenceMetrics())]
@@ -355,12 +351,16 @@ def evaluate(predictions: Path, metrics_path: Path) -> dict[str, Any]:
             marking = "present" if pitch.get("octave_spans") else "absent"
             groups.append(by_octave_marking.setdefault(marking, MeasureSequenceMetrics()))
         for accumulator in groups:
-            accumulator.update(row["expected"], row["predicted"], row["mode"], tuning=row.get("tuning"), string_count=row.get("string_count"))
-        for accumulator in (raw_metrics, raw_by_mode.setdefault(row["mode"], MeasureSequenceMetrics())):
-            accumulator.update(
+            accumulator.merge(sample)
+        raw_sample = sample
+        if raw_prediction != row["predicted"]:
+            raw_sample = MeasureSequenceMetrics()
+            raw_sample.update(
                 row["expected"], raw_prediction, row["mode"],
                 tuning=row.get("tuning"), string_count=row.get("string_count"),
             )
+        for accumulator in (raw_metrics, raw_by_mode.setdefault(row["mode"], MeasureSequenceMetrics())):
+            accumulator.merge(raw_sample)
     if len(conditions) > 1 or len(signatures) > 1:
         raise ValueError("Evaluate each model/run and context condition separately")
     result = {
@@ -381,7 +381,8 @@ def evaluate(predictions: Path, metrics_path: Path) -> dict[str, Any]:
         "raw_overall": raw_metrics.result(),
         "raw_by_mode": {mode: value.result() for mode, value in sorted(raw_by_mode.items())},
     }
-    write_json(metrics_path, result)
+    if metrics_path is not None:
+        write_json(metrics_path, result)
     return result
 
 

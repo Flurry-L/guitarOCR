@@ -35,6 +35,7 @@ def inspect(
     if not core:
         packages.update(
             torch="torch",
+            torchvision="torchvision",
             transformers="transformers",
             peft="peft",
             accelerate="accelerate",

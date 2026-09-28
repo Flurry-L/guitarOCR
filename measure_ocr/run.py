@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-from hashlib import sha256
 import json
 from pathlib import Path
 from measure_ocr.result import save_recognition
@@ -24,8 +23,8 @@ def run(
     model: Path = MODEL,
     adapter: Path | None = MEASURE_ADAPTER,
     device: str = "cuda",
-    max_new_tokens: int = 512,
-    max_new_tokens_ceiling: int = 2048,
+    max_new_tokens: int = 2048,
+    max_new_tokens_ceiling: int = 4096,
     maximum_attempts: int = 3,
     resume: bool = False,
     backend=None,
@@ -48,45 +47,53 @@ def run(
         raise ValueError("Document information belongs to a different layout result")
     records = source["records"]
     contexts = {row["measure_number"]: row for row in information.get("measure_pitch_contexts", [])}
+    capabilities_path = (adapter or model) / 'capabilities.json'
+    capabilities = json.loads(capabilities_path.read_text()) if capabilities_path and capabilities_path.exists() else {}
     for row in records:
         row.update(contexts.get(row["measure_number"], {}))
+        row['fingering_tunings'] = information.get('tuning_candidates') or [information['tuning_used']]
         if row.get("pitch_context"):
             row["pitch_context"] = {**row["pitch_context"], "capo": information.get("capo", 0)}
         if (information.get("capo") and information.get("instrument", "guitar") in {"guitar", "bass"}
-                and (row.get("mode") or source["mode"]) != "tab"):
-            # The current training prompt does not encode the independent
-            # capo offset. Require a check before exporting notation pitches.
+                and (row.get("mode") or source["mode"]) != "tab" and not capabilities.get('capo_pitch')):
             row["pitch_needs_review"] = True
     output = output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     log = output / "recognition.jsonl"
     # Reusing accepted measures requires the same crops, metadata, models and options.
-    context = sha256(layout.read_bytes() + info.read_bytes())
-    for row in records:
-        context.update(Path(row["image"]).read_bytes())
+    def identity(path):
+        path = Path(path).resolve()
+        stat = path.stat()
+        return [str(path), stat.st_size, stat.st_mtime_ns]
+
+    context = {
+        'layout': identity(layout), 'info': identity(info),
+        'images': [identity(row['image']) for row in records],
+        'models': [], 'options': [device, max_new_tokens, max_new_tokens_ceiling, maximum_attempts],
+        'initial': initial_records, 'retry': retry_measures,
+    }
     for path in (model, adapter):
         if path is not None:
-            context.update(str(path.resolve()).encode())
+            artifacts = []
             for name in (
                 "config.json",
                 "adapter_config.json",
                 "capabilities.json",
                 "adapter_model.safetensors",
                 "model.safetensors",
+                "inference.json",
             ):
                 artifact = path / name
                 if artifact.is_file():
-                    stat = artifact.stat()
-                    context.update(f"{name}:{stat.st_size}:{stat.st_mtime_ns}".encode())
-    context.update(
-        f"{device}:{max_new_tokens}:{max_new_tokens_ceiling}:{maximum_attempts}".encode()
-    )
-    context.update(
-        json.dumps(
-            {"initial": initial_records, "retry": retry_measures}, sort_keys=True
-        ).encode()
-    )
-    signature = context.hexdigest()
+                    artifacts.append(identity(artifact))
+            inference_config = path / 'inference.json'
+            if inference_config.is_file():
+                settings = json.loads(inference_config.read_text())
+                merged = path / settings['model']
+                artifacts.extend(identity(p) for p in sorted(merged.glob('*.safetensors')))
+            context['models'].append([str(path.resolve()), artifacts])
+    if capabilities.get('state_reader'):
+        context['state_reader'] = identity(capabilities_path.parent / capabilities['state_reader'])
     signature_path = output / "recognition_context.json"
     if resume and log.is_file():
         previous = (
@@ -94,13 +101,13 @@ def run(
             if signature_path.is_file()
             else {}
         )
-        if previous.get("signature") != signature:
+        if previous != context:
             raise ValueError(
                 "Recognition inputs or options changed; use a new output or omit --resume"
             )
     if not resume:
         log.unlink(missing_ok=True)
-    write_json(signature_path, {"signature": signature})
+    write_json(signature_path, context)
     targets = recognize_crops(
         records,
         source["mode"],
@@ -132,6 +139,21 @@ def run(
         row["timing_errors"] = gp5_timing_errors(target)
         if row["timing_errors"]:
             row["needs_review"] = True
+    if source['mode'] == 'notation' and information.get('instrument') in {'guitar', 'bass'}:
+        from gp5_export.fingering import notation_fingering_errors
+
+        candidates = information.get('tuning_candidates') or [information['tuning_used']]
+        parsed = [parse_measure_target(row['target']) for row in records]
+        evaluations = [[notation_fingering_errors(measure, tuning) for measure in parsed] for tuning in candidates]
+        selected = min(range(len(candidates)), key=lambda i: (sum(bool(e) for e in evaluations[i]), i))
+        information['tuning_used'] = candidates[selected]
+        if selected:
+            metadata['export_tuning_inferred_from_pitch_range'] = candidates[selected]
+        for row, errors in zip(records, evaluations[selected], strict=True):
+            row['tuning'] = information['tuning_used']
+            row['fingering_errors'] = errors
+            if errors:
+                row['needs_review'] = True
     return save_recognition(output, dict(
         layout=str(layout.resolve()),
         info=str(info.resolve()),
@@ -160,8 +182,8 @@ def main() -> None:
     parser.add_argument("--model", type=Path, default=MODEL)
     parser.add_argument("--adapter", type=Path, default=MEASURE_ADAPTER)
     parser.add_argument("--device", default="cuda")
-    parser.add_argument("--max-new-tokens", type=int, default=512)
-    parser.add_argument("--max-new-tokens-ceiling", type=int, default=2048)
+    parser.add_argument("--max-new-tokens", type=int, default=2048)
+    parser.add_argument("--max-new-tokens-ceiling", type=int, default=4096)
     parser.add_argument("--maximum-attempts", type=int, default=3)
     parser.add_argument("--resume", action="store_true")
     print(run(**vars(parser.parse_args())))

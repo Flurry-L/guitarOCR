@@ -1,1141 +1,163 @@
 {
+  "date": "2026-09-28",
+  "samples": 15323,
+  "fields": {
+    "title": {
+      "correct": 1761,
+      "total": 1767,
+      "accuracy": 0.9966044142614601
+    },
+    "artist": {
+      "correct": 1765,
+      "total": 1767,
+      "accuracy": 0.9988681380871534
+    },
+    "tuning_name": {
+      "correct": 1767,
+      "total": 1767,
+      "accuracy": 1.0
+    },
+    "tempo_quarter": {
+      "correct": 2096,
+      "total": 2096,
+      "accuracy": 1.0
+    },
+    "instrument": {
+      "correct": 1124,
+      "total": 1124,
+      "accuracy": 1.0
+    },
+    "string_count": {
+      "correct": 1123,
+      "total": 1124,
+      "accuracy": 0.9991103202846975
+    },
+    "clef": {
+      "correct": 8536,
+      "total": 8536,
+      "accuracy": 1.0
+    },
+    "clef_octave": {
+      "correct": 8536,
+      "total": 8536,
+      "accuracy": 1.0
+    },
+    "kind": {
+      "correct": 1800,
+      "total": 1800,
+      "accuracy": 1.0
+    },
+    "semitones": {
+      "correct": 1785,
+      "total": 1800,
+      "accuracy": 0.9916666666666667
+    },
+    "capo": {
+      "correct": 1800,
+      "total": 1800,
+      "accuracy": 1.0
+    },
+    "text": {
+      "correct": 1799,
+      "total": 1800,
+      "accuracy": 0.9994444444444445
+    }
+  },
+  "runtime": {
+    "samples": 15323,
+    "generated_tokens": 264208,
+    "startup_seconds": 28.753899808973074,
+    "inference_seconds": 142.03942421637475,
+    "speculation": [
+      {
+        "name": "vllm:spec_decode_num_drafts",
+        "value": 86512,
+        "values": null
+      },
+      {
+        "name": "vllm:spec_decode_num_draft_tokens",
+        "value": 173024,
+        "values": null
+      },
+      {
+        "name": "vllm:spec_decode_num_accepted_tokens",
+        "value": 170365,
+        "values": null
+      },
+      {
+        "name": "vllm:spec_decode_num_accepted_tokens_per_pos",
+        "value": null,
+        "values": [
+          86425,
+          83940
+        ]
+      }
+    ]
+  },
   "selection": {
-    "selected_at": "2026-09-27T07:04:55.644312+00:00",
-    "path": "output/instrument-training/info-complete",
-    "reason": "All 4732 clefs correct on corrected native validation; instruction semitones 1077/1081, instrument and string counts 1106/1108; paired original fields do not regress.",
-    "paired_old_fields": {
-      "samples": 2414,
-      "released": {
-        "artist": {
-          "correct": 1062,
-          "total": 1086,
-          "accuracy": 0.9779005524861878
-        },
-        "tempo_quarter": {
-          "correct": 1328,
-          "total": 1328,
-          "accuracy": 1.0
-        },
-        "title": {
-          "correct": 1071,
-          "total": 1086,
-          "accuracy": 0.9861878453038674
-        },
-        "tuning_name": {
-          "correct": 1083,
-          "total": 1086,
-          "accuracy": 0.9972375690607734
-        }
-      },
-      "selected": {
-        "artist": {
-          "correct": 1070,
-          "total": 1086,
-          "accuracy": 0.9852670349907919
-        },
-        "tempo_quarter": {
-          "correct": 1328,
-          "total": 1328,
-          "accuracy": 1.0
-        },
-        "title": {
-          "correct": 1077,
-          "total": 1086,
-          "accuracy": 0.9917127071823204
-        },
-        "tuning_name": {
-          "correct": 1086,
-          "total": 1086,
-          "accuracy": 1.0
-        }
-      }
-    },
-    "files": {
-      "adapter_model.safetensors": "f8d668cea7aadbf73919ce2569929b4186b89791a6fb7cb8a5205ac15223bc37",
-      "adapter_config.json": "029e0ab0118292ab157ac527eee7f6839405861344c17196c9bfbc19b85f796f",
-      "capabilities.json": "ee9f4f3f52bf00a1dec6ce80afe448b10ddac1666fb1e0abcbe8f9240de01aee"
-    }
-  },
-  "paired_old_fields_validation": {
-    "samples": 2414,
-    "released": {
-      "both": {
-        "artist": {
-          "correct": 345,
-          "total": 353,
-          "accuracy": 0.9773371104815864
-        },
-        "tempo_quarter": {
-          "correct": 373,
-          "total": 373,
-          "accuracy": 1.0
-        },
-        "title": {
-          "correct": 348,
-          "total": 353,
-          "accuracy": 0.9858356940509915
-        },
-        "tuning_name": {
-          "correct": 352,
-          "total": 353,
-          "accuracy": 0.9971671388101983
-        }
-      },
-      "notation": {
-        "artist": {
-          "correct": 372,
-          "total": 380,
-          "accuracy": 0.9789473684210527
-        },
-        "tempo_quarter": {
-          "correct": 582,
-          "total": 582,
-          "accuracy": 1.0
-        },
-        "title": {
-          "correct": 375,
-          "total": 380,
-          "accuracy": 0.9868421052631579
-        },
-        "tuning_name": {
-          "correct": 379,
-          "total": 380,
-          "accuracy": 0.9973684210526316
-        }
-      },
-      "overall": {
-        "artist": {
-          "correct": 1062,
-          "total": 1086,
-          "accuracy": 0.9779005524861878
-        },
-        "tempo_quarter": {
-          "correct": 1328,
-          "total": 1328,
-          "accuracy": 1.0
-        },
-        "title": {
-          "correct": 1071,
-          "total": 1086,
-          "accuracy": 0.9861878453038674
-        },
-        "tuning_name": {
-          "correct": 1083,
-          "total": 1086,
-          "accuracy": 0.9972375690607734
-        }
-      },
-      "tab": {
-        "artist": {
-          "correct": 345,
-          "total": 353,
-          "accuracy": 0.9773371104815864
-        },
-        "tempo_quarter": {
-          "correct": 373,
-          "total": 373,
-          "accuracy": 1.0
-        },
-        "title": {
-          "correct": 348,
-          "total": 353,
-          "accuracy": 0.9858356940509915
-        },
-        "tuning_name": {
-          "correct": 352,
-          "total": 353,
-          "accuracy": 0.9971671388101983
-        }
-      }
-    },
-    "selected": {
-      "both": {
-        "artist": {
-          "correct": 348,
-          "total": 353,
-          "accuracy": 0.9858356940509915
-        },
-        "tempo_quarter": {
-          "correct": 373,
-          "total": 373,
-          "accuracy": 1.0
-        },
-        "title": {
-          "correct": 350,
-          "total": 353,
-          "accuracy": 0.9915014164305949
-        },
-        "tuning_name": {
-          "correct": 353,
-          "total": 353,
-          "accuracy": 1.0
-        }
-      },
-      "notation": {
-        "artist": {
-          "correct": 375,
-          "total": 380,
-          "accuracy": 0.9868421052631579
-        },
-        "tempo_quarter": {
-          "correct": 582,
-          "total": 582,
-          "accuracy": 1.0
-        },
-        "title": {
-          "correct": 377,
-          "total": 380,
-          "accuracy": 0.9921052631578947
-        },
-        "tuning_name": {
-          "correct": 380,
-          "total": 380,
-          "accuracy": 1.0
-        }
-      },
-      "overall": {
-        "artist": {
-          "correct": 1070,
-          "total": 1086,
-          "accuracy": 0.9852670349907919
-        },
-        "tempo_quarter": {
-          "correct": 1328,
-          "total": 1328,
-          "accuracy": 1.0
-        },
-        "title": {
-          "correct": 1077,
-          "total": 1086,
-          "accuracy": 0.9917127071823204
-        },
-        "tuning_name": {
-          "correct": 1086,
-          "total": 1086,
-          "accuracy": 1.0
-        }
-      },
-      "tab": {
-        "artist": {
-          "correct": 347,
-          "total": 353,
-          "accuracy": 0.9830028328611898
-        },
-        "tempo_quarter": {
-          "correct": 373,
-          "total": 373,
-          "accuracy": 1.0
-        },
-        "title": {
-          "correct": 350,
-          "total": 353,
-          "accuracy": 0.9915014164305949
-        },
-        "tuning_name": {
-          "correct": 353,
-          "total": 353,
-          "accuracy": 1.0
-        }
-      }
-    }
-  },
-  "scope": "Exact field match on native crops and simulated augmentations. TAB clefs have their own label. Same song-family split as the other tasks.",
-  "validation": {
-    "both": {
-      "artist": {
-        "correct": 424,
-        "total": 433,
-        "accuracy": 0.9792147806004619
-      },
-      "capo": {
-        "correct": 407,
-        "total": 407,
-        "accuracy": 1.0
-      },
-      "clef": {
-        "correct": 2372,
-        "total": 2372,
-        "accuracy": 1.0
-      },
-      "clef_octave": {
-        "correct": 2372,
-        "total": 2372,
-        "accuracy": 1.0
-      },
-      "instrument": {
-        "correct": 298,
-        "total": 299,
-        "accuracy": 0.9966555183946488
-      },
-      "kind": {
-        "correct": 406,
-        "total": 407,
-        "accuracy": 0.9975429975429976
-      },
-      "semitones": {
-        "correct": 407,
-        "total": 407,
-        "accuracy": 1.0
-      },
-      "string_count": {
-        "correct": 297,
-        "total": 299,
-        "accuracy": 0.9933110367892977
-      },
-      "tempo_quarter": {
-        "correct": 453,
-        "total": 453,
-        "accuracy": 1.0
-      },
-      "text": {
-        "correct": 406,
-        "total": 407,
-        "accuracy": 0.9975429975429976
-      },
+    "adapter": "output/parallel-score/info-mtp-adapter",
+    "model": "output/parallel-score/info-mtp-merged",
+    "validation": {
       "title": {
-        "correct": 430,
-        "total": 433,
-        "accuracy": 0.9930715935334873
+        "correct": 1737,
+        "total": 1746,
+        "accuracy": 0.9948453608247423
+      },
+      "artist": {
+        "correct": 1717,
+        "total": 1746,
+        "accuracy": 0.9833906071019473
       },
       "tuning_name": {
-        "correct": 433,
-        "total": 433,
-        "accuracy": 1.0
-      }
-    },
-    "clef/F4": {
-      "clef": {
-        "correct": 1200,
-        "total": 1200,
-        "accuracy": 1.0
-      },
-      "clef_octave": {
-        "correct": 1200,
-        "total": 1200,
-        "accuracy": 1.0
-      }
-    },
-    "clef/G2": {
-      "clef": {
-        "correct": 1864,
-        "total": 1864,
-        "accuracy": 1.0
-      },
-      "clef_octave": {
-        "correct": 1864,
-        "total": 1864,
-        "accuracy": 1.0
-      }
-    },
-    "clef/percussion": {
-      "clef": {
-        "correct": 482,
-        "total": 482,
-        "accuracy": 1.0
-      },
-      "clef_octave": {
-        "correct": 482,
-        "total": 482,
-        "accuracy": 1.0
-      }
-    },
-    "clef/tab": {
-      "clef": {
-        "correct": 1186,
-        "total": 1186,
-        "accuracy": 1.0
-      },
-      "clef_octave": {
-        "correct": 1186,
-        "total": 1186,
-        "accuracy": 1.0
-      }
-    },
-    "instruction/instrument": {
-      "capo": {
-        "correct": 153,
-        "total": 153,
-        "accuracy": 1.0
-      },
-      "kind": {
-        "correct": 150,
-        "total": 153,
-        "accuracy": 0.9803921568627451
-      },
-      "semitones": {
-        "correct": 149,
-        "total": 153,
-        "accuracy": 0.9738562091503268
-      },
-      "text": {
-        "correct": 150,
-        "total": 153,
-        "accuracy": 0.9803921568627451
-      }
-    },
-    "instruction/ottava": {
-      "capo": {
-        "correct": 928,
-        "total": 928,
-        "accuracy": 1.0
-      },
-      "kind": {
-        "correct": 928,
-        "total": 928,
-        "accuracy": 1.0
-      },
-      "semitones": {
-        "correct": 928,
-        "total": 928,
-        "accuracy": 1.0
-      },
-      "text": {
-        "correct": 928,
-        "total": 928,
-        "accuracy": 1.0
-      }
-    },
-    "instrument/None": {
-      "instrument": {
-        "correct": 5,
-        "total": 6,
-        "accuracy": 0.8333333333333334
-      },
-      "string_count": {
-        "correct": 6,
-        "total": 6,
-        "accuracy": 1.0
-      }
-    },
-    "instrument/bass": {
-      "instrument": {
-        "correct": 286,
-        "total": 286,
-        "accuracy": 1.0
-      },
-      "string_count": {
-        "correct": 286,
-        "total": 286,
-        "accuracy": 1.0
-      }
-    },
-    "instrument/drums": {
-      "instrument": {
-        "correct": 51,
-        "total": 51,
-        "accuracy": 1.0
-      },
-      "string_count": {
-        "correct": 51,
-        "total": 51,
-        "accuracy": 1.0
-      }
-    },
-    "instrument/guitar": {
-      "instrument": {
-        "correct": 604,
-        "total": 604,
-        "accuracy": 1.0
-      },
-      "string_count": {
-        "correct": 602,
-        "total": 604,
-        "accuracy": 0.9966887417218543
-      }
-    },
-    "instrument/pitched": {
-      "instrument": {
-        "correct": 160,
-        "total": 161,
-        "accuracy": 0.9937888198757764
-      },
-      "string_count": {
-        "correct": 161,
-        "total": 161,
-        "accuracy": 1.0
-      }
-    },
-    "notation": {
-      "artist": {
-        "correct": 451,
-        "total": 460,
-        "accuracy": 0.9804347826086957
-      },
-      "capo": {
-        "correct": 634,
-        "total": 634,
-        "accuracy": 1.0
-      },
-      "clef": {
-        "correct": 2360,
-        "total": 2360,
-        "accuracy": 1.0
-      },
-      "clef_octave": {
-        "correct": 2360,
-        "total": 2360,
-        "accuracy": 1.0
-      },
-      "instrument": {
-        "correct": 509,
-        "total": 510,
-        "accuracy": 0.9980392156862745
-      },
-      "kind": {
-        "correct": 633,
-        "total": 634,
-        "accuracy": 0.998422712933754
-      },
-      "semitones": {
-        "correct": 630,
-        "total": 634,
-        "accuracy": 0.9936908517350158
-      },
-      "string_count": {
-        "correct": 510,
-        "total": 510,
+        "correct": 1746,
+        "total": 1746,
         "accuracy": 1.0
       },
       "tempo_quarter": {
-        "correct": 747,
-        "total": 747,
-        "accuracy": 1.0
-      },
-      "text": {
-        "correct": 633,
-        "total": 634,
-        "accuracy": 0.998422712933754
-      },
-      "title": {
-        "correct": 457,
-        "total": 460,
-        "accuracy": 0.9934782608695653
-      },
-      "tuning_name": {
-        "correct": 460,
-        "total": 460,
-        "accuracy": 1.0
-      }
-    },
-    "overall": {
-      "artist": {
-        "correct": 1298,
-        "total": 1326,
-        "accuracy": 0.9788838612368024
-      },
-      "capo": {
-        "correct": 1081,
-        "total": 1081,
-        "accuracy": 1.0
-      },
-      "clef": {
-        "correct": 4732,
-        "total": 4732,
-        "accuracy": 1.0
-      },
-      "clef_octave": {
-        "correct": 4732,
-        "total": 4732,
+        "correct": 2132,
+        "total": 2132,
         "accuracy": 1.0
       },
       "instrument": {
-        "correct": 1106,
+        "correct": 1107,
         "total": 1108,
-        "accuracy": 0.9981949458483754
-      },
-      "kind": {
-        "correct": 1078,
-        "total": 1081,
-        "accuracy": 0.9972247918593895
-      },
-      "semitones": {
-        "correct": 1077,
-        "total": 1081,
-        "accuracy": 0.996299722479186
+        "accuracy": 0.9990974729241877
       },
       "string_count": {
-        "correct": 1106,
+        "correct": 1107,
         "total": 1108,
-        "accuracy": 0.9981949458483754
+        "accuracy": 0.9990974729241877
       },
-      "tempo_quarter": {
-        "correct": 1653,
-        "total": 1653,
+      "clef": {
+        "correct": 8564,
+        "total": 8564,
         "accuracy": 1.0
       },
-      "text": {
-        "correct": 1078,
-        "total": 1081,
-        "accuracy": 0.9972247918593895
-      },
-      "title": {
-        "correct": 1317,
-        "total": 1326,
-        "accuracy": 0.9932126696832579
-      },
-      "tuning_name": {
-        "correct": 1326,
-        "total": 1326,
-        "accuracy": 1.0
-      }
-    },
-    "tab": {
-      "artist": {
-        "correct": 423,
-        "total": 433,
-        "accuracy": 0.976905311778291
-      },
-      "capo": {
-        "correct": 40,
-        "total": 40,
-        "accuracy": 1.0
-      },
-      "instrument": {
-        "correct": 299,
-        "total": 299,
+      "clef_octave": {
+        "correct": 8564,
+        "total": 8564,
         "accuracy": 1.0
       },
       "kind": {
-        "correct": 39,
-        "total": 40,
-        "accuracy": 0.975
+        "correct": 1779,
+        "total": 1782,
+        "accuracy": 0.9983164983164983
       },
       "semitones": {
-        "correct": 40,
-        "total": 40,
-        "accuracy": 1.0
+        "correct": 1771,
+        "total": 1782,
+        "accuracy": 0.9938271604938271
       },
-      "string_count": {
-        "correct": 299,
-        "total": 299,
-        "accuracy": 1.0
-      },
-      "tempo_quarter": {
-        "correct": 453,
-        "total": 453,
+      "capo": {
+        "correct": 1782,
+        "total": 1782,
         "accuracy": 1.0
       },
       "text": {
-        "correct": 39,
-        "total": 40,
-        "accuracy": 0.975
-      },
-      "title": {
-        "correct": 430,
-        "total": 433,
-        "accuracy": 0.9930715935334873
-      },
-      "tuning_name": {
-        "correct": 433,
-        "total": 433,
-        "accuracy": 1.0
-      }
-    },
-    "artifacts": {
-      "dataset_sha256": "d08adfb9e439d52edde1e2d27a7ce52b5e9c58eb23eb65fff74c33d4fe83f432",
-      "adapter_sha256": {
-        "adapter_config.json": "029e0ab0118292ab157ac527eee7f6839405861344c17196c9bfbc19b85f796f",
-        "adapter_model.safetensors": "f8d668cea7aadbf73919ce2569929b4186b89791a6fb7cb8a5205ac15223bc37",
-        "capabilities.json": "ee9f4f3f52bf00a1dec6ce80afe448b10ddac1666fb1e0abcbe8f9240de01aee"
+        "correct": 1779,
+        "total": 1782,
+        "accuracy": 0.9983164983164983
       }
     }
-  },
-  "test": {
-    "both": {
-      "artist": {
-        "correct": 438,
-        "total": 438,
-        "accuracy": 1.0
-      },
-      "capo": {
-        "correct": 451,
-        "total": 451,
-        "accuracy": 1.0
-      },
-      "clef": {
-        "correct": 2380,
-        "total": 2380,
-        "accuracy": 1.0
-      },
-      "clef_octave": {
-        "correct": 2380,
-        "total": 2380,
-        "accuracy": 1.0
-      },
-      "instrument": {
-        "correct": 306,
-        "total": 306,
-        "accuracy": 1.0
-      },
-      "kind": {
-        "correct": 451,
-        "total": 451,
-        "accuracy": 1.0
-      },
-      "semitones": {
-        "correct": 451,
-        "total": 451,
-        "accuracy": 1.0
-      },
-      "string_count": {
-        "correct": 305,
-        "total": 306,
-        "accuracy": 0.9967320261437909
-      },
-      "tempo_quarter": {
-        "correct": 441,
-        "total": 441,
-        "accuracy": 1.0
-      },
-      "text": {
-        "correct": 451,
-        "total": 451,
-        "accuracy": 1.0
-      },
-      "title": {
-        "correct": 436,
-        "total": 438,
-        "accuracy": 0.9954337899543378
-      },
-      "tuning_name": {
-        "correct": 438,
-        "total": 438,
-        "accuracy": 1.0
-      }
-    },
-    "clef/F4": {
-      "clef": {
-        "correct": 1181,
-        "total": 1181,
-        "accuracy": 1.0
-      },
-      "clef_octave": {
-        "correct": 1181,
-        "total": 1181,
-        "accuracy": 1.0
-      }
-    },
-    "clef/G2": {
-      "clef": {
-        "correct": 1811,
-        "total": 1811,
-        "accuracy": 1.0
-      },
-      "clef_octave": {
-        "correct": 1811,
-        "total": 1811,
-        "accuracy": 1.0
-      }
-    },
-    "clef/percussion": {
-      "clef": {
-        "correct": 522,
-        "total": 522,
-        "accuracy": 1.0
-      },
-      "clef_octave": {
-        "correct": 522,
-        "total": 522,
-        "accuracy": 1.0
-      }
-    },
-    "clef/tab": {
-      "clef": {
-        "correct": 1190,
-        "total": 1190,
-        "accuracy": 1.0
-      },
-      "clef_octave": {
-        "correct": 1190,
-        "total": 1190,
-        "accuracy": 1.0
-      }
-    },
-    "instruction/instrument": {
-      "capo": {
-        "correct": 154,
-        "total": 154,
-        "accuracy": 1.0
-      },
-      "kind": {
-        "correct": 154,
-        "total": 154,
-        "accuracy": 1.0
-      },
-      "semitones": {
-        "correct": 147,
-        "total": 154,
-        "accuracy": 0.9545454545454546
-      },
-      "text": {
-        "correct": 154,
-        "total": 154,
-        "accuracy": 1.0
-      }
-    },
-    "instruction/ottava": {
-      "capo": {
-        "correct": 965,
-        "total": 965,
-        "accuracy": 1.0
-      },
-      "kind": {
-        "correct": 965,
-        "total": 965,
-        "accuracy": 1.0
-      },
-      "semitones": {
-        "correct": 965,
-        "total": 965,
-        "accuracy": 1.0
-      },
-      "text": {
-        "correct": 965,
-        "total": 965,
-        "accuracy": 1.0
-      }
-    },
-    "instrument/None": {
-      "instrument": {
-        "correct": 5,
-        "total": 6,
-        "accuracy": 0.8333333333333334
-      },
-      "string_count": {
-        "correct": 6,
-        "total": 6,
-        "accuracy": 1.0
-      }
-    },
-    "instrument/bass": {
-      "instrument": {
-        "correct": 246,
-        "total": 246,
-        "accuracy": 1.0
-      },
-      "string_count": {
-        "correct": 246,
-        "total": 246,
-        "accuracy": 1.0
-      }
-    },
-    "instrument/drums": {
-      "instrument": {
-        "correct": 46,
-        "total": 46,
-        "accuracy": 1.0
-      },
-      "string_count": {
-        "correct": 46,
-        "total": 46,
-        "accuracy": 1.0
-      }
-    },
-    "instrument/guitar": {
-      "instrument": {
-        "correct": 665,
-        "total": 665,
-        "accuracy": 1.0
-      },
-      "string_count": {
-        "correct": 663,
-        "total": 665,
-        "accuracy": 0.9969924812030075
-      }
-    },
-    "instrument/pitched": {
-      "instrument": {
-        "correct": 160,
-        "total": 161,
-        "accuracy": 0.9937888198757764
-      },
-      "string_count": {
-        "correct": 161,
-        "total": 161,
-        "accuracy": 1.0
-      }
-    },
-    "notation": {
-      "artist": {
-        "correct": 470,
-        "total": 471,
-        "accuracy": 0.9978768577494692
-      },
-      "capo": {
-        "correct": 628,
-        "total": 628,
-        "accuracy": 1.0
-      },
-      "clef": {
-        "correct": 2324,
-        "total": 2324,
-        "accuracy": 1.0
-      },
-      "clef_octave": {
-        "correct": 2324,
-        "total": 2324,
-        "accuracy": 1.0
-      },
-      "instrument": {
-        "correct": 511,
-        "total": 512,
-        "accuracy": 0.998046875
-      },
-      "kind": {
-        "correct": 628,
-        "total": 628,
-        "accuracy": 1.0
-      },
-      "semitones": {
-        "correct": 621,
-        "total": 628,
-        "accuracy": 0.9888535031847133
-      },
-      "string_count": {
-        "correct": 512,
-        "total": 512,
-        "accuracy": 1.0
-      },
-      "tempo_quarter": {
-        "correct": 735,
-        "total": 735,
-        "accuracy": 1.0
-      },
-      "text": {
-        "correct": 628,
-        "total": 628,
-        "accuracy": 1.0
-      },
-      "title": {
-        "correct": 469,
-        "total": 471,
-        "accuracy": 0.9957537154989384
-      },
-      "tuning_name": {
-        "correct": 471,
-        "total": 471,
-        "accuracy": 1.0
-      }
-    },
-    "overall": {
-      "artist": {
-        "correct": 1346,
-        "total": 1347,
-        "accuracy": 0.9992576095025983
-      },
-      "capo": {
-        "correct": 1119,
-        "total": 1119,
-        "accuracy": 1.0
-      },
-      "clef": {
-        "correct": 4704,
-        "total": 4704,
-        "accuracy": 1.0
-      },
-      "clef_octave": {
-        "correct": 4704,
-        "total": 4704,
-        "accuracy": 1.0
-      },
-      "instrument": {
-        "correct": 1122,
-        "total": 1124,
-        "accuracy": 0.998220640569395
-      },
-      "kind": {
-        "correct": 1119,
-        "total": 1119,
-        "accuracy": 1.0
-      },
-      "semitones": {
-        "correct": 1112,
-        "total": 1119,
-        "accuracy": 0.9937444146559428
-      },
-      "string_count": {
-        "correct": 1122,
-        "total": 1124,
-        "accuracy": 0.998220640569395
-      },
-      "tempo_quarter": {
-        "correct": 1617,
-        "total": 1617,
-        "accuracy": 1.0
-      },
-      "text": {
-        "correct": 1119,
-        "total": 1119,
-        "accuracy": 1.0
-      },
-      "title": {
-        "correct": 1341,
-        "total": 1347,
-        "accuracy": 0.9955456570155902
-      },
-      "tuning_name": {
-        "correct": 1347,
-        "total": 1347,
-        "accuracy": 1.0
-      }
-    },
-    "tab": {
-      "artist": {
-        "correct": 438,
-        "total": 438,
-        "accuracy": 1.0
-      },
-      "capo": {
-        "correct": 40,
-        "total": 40,
-        "accuracy": 1.0
-      },
-      "instrument": {
-        "correct": 305,
-        "total": 306,
-        "accuracy": 0.9967320261437909
-      },
-      "kind": {
-        "correct": 40,
-        "total": 40,
-        "accuracy": 1.0
-      },
-      "semitones": {
-        "correct": 40,
-        "total": 40,
-        "accuracy": 1.0
-      },
-      "string_count": {
-        "correct": 305,
-        "total": 306,
-        "accuracy": 0.9967320261437909
-      },
-      "tempo_quarter": {
-        "correct": 441,
-        "total": 441,
-        "accuracy": 1.0
-      },
-      "text": {
-        "correct": 40,
-        "total": 40,
-        "accuracy": 1.0
-      },
-      "title": {
-        "correct": 436,
-        "total": 438,
-        "accuracy": 0.9954337899543378
-      },
-      "tuning_name": {
-        "correct": 438,
-        "total": 438,
-        "accuracy": 1.0
-      }
-    },
-    "artifacts": {
-      "dataset_sha256": "931df70d7bd5755ef1fb8c00e0d2c51934b748a301e573780009a4e458abefbe",
-      "adapter_sha256": {
-        "adapter_config.json": "029e0ab0118292ab157ac527eee7f6839405861344c17196c9bfbc19b85f796f",
-        "adapter_model.safetensors": "f8d668cea7aadbf73919ce2569929b4186b89791a6fb7cb8a5205ac15223bc37",
-        "capabilities.json": "ee9f4f3f52bf00a1dec6ce80afe448b10ddac1666fb1e0abcbe8f9240de01aee"
-      }
-    }
-  },
-  "released_old_fields_validation": {
-    "both": {
-      "artist": {
-        "correct": 345,
-        "total": 353,
-        "accuracy": 0.9773371104815864
-      },
-      "tempo_quarter": {
-        "correct": 373,
-        "total": 373,
-        "accuracy": 1.0
-      },
-      "title": {
-        "correct": 348,
-        "total": 353,
-        "accuracy": 0.9858356940509915
-      },
-      "tuning_name": {
-        "correct": 352,
-        "total": 353,
-        "accuracy": 0.9971671388101983
-      }
-    },
-    "notation": {
-      "artist": {
-        "correct": 372,
-        "total": 380,
-        "accuracy": 0.9789473684210527
-      },
-      "tempo_quarter": {
-        "correct": 582,
-        "total": 582,
-        "accuracy": 1.0
-      },
-      "title": {
-        "correct": 375,
-        "total": 380,
-        "accuracy": 0.9868421052631579
-      },
-      "tuning_name": {
-        "correct": 379,
-        "total": 380,
-        "accuracy": 0.9973684210526316
-      }
-    },
-    "overall": {
-      "artist": {
-        "correct": 1062,
-        "total": 1086,
-        "accuracy": 0.9779005524861878
-      },
-      "tempo_quarter": {
-        "correct": 1328,
-        "total": 1328,
-        "accuracy": 1.0
-      },
-      "title": {
-        "correct": 1071,
-        "total": 1086,
-        "accuracy": 0.9861878453038674
-      },
-      "tuning_name": {
-        "correct": 1083,
-        "total": 1086,
-        "accuracy": 0.9972375690607734
-      }
-    },
-    "tab": {
-      "artist": {
-        "correct": 345,
-        "total": 353,
-        "accuracy": 0.9773371104815864
-      },
-      "tempo_quarter": {
-        "correct": 373,
-        "total": 373,
-        "accuracy": 1.0
-      },
-      "title": {
-        "correct": 348,
-        "total": 353,
-        "accuracy": 0.9858356940509915
-      },
-      "tuning_name": {
-        "correct": 352,
-        "total": 353,
-        "accuracy": 0.9971671388101983
-      }
-    },
-    "artifacts": {
-      "dataset_sha256": "a8547780c8db2f6d2ffdaa56d70611a0d848b2649ed81ad426bd688800097cdb",
-      "adapter_sha256": {
-        "adapter_config.json": "615fb3af045e7ff610dbbbafa58932c14477ee046401cc0b075c8cc3b2cf74a9",
-        "adapter_model.safetensors": "5ef5b3f792acaa65095c64e1bad891b02f47b5476660112f9cc5bf106a5bbdb7"
-      }
-    }
-  },
-  "runtime_postprocessing": "Explicit numeric instructions and unambiguous printed instrument names with keys are parsed deterministically. An automatic non-fretted profile conflicting with detected TAB falls back to guitar with a tuning/instrument warning; explicit named instruments and manual selections are retained. Above model metrics score raw generated JSON; page fixtures evaluate the assembled runtime."
+  }
 }

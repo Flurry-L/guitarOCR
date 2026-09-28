@@ -34,17 +34,17 @@ tools/paddlex-venv/bin/paddlex --install PaddleDetection
 
 ## 训练 GLM-OCR
 
-两个入口使用 LLaMA-Factory，接受 `--config` 和 `key=value` 覆盖参数。以下配置使用 8 张 H100；小节任务全局批量 256，谱头任务全局批量 96。
+两个入口使用 LLaMA-Factory，接受 `--config` 和 `key=value` 覆盖参数。以下配置使用 8 张 H100；小节任务每卡批量 24，谱头任务每卡批量 16；全局批量随 GPU 数量变化。
 
 先生成缓存。修改标签、提示词或前文规则后必须换用新的缓存目录，`tokenized_path` 本身不是预处理后退出的开关。
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 OMP_NUM_THREADS=1 uv run --no-sync python -m shared.tokenize_training \
   --config measure_ocr/configs/train.yaml \
-  --output database/pitch/datasets/measure_written/tokenized
+  --output database/parallel_score_final/tokenized_observed
 CUDA_VISIBLE_DEVICES=0 OMP_NUM_THREADS=1 uv run --no-sync python -m shared.tokenize_training \
   --config document_info/configs/train.yaml \
-  --output database/pitch/datasets/info_mixed/tokenized
+  --output database/parallel_score_final/info/tokenized_balanced
 ```
 
 依次训练两个任务：
@@ -96,25 +96,17 @@ uv run --no-sync python -m document_info.evaluate \
 
 ## 评测小节识别
 
-使用正确裁图和标注前文，评估独立小节：
+新模型先批量读取印刷拍号和调号，再使用当前及相邻小节图像独立解码，最后统一连接延音线。评测保留每首曲谱的完整序列，使用模型预测的拍号与调号，不提供标注前文。裁图、乐器、调弦与移调上下文来自标注；完全自动流程另用完整 PDF 评测。
 
 ```bash
-uv run --no-sync python -m measure_ocr.evaluate_parallel \
-  --manifest database/scores/datasets/measure_ocr/manifests/test.jsonl \
-  --context-source gold --max-samples 1800 --batch-size 8 \
-  --output output/evaluation/measure-gold
+uv run --no-sync python -m measure_ocr.evaluate_scores \
+  --manifest database/parallel_score_corrected/manifest_test.jsonl \
+  --adapter weights/measure_ocr --gpus 0,1,2,3,4,5,6,7 \
+  --max-scores 0 --batch-size 32 \
+  --output output/evaluation/measure-scores
 ```
 
-使用正确裁图和模型预测前文，评估连续识别：
-
-```bash
-uv run --no-sync python -m measure_ocr.evaluate_parallel \
-  --manifest database/scores/datasets/measure_ocr/manifests/test.jsonl \
-  --context-source predicted --max-samples 0 --max-sources 8 --batch-size 1 \
-  --output output/evaluation/measure-sequences
-```
-
-并行入口默认使用 8 张 GPU，可通过 `--gpus 0,1` 等参数调整。连续评估必须保留完整曲谱，从首小节开始，因此要求 `--max-samples 0` 和 `--batch-size 1`。失败输出替换为带待检查标记的休止占位，续跑会重建预测前文。
+vLLM 模型路径从适配器的 `inference.json` 读取；也可用 `--model` 指定合并模型。`--speculative-tokens 2` 启用已训练的 MTP 草稿层。每张 GPU 处理完整曲谱，单首曲谱内批量解码小节。`--legacy` 保留旧模型串行前文方案的对照入口。
 
 比较模型时保持样本、解码参数、重试次数和 batch size 一致。BF16 批量运算可能改变边缘 token 的选择，不能混用逐条与批量结果。扫描退化集应单独报告，它衡量模拟退化下的表现。
 
@@ -148,7 +140,7 @@ uv run --no-sync python -m pipeline.evaluate \
 
 ## 更新默认模型
 
-先按验证集选择权重，再运行独立测试。更新 `weights/manifest.json`、模型说明、训练配置、来源划分哈希和评测记录，最后执行 `uv run --no-sync guitarocr-check --hashes`。标签或运行逻辑改变后需重新检查续跑签名，旧预测不能直接作为新运行的结果。
+先按验证集选择权重，再运行独立测试。更新 `weights/manifest.json` 中的文件路径和大小、训练参数及实际评测记录，再执行 `uv run --no-sync guitarocr-check`。标签或运行逻辑改变后需重新检查续跑签名，旧预测不能直接作为新运行的结果。
 
 谱面信息适配器完成首行乐器识别训练和评测后，在模型目录加入 `capabilities.json`，内容为 `{"staff_profile":true}`，运行时才会请求这项结果。旧适配器继续使用原有谱头与速度任务。服务端任务保留提交时的模型路径，更新权重后应检查新任务和已有任务的续跑。
 

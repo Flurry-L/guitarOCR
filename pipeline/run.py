@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import ExitStack
+from concurrent.futures import ThreadPoolExecutor
 import json
 
 from layout import run as layout_stage
@@ -13,18 +15,32 @@ from pipeline.config import parse_args
 from pipeline.manifest import RunManifest
 from shared.artifacts import read_result
 from shared.glm_backend import BackendPool
+from layout.persistent import LayoutBackend
 
 
 def run(args: argparse.Namespace) -> dict:
-    manifest = RunManifest(args.output, args.inputs)
     backends = BackendPool(args.model, args.device)
+    detector = LayoutBackend(args.layout_model_dir, args.layout_python, args.device)
+    with ExitStack() as resources:
+        resources.callback(backends.close)
+        resources.callback(detector.close)
+        with ThreadPoolExecutor(max_workers=1) as loader:
+            preparing = loader.submit(backends.prepare, [args.info_adapter, args.adapter])
+            return _run(args, backends, detector, preparing=preparing)
+
+
+def _run(args, backends, detector, preparing=None):
+    manifest = RunManifest(args.output, args.inputs)
     with manifest.stage("layout", "01_layout") as output:
         layout = layout_stage.run(
             args.inputs, output, mode=args.mode, force_pdf_render=args.force_pdf_render,
             layout_model_dir=args.layout_model_dir, layout_python=args.layout_python,
             layout_source=args.layout_source,
+            detector=detector,
         )
     with manifest.stage("document_info", "02_document_info") as output:
+        if preparing is not None:
+            preparing.result()
         info = info_stage.run(
             layout, output, model=args.model, adapter=args.info_adapter,
             device=args.device, title=args.title, artist=args.artist,
@@ -46,6 +62,9 @@ def run(args: argparse.Namespace) -> dict:
         with manifest.stage("gp5_export", "04_gp5_export") as output:
             exported = export_stage.run(recognition, output, allow_unreviewed=args.allow_unreviewed)
             gp5 = read_result(exported, "gp5_export")["gp5"]
+        recognized = read_result(recognition, "measure_ocr")
+        if not gp5 and recognized.get('review_measures'):
+            manifest.value['stages']['gp5_export']['status'] = 'needs_review'
     return manifest.complete(
         **{key: recognized[key] for key in (
             "mode", "measures", "m2", "score_text", "score_document", "recognition_log", "document_metadata", "tuning_used", "review_measures",

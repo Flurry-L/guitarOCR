@@ -15,7 +15,7 @@ def environment_python(root: Path) -> Path:
 
 
 def paddle_python() -> Path:
-    for root in (PROJECT_ROOT / "tools/webui-paddle-venv", PROJECT_ROOT / "tools/paddlex-venv"):
+    for root in (PROJECT_ROOT / "tools/paddlex-venv", PROJECT_ROOT / "tools/webui-paddle-venv"):
         candidate = environment_python(root)
         if candidate.is_file():
             return candidate

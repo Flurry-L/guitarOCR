@@ -54,10 +54,19 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app):
+        if inference_enabled:
+            def prepare():
+                try:
+                    workflow.warmup()
+                except Exception:
+                    logging.exception('Model initialization failed; recognition can retry it')
+
+            executor.submit(prepare)
         yield
         for event in list(cancellations.values()):
             event.set()
         executor.shutdown(wait=True, cancel_futures=True)
+        workflow.close()
 
     app = FastAPI(title="GuitarOCR", lifespan=lifespan)
     app.state.workflow = workflow

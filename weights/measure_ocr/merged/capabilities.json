@@ -1,0 +1,1 @@
+{"independent_measures": true, "pitch_context": true, "written_pitch": true, "ottava": true, "batch_size": 32, "capo_pitch": true, "state_reader": "state_reader/state.safetensors"}

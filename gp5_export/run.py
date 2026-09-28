@@ -6,7 +6,7 @@ import argparse
 from pathlib import Path
 import re
 
-from gp5_export.writer import write_targets_gp5
+from gp5_export.writer import GP5ReadbackError, write_targets_gp5
 from shared.artifacts import read_result, write_result
 
 
@@ -31,12 +31,25 @@ def run(recognition: Path, output: Path, *, allow_unreviewed: bool = False, fall
     if len({(row.get("part_id", "part-1"), row.get("staff_id", "staff-1")) for row in source["records"]}) > 1:
         raise ValueError("Multi-part GP5 export is not supported yet; the separate parts remain in score.json")
     targets = [row["target"] for row in source["records"]]
-    gp5 = write_targets_gp5(
-        targets, output.resolve() / score_filename(source["title"], fallback_name), mode=source["mode"],
-        title=source["title"], artist=source["artist"],
-        tuning=source["tuning_used"], capo=source["capo"],
-        instrument=source.get("instrument", "guitar"), midi_program=source.get("midi_program"),
-    )
+    try:
+        gp5 = write_targets_gp5(
+            targets, output.resolve() / score_filename(source["title"], fallback_name), mode=source["mode"],
+            title=source["title"], artist=source["artist"],
+            tuning=source["tuning_used"], capo=source["capo"],
+            instrument=source.get("instrument", "guitar"), midi_program=source.get("midi_program"),
+        )
+    except GP5ReadbackError as error:
+        from measure_ocr.result import save_recognition
+
+        for index in error.measures:
+            source['records'][index - 1].update(
+                needs_review=True,
+                export_errors=['导出时无法保持本小节的音符，请核对延音、音高和时值'],
+            )
+        save_recognition(recognition.parent, source)
+        return write_result(output, 'gp5_export', recognition=str(recognition.resolve()),
+                            gp5=None, encoding_report=None, status='needs_review',
+                            review_measures=[source['records'][i - 1]['measure_number'] for i in error.measures])
     return write_result(
         output, "gp5_export", recognition=str(recognition.resolve()),
         gp5=str(gp5), encoding_report=str(gp5.with_name(gp5.name + ".encoding.json")),

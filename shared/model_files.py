@@ -18,7 +18,7 @@ def verify_files(folder: Path, files: list[dict], hashes: bool = True) -> list[s
             if path.stat().st_size != item["bytes"]:
                 errors.append(f"文件大小不符，可能下载未完成：{path}")
                 continue
-            if hashes:
+            if hashes and item.get('sha256'):
                 handle.seek(0)
                 digest = sha256()
                 for block in iter(lambda: handle.read(8 * 1024 * 1024), b""):

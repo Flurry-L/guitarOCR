@@ -181,6 +181,13 @@ class Supervisor:
                 timeout=1800,
                 log=log,
             )
+            if self.config.gpus.strip():
+                command(
+                    [str(python), '-m', 'scripts.setup_acceleration'],
+                    cwd=candidate,
+                    timeout=1800,
+                    log=log,
+                )
             command(
                 [
                     str(python),

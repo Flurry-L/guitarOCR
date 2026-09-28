@@ -15,6 +15,31 @@ from gp5_export.fingering import _assign_positions, _tie_reservation_note_ids, _
 from gp5_export.effects import _duration, _enum_member, _note, _apply_beat_effects
 
 
+class GP5ReadbackError(ValueError):
+    def __init__(self, measures):
+        self.measures = sorted(set(measures))
+        super().__init__(f"GP5 readback changed notes in measures {self.measures}; check ties and pitches")
+
+
+def _changed_note_measures(expected, actual):
+    """GP5 stores ties by string and can silently substitute another pitch."""
+    def notes(measure):
+        return {
+            (voice_index, beat.start - measure.header.start): sorted(
+                (note.string, None if note.type.name == 'dead' else note.value, note.type.name)
+                for note in beat.notes
+            )
+            for voice_index, voice in enumerate(measure.voices)
+            for beat in voice.beats if beat.notes
+        }
+
+    before, after = expected.tracks[0].measures, actual.tracks[0].measures
+    if len(before) != len(after):
+        return list(range(1, len(before) + 1))
+    return [index for index, (left, right) in enumerate(zip(before, after), 1)
+            if notes(left) != notes(right)]
+
+
 def _display_settings(mode: str, gm: Any) -> Any:
     return gm.TrackSettings(
         tablature=mode in {"tab", "both"},
@@ -298,7 +323,9 @@ def write_targets_gp5(
         ) as stream:
             temporary = Path(stream.name)
         guitarpro.write(song, str(temporary), version=(5, 1, 0), encoding="cp936")
-        guitarpro.parse(str(temporary), encoding="cp936")
+        restored = guitarpro.parse(str(temporary), encoding="cp936")
+        if changed := _changed_note_measures(song, restored):
+            raise GP5ReadbackError(changed)
         os.replace(temporary, output_path)
         temporary = None
     finally:

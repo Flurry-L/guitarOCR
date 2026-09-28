@@ -66,6 +66,18 @@ def recognize_crops(
     cancelled=None,
     instrument: str = "guitar",
 ) -> list[str]:
+    capability_path = (adapter_path or model_path) / "capabilities.json"
+    capabilities = json.loads(capability_path.read_text()) if capability_path and capability_path.is_file() else {}
+    if capabilities.get("independent_measures"):
+        from measure_ocr.parallel import recognize_independent
+
+        return recognize_independent(
+            records, mode, model_path, adapter_path, device, max_new_tokens,
+            max_new_tokens_ceiling, tuning, maximum_attempts, diagnostics_path, resume,
+            backend=backend, progress=progress, initial_records=initial_records,
+            retry_measures=retry_measures, cancelled=cancelled, instrument=instrument,
+            batch_size=int(capabilities.get("batch_size", 8)),
+        )
     diagnostics_path.parent.mkdir(parents=True, exist_ok=True)
     if diagnostics_path.is_file() and not resume:
         diagnostics_path.unlink()

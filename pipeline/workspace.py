@@ -43,7 +43,38 @@ class Workspace:
         self._state_lock = Lock()
         self.info_adapter = Path(info_adapter)
         self.measure_adapter = Path(measure_adapter)
-        self.layout_detector = None
+        from layout.persistent import LayoutBackend
+
+        self.layout_detector = LayoutBackend(layout_model, layout_python, device)
+
+    def close(self):
+        self.pool.close()
+        self.layout_detector.close()
+
+    def warmup(self):
+        from concurrent.futures import ThreadPoolExecutor
+
+        def prepare_state_reader():
+            path = self.measure_adapter / 'capabilities.json'
+            capabilities = json.loads(path.read_text()) if path.exists() else {}
+            if capabilities.get('state_reader'):
+                from measure_ocr.state_reader import cached_reader
+
+                weights = (path.parent / capabilities['state_reader']).resolve()
+                cached_reader(str(weights), self.device, weights.stat().st_mtime_ns)
+
+        with ThreadPoolExecutor(max_workers=3) as loaders:
+            jobs = [loaders.submit(self.pool.prepare, [self.info_adapter, self.measure_adapter]),
+                    loaders.submit(self.layout_detector, []),
+                    loaders.submit(prepare_state_reader)]
+            errors = []
+            for job in jobs:
+                try:
+                    job.result()
+                except Exception as error:
+                    errors.append(error)
+            if errors:
+                raise errors[0]
 
     def directory(self, sid):
         if len(sid) != 32 or any(c not in "0123456789abcdef" for c in sid):
@@ -269,12 +300,11 @@ class Workspace:
         state = self.load(sid)
         if not state["recognition"]:
             raise ValueError("请先识别并校对小节")
-        state["export"] = str(
-            export_stage.run(
-                Path(state["recognition"]), self.output(sid, "gp5"),
-                fallback_name=(state.get("input_names") or state["inputs"])[0],
-            )
+        exported = export_stage.run(
+            Path(state["recognition"]), self.output(sid, "gp5"),
+            fallback_name=(state.get("input_names") or state["inputs"])[0],
         )
+        state["export"] = str(exported) if read_result(exported, 'gp5_export').get('gp5') else None
         state["revision"] += 1
         return self.store(state)
 

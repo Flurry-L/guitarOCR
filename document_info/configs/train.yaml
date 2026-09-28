@@ -1,4 +1,3 @@
-# Continue fine-tuning the distributed adapter on your prepared dataset.
 model_name_or_path: tools/models/GLM-OCR
 trust_remote_code: true
 stage: sft
@@ -10,7 +9,7 @@ lora_dropout: 0.05
 lora_target: all
 freeze_vision_tower: false
 freeze_multi_modal_projector: true
-dataset_dir: database/pitch/datasets/info_mixed
+dataset_dir: database/parallel_score_final/info
 dataset: document_info_train
 eval_dataset: document_info_validation
 template: glm_ocr
@@ -18,20 +17,20 @@ cutoff_len: 1024
 preprocessing_num_workers: 16
 overwrite_cache: true
 output_dir: output/document_info
-logging_steps: 10
-save_steps: 100
-eval_steps: 100
+logging_steps: 20
+save_steps: 400
+eval_steps: 400
 eval_strategy: steps
 save_total_limit: 3
 plot_loss: true
 overwrite_output_dir: false
 report_to: none
-per_device_train_batch_size: 12
-per_device_eval_batch_size: 4
+per_device_train_batch_size: 16
+per_device_eval_batch_size: 16
 gradient_accumulation_steps: 1
 train_sampling_strategy: group_by_length
 learning_rate: 1.0e-05
-num_train_epochs: 2
+num_train_epochs: 1.5
 lr_scheduler_type: cosine
 warmup_ratio: 0.03
 bf16: true
@@ -45,5 +44,6 @@ ddp_timeout: 18000
 seed: 20260929
 data_seed: 20260929
 flash_attn: fa2
-tokenized_path: database/pitch/datasets/info_mixed/tokenized
-early_stopping_steps: 3
+tokenized_path: database/parallel_score_final/info/tokenized_balanced
+early_stopping_steps: 4
+disable_gradient_checkpointing: false

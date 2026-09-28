@@ -383,9 +383,15 @@ def install(args, uv, tools):
         ],
     )
     run_uv(uv, ["pip", "install", "--python", app_python, "--no-deps", "-e", ROOT])
-    # Paddle's CPU runtime keeps both platforms on the same supported package set.
-    # GLM is the dominant workload and uses the chosen GPU independently.
     progress('layout', '正在安装版面检测依赖')
+    gpu_layout = device == 'cuda' and platform.system() == 'Linux'
+    if gpu_layout:
+        run_uv(uv, ['pip', 'uninstall', '--python', layout_python, 'paddlepaddle'])
+        run_uv(uv, ['pip', 'install', '--python', layout_python, 'paddlepaddle-gpu==3.2.0',
+                    '--index', 'https://www.paddlepaddle.org.cn/packages/stable/cu126/',
+                    'numpy==1.26.4'])
+    else:
+        run_uv(uv, ['pip', 'uninstall', '--python', layout_python, 'paddlepaddle-gpu'])
     run_uv(
         uv,
         [
@@ -393,15 +399,20 @@ def install(args, uv, tools):
             "install",
             "--python",
             layout_python,
-            "paddlepaddle==3.2.0",
+            "paddlepaddle-gpu==3.2.0" if gpu_layout else "paddlepaddle==3.2.0",
             "paddlex[ocr,cv]==3.7.2",
             "numpy==1.26.4",
+            "opencv-contrib-python==4.10.0.84",
             "Pillow>=12.3,<13",
             "pypdfium2>=5.13,<6",
             "pdfplumber>=0.11.10,<1",
         ],
     )
     run_uv(uv, ["pip", "install", "--python", layout_python, "--no-deps", "-e", ROOT])
+    if device == 'cuda' and platform.system() == 'Linux':
+        progress('ocr', '正在安装推理加速运行时')
+        run([app_python, '-m', 'scripts.setup_acceleration'],
+            env={**os.environ, 'GUITAROCR_UV': str(uv)})
     base = manifest["base_model"]
     model = ROOT / base["path"]
     progress('check', '正在检查本机识别环境')

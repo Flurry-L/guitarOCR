@@ -39,9 +39,11 @@ def storage_tuning(measures, percussion=False):
     if high - low <= MAX_MELODIC_FRET:
         return [low] * 7
     candidates = sorted(
-        {max(0, pitch - offset) for pitch in pitches for offset in (0, MAX_MELODIC_FRET // 2, MAX_MELODIC_FRET)}
+        {max(low, pitch - offset) for pitch in pitches for offset in (0, MAX_MELODIC_FRET // 2, MAX_MELODIC_FRET)}
     )
-    bases = [max(0, high - MAX_MELODIC_FRET - 12 * index) for index in range(7)]
+    # A base below the lowest used pitch only reduces the slot's range.
+    # Keep all seven slots usable for dense chords and sustained unisons.
+    bases = [max(low, high - MAX_MELODIC_FRET - 12 * index) for index in range(7)]
 
     def cost(values):
         return sum(

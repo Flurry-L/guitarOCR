@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import Any
 
 from shared.m2 import (
@@ -124,6 +124,16 @@ class MeasureSequenceMetrics:
     technique_class_overlap: Counter[str] = field(default_factory=Counter)
     parse_errors: Counter[str] = field(default_factory=Counter)
     constraint_errors: Counter[str] = field(default_factory=Counter)
+
+    def merge(self, other: MeasureSequenceMetrics) -> None:
+        """Accumulate an already scored sample without reparsing its notation."""
+        for item in fields(self):
+            value = getattr(self, item.name)
+            addition = getattr(other, item.name)
+            if isinstance(value, Counter):
+                value.update(addition)
+            else:
+                setattr(self, item.name, value + addition)
 
     def update(
         self,

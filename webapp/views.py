@@ -76,6 +76,8 @@ def project_view(workspace, sid):
     state["measures"], state["review_measures"] = [], []
     if saved["recognition"]:
         data = read_result(Path(saved["recognition"]), "measure_ocr")
+        if state['metadata'] is not None:
+            state['metadata']['tuning_used'] = data['tuning_used']
         state["review_measures"] = data.get("review_measures", [])
         state["score_text_url"] = f"/api/sessions/{sid}/score.txt"
         for row in data["records"]:

@@ -7,23 +7,73 @@
       "files": [
         {
           "name": "adapter_config.json",
-          "bytes": 1110,
-          "sha256": "1ef04964e5a736aa4e448b716ec02029f24c3d3c40c61261c38d2d73ad757fee"
+          "bytes": 1111
         },
         {
           "name": "adapter_model.safetensors",
-          "bytes": 31517928,
-          "sha256": "bc074ee2488bf806fd1c967e45eef2a6ec16a0a9c3ba1eb8f9572e7974069b90"
+          "bytes": 62975784
         },
         {
           "name": "capabilities.json",
-          "bytes": 63,
-          "sha256": "5e7e579c27c726c9011a854e8c2b96b1809a443f56ba2e37e0feb1729991d279"
+          "bytes": 203
+        },
+        {
+          "name": "inference.json",
+          "bytes": 164
+        },
+        {
+          "name": "merged/capabilities.json",
+          "bytes": 180
+        },
+        {
+          "name": "merged/chat_template.jinja",
+          "bytes": 4606
+        },
+        {
+          "name": "merged/config.json",
+          "bytes": 1696
+        },
+        {
+          "name": "merged/generation_config.json",
+          "bytes": 161
+        },
+        {
+          "name": "merged/model-00001-of-00003.safetensors",
+          "bytes": 997349504
+        },
+        {
+          "name": "merged/model-00002-of-00003.safetensors",
+          "bytes": 998497952
+        },
+        {
+          "name": "merged/model-00003-of-00003.safetensors",
+          "bytes": 725531504
+        },
+        {
+          "name": "merged/model.safetensors.index.json",
+          "bytes": 46363
+        },
+        {
+          "name": "merged/processor_config.json",
+          "bytes": 1334
+        },
+        {
+          "name": "merged/state_reader/state.safetensors",
+          "bytes": 53263676
+        },
+        {
+          "name": "merged/tokenizer.json",
+          "bytes": 6838609
+        },
+        {
+          "name": "merged/tokenizer_config.json",
+          "bytes": 1095
         }
       ],
       "base_model": "zai-org/GLM-OCR",
       "base_revision": "ca5d8b3e287e52589e37c28385d9655ee4372f9d",
-      "evaluation": "weights/measure_ocr/evaluation.json"
+      "evaluation": "weights/measure_ocr/evaluation.json",
+      "training": "weights/measure_ocr/training.json"
     },
     {
       "stage": "document_info",
@@ -31,23 +81,69 @@
       "files": [
         {
           "name": "adapter_config.json",
-          "bytes": 1110,
-          "sha256": "029e0ab0118292ab157ac527eee7f6839405861344c17196c9bfbc19b85f796f"
+          "bytes": 1110
         },
         {
           "name": "adapter_model.safetensors",
-          "bytes": 31517928,
-          "sha256": "f8d668cea7aadbf73919ce2569929b4186b89791a6fb7cb8a5205ac15223bc37"
+          "bytes": 31517928
         },
         {
           "name": "capabilities.json",
-          "bytes": 47,
-          "sha256": "ee9f4f3f52bf00a1dec6ce80afe448b10ddac1666fb1e0abcbe8f9240de01aee"
+          "bytes": 52
+        },
+        {
+          "name": "inference.json",
+          "bytes": 163
+        },
+        {
+          "name": "merged/capabilities.json",
+          "bytes": 46
+        },
+        {
+          "name": "merged/chat_template.jinja",
+          "bytes": 4606
+        },
+        {
+          "name": "merged/config.json",
+          "bytes": 1696
+        },
+        {
+          "name": "merged/generation_config.json",
+          "bytes": 161
+        },
+        {
+          "name": "merged/model-00001-of-00003.safetensors",
+          "bytes": 997349504
+        },
+        {
+          "name": "merged/model-00002-of-00003.safetensors",
+          "bytes": 998497952
+        },
+        {
+          "name": "merged/model-00003-of-00003.safetensors",
+          "bytes": 725531504
+        },
+        {
+          "name": "merged/model.safetensors.index.json",
+          "bytes": 46363
+        },
+        {
+          "name": "merged/processor_config.json",
+          "bytes": 1334
+        },
+        {
+          "name": "merged/tokenizer.json",
+          "bytes": 6838609
+        },
+        {
+          "name": "merged/tokenizer_config.json",
+          "bytes": 1095
         }
       ],
       "base_model": "zai-org/GLM-OCR",
       "base_revision": "ca5d8b3e287e52589e37c28385d9655ee4372f9d",
-      "evaluation": "weights/document_info/evaluation.json"
+      "evaluation": "weights/document_info/evaluation.json",
+      "training": "weights/document_info/training.json"
     },
     {
       "stage": "layout",
@@ -55,18 +151,15 @@
       "files": [
         {
           "name": "inference.json",
-          "bytes": 1220527,
-          "sha256": "5a67eed301084b66ba60b6d99d4e4e30e0e8698575f7e2283fcee1703f3fcfbc"
+          "bytes": 1228547
         },
         {
           "name": "inference.pdiparams",
-          "bytes": 129235195,
-          "sha256": "4ee7360a00d394292c2611bf1e0d67ff120e9d2eec6002c3a44564795c1bd51b"
+          "bytes": 129235195
         },
         {
           "name": "inference.yml",
-          "bytes": 1291,
-          "sha256": "9c6722295e04d6c8eb41bdc89803ceca63cdef71fed0eac1c3a7afc9457dea53"
+          "bytes": 1291
         }
       ],
       "display_modes": [
@@ -83,7 +176,8 @@
         "clef_region",
         "transposition_region"
       ],
-      "provides_notation_type": true
+      "provides_notation_type": true,
+      "training": "weights/layout/training.json"
     }
   ],
   "base_model": {
@@ -130,5 +224,6 @@
         "sha256": "4e2a3412f65b2a21d315d928986c55723d3e60dfb92c3982a5b9fd56835b0aa5"
       }
     ]
-  }
+  },
+  "release": "parallel-score-2026-09-28"
 }

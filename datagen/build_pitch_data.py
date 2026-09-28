@@ -154,8 +154,10 @@ def _source(job):
                         x0, y0, x1, y1 = [v * 180 / 72 for v in box]
                         bbox = [x0, y0, x1 - x0, y1 - y0]
                         add_box("transposition_region", bbox)
-                        info("transposition", bbox, {"kind": "instrument", "semitones": row["expected_native_transpose"],
-                                                     "capo": None, "text": instruction})
+                        capo_instruction = row.get('instruction_kind') == 'capo'
+                        info("transposition", bbox, {"kind": 'capo' if capo_instruction else "instrument",
+                                                     "semitones": None if capo_instruction else row["expected_native_transpose"],
+                                                     "capo": row['capo'] if capo_instruction else None, "text": instruction})
                     bottom = min(r["bbox"][1] for r in records if r["page"] == 1)
                     target = header_target(score)
                     visible = page.text((0, 0, page.width, bottom * 72 / 180))
