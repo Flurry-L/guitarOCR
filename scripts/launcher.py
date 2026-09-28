@@ -348,7 +348,8 @@ def install(args, uv, tools):
         raise ValueError('安装包缺少模型压缩文件，请重新下载安装包。')
     else:
         acquire_weights(manifest)
-        acquire_base_model(manifest['base_model'], ROOT)
+        if manifest['base_model'].get('required_for_inference', True):
+            acquire_base_model(manifest['base_model'], ROOT)
     progress('ocr', '正在准备识别环境')
     app_python = environment_python(tools / "webui-venv")
     layout_python = environment_python(tools / "webui-paddle-venv")
@@ -415,6 +416,10 @@ def install(args, uv, tools):
             env={**os.environ, 'GUITAROCR_UV': str(uv)})
     base = manifest["base_model"]
     model = ROOT / base["path"]
+    if not base.get('required_for_inference', True):
+        task = next(entry for entry in manifest['models'] if entry['stage'] == 'measure_ocr')
+        folder = ROOT / task['path']
+        model = folder / json.loads((folder / 'inference.json').read_text())['model']
     progress('check', '正在检查本机识别环境')
     run(
         [

@@ -75,10 +75,9 @@ def _assign_positions(
         if "string" in note:
             string = int(note["string"])
             fret_value = note.get("fret", 0)
-            if fret_value == "x" and "pitch" in note:
-                fret = max(0, int(note["pitch"]) - tuning[string - 1])
-            else:
-                fret = 0 if fret_value == "x" else int(fret_value)
+            # A muted cross has no sounding pitch. Its optional notation
+            # position must not become a fret offset in the GP5 projection.
+            fret = 0 if fret_value == "x" or 'dead' in note.get('effects', []) else int(fret_value)
             candidates.append([(0.0, string, fret)])
             continue
         if 'dead' in note.get('effects', []):

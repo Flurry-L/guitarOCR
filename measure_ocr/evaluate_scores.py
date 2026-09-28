@@ -48,6 +48,13 @@ def selected_scores(manifest, limit, seed):
 
 def worker(args):
     scores = selected_scores(args.manifest, args.max_scores, args.seed)[args.shard_index::args.shards]
+    capability_path = Path(args.adapter or args.model) / 'capabilities.json'
+    capabilities = json.loads(capability_path.read_text()) if capability_path.is_file() else {}
+    if capabilities.get('visual_pitch') and any(
+        row['mode'] == 'both' and row.get('instrument', 'guitar') != 'drums' and not row.get('pitch_context')
+        for _key, rows in scores for row in rows
+    ):
+        raise ValueError('This model reads written pitches from notation+TAB. Rebuild missing pitch contexts with datagen.score_support_data before evaluation.')
     args.output.mkdir(parents=True, exist_ok=True)
     loading = time.perf_counter()
     if args.engine == 'vllm':
@@ -80,13 +87,19 @@ def worker(args):
             if all(r['id'] in completed for r in truth):
                 continue
             rows = copy.deepcopy(truth)
+            label = truth[0].get('label_json')
+            track = json.loads(Path(label).read_text()).get('track', {}) if label else {}
+            corpus = truth[0].get('corpus') or ('engraved' if source_id.startswith('engraved-') else
+                     'techniques' if 'parallel_techniques' in str(label) else
+                     'synthetic' if 'parallel_synthetic' in str(label) else 'original')
             for row in rows:
                 row['measure_number'] = row['measure_index'] + 1
                 row.pop('target')
                 row.pop('score_state', None)
             directory = args.output / 'scores' / f'{source_id}-{mode}'
             infer = recognize_crops if args.legacy else recognize_independent
-            kwargs = {} if args.legacy else {'batch_size': args.batch_size, 'state_reader': state_reader, 'batch_order':args.batch_order}
+            kwargs = {} if args.legacy else {'batch_size': args.batch_size, 'state_reader': state_reader,
+                                             'batch_order': args.batch_order, 'constrained_decoding': args.constrained_decoding}
             before = time.perf_counter()
             infer(rows, mode, args.model, args.adapter, 'cuda:0', args.max_new_tokens,
                   4096, truth[0].get('tuning', []), args.maximum_attempts,
@@ -101,6 +114,7 @@ def worker(args):
             for expected, row in zip(truth, rows, strict=True):
                 value = {k: expected.get(k) for k in ('id', 'source_id', 'mode', 'image', 'instrument', 'pitch_context')}
                 value.update(expected=expected.get('sounding_target', expected['target']), predicted=row['target'],
+                             corpus=corpus, midi_program=expected.get('midi_program', track.get('midi_program')),
                              raw_prediction=raw_by_number.get(row['measure_number'], row['target']),
                              needs_review=row.get('needs_review', False), tuning=row.get('tuning'),
                              string_count=len(row.get('tuning') or []),
@@ -158,6 +172,7 @@ def aggregate(args, shards):
                          'score_p95_seconds': float(np.percentile(elapsed, 95))}
     result['engine'] = args.engine
     result['engine_options'] = args.engine_options
+    result['kv_cache_memory_bytes'] = args.kv_cache_mb * 1024 ** 2
     result['speculative_tokens'] = args.speculative_tokens
     state_model = args.state_model
     capability_path = Path(args.adapter or args.model) / 'capabilities.json'
@@ -169,6 +184,9 @@ def aggregate(args, shards):
     result['model'] = str(args.model)
     result['batch_size'] = args.batch_size
     result['batch_order'] = args.batch_order or ('score' if args.engine == 'vllm' else 'area')
+    result['constrained_decoding'] = (bool(json.loads(capability_path.read_text()).get('m2_constraints'))
+                                     if args.constrained_decoding is None and capability_path.is_file()
+                                     else bool(args.constrained_decoding)) and not args.legacy
     result['postprocessing'] = [] if args.legacy else ['printed_state', 'fretted_pitches', 'cross_bar_ties']
     result['workers'] = [json.loads(path.read_text()) for i in range(shards)
                          if (path := args.output / f'runtime-{i}.json').exists()]
@@ -194,6 +212,7 @@ def main():
     parser.add_argument('--gpus', default='0,1,2,3,4,5,6,7')
     parser.add_argument('--legacy', action='store_true')
     parser.add_argument('--speculative-tokens', type=int, default=0)
+    parser.add_argument('--constrained-decoding', action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument('--state-model', type=Path)
     parser.add_argument('--batch-size', type=int, default=32)
     parser.add_argument('--batch-order', choices=['score', 'area'])

@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
 from document_info.prompts import (
     HEADER_PROMPT, TEMPO_PROMPT, STAFF_PROMPT, CLEF_PROMPT, TRANSPOSITION_PROMPT,
 )
-from shared.instruments import INSTRUMENTS
+from shared.instruments import INSTRUMENTS, program_from_visible_name
 from shared.tuning import tuning_from_name
 from shared.glm_backend import create_backend
 from shared.pitch_context import explicit_transposition
@@ -35,8 +36,23 @@ def parse_info_response(raw: str, kind: str) -> dict[str, Any]:
         semitones, capo, text = value.get("semitones"), value.get("capo"), value.get("text")
         if not isinstance(instruction, str) or instruction not in {"instrument", "ottava", "capo"}:
             return {"kind": None, "semitones": None, "capo": None, "text": None}
-        if instruction == "instrument" and (explicit := explicit_transposition(text)) is not None:
-            semitones = explicit
+        if instruction == "instrument":
+            explicit = explicit_transposition(text)
+            if explicit is not None:
+                semitones = explicit
+            elif program_from_visible_name(text) is not None and semitones == 0:
+                semitones = 0
+            else:
+                return {"kind": None, "semitones": None, "capo": None, "text": text}
+        if instruction == "ottava":
+            mark = re.sub(r'[\s.\-–_]+', '', str(text or '').casefold())
+            shifts = {'8va': 12, '8vaalta': 12, '8vb': -12, '8vabassa': -12,
+                      '8ba': -12, '15ma': 24, '15maalta': 24, '15mb': -24,
+                      '15mabassa': -24, '15ba': -24}
+            if mark in shifts:
+                semitones = shifts[mark]
+            elif mark not in {'8', '15', 'ottava', 'ottavabassa'}:
+                return {"kind": None, "semitones": None, "capo": None, "text": text}
         valid_shift = type(semitones) is int and -36 <= semitones <= 36
         if instruction == "ottava":
             valid_shift = valid_shift and semitones in {-24, -12, 12, 24}
@@ -74,7 +90,6 @@ def recognize_document_info(
     backend = backend or create_backend(model_path, adapter_path, device)
 
     predictions = []
-    metadata: dict[str, Any] = {"source": "image_document_info_lora"}
     messages = []
     for region in regions:
         kind = str(region['kind'])
@@ -84,12 +99,13 @@ def recognize_document_info(
             {'type': 'image', 'url': region['image']}, {'type': 'text', 'text': prompt},
         ]}])
     outputs = []
-    for offset in range(0, len(regions), 8):
+    batch_size = 32 if getattr(backend, 'supports_ragged_batch', False) else 8
+    for offset in range(0, len(regions), batch_size):
         if cancelled and cancelled():
             from shared.tasks import Cancelled
 
             raise Cancelled("已取消谱面信息识别")
-        batch = messages[offset:offset + 8]
+        batch = messages[offset:offset + batch_size]
         if hasattr(backend, 'generate_batch'):
             outputs.extend(backend.generate_batch(batch, 128))
         else:
@@ -103,6 +119,13 @@ def recognize_document_info(
         raw = raw.strip()
         parsed = parse_info_response(raw, kind)
         predictions.append({**region, "raw": raw, "parsed": parsed})
+    return metadata_from_predictions(predictions), predictions
+
+
+def metadata_from_predictions(predictions):
+    metadata = {"source": "image_document_info_lora"}
+    for prediction in predictions:
+        kind, parsed = prediction['kind'], prediction['parsed']
         if kind in {"header", "staff"} or (kind == "tempo" and metadata.get("tempo_quarter") is None):
             metadata.update(parsed)
 
@@ -113,4 +136,4 @@ def recognize_document_info(
         metadata["warnings"] = [
             f"无法根据“{metadata['tuning_name']}”确定调弦，请对照原谱填写各弦音高。"
         ]
-    return metadata, predictions
+    return metadata

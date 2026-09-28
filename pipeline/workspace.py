@@ -227,6 +227,18 @@ class Workspace:
         previous = (
             read_result(Path(state["info"]), "document_info") if state["info"] else {}
         )
+        if state.get('recognition'):
+            recognized = read_result(Path(state['recognition']), 'measure_ocr')
+            previous['tuning_used'] = recognized['tuning_used']
+            tuning_by_part = {}
+            for row in recognized['records']:
+                tuning_by_part.setdefault(row.get('part_id', 'part-1'), row.get('tuning', recognized['tuning_used']))
+            for part in previous.get('parts', []):
+                if part['id'] in tuning_by_part:
+                    part['tuning_used'] = tuning_by_part[part['id']]
+            for profile in previous.get('measure_profiles', []):
+                if profile['part_id'] in tuning_by_part:
+                    profile['tuning'] = tuning_by_part[profile['part_id']]
         layout = read_result(Path(state["layout"]), "layout")
         result = write_result(
             self.output(sid, "info"),

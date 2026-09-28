@@ -12,7 +12,8 @@ from scripts.progress import progress
 
 
 def model_entries(manifest):
-    return [*manifest['models'], manifest['base_model']]
+    base = manifest.get('base_model')
+    return [*manifest['models'], *([base] if base and base.get('required_for_inference', True) else [])]
 
 
 def model_files(manifest):
@@ -32,7 +33,7 @@ def build_bundle(root, destination, *, fetch_models=False):
         return destination
     # The downloader verifies the base itself. Check it here only when the
     # caller supplied local files instead of using the downloader.
-    if fetch_models:
+    if fetch_models and manifest.get('base_model', {}).get('required_for_inference', True):
         acquire_base_model(manifest['base_model'], root)
     entries = manifest['models'] if fetch_models else model_entries(manifest)
     errors = [error for model in entries

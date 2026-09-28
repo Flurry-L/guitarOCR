@@ -27,6 +27,11 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     },
   });
   const current = () => ui.state?.measures?.[ui.measureIndex];
+  const measureLabel = (m,i) => `${m.part_name ? m.part_name+' · ' : ''}${m.staff_id && m.staff_id!=='staff-1' ? '谱表 '+m.staff_id.replace('staff-','')+' · ' : ''}第 ${(m.bar_index ?? i)+1} 小节`;
+  function neighbour(delta) {
+    const row=current(), indexes=ui.state.measures.flatMap((m,i)=>m.part_id===row?.part_id && m.staff_id===row?.staff_id ? [i] : []);
+    return indexes[Math.max(0,Math.min(indexes.length-1,indexes.indexOf(ui.measureIndex)+delta))] ?? ui.measureIndex;
+  }
   const event = () => draft?.voices[selected?.vi]?.events[selected?.ei];
   function feedback(message = '', error = false) {
     $('measureFeedback').textContent = message;
@@ -76,11 +81,12 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     $('reviewEditor').hidden = !measures.length;
     $('recognize').textContent = measures.length ? '重新识别整谱' : '识别乐谱';
     $('recognize').classList.toggle('primary', !measures.length);
-    $('recognitionSummary').textContent = `${measures.length} 小节 · ${ui.state.review_measures?.length || 0} 个待检查`;
+    const bars=new Set(measures.map((m,i)=>m.bar_index ?? i)).size, parts=new Set(measures.map(m=>m.part_id || 'part-1')).size;
+    $('recognitionSummary').textContent = `${bars} 小节${parts>1 ? ` · ${parts} 音轨` : ''} · ${ui.state.review_measures?.length || 0} 个待检查`;
     $('scoreTitle').textContent = ui.state.metadata?.title || ui.state.input_names?.[0] || '未命名乐谱';
     $('scoreCredits').textContent = ui.state.metadata?.artist || '';
     $('measureSelect').replaceChildren(...measures.map((m,i) => {
-      const o = el('option', `第 ${i+1} 小节${m.needs_review ? ' · 待检查' : m.reviewed ? ' · 已确认' : ''}`);
+      const o = el('option', `${measureLabel(m,i)}${m.needs_review ? ' · 待检查' : m.reviewed ? ' · 已确认' : ''}`);
       o.value = i; return o;
     }));
     $('measureSelect').value = ui.measureIndex;
@@ -115,8 +121,8 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     return true;
   }
   $('measureSelect').onchange=()=>selectMeasure(+$('measureSelect').value,undefined,true);
-  $('prevMeasure').onclick=()=>selectMeasure(ui.measureIndex-1,undefined,true);
-  $('nextMeasure').onclick=()=>selectMeasure(ui.measureIndex+1,undefined,true);
+  $('prevMeasure').onclick=()=>selectMeasure(neighbour(-1),undefined,true);
+  $('nextMeasure').onclick=()=>selectMeasure(neighbour(1),undefined,true);
   function openIssue() {
     const indexes=ui.state.measures.flatMap((m,i)=>m.needs_review?[i]:[]);
     if(indexes.length)selectMeasure(indexes.find(i=>i>ui.measureIndex)??indexes[0],undefined,true);
@@ -133,7 +139,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
   }
   function renderReference() {
     const m=current();
-    $('currentMeasureTitle').textContent=`原谱 · 第 ${ui.measureIndex+1} 小节`;
+    $('currentMeasureTitle').textContent=`原谱 · ${measureLabel(m,ui.measureIndex)}`;
     $('measureSelect').value=ui.measureIndex;$('measureImage').src=m.url;
     $('reviewStatus').textContent=m.needs_review?'待检查':m.reviewed?'已确认':'识别完成';
     $('reviewStatus').className=`pill ${reviewKind(m)}`;
@@ -146,8 +152,8 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
   }
   function updateMeasureControls() {
     const count=ui.state?.measures?.length||0,busy=ui.busy||saving;
-    $('prevMeasure').disabled=busy||ui.measureIndex===0;
-    $('nextMeasure').disabled=busy||ui.measureIndex>=count-1;
+    $('prevMeasure').disabled=busy||!count||neighbour(-1)===ui.measureIndex;
+    $('nextMeasure').disabled=busy||!count||neighbour(1)===ui.measureIndex;
     $('nextIssue').hidden=!ui.state?.review_measures?.length;
     $('toExport').disabled=busy||!count;
     $('saveMeasure').disabled=busy||(!ui.measureDirty && !current()?.needs_review && !!current()?.reviewed);
@@ -181,6 +187,8 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     view.select(selected);
     const e=event(),n=e?.notes[selected?.ni];
     if(e){
+      const voices=Math.min(16,Math.max(2,...draft.voices.map(v=>v.voice+2)));
+      $('editorVoice').replaceChildren(...Array.from({length:voices},(_,i)=>new Option(`声部 ${i+1}`,i)));
       $('editorVoice').value=draft.voices[selected.vi].voice;
       for(const b of $('durationTools').children)b.setAttribute('aria-pressed',String(+b.dataset.duration===e.duration.value));
       $('durationDots').value=e.duration.double_dotted?2:e.duration.dotted?1:0;
@@ -188,7 +196,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
       $('eventTuplet').value=tuplet;
       if(!$('eventTuplet').value){const o=el('option',tuplet);o.value=tuplet;$('eventTuplet').append(o);$('eventTuplet').value=tuplet;}
       $('eventStart').value=e.start/960;
-      $('selectedNote').textContent=`第 ${ui.measureIndex+1} 小节 · 声部 ${draft.voices[selected.vi].voice+1} · 第 ${e.start/960+1} 拍${selected.kind==='tab'?` · 第 ${selected.string} 弦`:''}${n?'':' · 休止或空位'}`;
+      $('selectedNote').textContent=`${measureLabel(current(),ui.measureIndex)} · 声部 ${draft.voices[selected.vi].voice+1} · 第 ${e.start/960+1} 拍${selected.kind==='tab'?` · 第 ${selected.string} 弦`:''}${n?'':' · 休止或空位'}`;
     }
     const drums=profile.instrument==='drums',tab=selected.kind==='tab';
     $('fretTools').hidden=!tab;$('pitchTools').hidden=tab||drums;$('drumTools').hidden=!drums;
@@ -310,7 +318,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
       e.preventDefault();
       const delta=e.key==='ArrowLeft'?-1:1, next=selected.ei+delta;
       if(next<0 || next>=draft.voices[selected.vi].events.length){
-        const mi=ui.measureIndex+delta,m=ui.state.measures[mi];
+        const mi=neighbour(delta),m=mi!==ui.measureIndex ? ui.state.measures[mi] : null;
         if(m){const vi=Math.min(selected.vi,m.parsed.voices.length-1),events=m.parsed.voices[vi].events;
           const target=measureProfile(m,ui.state),ei=delta<0?events.length-1:0;
           const kind=target.mode==='both'?selected.kind:target.mode==='notation'?'notation':'tab';

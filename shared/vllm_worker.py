@@ -19,6 +19,7 @@ def main():
     from PIL import Image
     from transformers import AutoProcessor
     from vllm import LLM, SamplingParams
+    from vllm.sampling_params import StructuredOutputsParams
 
     options = json.loads(args.options)
     speculative_tokens = options.pop('speculative_tokens', 0)
@@ -68,8 +69,24 @@ def main():
                 if images:
                     value.update(multi_modal_data={'image': images}, multi_modal_uuids={'image': uuids})
                 prompts.append(value)
-            params = SamplingParams(temperature=0, max_tokens=request['max_new_tokens'],
-                                    skip_special_tokens=request.get('skip_special_tokens', True))
+            def sampling(schema, grammar):
+                if schema is not None and grammar is not None:
+                    raise ValueError('Choose either a JSON schema or an M2 grammar')
+                return SamplingParams(temperature=0, max_tokens=request['max_new_tokens'],
+                                      skip_special_tokens=request.get('skip_special_tokens', True),
+                                      structured_outputs=StructuredOutputsParams(json=schema) if schema else
+                                      StructuredOutputsParams(grammar=grammar) if grammar else None)
+
+            schema = request.get('json_schema')
+            grammar = request.get('grammar')
+            if isinstance(schema, list) or isinstance(grammar, list):
+                schemas = schema if isinstance(schema, list) else [schema] * len(prompts)
+                grammars = grammar if isinstance(grammar, list) else [grammar] * len(prompts)
+                if len(schemas) != len(prompts) or len(grammars) != len(prompts):
+                    raise ValueError('Each prompt needs its own output schema')
+                params = [sampling(s, g) for s, g in zip(schemas, grammars, strict=True)]
+            else:
+                params = sampling(schema, grammar)
             outputs = engine.generate(prompts, params, use_tqdm=False)
             values = [(r.outputs[0].text, len(r.outputs[0].token_ids)) for r in outputs]
             metrics = []

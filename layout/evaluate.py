@@ -12,14 +12,14 @@ from layout.postprocess import order_measure_boxes, refine_measure_boxes, dedupl
 from shared.layout_labels import is_measure, measure_mode, mode_vote
 
 
-def _type_matches(boxes: list[list[float]], measures: list[dict], mode: str) -> dict:
+def _type_matches(boxes: list[list[float]], measures: list[dict], mode: str, modes=None) -> dict:
     """One-to-one IoU 0.50 matches, ignoring class until a box is matched."""
     import numpy as np
 
     truth = np.asarray(boxes, dtype=float).reshape(-1, 4)
     truth[:, 2:] += truth[:, :2]
     available = np.ones(len(truth), dtype=bool)
-    confusion = {}
+    confusion, correct = {}, 0
     for measure in sorted(measures, key=lambda row: row["score"], reverse=True):
         if not available.any():
             break
@@ -33,7 +33,8 @@ def _type_matches(boxes: list[list[float]], measures: list[dict], mode: str) -> 
             available[index] = False
             predicted = measure_mode(measure.get("label", "")) or measure.get("mode") or "unknown"
             confusion[predicted] = confusion.get(predicted, 0) + 1
-    return {"matched_measures": sum(confusion.values()), "correct_type_measures": confusion.get(mode, 0), "measure_type_confusion": confusion}
+            correct += predicted == (modes[index] if modes is not None else mode)
+    return {"matched_measures": sum(confusion.values()), "correct_type_measures": correct, "measure_type_confusion": confusion}
 
 
 def _coco_metrics(truth, predictions, image_ids: list[int]) -> dict:
@@ -69,10 +70,10 @@ def _count_metrics(rows: list[dict]) -> dict:
     sources = defaultdict(list)
     for row in rows:
         sources[(row["source_id"], row["mode"])].append(row)
-    confusion = {mode: {} for mode in ("tab", "notation", "both")}
+    confusion = {mode: {} for mode in ("tab", "notation", "both", "mixed")}
     for row in rows:
         predicted = row.get("predicted_mode") or "unknown"
-        cell = confusion[row["mode"]]
+        cell = confusion.setdefault(row['mode'], {})
         cell[predicted] = cell.get(predicted, 0) + 1
     correct = sum(row.get("predicted_mode") == row["mode"] for row in rows)
     matched = sum(row["matched_measures"] for row in rows)
@@ -144,6 +145,13 @@ def evaluate(
     }
     collapsed.createIndex()
     truth = collapsed
+    if typed_truth:
+        for image_id, metadata in truth.imgs.items():
+            present = {measure_mode(original_categories[row['category_id']])
+                       for row in typed_truth.loadAnns(typed_truth.getAnnIds(imgIds=[image_id]))}
+            present.discard(None)
+            if present:
+                metadata['mode'] = next(iter(present)) if len(present) == 1 else 'mixed'
     image_ids = sorted(
         image_id
         for image_id, row in truth.imgs.items()
@@ -162,8 +170,13 @@ def evaluate(
     for index, image_id in enumerate(image_ids, 1):
         metadata = truth.imgs[image_id]
         mode = metadata.get("mode", "tab")
+        annotations = truth.loadAnns(truth.getAnnIds(imgIds=[image_id], catIds=[category_ids['measure']]))
+        target_modes = None
+        if typed_truth:
+            originals = typed_truth.anns
+            target_modes = [measure_mode(original_categories[originals[row['id']]['category_id']]) for row in annotations]
         by_mode[mode].append(image_id)
-        instrument = metadata.get("instrument", "guitar")
+        instrument = metadata.get("instrument", "unknown")
         by_instrument[instrument].append(image_id)
         image_path = dataset_dir / "images" / metadata["file_name"]
         result = next(
@@ -190,6 +203,8 @@ def evaluate(
                 if not is_measure(box["label"]) and box["score"] >= threshold
             ]
             boxes.extend(measures)
+        predicted_modes = {measure_mode(row.get('label', '')) or row.get('mode') for row in measures}
+        predicted_modes.discard(None)
         counts.append(
             {
                 "image_id": image_id,
@@ -198,11 +213,10 @@ def evaluate(
                 "source_id": metadata.get(
                     "source_id", metadata.get("family", str(image_id))
                 ),
-                "predicted_mode": mode_vote(measures)["mode"],
+                "predicted_mode": 'mixed' if len(predicted_modes) > 1 else mode_vote(measures)['mode'],
                 "mode_vote_fraction": mode_vote(measures)["mode_vote_fraction"],
                 **_type_matches(
-                    [row["bbox"] for row in truth.loadAnns(truth.getAnnIds(imgIds=[image_id], catIds=[category_ids["measure"]]))],
-                    measures, mode,
+                    [row['bbox'] for row in annotations], measures, mode, target_modes,
                 ),
                 "expected": len(
                     truth.getAnnIds(imgIds=[image_id], catIds=[category_ids["measure"]])
@@ -308,7 +322,7 @@ def main() -> None:
     parser.add_argument("--postprocess", action="store_true")
     parser.add_argument("--split", choices=("val", "test"), default="val")
     parser.add_argument(
-        "--mode", action="append", dest="modes", choices=("tab", "notation", "both")
+        "--mode", action="append", dest="modes", choices=("tab", "notation", "both", "mixed")
     )
     parser.add_argument("--device", default="gpu:0")
     parser.add_argument("--threshold", type=float, default=0.25)

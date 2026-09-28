@@ -14,6 +14,8 @@ DEFAULT_TUNINGS = {
 }
 
 STANDARD_TUNINGS = {
+    ("guitar", 4): DEFAULT_TUNINGS["guitar"][:4],
+    ("guitar", 5): DEFAULT_TUNINGS["guitar"][:5],
     ("guitar", 6): DEFAULT_TUNINGS["guitar"],
     ("guitar", 7): [64, 59, 55, 50, 45, 40, 35],
     ("guitar", 8): [64, 59, 55, 50, 45, 40, 35, 30],
@@ -30,6 +32,15 @@ def program_from_visible_name(text: str | None) -> int | None:
         return None
     text = " ".join(re.findall(r"[a-z]+", text.lower()))
     names = (
+        (r"\bpiano\b", 0),
+        (r"\bviolin\b", 40),
+        (r"\bviola\b", 41),
+        (r"\b(?:cello|violoncello)\b", 42),
+        (r"\bcontrabass\b", 43),
+        (r"\bflute\b", 73),
+        (r"\boboe\b", 68),
+        (r"\bclarinet\b", 71),
+        (r"\bbassoon\b", 70),
         (r"\b(?:english horn|cor anglais)\b", 69),
         (r"\bsoprano sax(?:ophone)?\b", 64),
         (r"\balto sax(?:ophone)?\b", 65),

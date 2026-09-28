@@ -257,12 +257,15 @@ function render() {
 }
 function renderExport() {
   if (!ui.state) return;
-  const count = ui.state.measures?.length || 0,
+  const measures = ui.state.measures || [];
+  const count = new Set(measures.map((m,i)=>m.bar_index ?? i)).size,
+    parts = new Set(measures.map(m=>m.part_id || 'part-1')).size,
     review = ui.state.review_measures?.length || 0;
   $("exportSummary").replaceChildren();
   for (const [value, label] of [
     [ui.state.pages.length, "页乐谱"],
     [count, "个小节"],
+    ...(parts > 1 ? [[parts, "条音轨"]] : []),
     [review, "个待检查"],
   ]) {
     const stat = el("div", undefined, "stat");
@@ -272,6 +275,16 @@ function renderExport() {
   $("downloadProject").hidden = false;
   $("downloadProject").href = endpoint("/archive");
   $("downloadScoreText").hidden = !ui.state.score_text_url;
+  $("downloadScoreDocument").hidden = !ui.state.score_document_url;
+  $("downloadMusicXML").hidden = !ui.state.musicxml_url;
+  if (ui.state.musicxml_url) {
+    $("downloadMusicXML").href = ui.state.musicxml_url;
+    $("downloadMusicXML").download = "score.musicxml";
+  }
+  if (ui.state.score_document_url) {
+    $("downloadScoreDocument").href = ui.state.score_document_url;
+    $("downloadScoreDocument").download = "score.json";
+  }
   if (ui.state.score_text_url) {
     $("downloadScoreText").href = ui.state.score_text_url;
     $("downloadScoreText").download = "score.txt";

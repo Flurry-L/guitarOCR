@@ -85,6 +85,8 @@ def main():
     parser.add_argument('--accumulation', type=int, default=1)
     parser.add_argument('--lr', type=float, default=5e-5)
     parser.add_argument('--eval-every', type=int, default=500)
+    parser.add_argument('--image-max-pixels', type=int, default=768 * 768,
+                        help='Match the image budget used to build the tokenized training data')
     parser.add_argument('--seed', type=int, default=20260928)
     args = parser.parse_args()
     rank, world = int(os.environ.get('RANK', 0)), int(os.environ.get('WORLD_SIZE', 1))
@@ -105,7 +107,7 @@ def main():
 
     template = get_template_and_fix_tokenizer(processor.tokenizer, DataArguments(template='glm_ocr'))
     # Same raster budget used by LLaMA-Factory's multimodal preprocessing.
-    processor.image_max_pixels = 768 * 768
+    processor.image_max_pixels = args.image_max_pixels
     processor.image_min_pixels = 32 * 32
     cache = load_from_disk(args.tokenized)
     collator = SFTDataCollatorWith4DAttentionMask(template=template, model=teacher,

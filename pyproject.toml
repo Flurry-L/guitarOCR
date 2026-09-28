@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10,<3.13"
 dependencies = [
   "numpy>=1.26,<3",
+  "scipy>=1.11,<2",
   "Pillow>=12.3,<13",
   "PyGuitarPro>=0.7,<1",
   "pypdfium2>=5.13,<6",
@@ -28,7 +29,7 @@ glm-ocr = [
   "safetensors>=0.8,<1",
   "transformers==5.8.0",
 ]
-training = ["liger-kernel>=0.8.3,<0.9"]
+training = ["liger-kernel>=0.8.3,<0.9", "verovio>=6.3,<7", "cairosvg>=2.9,<3"]
 
 [project.scripts]
 guitarocr-gp = "pipeline.run:main"

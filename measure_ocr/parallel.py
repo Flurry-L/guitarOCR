@@ -1,12 +1,13 @@
 """Recognize a whole score using printed state and independent visual context."""
 
 import json
+from collections import Counter, defaultdict
 from pathlib import Path
 import time
 
 from PIL import Image
 
-from shared.constraints import validate_measure_target
+from shared.constraints import gp5_timing_errors, validate_measure_target
 from shared.glm_backend import create_backend
 from shared.m2 import full_measure_rest_target
 from shared.pitch_context import convert_pitch_target
@@ -19,9 +20,9 @@ def _check(cancelled):
         raise Cancelled("识别已停止，已完成的小节已保存，可以继续")
 
 
-def _batch(backend, messages, tokens):
+def _batch(backend, messages, tokens, grammars=None):
     if hasattr(backend, 'generate_batch'):
-        return backend.generate_batch(messages, tokens)
+        return backend.generate_batch(messages, tokens, **({'grammar': grammars} if grammars else {}))
     return [backend.generate(m, tokens) for m in messages]
 
 
@@ -48,6 +49,21 @@ def read_score_states(records, backend, *, batch_size=24, cancelled=None, saved=
             except ValueError as error:
                 value['error'] = str(error)
             predictions[str(row['measure_number'])] = value
+    shared_times = {}
+    if len({(r.get('part_id'), r.get('staff_id')) for r in records}) > 1 and all('bar_index' in r for r in records):
+        observations = defaultdict(Counter)
+        for row in records:
+            if printed := predictions[str(row['measure_number'])].get('time'):
+                observations[row['bar_index']][printed] += 1
+        current = None
+        for index in sorted({r['bar_index'] for r in records}):
+            votes = observations[index].most_common()
+            if votes and (len(votes) == 1 or votes[0][1] > votes[1][1]):
+                current = votes[0][0]
+            elif votes:
+                current = None
+            if current:
+                shared_times[index] = current
     states = {}
     for row in records:
         part = (row.get('part_id', 'part-1'), row.get('staff_id', 'staff-1'))
@@ -59,6 +75,9 @@ def read_score_states(records, backend, *, batch_size=24, cancelled=None, saved=
             if prediction.get(field) is not None:
                 state[field] = prediction[field]
                 uncertain.discard(field)
+        if row.get('bar_index') in shared_times:
+            state['time'] = shared_times[row['bar_index']]
+            uncertain.discard('time')
         row['score_state'] = dict(state)
         row['state_needs_review'] = bool(uncertain)
         row['printed_state'] = prediction
@@ -72,6 +91,7 @@ def recognize_independent(
     cancelled=None, instrument='guitar', batch_size=8,
     state_reader=None,
     batch_order=None,
+    constrained_decoding=None,
 ):
     diagnostics_path = Path(diagnostics_path)
     diagnostics_path.parent.mkdir(parents=True, exist_ok=True)
@@ -108,6 +128,12 @@ def recognize_independent(
         row['tuning'] = row.get('tuning', tuning)
     attach_neighbours(records)
     backend = backend or create_backend(model_path, adapter_path, device)
+    capabilities_path = Path(adapter_path or model_path) / 'capabilities.json'
+    capabilities = json.loads(capabilities_path.read_text()) if capabilities_path.exists() else {}
+    constrained = capabilities.get('m2_constraints', False) if constrained_decoding is None else constrained_decoding
+    constrained = constrained and getattr(backend, 'supports_json_schema', False)
+    for row in records:
+        row['visual_pitch'] = bool(capabilities.get('visual_pitch', row.get('visual_pitch', False)))
     if state_reader is None:
         capabilities_path = Path(adapter_path or model_path) / 'capabilities.json'
         capabilities = json.loads(capabilities_path.read_text()) if capabilities_path.exists() else {}
@@ -128,11 +154,13 @@ def recognize_independent(
         saved = seeds.get(number) or (accepted.get(number) if number not in retry else None)
         if saved:
             target = saved['target']
-            _, errors = validate_measure_target(target, row['mode'], tuning=row['tuning'], string_count=len(row['tuning']))
+            row['tuning'] = saved.get('tuning', row['tuning'])
+            visual_tuning = row['mode'] == 'both' and row.get('visual_pitch')
+            _, errors = validate_measure_target(target, row['mode'], tuning=None if visual_tuning else row['tuning'], string_count=len(row['tuning']))
             if errors:
                 raise ValueError(f'Invalid saved measure {number}: {errors}')
             row.update({k: v for k, v in saved.items() if k in {
-                'target', 'manually_edited', 'needs_review', 'fallback_reason', 'recognition_attempts', 'boundary_resolved'
+                'target', 'written_target', 'manually_edited', 'needs_review', 'fallback_reason', 'recognition_attempts', 'boundary_resolved', 'tuning', 'tuning_source', 'tuning_explicit'
             }})
             row['recognition_attempts'] = saved.get('attempt', saved.get('recognition_attempts', 0))
             row['needs_review'] = (bool(saved.get('needs_review')) if saved.get('manually_edited') else
@@ -163,7 +191,12 @@ def recognize_independent(
             for attempt in range(1, maximum_attempts + 1):
                 _check(cancelled)
                 token_budget = max(budgets[i] for i in unresolved)
-                outputs = _batch(backend, [messages[i] for i in unresolved], token_budget)
+                grammars = None
+                if constrained:
+                    from shared.m2_grammar import measure_grammar
+
+                    grammars = [measure_grammar(batch[i]['mode'], len(batch[i]['tuning']) or 12) for i in unresolved]
+                outputs = _batch(backend, [messages[i] for i in unresolved], token_budget, grammars)
                 next_unresolved = []
                 for i, (raw, tokens) in zip(unresolved, outputs, strict=True):
                     from measure_ocr.recognizer import _repair_truncated_optional_text
@@ -179,7 +212,7 @@ def recognize_independent(
                     except (ValueError, KeyError, TypeError):
                         pass
                     target, conversion_errors = text, []
-                    if row['mode'] == 'both' and row.get('tuning'):
+                    if row['mode'] == 'both' and row.get('tuning') and not row.get('visual_pitch'):
                         try:
                             target, repaired = resolve_fretted_pitches(text, row['tuning'])
                             if repaired:
@@ -187,15 +220,18 @@ def recognize_independent(
                         except (ValueError, KeyError, TypeError):
                             # Syntax failures retain the normal structural retry.
                             pass
-                    if row['mode'] == 'notation' and row['instrument'] != 'drums' and row.get('pitch_context'):
+                    if (row['mode'] == 'notation' or (row['mode'] == 'both' and row.get('visual_pitch'))) and row['instrument'] != 'drums' and row.get('pitch_context'):
                         try:
-                            target = convert_pitch_target(text, row['pitch_context'])
+                            target = convert_pitch_target(text, row['pitch_context'], mode=row['mode'])
                         except (ValueError, KeyError, TypeError) as error:
                             conversion_errors.append(str(error))
-                    parsed, errors = validate_measure_target(target, row['mode'], tuning=row['tuning'], string_count=len(row['tuning']))
+                    visual_tuning = row['mode'] == 'both' and row.get('visual_pitch')
+                    parsed, errors = validate_measure_target(target, row['mode'], tuning=None if visual_tuning else row['tuning'], string_count=len(row['tuning']))
                     errors += conversion_errors
                     structural_errors = list(errors)
-                    if not errors and row['mode'] == 'notation' and row['instrument'] in {'guitar', 'bass'} and row['tuning']:
+                    if not errors and gp5_timing_errors(target):
+                        errors.append('Events overlap within a voice. Re-read durations and onsets: each event must end no later than the next starts; simultaneous notes belong to a chord or another voice')
+                    if not errors and row['mode'] == 'notation' and row['instrument'] in {'guitar', 'bass'} and row['tuning'] and row.get('tuning_explicit'):
                         from gp5_export.fingering import notation_fingering_errors
 
                         candidates = row.get('fingering_tunings') or [row['tuning']]
@@ -211,6 +247,7 @@ def recognize_independent(
                         'generated_token_count': tokens, 'token_budget': token_budget,
                         'hit_token_limit': hit_limit, 'constraint_errors': errors, 'deterministic_repairs': repairs,
                         'score_state': row['score_state'],
+                        'written_target': text, 'tuning': row['tuning'],
                     }
                     save(value)
                     if errors and attempt < maximum_attempts:
@@ -229,7 +266,7 @@ def recognize_independent(
                               'attempt': attempt + 1, 'deterministic_repairs': ['fallback_full_measure_rest']})
                     elif errors:
                         save({**value, 'accepted': True, 'needs_review': True, 'fallback_reason': errors})
-                    row.update(target=target, recognition_attempts=attempt, fallback_reason=errors,
+                    row.update(target=target, written_target=text, recognition_attempts=attempt, fallback_reason=errors,
                                needs_review=bool(errors or row.get('pitch_needs_review') or row.get('state_needs_review')))
                     completed += 1
                     if progress:
@@ -238,11 +275,18 @@ def recognize_independent(
                 if not unresolved:
                     break
         before = [r['target'] for r in records]
+        from shared.score_tuning import reconcile_score_tuning
+
+        reconcile_score_tuning(records)
         resolve_ties(records)
         for old, row in zip(before, records, strict=True):
-            if old != row['target']:
+            if old != row['target'] or row.get('tuning_source'):
                 save({'measure_number': row['measure_number'], 'target': row['target'], 'accepted': True,
                       'attempt': row.get('recognition_attempts', 1), 'needs_review': row.get('needs_review', False),
+                      'tuning': row['tuning'], 'tuning_source': row.get('tuning_source'),
+                      'written_target': row.get('written_target'),
+                      'manually_edited': row.get('manually_edited', False),
+                      'tuning_explicit': row.get('tuning_explicit', False),
                       'fallback_reason': row.get('fallback_reason', []), 'deterministic_repairs': ['resolve_cross_bar_tie']})
     diagnostics_path.with_name('timing.json').write_text(json.dumps({
         'measures': len(records), 'state_seconds': state_seconds,

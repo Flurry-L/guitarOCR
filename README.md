@@ -2,7 +2,7 @@
 
 把乐谱 PDF 或图片转换为可编辑的 GP5 文件。在工作台检查小节框、校对音符，再下载到 Guitar Pro 中继续编辑。
 
-吉他和贝斯支持 TAB、五线谱和五线谱＋TAB，自动判断谱面类型；鼓、钢琴及其他旋律乐器使用五线谱。识别单位为单轨、单谱表，GP5 最多导出七弦。模型主要使用 Guitar Pro 原生页面训练，识别结果需要校对，具体效果见[模型评测](docs/model-evaluation.md)。
+吉他和贝斯支持 TAB、五线谱和五线谱＋TAB，自动判断谱面类型；鼓、钢琴及其他旋律乐器使用五线谱。总谱按乐器、谱表和共同小节时间轴组织，支持钢琴双谱表和混合记谱。识别结果保存为独立的结构化乐谱，可导出 GP5 或 MusicXML；GP5 对超出单轨弦数和声部限制的内容拆轨保存。具体效果见[模型评测](docs/model-evaluation.md)。
 
 ## 下载与启动
 
@@ -61,7 +61,7 @@ GitHub 自动生成的 Source code ZIP 可能只含权重指针，直接使用�
 
 ```bash
 uv run --no-sync guitarocr-gp /path/to/score.pdf --output output/score
-uv run --no-sync guitarocr-check --hashes
+uv run --no-sync guitarocr-check
 ```
 
 | 需要做什么 | 文档 |

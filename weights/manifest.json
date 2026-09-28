@@ -6,24 +6,20 @@
       "path": "weights/measure_ocr",
       "files": [
         {
-          "name": "adapter_config.json",
-          "bytes": 1111
-        },
-        {
-          "name": "adapter_model.safetensors",
-          "bytes": 62975784
-        },
-        {
           "name": "capabilities.json",
-          "bytes": 203
+          "bytes": 255
         },
         {
           "name": "inference.json",
           "bytes": 164
         },
         {
+          "name": "label_schema.json",
+          "bytes": 4929
+        },
+        {
           "name": "merged/capabilities.json",
-          "bytes": 180
+          "bytes": 248
         },
         {
           "name": "merged/chat_template.jinja",
@@ -80,16 +76,8 @@
       "path": "weights/document_info",
       "files": [
         {
-          "name": "adapter_config.json",
-          "bytes": 1110
-        },
-        {
-          "name": "adapter_model.safetensors",
-          "bytes": 31517928
-        },
-        {
           "name": "capabilities.json",
-          "bytes": 52
+          "bytes": 109
         },
         {
           "name": "inference.json",
@@ -97,7 +85,7 @@
         },
         {
           "name": "merged/capabilities.json",
-          "bytes": 46
+          "bytes": 109
         },
         {
           "name": "merged/chat_template.jinja",
@@ -150,8 +138,12 @@
       "path": "weights/layout",
       "files": [
         {
+          "name": "dataset_sources.json",
+          "bytes": 403381
+        },
+        {
           "name": "inference.json",
-          "bytes": 1228547
+          "bytes": 1226126
         },
         {
           "name": "inference.pdiparams",
@@ -223,7 +215,8 @@
         "bytes": 165,
         "sha256": "4e2a3412f65b2a21d315d928986c55723d3e60dfb92c3982a5b9fd56835b0aa5"
       }
-    ]
+    ],
+    "required_for_inference": false
   },
-  "release": "parallel-score-2026-09-28"
+  "release": "score-support-2026-09-28"
 }

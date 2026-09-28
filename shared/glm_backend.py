@@ -15,14 +15,15 @@ def create_backend(model_path, adapter_path, device):
     import os
 
     config = Path(adapter_path) / 'inference.json' if adapter_path else Path(model_path) / 'inference.json'
-    if device.startswith('cuda') and config.exists() and os.environ.get('GUITAROCR_BACKEND', 'auto') != 'transformers':
+    settings = json.loads(config.read_text()) if config.exists() else {}
+    merged = config.parent / settings['model'] if settings.get('model') else None
+    if device.startswith('cuda') and merged and merged.is_dir() and os.environ.get('GUITAROCR_BACKEND', 'auto') != 'transformers':
         from shared.vllm_backend import VllmBackend, engine_python
 
         if engine_python().is_file():
-            settings = json.loads(config.read_text())
-            merged = config.parent / settings['model']
-            if merged.is_dir():
-                return VllmBackend(merged, device, options=settings.get('options'))
+            return VllmBackend(merged, device, options=settings.get('options'))
+    if merged and merged.is_dir():
+        return GlmBackend(merged, None, device)
     return GlmBackend(model_path, adapter_path, device)
 
 
@@ -31,10 +32,19 @@ class GlmBackend:
         self, model_path: Path, adapter_path: Path | None, device: str,
         *, merge_adapter: bool = True,
     ) -> None:
+        import json
         import torch
         from peft import PeftModel
         from transformers import AutoModelForImageTextToText, AutoProcessor
 
+        # Task adapters may have been trained on an already fine-tuned base.
+        # Direct Transformers callers must use the same published model as vLLM.
+        config = Path(adapter_path or model_path) / 'inference.json'
+        settings = json.loads(config.read_text()) if config.is_file() else {}
+        if settings.get('model'):
+            merged = config.parent / settings['model']
+            if merged.is_dir():
+                model_path, adapter_path = merged, None
         dtype = torch.float32
         if device.startswith("cuda"):
             with torch.cuda.device(device):
@@ -210,6 +220,11 @@ class _AdapterBackend:
     def supports_ragged_batch(self):
         with self.pool.lock:
             return getattr(self.pool._get_backend(self.path), 'supports_ragged_batch', False)
+
+    @property
+    def supports_json_schema(self):
+        with self.pool.lock:
+            return getattr(self.pool._get_backend(self.path), 'supports_json_schema', False)
 
     def generate(self, *args, **kwargs):
         return self.pool._generate(self.path, "generate", *args, **kwargs)

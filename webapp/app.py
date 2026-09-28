@@ -424,6 +424,7 @@ def create_app(
         if not path.is_relative_to(root) or path.suffix.lower() not in {
             ".png",
             ".gp5",
+            ".musicxml",
             ".m2",
             ".txt",
             ".json",

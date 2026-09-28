@@ -48,7 +48,7 @@ sudo apt-get install -y curl ca-certificates libgl1 libglib2.0-0
 | GPU 识别 | 建议 24 GB 显存、32 GB 内存 | 两套常驻 OCR 引擎、视觉缓存及小节批量 |
 | CPU 识别 | 建议 32 GB 内存，适合试用 | CPU 性能、内存带宽，速度较慢 |
 
-当前源码版本建议为模型、独立推理环境和编译缓存预留 50 GB 磁盘。GLM-OCR 基座约 13.3 亿参数，两个 OCR 任务分别提供合并模型和 LoRA 适配器。大图、长小节和并发任务会增加显存与内存需求。
+当前源码版本建议为模型、独立推理环境和编译缓存预留 50 GB 磁盘。GLM-OCR 基座约 13.3 亿参数，两个 OCR 任务分别提供完整合并模型。大图、长小节和并发任务会增加显存与内存需求。
 
 工作台在启动时预热模型，之后同一首谱内的小节批量识别。H100 的首次加载、预热后识别和完整 PDF 结果见[模型评测](model-evaluation.md)。远程服务还需计算上传与排队时间。
 
@@ -65,7 +65,7 @@ sudo apt-get install -y curl ca-certificates libgl1 libglib2.0-0
 
 已有 uv 配置优先用于普通依赖；`UV_PYTHON_INSTALL_MIRROR` 可指定 Python 来源，`HF_ENDPOINT` 可指定模型来源。ZIP、uv 和 Windows C++ 运行库仍需访问各自的官方站点。
 
-桌面安装包和启动 ZIP 已包含完整模型，约 2 GB。首次本机识别会展开包内模型并记录版本，之后直接复用本地文件。桌面窗口显示当前安装步骤、正在下载的组件和包内模型的展开进度。Python 与运行依赖仍需联网安装。源码安装才需要下载模型，版本和文件哈希见 `weights/manifest.json`。
+桌面安装包和启动 ZIP 已包含对应发布版本的模型。首次本机识别会展开包内模型并记录版本，之后直接复用本地文件。桌面窗口显示当前安装步骤、正在下载的组件和包内模型的展开进度。Python 与运行依赖仍需联网安装。当前源码通过 Git LFS 获取完整任务模型，默认推理无需原始基座；版本和文件大小见 `weights/manifest.json`。
 
 默认模型路径相对安装目录解析，可用 `--model`、`--adapter`、`--info-adapter`、`--layout-model-dir` 覆盖。多人服务将模型位置写入配置文件。
 
@@ -91,7 +91,6 @@ export PATH="$HOME/.local/bin:$PATH"
 git lfs install
 git lfs pull
 uv sync --locked --python 3.11 --extra glm-ocr --extra webui
-uv run --no-sync hf download zai-org/GLM-OCR --revision ca5d8b3e287e52589e37c28385d9655ee4372f9d --local-dir tools/models/GLM-OCR
 ```
 
 同步一次后，文档中的运行命令统一使用 `uv run --no-sync`，避免不同 extras 组合反复移除 UI 或训练依赖。`uv sync` 的默认 Torch wheel 在 Linux 使用 CUDA 13；CPU / Windows GPU 用户推荐用一键安装器选择对应官方 wheel。
@@ -108,7 +107,7 @@ git -C tools/PaddleX checkout ffb64904d23708863ff5b8da312a5cbd52a7f462
 uv pip install --python tools/paddlex-venv/bin/python -e "tools/PaddleX[ocr,cv]" "numpy==1.26.4" "Pillow>=12.3,<13" "pypdfium2>=5.13,<6" "pdfplumber>=0.11.10,<1"
 uv pip install --python tools/paddlex-venv/bin/python --no-deps -e .
 tools/paddlex-venv/bin/python -c "import paddle; paddle.utils.run_check()"
-uv run --no-sync guitarocr-check --hashes --device cuda --layout-python tools/paddlex-venv/bin/python
+uv run --no-sync guitarocr-check --device cuda --layout-python tools/paddlex-venv/bin/python
 uv run --no-sync guitarocr-web --layout-python tools/paddlex-venv/bin/python
 ```
 
@@ -139,4 +138,4 @@ CPU 版把 Paddle 安装命令换成 `uv pip install --python tools/paddlex-venv
 
 脚本环境检查：Windows 运行 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/bootstrap.ps1 check`，Linux 运行 `bash scripts/bootstrap.sh check`。
 
-手动环境检查：`uv run --no-sync guitarocr-check --hashes --device cuda --layout-python tools/paddlex-venv/bin/python`。轻量编辑环境可加 `--core`。
+手动环境检查：`uv run --no-sync guitarocr-check --device cuda --layout-python tools/paddlex-venv/bin/python`。轻量编辑环境可加 `--core`。

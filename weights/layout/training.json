@@ -1,12 +1,13 @@
 {
   "date": "2026-09-28",
-  "config": {
+  "base_release": "parallel-score-2026-09-28",
+  "initial_config": {
     "Global": {
       "model": "PP-DocLayoutV3",
       "mode": "train",
-      "dataset_dir": "database/parallel_score_final/layout",
-      "device": "gpu:6",
-      "output": "output/parallel-score/layout"
+      "dataset_dir": "database/score_support/layout",
+      "device": "gpu:7",
+      "output": "output/score-support/layout"
     },
     "CheckDataset": {
       "convert": {
@@ -21,10 +22,10 @@
     },
     "Train": {
       "num_classes": 6,
-      "epochs_iters": 4,
+      "epochs_iters": 3,
       "batch_size": 3,
-      "learning_rate": 8e-06,
-      "pretrain_weight_path": "output/instrument-training/layout-instructions/best_model/best_model.pdparams",
+      "learning_rate": 1.2e-05,
+      "pretrain_weight_path": "output/parallel-score/layout/best_model/best_model.pdparams",
       "warmup_steps": 50,
       "resume_path": null,
       "log_interval": 10,
@@ -32,24 +33,60 @@
       "num_workers": 4
     },
     "Evaluate": {
-      "weight_path": "output/parallel-score/layout/best_model/best_model.pdparams",
+      "weight_path": "output/score-support/layout/best_model/best_model.pdparams",
       "log_interval": 10
     },
     "Export": {
-      "weight_path": "output/parallel-score/layout/best_model/best_model.pdparams"
+      "weight_path": "output/score-support/layout/best_model/best_model.pdparams"
     },
     "Predict": {
       "batch_size": 1,
-      "model_dir": "output/parallel-score/layout/best_model/inference"
+      "model_dir": "output/score-support/layout/best_model/inference"
     }
   },
-  "selected_epoch": 4,
-  "selected_model": "output/parallel-score/layout/model_final/inference",
-  "pages": {
-    "train": 14701,
-    "validation": 1673,
-    "test": 1628
+  "final_config": {
+    "Global": {
+      "model": "PP-DocLayoutV3",
+      "mode": "train",
+      "dataset_dir": "database/score_support/layout_combined",
+      "device": "gpu:7",
+      "output": "output/score-support/layout_combined"
+    },
+    "CheckDataset": {
+      "convert": {
+        "enable": false,
+        "src_dataset_type": null
+      },
+      "split": {
+        "enable": false,
+        "train_percent": null,
+        "val_percent": null
+      }
+    },
+    "Train": {
+      "num_classes": 6,
+      "epochs_iters": 2,
+      "batch_size": 3,
+      "learning_rate": 8e-06,
+      "pretrain_weight_path": "output/score-support/layout/best_model/best_model.pdparams",
+      "warmup_steps": 50,
+      "resume_path": null,
+      "log_interval": 10,
+      "eval_interval": 1,
+      "num_workers": 4
+    },
+    "Evaluate": {
+      "weight_path": "output/score-support/layout_combined/best_model/best_model.pdparams",
+      "log_interval": 10
+    },
+    "Export": {
+      "weight_path": "output/score-support/layout_combined/best_model/best_model.pdparams"
+    },
+    "Predict": {
+      "batch_size": 1,
+      "model_dir": "output/score-support/layout_combined/best_model/inference"
+    }
   },
-  "selection": "mean source bar-count accuracy, mode accuracy, clef recall and transposition recall; AP breaks ties",
-  "prior_weights": "output/parallel-score/weights-before-parallel/layout"
+  "selected_epoch": 2,
+  "selected_validation_raw_ap_50_95": 0.9079281743214169
 }

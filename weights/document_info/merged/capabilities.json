@@ -1,1 +1,6 @@
-{"staff_profile": true, "pitch_context": true}
+{
+  "staff_profile": true,
+  "pitch_context": true,
+  "score_structure": true,
+  "compact_structure": true
+}

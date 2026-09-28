@@ -91,7 +91,7 @@ uv run --no-sync python -m datagen.build_staff_data \
 
 `datagen.mix_measure_data`、`datagen.mix_info_data`、`datagen.mix_layout_data` 将新增样本与已有吉他数据混合，检查 family 是否跨划分。小节验证和测试按乐器、排版和弦数固定抽样；训练混合保留旧数据，评测仍分别报告各组结果。命令参数见各模块的 `--help`。
 
-`datagen.assemble_scores` 可以从同一 family 的音轨组装总谱候选，要求小节数、拍号、调号、速度和反复结构一致。候选仍需音乐内容核对和 Guitar Pro 总谱渲染。当前自动定位尚未实现音轨与谱表分组，候选文件不能作为总谱 OCR 已受训的依据。
+`datagen.ensemble_pages` 将保持原划分的原生谱面片段组合为总谱页面。`datagen.engraved_scores` 从独立乐谱中间表示生成多乐器、钢琴双谱表和复调作品，使用三种字体排版，同时输出小节、谱号、元信息和整页分轨标签。`datagen.ensemble_layout_data` 合并版面数据；`datagen.structure_data --engraved database/engraved_scores --compact --output database/score_support/info_structure_compact` 构建分轨和谱面信息数据；`datagen.score_support_data --engraved database/engraved_scores --rehearsal-focus --output database/score_support_rehearsal` 保留三种排版并增加复调、打击乐和奏法样本。再运行 `datagen.info_crops`，加入仅来自训练曲谱的偏移、缩放和压缩裁图。完整 PDF 由 `pipeline.evaluate_ensembles` 评测。
 
 ## 谱号与移调
 

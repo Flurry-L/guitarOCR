@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from bisect import bisect_right
 from statistics import median
 
 import numpy as np
@@ -50,12 +49,16 @@ def _same_row(box: dict, row: list[dict]) -> bool:
 
 def _select_nonoverlapping(row: list[dict]) -> list[dict]:
     ordered = sorted(row, key=lambda box: (_coordinates(box)[2], _coordinates(box)[0]))
-    right_edges = [_coordinates(box)[2] for box in ordered]
     scores = [0.0]
     choices: list[list[int]] = [[]]
     for index, box in enumerate(ordered):
         left = _coordinates(box)[0]
-        previous = bisect_right(right_edges, left + 6, hi=index)
+        width = _coordinates(box)[2] - left
+        # Detection boxes include strokes near a barline. A few pixels of
+        # overlap must not remove a complete neighbouring measure.
+        previous = next((j + 1 for j in range(index - 1, -1, -1)
+                         if _coordinates(ordered[j])[2] <= left + max(
+                             6, .08 * min(width, _coordinates(ordered[j])[2] - _coordinates(ordered[j])[0]))), 0)
         confidence = float(box["score"])
         selected_score = scores[previous] + confidence * confidence + 0.15
         if selected_score > scores[-1]:
@@ -112,6 +115,36 @@ def order_measure_boxes(boxes: list[dict], minimum_score: float = 0.2) -> list[d
 def refine_measure_boxes(image: Image.Image, boxes: list[dict]) -> list[dict]:
     pixels = np.asarray(image.convert("L"))
 
+    def fragment_between_staves(box):
+        if float(box['score']) >= .5:
+            return False
+        left, top, right, bottom = _coordinates(box)
+        width, height = right - left, bottom - top
+        crop = pixels[max(0, round(top)):min(pixels.shape[0], round(bottom)),
+                      max(0, round(left + width * .1)):min(pixels.shape[1], round(right - width * .1))]
+        if not crop.size:
+            return False
+        lines = np.flatnonzero((crop < 150).mean(1) > .65)
+        count = int(bool(len(lines))) + int(np.count_nonzero(np.diff(lines) > 2))
+        if not 1 <= count <= 3:
+            return False
+        above = below = overlaps = False
+        for other in boxes:
+            if float(other['score']) < .7:
+                continue
+            x0, y0, x1, y1 = _coordinates(other)
+            vertical_overlap = min(bottom, y1) - max(top, y0)
+            if (min(right, x1) - max(left, x0) < .7 * min(width, x1 - x0)
+                    or vertical_overlap < -.15 * height):
+                continue
+            above |= (y0 + y1) / 2 < top
+            below |= (y0 + y1) / 2 > bottom
+            overlaps |= vertical_overlap >= .15 * height
+        # A faint fragment straddling two complete staves is not another part.
+        return above and below and overlaps
+
+    boxes = [box for box in boxes if not fragment_between_staves(box)]
+
     def has_barline(x: float, top: float, bottom: float) -> bool:
         height = bottom - top
         if height < 35:
@@ -159,7 +192,6 @@ def refine_measure_boxes(image: Image.Image, boxes: list[dict]) -> list[dict]:
                 common_top = max(top, next_top)
                 common_bottom = min(bottom, next_bottom)
                 if common_bottom > common_top:
-                    boundary = (right + next_left) / 2
                     if 0.35 * usual_width <= gap <= 1.5 * usual_width:
                         middle = (right + next_left) / 2
                         staff_ink = np.count_nonzero(
@@ -175,17 +207,6 @@ def refine_measure_boxes(image: Image.Image, boxes: list[dict]) -> list[dict]:
                                 "coordinate": [right, common_top, next_left, common_bottom],
                                 "geometry_source": "barline_gap_recovery",
                             })
-                        elif (not has_barline(right, common_top, common_bottom)
-                              and not has_barline(next_left, common_top, common_bottom)):
-                            previous["coordinate"] = [left, min(top, next_top), next_right, max(bottom, next_bottom)]
-                            previous["score"] = max(float(previous["score"]), float(current["score"]))
-                            previous["geometry_source"] = "barline_merge"
-                            continue
-                    elif gap <= 0.35 * usual_width and not has_barline(boundary, common_top, common_bottom):
-                        previous["coordinate"] = [left, min(top, next_top), next_right, max(bottom, next_bottom)]
-                        previous["score"] = max(float(previous["score"]), float(current["score"]))
-                        previous["geometry_source"] = "barline_merge"
-                        continue
             merged.append(current)
         for measure_index, box in enumerate(merged):
             left, top, right, bottom = _coordinates(box)

@@ -49,12 +49,16 @@ def main():
 
         with tempfile.TemporaryDirectory() as directory:
             create_app(replace(config, data=Path(directory)))
-        for path in (
-            Path(config.model) / "config.json",
-            Path(config.layout_model) / "inference.pdiparams",
-            Path(config.info_adapter) / "adapter_model.safetensors",
-            Path(config.measure_adapter) / "adapter_model.safetensors",
-        ):
+        artifacts = [Path(config.layout_model) / "inference.pdiparams"]
+        for folder in (Path(config.info_adapter), Path(config.measure_adapter)):
+            inference = folder / 'inference.json'
+            settings = json.loads(inference.read_text()) if inference.is_file() else {}
+            if settings.get('model'):
+                merged = folder / settings['model']
+                artifacts.extend([merged / 'config.json', merged / 'model.safetensors'])
+            else:
+                artifacts.extend([Path(config.model) / 'config.json', folder / 'adapter_model.safetensors'])
+        for path in artifacts:
             if not path.is_file() or path.stat().st_size < 256:
                 raise ValueError(f"模型文件缺失：{path}")
         from shared.model_files import verify_files

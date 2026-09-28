@@ -43,14 +43,17 @@ def key_fifths(name):
     return fifths + 12 if fifths < -7 else fifths - 12 if fifths > 7 else fifths
 
 
-def state_prompt(mode, instrument, state, pitch_context=None, *, first=False):
+def state_prompt(mode, instrument, state, pitch_context=None, *, first=False, visual_pitch=False):
     from shared.pitch_context import prompt_pitch_context
 
     if mode == 'tab':
         # TAB has no printed key signature; its frets must not depend on an
         # unobservable key copied from the original score file during training.
         state = {**state, 'key': 0}
-    fields = "string, fret" if mode == "tab" else "written MIDI pitch" if mode == "notation" else "string, fret, MIDI pitch"
+    if visual_pitch and mode != 'tab':
+        state = {k: v for k, v in state.items() if k != 'tuning'}
+    fields = "string, fret" if mode == "tab" else "written MIDI pitch" if mode == "notation" else (
+        "string, fret, written MIDI pitch" if visual_pitch else "string, fret, MIDI pitch")
     prompt = (
         f"Independent {instrument} {mode} measure recognition. The first image is the target measure. "
         "The second and third images show the previous and next measures for visual context only. "
@@ -63,8 +66,10 @@ def state_prompt(mode, instrument, state, pitch_context=None, *, first=False):
     prompt += "Effective printed state: " + json.dumps(state, separators=(",", ":")) + ". "
     if instrument == "drums":
         prompt += "Pitch fields are General MIDI drum keys. "
-    elif mode == "notation":
+    elif mode == "notation" or (visual_pitch and mode == "both"):
         prompt += "Return written pitches, before instrument transposition, clef octave and ottava. "
+        if mode == 'both':
+            prompt += "Read pitches from the notation and string/fret from TAB independently. Do not assume a tuning. "
     if pitch_context and mode != "tab" and instrument != "drums":
         prompt += "Pitch context: " + json.dumps(prompt_pitch_context(pitch_context), separators=(",", ":")) + ". "
         prompt += "Preserve ottava:12, ottava:-12, ottava:24 or ottava:-24 on each affected event. "
@@ -78,7 +83,8 @@ def measure_messages(record, state=None):
         state = {**state, "tuning": record["tuning"]}
     images = [record["image"], record.get("previous_image") or record["image"], record.get("next_image") or record["image"]]
     prompt = state_prompt(record["mode"], record.get("instrument", "guitar"), state,
-                          record.get("pitch_context"), first=int(record.get("measure_index", record.get("measure_number", 1) - 1)) == 0)
+                          record.get("pitch_context"), first=int(record.get("bar_index", record.get("measure_index", record.get("measure_number", 1) - 1))) == 0,
+                          visual_pitch=record.get('visual_pitch', False))
     return [{"role": "user", "content": [*({"type": "image", "url": path} for path in images),
                                             {"type": "text", "text": prompt}]}]
 
@@ -86,15 +92,15 @@ def measure_messages(record, state=None):
 def attach_neighbours(records):
     groups = {}
     for row in records:
-        key = (row.get("source_id", ""), row.get("part_id", "part-1"), row.get("staff_id", "staff-1"), row["mode"])
+        key = (row.get("source_id", ""), row.get("part_id", "part-1"), row.get("staff_id", "staff-1"))
         groups.setdefault(key, []).append(row)
     for rows in groups.values():
-        rows.sort(key=lambda r: int(r.get("measure_index", r.get("measure_number", 1) - 1)))
+        rows.sort(key=lambda r: int(r.get("bar_index", r.get("measure_index", r.get("measure_number", 1) - 1))))
         for i, row in enumerate(rows):
-            number = int(row.get("measure_index", row.get("measure_number", 1) - 1))
+            number = int(row.get("bar_index", row.get("measure_index", row.get("measure_number", 1) - 1)))
             for field, j in (("previous_image", i - 1), ("next_image", i + 1)):
                 neighbour = rows[j] if 0 <= j < len(rows) else row
-                other = int(neighbour.get("measure_index", neighbour.get("measure_number", 1) - 1))
+                other = int(neighbour.get("bar_index", neighbour.get("measure_index", neighbour.get("measure_number", 1) - 1)))
                 row[field] = neighbour["image"] if abs(other - number) <= 1 else row["image"]
     return records
 
@@ -167,9 +173,23 @@ def resolve_measure_state(target, record):
 
 def resolve_ties(records):
     """Resolve unambiguous tie continuations in each voice after batch decoding."""
-    last_by_part = {}
+    last_by_part, indices = {}, {}
+
+    def with_pitch(note, row):
+        value = dict(note)
+        tuning = row.get('tuning') or []
+        if ('pitch' not in value and type(value.get('fret')) is int
+                and 1 <= value.get('string', 0) <= len(tuning)):
+            value['pitch'] = tuning[value['string'] - 1] + value['fret']
+        return value
+
     for row in records:
-        part = (row.get('source_id', ''), row.get("part_id", "part-1"), row.get("staff_id", "staff-1"), row.get('mode'))
+        part = (row.get('source_id', ''), row.get("part_id", "part-1"), row.get("staff_id", "staff-1"))
+        index = row.get('bar_index', row.get('measure_index'))
+        if index is not None:
+            if part in indices and index != indices[part] + 1:
+                last_by_part.pop(part, None)
+            indices[part] = index
         last = last_by_part.setdefault(part, {})
         measure = parse_measure_target(row["target"])
         changed = False
@@ -188,6 +208,9 @@ def resolve_ties(records):
                         continue
                     if 'string' in note:
                         candidates = [n for n in voice_last if n.get('string') == note['string']]
+                        if not candidates:
+                            pitch = with_pitch(note, row).get('pitch')
+                            candidates = [n for n in voice_last if 'string' not in n and pitch is not None and n.get('pitch') == pitch]
                     else:
                         candidates = [n for n in voice_last if n.get('pitch') == note.get('pitch')]
                         if not candidates and 'pitch' in note:
@@ -200,9 +223,9 @@ def resolve_ties(records):
                             if field in note and field in previous and note[field] != previous[field]:
                                 note[field] = previous[field]
                                 changed = True
-                voice_last = [dict(n) for n in notes]
+                voice_last = [with_pitch(n, row) for n in notes]
                 last[voice["voice"]] = voice_last
         if changed:
-            row["target"] = format_measure_target(measure, row["mode"])
+            row["target"] = format_measure_target(measure, row["mode"], preserve_playback=True)
             row["boundary_resolved"] = True
     return records

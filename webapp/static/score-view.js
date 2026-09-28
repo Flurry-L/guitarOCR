@@ -17,19 +17,21 @@ function engravedSection(host, {onSelect,onPlace,onError}, range) {
       smuflFontSources:{[alphaTab.FontFileFormat.Woff2]:new URL('./vendor/font/Bravura.woff2',import.meta.url).href}},
     display:{startBar:range.start+1,barCount:range.end-range.start,scale:1.1,layoutMode:alphaTab.LayoutMode.Page,padding:[28,20,28,20],resources:{barNumberColor:'#68736c',staffLineColor:'#a4aaa5'}},
     notation:{elements:{scoreTitle:false,scoreSubTitle:false,scoreArtist:false,scoreAlbum:false,
-      scoreWords:false,scoreMusic:false,scoreCopyright:false,guitarTuning:false,trackNames:false,effectDynamics:false}},
+      scoreWords:false,scoreMusic:false,scoreCopyright:false,guitarTuning:false,trackNames:true,effectDynamics:false}},
     player:{enablePlayer:false,enableCursor:false,enableUserInteraction:false,enableElementHighlighting:false},
   });
   let state, rendered, selected, signature, pointer, scrollToSelection=false;
   api.error.on(error=>onError(error.message || String(error)));
   function kinds(bounds) {
-    if(range.mode!=='both')return range.mode==='tab'?'tab':'notation';
+    const source = rendered?.sourceOf.get(bounds.beat);
+    const mode = source ? measureProfile(state.measures[source.mi],state).mode : range.mode;
+    if(mode!=='both')return mode==='tab'?'tab':'notation';
     const bars = api.boundsLookup.findMasterBar(bounds.barBounds.bar.masterBar)?.bars || [];
     const last = bars.filter(b=>b.bar === bounds.barBounds.bar).sort((a,b)=>a.visualBounds.y-b.visualBounds.y).at(-1);
     return last === bounds.barBounds ? 'tab' : 'notation';
   }
   function writtenPitchAt(bounds,y) {
-    const beat=bounds.beat,profile=measureProfile(state.measures[beat.voice.bar.index],state);
+    const beat=bounds.beat,source=rendered.sourceOf.get(beat),profile=measureProfile(state.measures[source?.mi ?? beat.voice.bar.index],state);
     if(profile.instrument==='drums')return null;
     const staff=bounds.barBounds.visualBounds;
     const bottom={G2:30,F4:18,C3:24,C4:22}[profile.pitch_context.clef] ?? (profile.instrument==='bass'?18:30);
@@ -107,10 +109,16 @@ function engravedSection(host, {onSelect,onPlace,onError}, range) {
   function decorate() {
     overlay.replaceChildren();
     if(!api.boundsLookup || !state)return;
-    for(let i=range.start;i<range.end;i++) {
+    for(let i=0;i<state.measures.length;i++) {
+      const index = state.measures[i].bar_index ?? i;
+      if (index < range.start || index >= range.end) continue;
       const kind=reviewKind(state.measures[i]);if(!kind)continue;
-      const bounds=api.boundsLookup.findMasterBarByIndex(i);if(!bounds)continue;
-      const marker=el('div',undefined,`score-mark ${kind}`);rectangle(marker,bounds.realBounds);
+      const bounds=api.boundsLookup.findMasterBarByIndex(index);if(!bounds)continue;
+      const local=(bounds.bars || []).filter(b=>rendered.sourceOf.get(b.bar)?.mi===i).map(b=>b.realBounds);
+      if(!local.length)continue;
+      const x=Math.min(...local.map(b=>b.x)),y=Math.min(...local.map(b=>b.y));
+      const box={x,y,w:Math.max(...local.map(b=>b.x+b.w))-x,h:Math.max(...local.map(b=>b.y+b.h))-y};
+      const marker=el('div',undefined,`score-mark ${kind}`);rectangle(marker,box);
       const flag=el('button',kind==='failed'?'识别失败':'待检查','measure-flag');
       flag.type='button';flag.setAttribute('aria-label',`第 ${i+1} 小节，${flag.textContent}`);
       flag.onclick=()=>onSelect({mi:i,vi:0,ei:0,ni:-1,string:1,kind:measureProfile(state.measures[i],state).mode==='notation'?'notation':'tab'});
@@ -122,7 +130,7 @@ function engravedSection(host, {onSelect,onPlace,onError}, range) {
   let width=0;
   const resize=new ResizeObserver(([entry])=>{
     const next=Math.round(entry.contentRect.width);
-    if(next!==width){width=next;if(next>0 && rendered)api.renderScore(rendered.score,[0]);}
+    if(next!==width){width=next;if(next>0 && rendered)api.renderScore(rendered.score,rendered.score.tracks.map((_,i)=>i));}
   });
   resize.observe(host);
   function coordinates(event) {const b=surface.getBoundingClientRect();return {x:event.clientX-b.left,y:event.clientY-b.top};}
@@ -162,7 +170,7 @@ function engravedSection(host, {onSelect,onPlace,onError}, range) {
       const key=`${state.id}:${state.revision}:${JSON.stringify(changed)}`;
       if(key===signature)return;
       signature=key;
-      try {rendered=engrave(state,api.settings,changed,range.mode);if(host.clientWidth>0)api.renderScore(rendered.score,[0]);}
+      try {rendered=engrave(state,api.settings,changed,range.mode);if(host.clientWidth>0)api.renderScore(rendered.score,rendered.score.tracks.map((_,i)=>i));}
       catch(error){signature=null;onError(error.message);}
     },
     select(hit,scroll=false) {selected=hit;scrollToSelection=scroll;markSelection();},
@@ -180,7 +188,9 @@ export function scoreView(host, callbacks) {
   return {
     render(state,edited) {
       const ranges=[];
-      state.measures.forEach((measure,i)=>{
+      const grouped = new Set(state.measures.map(m=>`${m.part_id || ''}/${m.staff_id || ''}`)).size > 1;
+      if (grouped) ranges.push({mode:'mixed',start:0,end:Math.max(...state.measures.map((m,i)=>m.bar_index ?? i))+1});
+      else state.measures.forEach((measure,i)=>{
         const mode=measureProfile(measure,state).mode,last=ranges.at(-1);
         if(last?.mode===mode)last.end=i+1;
         else ranges.push({mode,start:i,end:i+1});
@@ -198,7 +208,7 @@ export function scoreView(host, callbacks) {
       sections.forEach(s=>s.view.render(state,edited));
     },
     select(hit,scroll=false) {
-      sections.forEach(s=>s.view.select(hit && hit.mi>=s.range.start && hit.mi<s.range.end ? hit : null,scroll));
+      sections.forEach(s=>s.view.select(hit && (s.range.mode==='mixed' || hit.mi>=s.range.start && hit.mi<s.range.end) ? hit : null,scroll));
     },
     zoom(value) {scale=value;sections.forEach(s=>s.view.zoom(value));},
     hitAt(x,y) {

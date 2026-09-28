@@ -17,6 +17,7 @@ def engine_python():
 
 class VllmBackend:
     supports_ragged_batch = True
+    supports_json_schema = True
 
     def __init__(self, model_path, device='cuda:0', *, options=None):
         self.lock = threading.RLock()
@@ -56,12 +57,13 @@ class VllmBackend:
             raise RuntimeError(value['error'])
         return value
 
-    def generate_batch(self, messages, max_new_tokens, *, skip_special_tokens=True):
+    def generate_batch(self, messages, max_new_tokens, *, skip_special_tokens=True, json_schema=None, grammar=None):
         if not messages:
             return []
         with self.lock:
             self.process.stdin.write(json.dumps({'messages': messages, 'max_new_tokens': max_new_tokens,
-                                                'skip_special_tokens': skip_special_tokens}) + '\n')
+                                                'skip_special_tokens': skip_special_tokens,
+                                                'json_schema': json_schema, 'grammar': grammar}) + '\n')
             self.process.stdin.flush()
             result = self._receive()
             self.metrics = result.get('metrics', [])

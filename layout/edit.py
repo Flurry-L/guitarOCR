@@ -90,6 +90,21 @@ def save_layout(pages: list[dict], boxes: list[dict], output: Path, mode: str) -
                 ).save(path)
                 regions.append({**box, "image": str(path.resolve())})
     for index, page in enumerate(pages, 1):
+        # Manual boxes retain their editing order but still need physical row
+        # identities for page-level part/staff recognition.
+        from layout.postprocess import _same_row
+
+        page_rows = []
+        measures = sorted((r for r in records if r['page'] == index), key=lambda r: r['bbox'][1] + r['bbox'][3] / 2)
+        for row in measures:
+            x, y, w, h = row['bbox']
+            box = {'coordinate': [x, y, x + w, y + h]}
+            group = next((i for i, members in enumerate(page_rows) if _same_row(box, members)), None)
+            if group is None:
+                group = len(page_rows)
+                page_rows.append([])
+            row['row_index'] = row['system_index'] = group
+            page_rows[group].append(box)
         vote = mode_vote([row for row in records if row["page"] == index])
         if vote["mode"]:
             page["notation_mode"] = vote["mode"]

@@ -28,23 +28,23 @@ tools/paddlex-venv/bin/paddlex --install PaddleDetection
 
 ## 训练配置
 
-每项任务使用一份 `configs/train.yaml`。GLM-OCR 配置继续微调仓库中的对应适配器；版面配置需要兼容的六类训练检查点，放在 `tools/models/layout-checkpoint.pdparams`。仓库中的 `inference.pdiparams` 是推理权重，不能替代训练检查点。
+每项任务使用一份 `configs/train.yaml`。GLM-OCR 配置以仓库中对应的 `merged/` 模型为起点，训练新的 LoRA；导出时必须使用同一合并模型作为基座。版面配置需要兼容的六类训练检查点，放在 `tools/models/layout-checkpoint.pdparams`。仓库中的 `inference.pdiparams` 是推理权重，不能替代训练检查点。
 
 下面使用[数据生产](data.md#混合后继续训练)中的混合数据目录。更换语料时同时修改数据、缓存和输出路径，并保留已有乐器、排版、谱号和移调任务的样本。训练结果写入 `output/`，评测后再更新 `weights/`。已发布权重的实际训练参数记录在各模型目录的 `training.json` 中。
 
 ## 训练 GLM-OCR
 
-两个入口使用 LLaMA-Factory，接受 `--config` 和 `key=value` 覆盖参数。以下配置使用 8 张 H100；小节任务每卡批量 24，谱头任务每卡批量 16；全局批量随 GPU 数量变化。
+两个入口使用 LLaMA-Factory，接受 `--config` 和 `key=value` 覆盖参数。每卡批量与梯度累积见配置文件；全局批量随 GPU 数量变化。整页分轨任务使用更高的图像分辨率，训练 MTP 时也应传入相同的 `--image-max-pixels`。
 
 先生成缓存。修改标签、提示词或前文规则后必须换用新的缓存目录，`tokenized_path` 本身不是预处理后退出的开关。
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 OMP_NUM_THREADS=1 uv run --no-sync python -m shared.tokenize_training \
   --config measure_ocr/configs/train.yaml \
-  --output database/parallel_score_final/tokenized_observed
+  --output database/score_support/measure_canonical
 CUDA_VISIBLE_DEVICES=0 OMP_NUM_THREADS=1 uv run --no-sync python -m shared.tokenize_training \
   --config document_info/configs/train.yaml \
-  --output database/parallel_score_final/info/tokenized_balanced
+  --output database/score_support/info_crop_rehearsal/balanced
 ```
 
 依次训练两个任务：

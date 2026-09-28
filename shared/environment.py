@@ -24,6 +24,7 @@ def inspect(
 
     packages = {
         "numpy": "numpy",
+        "scipy": "scipy",
         "PIL": "Pillow",
         "pypdfium2": "pypdfium2",
         "pdfplumber": "pdfplumber",
@@ -63,11 +64,12 @@ def inspect(
                 verify_files(root / entry["path"], entry["files"], hashes),
                 "重新运行安装脚本；Git 检出也可执行 git lfs pull",
             )
-        check(
-            "GLM-OCR 基座",
-            verify_files(model, manifest["base_model"]["files"], hashes),
-            "重新运行 install.bat 或 bash install.sh，自动继续下载",
-        )
+        if manifest['base_model'].get('required_for_inference', True):
+            check(
+                "GLM-OCR 基座",
+                verify_files(model, manifest["base_model"]["files"], hashes),
+                "重新运行 install.bat 或 bash install.sh，自动继续下载",
+            )
         if util.find_spec("torch"):
             try:
                 import torch

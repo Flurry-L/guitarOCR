@@ -349,15 +349,19 @@ def full_measure_rest_target(time_signature: tuple[int, int]) -> str:
         (180, "t."),
         (120, "t"),
         (60, "f"),
+        (40, "f[3:2]"),
+        (30, "d128"),
+        (20, "d128[3:2]"),
     )
     events = []
     start = 0
     remaining = total_ticks
     while remaining > 0:
-        ticks, token = next(
-            ((ticks, token) for ticks, token in durations if ticks <= remaining),
-            (remaining, f"d{max(1, round(3840 / remaining))}"),
-        )
+        choice = next(((ticks, token) for ticks, token in durations
+                       if ticks <= remaining and remaining - ticks != 10), None)
+        if choice is None:
+            raise ValueError(f"Rest duration {total_ticks} ticks cannot be represented exactly")
+        ticks, token = choice
         events.append(f"@{start}:{token}:r")
         start += ticks
         remaining -= ticks

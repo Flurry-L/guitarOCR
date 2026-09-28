@@ -1,42 +1,46 @@
 {
   "date": "2026-09-28",
-  "base_model": "zai-org/GLM-OCR",
-  "architecture": "independent visual-context measure decoder + printed-state classifier + native MTP",
-  "config": {
-    "model_name_or_path": "tools/models/GLM-OCR",
+  "base_release": "parallel-score-2026-09-28",
+  "architecture": "page_parts_and_staves + independent_visual_neighbour_measures + signature_classifier + native_MTP + score_IR",
+  "format": "guitarocr.score/2",
+  "training_examples": 1071774,
+  "validation_examples": 110314,
+  "test_examples": 109471,
+  "foundation_config": {
+    "model_name_or_path": "weights/measure_ocr/merged",
     "trust_remote_code": true,
     "flash_attn": "fa2",
     "stage": "sft",
     "do_train": true,
     "finetuning_type": "lora",
-    "lora_rank": 16,
-    "lora_alpha": 32,
+    "lora_rank": 32,
+    "lora_alpha": 64,
     "lora_dropout": 0.05,
     "lora_target": "all",
     "freeze_vision_tower": false,
-    "freeze_multi_modal_projector": true,
-    "dataset_dir": "database/parallel_score_corrected",
-    "dataset": "measure_train,state_train",
+    "freeze_multi_modal_projector": false,
+    "dataset_dir": "database/score_support",
+    "dataset": "measure_train",
     "mix_strategy": "concat",
-    "eval_dataset": "measure_validation_train,state_validation_train",
+    "eval_dataset": "measure_validation",
     "template": "glm_ocr",
     "cutoff_len": 6144,
-    "preprocessing_num_workers": 32,
+    "preprocessing_num_workers": 24,
     "overwrite_cache": true,
-    "tokenized_path": "database/parallel_score_final/tokenized_observed",
-    "output_dir": "output/parallel-score/complete-model",
+    "tokenized_path": "database/score_support/combined_measure",
+    "output_dir": "output/score-support/measure_combined",
     "logging_steps": 20,
-    "save_steps": 500,
-    "eval_steps": 500,
+    "save_steps": 1000,
+    "eval_steps": 1000,
     "eval_strategy": "steps",
     "save_total_limit": 3,
     "plot_loss": true,
     "overwrite_output_dir": false,
     "report_to": "none",
-    "per_device_train_batch_size": 24,
-    "per_device_eval_batch_size": 8,
+    "per_device_train_batch_size": 20,
+    "per_device_eval_batch_size": 16,
     "gradient_accumulation_steps": 1,
-    "learning_rate": 1.2e-05,
+    "learning_rate": 1.5e-05,
     "num_train_epochs": 2,
     "train_sampling_strategy": "group_by_length",
     "early_stopping_steps": 4,
@@ -44,7 +48,6 @@
     "warmup_ratio": 0.025,
     "bf16": true,
     "gradient_checkpointing": true,
-    "adapter_name_or_path": "output/parallel-score/refined-model/checkpoint-1000",
     "load_best_model_at_end": true,
     "metric_for_best_model": "eval_loss",
     "greater_is_better": false,
@@ -53,140 +56,110 @@
     "seed": 20260928,
     "data_seed": 20260928,
     "disable_gradient_checkpointing": false,
-    "max_steps": 4000,
-    "resume_from_checkpoint": "output/parallel-score/complete-model/checkpoint-500"
+    "max_steps": 6000,
+    "resume_from_checkpoint": "output/score-support/resume-measure-1000",
+    "ignore_data_skip": true
   },
-  "selected_step": 4000,
-  "selection": "0.6 original + 0.2 general stress + 0.2 techniques core accuracy; original within 0.2 percentage points of best",
-  "training_cache": {
-    "path": "database/parallel_score_final/tokenized_observed",
-    "train": 2410375,
-    "validation": 50528
+  "final_config": {
+    "model_name_or_path": "weights/measure_ocr/merged",
+    "trust_remote_code": true,
+    "flash_attn": "fa2",
+    "stage": "sft",
+    "do_train": true,
+    "finetuning_type": "lora",
+    "lora_rank": 32,
+    "lora_alpha": 64,
+    "lora_dropout": 0.05,
+    "lora_target": "all",
+    "freeze_vision_tower": false,
+    "freeze_multi_modal_projector": false,
+    "dataset_dir": "database/score_support",
+    "dataset": "measure_train",
+    "mix_strategy": "concat",
+    "eval_dataset": "measure_validation",
+    "template": "glm_ocr",
+    "cutoff_len": 6144,
+    "preprocessing_num_workers": 24,
+    "overwrite_cache": true,
+    "tokenized_path": "database/score_support/measure_canonical",
+    "output_dir": "output/score-support/measure_marks",
+    "logging_steps": 20,
+    "save_steps": 800,
+    "eval_steps": 800,
+    "eval_strategy": "steps",
+    "save_total_limit": 3,
+    "plot_loss": true,
+    "overwrite_output_dir": false,
+    "report_to": "none",
+    "per_device_train_batch_size": 48,
+    "per_device_eval_batch_size": 48,
+    "gradient_accumulation_steps": 1,
+    "learning_rate": 6e-06,
+    "num_train_epochs": 2,
+    "train_sampling_strategy": "group_by_length",
+    "lr_scheduler_type": "cosine",
+    "warmup_ratio": 0.03,
+    "bf16": true,
+    "gradient_checkpointing": true,
+    "load_best_model_at_end": false,
+    "metric_for_best_model": "eval_loss",
+    "greater_is_better": false,
+    "dataloader_num_workers": 4,
+    "ddp_timeout": 18000,
+    "seed": 20260928,
+    "data_seed": 20260928,
+    "disable_gradient_checkpointing": false,
+    "max_steps": 1600,
+    "adapter_name_or_path": "output/score-support/measure_combined/checkpoint-6000"
   },
-  "synthetic_scores": {
-    "generated_general": 1200,
-    "generated_techniques": 800,
-    "held_out_by_source": true,
-    "included_splits": {
-      "original": {
-        "bars": {
-          "train": 848751,
-          "validation": 91778,
-          "test": 91271
-        },
-        "families": {
-          "train": 3691,
-          "validation": 406,
-          "test": 423
-        },
-        "sources": {
-          "train": 5014,
-          "validation": 576,
-          "test": 603
-        },
-        "overlaps": {
-          "train_validation": {
-            "families": 0,
-            "sources": 0
-          },
-          "train_test": {
-            "families": 0,
-            "sources": 0
-          },
-          "validation_test": {
-            "families": 0,
-            "sources": 0
-          }
-        }
+  "teacher_selection": {
+    "candidate": "output/score-support/candidate-measure-final",
+    "step": 1600,
+    "metrics": "output/score-support/validation-measure-final/metrics.json",
+    "criterion": "full_validation_core_exact_then_complete_exact",
+    "choices": [
+      {
+        "step": 800,
+        "quality": [
+          0.8987798466196494,
+          0.8432111971281977
+        ]
       },
-      "synthetic": {
-        "bars": {
-          "train": 45576,
-          "validation": 5736,
-          "test": 5736
-        },
-        "families": {
-          "train": 939,
-          "validation": 119,
-          "test": 119
-        },
-        "sources": {
-          "train": 939,
-          "validation": 119,
-          "test": 119
-        },
-        "overlaps": {
-          "train_validation": {
-            "families": 0,
-            "sources": 0
-          },
-          "train_test": {
-            "families": 0,
-            "sources": 0
-          },
-          "validation_test": {
-            "families": 0,
-            "sources": 0
-          }
-        }
-      },
-      "techniques": {
-        "bars": {
-          "train": 46080,
-          "validation": 5760,
-          "test": 5760
-        },
-        "families": {
-          "train": 640,
-          "validation": 80,
-          "test": 80
-        },
-        "sources": {
-          "train": 640,
-          "validation": 80,
-          "test": 80
-        },
-        "overlaps": {
-          "train_validation": {
-            "families": 0,
-            "sources": 0
-          },
-          "train_test": {
-            "families": 0,
-            "sources": 0
-          },
-          "validation_test": {
-            "families": 0,
-            "sources": 0
-          }
-        }
+      {
+        "step": 1600,
+        "quality": [
+          0.9001939916964302,
+          0.8442718059357833
+        ]
       }
-    }
+    ]
+  },
+  "vocabulary": {
+    "selected": false,
+    "train_frequency_lexemes": 457,
+    "token_ratio": 0.5197521092592596
+  },
+  "mtp": {
+    "steps": 600,
+    "batch_per_gpu": 24,
+    "gpus": 4,
+    "learning_rate": 3e-05,
+    "inference_tokens": 2
   },
   "optimizations": [
-    "answer-token fused Liger loss",
-    "FlashAttention 2",
     "BF16",
+    "FlashAttention 2",
+    "answer-token fused Liger loss",
     "length-grouped batches",
-    "rank-16 LoRA",
-    "six-GPU distributed training"
+    "rank-32 LoRA"
   ],
-  "mtp": {
-    "teacher": "output/parallel-score/complete-4000-merged",
-    "initial": "output/parallel-score/mtp-2000/mtp.safetensors",
-    "steps": 400,
-    "gpus": 6,
-    "batch_per_gpu": 12,
-    "validation": {
-      "step": 400,
-      "validation_loss": 0.08701709317195543,
-      "validation_agreement": 0.9811377395306949,
-      "validation_tokens": 3537699.0
-    }
-  },
-  "signature_classifier": {
-    "architecture": "ResNet18 with full-measure and staff-prefix views",
-    "selected_epoch": 8
-  },
-  "prior_weights": "output/parallel-score/weights-before-parallel/measure_ocr"
+  "data_conventions": {
+    "pitch_prompt_order": [
+      "clef",
+      "clef_octave",
+      "instrument_transpose",
+      "octave_spans"
+    ],
+    "chord_marks": "accent/heavy/stacc counts on descending pitch anchors"
+  }
 }

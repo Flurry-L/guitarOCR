@@ -8,12 +8,12 @@ from pathlib import Path
 
 from shared.defaults import MODEL, INFO_ADAPTER
 
-from document_info.image_ocr import recognize_document_info
+from document_info.image_ocr import recognize_document_info, metadata_from_predictions
 from document_info.pdf_metadata import extract_pdf_vector_metadata
 from shared.artifacts import read_result, write_json, write_result
 from shared.instruments import INSTRUMENTS, DEFAULT_PROGRAMS, standard_tuning, program_from_visible_name
 from shared.tuning import tuning_from_name
-from shared.pitch_context import apply_pitch_regions
+from shared.pitch_context import apply_pitch_regions, conventional_octave, explicit_transposition, _distance
 
 
 def staff_region(source: dict, output: Path) -> dict | None:
@@ -33,15 +33,15 @@ def staff_region(source: dict, output: Path) -> dict | None:
     return {"kind": "staff", "image": str(path.resolve())}
 
 
-def run(
+def _run_single(
     layout: Path, output: Path, *, model: Path = MODEL,
     adapter: Path = INFO_ADAPTER,
     device: str = "cuda", title: str | None = None, artist: str | None = None,
     tuning: list[int] | None = None, capo: int | None = None, backend=None,
     instrument: str | None = None, midi_program: int | None = None,
-    transpose: int | None = None, cancelled=None,
+    transpose: int | None = None, cancelled=None, source=None, profile=None, precomputed=None,
 ) -> Path:
-    source = read_result(layout, "layout")
+    source = source if source is not None else read_result(layout, "layout")
     predictions = []
     metadata = {}
     capabilities = adapter / "capabilities.json"
@@ -50,10 +50,14 @@ def run(
     if transpose is not None and (type(transpose) is not int or not -36 <= transpose <= 36):
         raise ValueError("Transpose must be an integer in -36..36 semitones")
     if source["info_source"] == "image":
-        metadata, predictions = recognize_document_info(
-            [r for r in source["regions"] if supports_pitch or r["kind"] not in {"clef", "transposition"}],
-            model.resolve(), adapter.resolve(), device, backend=backend, cancelled=cancelled
-        )
+        if precomputed is not None:
+            predictions = precomputed
+            metadata = metadata_from_predictions(predictions)
+        else:
+            metadata, predictions = recognize_document_info(
+                [r for r in source["regions"] if supports_pitch or r["kind"] not in {"clef", "transposition"}],
+                model.resolve(), adapter.resolve(), device, backend=backend, cancelled=cancelled
+            )
     else:
         pdfs = {row.get("source_pdf") for row in source["records"]}
         if len(pdfs) == 1 and None not in pdfs:
@@ -64,9 +68,11 @@ def run(
     if instrument is None and supports_profile:
         region = staff_region(source, output.resolve())
         if region:
-            profile, rows = recognize_document_info([region], model.resolve(), adapter.resolve(), device, backend=backend, cancelled=cancelled)
-            metadata.update({k: v for k, v in profile.items() if k != "source"})
+            detected_profile, rows = recognize_document_info([region], model.resolve(), adapter.resolve(), device, backend=backend, cancelled=cancelled)
+            metadata.update({k: v for k, v in detected_profile.items() if k != "source"})
             predictions.extend(rows)
+    if profile:
+        metadata.update(instrument=profile['instrument'], string_count=profile.get('strings'))
     named_programs = {
         program for p in predictions
         if p["kind"] == "transposition" and p.get("parsed", {}).get("kind") == "instrument"
@@ -95,6 +101,8 @@ def run(
     elif detected_tuning := tuning_from_name(metadata.get("tuning_name"), instrument, metadata.get("string_count")):
         tuning_used = detected_tuning
         metadata["tuning_midi_high_to_low"] = detected_tuning
+    elif profile and profile.get('tuning'):
+        tuning_used = profile['tuning']
     elif metadata.get("tuning_midi_high_to_low") and instrument == "guitar" and metadata.get("string_count") in {None, 6}:
         tuning_used = metadata["tuning_midi_high_to_low"]
     else:
@@ -126,7 +134,13 @@ def run(
             metadata.setdefault('warnings', []).append('谱面出现不同的变调夹位置，请核对设置。')
     if type(capo) is not int or not 0 <= capo <= 24:
         raise ValueError('Capo must be an integer in 0..24')
-    pitch_records = apply_pitch_regions(source["records"], predictions, instrument=instrument, transpose=transpose)
+    default_transpose = conventional_octave(profile.get('name')) if profile else None
+    if transpose is None and profile:
+        name = profile.get('name')
+        if default_transpose is None:
+            transpose = explicit_transposition(name)
+    pitch_records = apply_pitch_regions([{**r, 'instrument': instrument} for r in source["records"]], predictions,
+                                       instrument=instrument, transpose=transpose, default_transpose=default_transpose)
     pitch_contexts = [
         {key: row[key] for key in ("measure_number", "pitch_context", "pitch_reference", "pitch_needs_review") if key in row}
         for row in pitch_records
@@ -145,6 +159,106 @@ def run(
         capo=capo,
         transpose=transpose, measure_pitch_contexts=pitch_contexts,
     )
+
+
+def run(layout: Path, output: Path, **kwargs) -> Path:
+    """Resolve each part separately; document fields remain backwards compatible."""
+    from copy import deepcopy
+    from collections import Counter
+    from layout.structure import read_structure
+    from shared.glm_backend import create_backend
+
+    adapter = kwargs.get('adapter', INFO_ADAPTER)
+    capability_path = Path(adapter) / 'capabilities.json'
+    capabilities = json.loads(capability_path.read_text()) if capability_path.is_file() else {}
+    if not capabilities.get('score_structure'):
+        return _run_single(layout, output, **kwargs)
+    source = read_result(layout, 'layout')
+    backend = kwargs.get('backend') or create_backend(kwargs.get('model', MODEL), adapter, kwargs.get('device', 'cuda'))
+    kwargs['backend'] = backend
+    parts, structure = read_structure(source, output, backend, kwargs.get('cancelled'),
+                                      compact=capabilities.get('compact_structure', False))
+    predictions = None
+    if source['info_source'] == 'image':
+        regions = [r for r in source['regions'] if capabilities.get('pitch_context') or r['kind'] not in {'clef', 'transposition'}]
+        if capabilities.get('staff_profile'):
+            for part in parts:
+                records = [r for r in source['records'] if r['part_id'] == part['id']]
+                region = staff_region({'records': records}, output / part['id'])
+                if region:
+                    regions.append({**region, 'part_id': part['id']})
+        _metadata, predictions = recognize_document_info(regions, kwargs.get('model', MODEL), adapter,
+                                                        kwargs.get('device', 'cuda'), backend=backend,
+                                                        cancelled=kwargs.get('cancelled'))
+        staff_predictions = {p['part_id']: p['parsed'] for p in predictions if p['kind'] == 'staff' and p.get('part_id')}
+        for part in parts:
+            staff = staff_predictions.get(part['id'], {})
+            instrument = staff.get('instrument')
+            has_tab = any(r['mode'] in {'tab', 'both'} for r in source['records'] if r['part_id'] == part['id'])
+            if has_tab and instrument not in {'guitar', 'bass'}:
+                # A contradictory profile must not give a TAB staff an empty
+                # tuning. Prefer the structure prediction, then line count.
+                instrument = part['instrument'] if part['instrument'] in {'guitar', 'bass'} else (
+                    'bass' if (staff.get('string_count') or part.get('strings')) in {4, 5} else 'guitar')
+            if instrument is None:
+                continue
+            if instrument != part['instrument']:
+                part['program'] = (program_from_visible_name(part['name']) if instrument == 'pitched' else None)
+                if part['program'] is None:
+                    part['program'] = DEFAULT_PROGRAMS[instrument]
+                if part['name'] in {'Guitar', 'Bass', 'Piano', 'Drums'}:
+                    part['name'] = {'guitar': 'Guitar', 'bass': 'Bass', 'pitched': 'Piano', 'drums': 'Drums'}[instrument]
+                part['instrument'] = instrument
+            part['strings'] = (staff.get('string_count') or part.get('strings')) if has_tab else None
+            for row in source['records']:
+                if row['part_id'] == part['id']:
+                    row['part_name'] = part['name']
+    values, profiles, contexts = [], [], []
+    assignments = {}
+    for region in source['regions']:
+        if region['kind'] == 'header':
+            continue
+        x, y, w, h = region['bbox']
+        candidates = [r for r in source['records'] if r['page'] == region['page']]
+        if candidates:
+            anchor = min(candidates, key=lambda r: (
+                _distance(r['bbox'], region['bbox']),
+                abs(r['bbox'][0] - x)))
+            assignments[region['image']] = anchor['part_id']
+    for index, part in enumerate(parts):
+        local = deepcopy(source)
+        local['records'] = [r for r in local['records'] if r['part_id'] == part['id']]
+        local['regions'] = [r for r in local['regions'] if r['kind'] == 'header' or assignments.get(r['image']) == part['id']]
+        local['mode'] = Counter(r['mode'] for r in local['records']).most_common(1)[0][0]
+        options = dict(kwargs)
+        if predictions is not None:
+            images = {r['image'] for r in local['regions']}
+            options['precomputed'] = [p for p in predictions if p['image'] in images or p.get('part_id') == part['id']]
+        if index or options.get('instrument') is None:
+            options['instrument'] = part['instrument']
+        if index or options.get('midi_program') is None:
+            options['midi_program'] = part['program'] if part['program'] or part['instrument'] != 'pitched' else None
+        if len(parts) > 1 and index:
+            for field in ('tuning', 'capo', 'transpose'):
+                options.pop(field, None)
+        manifest = _run_single(layout, output / part['id'], source=local, profile=part, **options)
+        value = read_result(manifest, 'document_info')
+        values.append({**value, 'id': part['id'], 'name': part['name'], 'mode': local['mode']})
+        contexts.extend(value.get('measure_pitch_contexts', []))
+        for row in local['records']:
+            profiles.append({
+                **{k: row[k] for k in ('measure_number', 'part_id', 'part_name', 'staff_id', 'bar_index', 'row_index', 'system_index')},
+                'instrument': value['instrument'], 'midi_program': value['midi_program'],
+                'tuning': value['tuning_used'], 'capo': value['capo'],
+                'tuning_explicit': kwargs.get('tuning') is not None and index == 0,
+                'fingering_tunings': value.get('tuning_candidates'),
+            })
+    if not values:
+        return _run_single(layout, output, **kwargs)
+    base = {k: v for k, v in values[0].items() if k not in {'schema_version', 'stage', 'id', 'name', 'mode'}}
+    base.update(parts=values, measure_profiles=profiles, measure_pitch_contexts=contexts,
+                structure_predictions=str(write_json(output / 'structure.json', structure)))
+    return write_result(output, 'document_info', **base)
 
 
 def main() -> None:

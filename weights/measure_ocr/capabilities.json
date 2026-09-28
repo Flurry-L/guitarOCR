@@ -5,5 +5,7 @@
   "ottava": true,
   "batch_size": 64,
   "capo_pitch": true,
-  "state_reader": "merged/state_reader/state.safetensors"
+  "state_reader": "merged/state_reader/state.safetensors",
+  "visual_pitch": true,
+  "m2_constraints": false
 }

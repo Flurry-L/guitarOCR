@@ -69,6 +69,7 @@ def _run(args, backends, detector, preparing=None):
         **{key: recognized[key] for key in (
             "mode", "measures", "m2", "score_text", "score_document", "recognition_log", "document_metadata", "tuning_used", "review_measures",
         )},
+        **{key: recognized[key] for key in ("musicxml", "musicxml_error") if key in recognized},
         instrument=recognized.get("instrument", "guitar"),
         midi_program=recognized.get("midi_program", 25),
         gp5=gp5,

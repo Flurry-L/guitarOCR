@@ -19,12 +19,14 @@ class Region(BaseModel):
 
 
 class Metadata(BaseModel):
+    part_id: str | None = Field(default=None, max_length=160)
+    part_name: str | None = Field(default=None, max_length=160)
     title: str = Field(default="未命名乐谱", max_length=500)
     artist: str = Field(default="", max_length=500)
     instrument: Literal["guitar", "bass", "pitched", "drums"] = "guitar"
     midi_program: StrictInt | None = Field(default=None, ge=0, le=127)
     tuning_used: list[Annotated[StrictInt, Field(ge=0, le=127)]] = Field(
-        default_factory=lambda: [64, 59, 55, 50, 45, 40], max_length=7
+        default_factory=lambda: [64, 59, 55, 50, 45, 40], max_length=12
     )
     capo: StrictInt = Field(default=0, ge=0, le=24)
     tempo_quarter: StrictInt = Field(default=120, ge=20, le=400)

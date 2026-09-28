@@ -7,7 +7,7 @@ export function measureProfile(measure, state) {
   const metadata = state.metadata || {};
   return {mode:measure.mode || state.mode, instrument:measure.instrument || metadata.instrument || 'guitar',
     tuning:measure.tuning || metadata.tuning_used || [64,59,55,50,45,40],
-    pitch_context:{...(measure.pitch_context || {}),capo:metadata.capo || 0}};
+    pitch_context:{...(measure.pitch_context || {}),capo:measure.capo ?? metadata.capo ?? 0}};
 }
 export function reviewKind(measure) {
   if (!measure.needs_review) return '';
@@ -82,25 +82,42 @@ function colorStyle(Style, Elements, color) {
 const keys = {C:0,G:1,D:2,A:3,E:4,B:5,FSharp:6,CSharp:7,F:-1,BFlat:-2,EFlat:-3,AFlat:-4,DFlat:-5,GFlat:-6,CFlat:-7,
   AMinor:0,EMinor:1,BMinor:2,FSharpMinor:3,CSharpMinor:4,GSharpMinor:5,DSharpMinor:6,ASharpMinor:7,
   DMinor:-1,GMinor:-2,CMinor:-3,FMinor:-4,BFlatMinor:-5,EFlatMinor:-6,AFlatMinor:-7};
+function writtenKey(key, shift) {
+  const normalized = key.replace(/Major(?=Sharp|Flat|$)/,'').replace(/Minor(Sharp|Flat)/,'$1Minor');
+  const fifths = keys[normalized] ?? 0;
+  if (!shift || shift % 12 === 0) return fifths;
+  const tonic = ((7*fifths-shift)%12+12)%12;
+  return Array.from({length:15},(_,i)=>i-7).filter(k=>((7*k)%12+12)%12===tonic)
+    .sort((a,b)=>Math.abs(a)-Math.abs(b) || Math.abs(a-fifths)-Math.abs(b-fifths))[0];
+}
 
-export function engrave(state, settings, edited = null, mode = measureProfile(state.measures[0],state).mode) {
-  const score = new M.Score(), track = new M.Track(), staff = new M.Staff();
-  const sourceOf = new Map(), beats = new Map();
+export function engrave(state, settings, edited = null, mode = null) {
+  const score = new M.Score();
+  const sourceOf = new Map(), beats = new Map(), tracks = new Map(), staves = new Map(), keysByStaff = new Map();
   M.Score.resetIds();
-  const initial = measureProfile(state.measures[0],state), drums = initial.instrument === 'drums';
-  score.addTrack(track); track.addStaff(staff);
-  track.name = ''; track.playbackInfo.program = state.metadata?.midi_program || 0;
-  staff.isPercussion = drums;
-  staff.stringTuning.tunings = [...initial.tuning];
-  staff.showTablature = mode !== 'notation'; staff.showStandardNotation = mode !== 'tab';
-  staff.capo = initial.pitch_context.capo;
-  staff.displayTranspositionPitch = initial.pitch_context.instrument_transpose ?? (['guitar','bass'].includes(initial.instrument) ? -12 : 0);
-  let time = '4/4', key = null;
+  let time = '4/4';
   state.measures.forEach((record, mi) => {
     const data = edited?.index === mi ? edited.measure : record.parsed;
     const profile = measureProfile(record,state);
+    const partId = record.part_id || 'part-1', staffId = `${partId}/${record.staff_id || 'staff-1'}`;
+    let track = tracks.get(partId), staff = staves.get(staffId);
+    if (!track) {
+      track = new M.Track(); score.addTrack(track); tracks.set(partId,track);
+      track.name = record.part_name || '';
+      track.playbackInfo.program = record.midi_program ?? state.metadata?.midi_program ?? 0;
+    }
+    const drums = profile.instrument === 'drums';
+    if (!staff) {
+      staff = new M.Staff(); track.addStaff(staff); staves.set(staffId,staff);
+      staff.isPercussion = drums; staff.stringTuning.tunings = [...profile.tuning];
+      const displayMode = mode && mode !== 'mixed' ? mode : profile.mode;
+      staff.showTablature = displayMode !== 'notation'; staff.showStandardNotation = displayMode !== 'tab';
+      staff.capo = profile.pitch_context.capo;
+      staff.displayTranspositionPitch = profile.pitch_context.instrument_transpose ?? (['guitar','bass'].includes(profile.instrument) ? -12 : 0);
+    }
+    const barIndex = record.bar_index ?? mi;
     const master = new M.MasterBar();
-    time = data.time_signature || time;
+    time = data.time_signature || record.score_state?.time || time;
     [master.timeSignatureNumerator,master.timeSignatureDenominator] = time.split('/').map(Number);
     master.isRepeatStart = data.bars?.includes('repeat_open') || false;
     master.repeatCount = data.bars?.includes('repeat_close') ? data.repeat_count || 2 : 0;
@@ -109,12 +126,23 @@ export function engrave(state, settings, edited = null, mode = measureProfile(st
     if (data.section) {master.section = new M.Section();master.section.text = decode(data.section);}
     if (data.triplet_feel) master.tripletFeel = ({eighth:M.TripletFeel.Triplet8th,sixteenth:M.TripletFeel.Triplet16th}[data.triplet_feel] ?? M.TripletFeel.NoTripletFeel);
     if (data.tempo_quarter) master.tempoAutomations.push(M.Automation.buildTempoAutomation(false,0,data.tempo_quarter,2));
-    score.addMasterBar(master);
+    while (score.masterBars.length < barIndex) {
+      const missing = new M.MasterBar();
+      [missing.timeSignatureNumerator,missing.timeSignatureDenominator] = time.split('/').map(Number);
+      score.addMasterBar(missing);
+    }
+    if (!score.masterBars[barIndex]) score.addMasterBar(master);
+    while (staff.bars.length < barIndex) {
+      const missing = new M.Bar(), voice = new M.Voice(), rest = new M.Beat();
+      staff.addBar(missing); missing.addVoice(voice); voice.addBeat(rest); rest.isEmpty = true;
+    }
     const bar = new M.Bar(); staff.addBar(bar);
+    sourceOf.set(bar,{mi});
     bar.clef = drums ? M.Clef.Neutral : M.Clef[profile.pitch_context.clef] ?? (profile.instrument === 'bass' ? M.Clef.F4 : M.Clef.G2);
     bar.clefOttava = ottava(profile.pitch_context.clef_octave || 0);
-    key = data.key_signature || key;
-    if (key) {bar.keySignature = keys[key.replace(/Major$/, '')] || 0;bar.keySignatureType = key.endsWith('Minor') ? 1 : 0;}
+    const key = data.key_signature || keysByStaff.get(staffId);
+    if (key) keysByStaff.set(staffId,key);
+    if (key) {bar.keySignature = writtenKey(key,profile.pitch_context.instrument_transpose);bar.keySignatureType = key.includes('Minor') ? 1 : 0;}
     const kind = reviewKind(record), color = kind ? (kind === 'failed' ? new M.Color(181,48,58) : new M.Color(153,102,18)) : null;
     if (color) bar.style = colorStyle(M.BarStyle,M.BarSubElement,color);
     // Preserve voice numbers, even when only the second voice has content.
@@ -159,6 +187,10 @@ export function engrave(state, settings, edited = null, mode = measureProfile(st
       if (!voice.beats.length) {const empty = new M.Beat();empty.isEmpty = true;voice.addBeat(empty);}
     }
   });
+  for (const staff of staves.values()) while (staff.bars.length < score.masterBars.length) {
+    const bar = new M.Bar(), voice = new M.Voice(), rest = new M.Beat();
+    staff.addBar(bar); bar.addVoice(voice); voice.addBeat(rest); rest.isEmpty = true;
+  }
   score.finish(settings);
   return {score,sourceOf,beats};
 }

@@ -1,1 +1,11 @@
-{"independent_measures": true, "pitch_context": true, "written_pitch": true, "ottava": true, "batch_size": 32, "capo_pitch": true, "state_reader": "state_reader/state.safetensors"}
+{
+  "independent_measures": true,
+  "pitch_context": true,
+  "written_pitch": true,
+  "ottava": true,
+  "batch_size": 64,
+  "capo_pitch": true,
+  "state_reader": "state_reader/state.safetensors",
+  "visual_pitch": true,
+  "m2_constraints": false
+}

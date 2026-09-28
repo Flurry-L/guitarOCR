@@ -47,14 +47,16 @@ def run(
         raise ValueError("Document information belongs to a different layout result")
     records = source["records"]
     contexts = {row["measure_number"]: row for row in information.get("measure_pitch_contexts", [])}
+    profiles = {row['measure_number']: row for row in information.get('measure_profiles', [])}
     capabilities_path = (adapter or model) / 'capabilities.json'
     capabilities = json.loads(capabilities_path.read_text()) if capabilities_path and capabilities_path.exists() else {}
     for row in records:
+        row.update(profiles.get(row['measure_number'], {}))
         row.update(contexts.get(row["measure_number"], {}))
-        row['fingering_tunings'] = information.get('tuning_candidates') or [information['tuning_used']]
+        row['fingering_tunings'] = row.get('fingering_tunings') or information.get('tuning_candidates') or [information['tuning_used']]
         if row.get("pitch_context"):
-            row["pitch_context"] = {**row["pitch_context"], "capo": information.get("capo", 0)}
-        if (information.get("capo") and information.get("instrument", "guitar") in {"guitar", "bass"}
+            row["pitch_context"] = {**row["pitch_context"], "capo": row.get('capo', information.get("capo", 0))}
+        if (row.get('capo', information.get("capo")) and row.get('instrument', information.get("instrument", "guitar")) in {"guitar", "bass"}
                 and (row.get("mode") or source["mode"]) != "tab" and not capabilities.get('capo_pitch')):
             row["pitch_needs_review"] = True
     output = output.resolve()
@@ -139,21 +141,39 @@ def run(
         row["timing_errors"] = gp5_timing_errors(target)
         if row["timing_errors"]:
             row["needs_review"] = True
-    if source['mode'] == 'notation' and information.get('instrument') in {'guitar', 'bass'}:
-        from gp5_export.fingering import notation_fingering_errors
+    from collections import defaultdict
+    from gp5_export.fingering import notation_fingering_errors
 
-        candidates = information.get('tuning_candidates') or [information['tuning_used']]
-        parsed = [parse_measure_target(row['target']) for row in records]
+    by_part = defaultdict(list)
+    for row in records:
+        by_part[row.get('part_id', 'part-1')].append(row)
+    for part_id, rows in by_part.items():
+        if any(row.get('mode', source['mode']) != 'notation' for row in rows):
+            continue
+        if rows[0].get('instrument', information.get('instrument')) not in {'guitar', 'bass'}:
+            continue
+        candidates = rows[0].get('fingering_tunings') or [rows[0]['tuning']]
+        parsed = [parse_measure_target(row['target']) for row in rows]
         evaluations = [[notation_fingering_errors(measure, tuning) for measure in parsed] for tuning in candidates]
         selected = min(range(len(candidates)), key=lambda i: (sum(bool(e) for e in evaluations[i]), i))
-        information['tuning_used'] = candidates[selected]
-        if selected:
+        for part in information.get('parts', []):
+            if part['id'] == part_id:
+                part['tuning_used'] = candidates[selected]
+                if selected:
+                    part['document_metadata']['export_tuning_inferred_from_pitch_range'] = candidates[selected]
+        if not information.get('parts') and selected:
             metadata['export_tuning_inferred_from_pitch_range'] = candidates[selected]
-        for row, errors in zip(records, evaluations[selected], strict=True):
-            row['tuning'] = information['tuning_used']
+        for row, errors in zip(rows, evaluations[selected], strict=True):
+            row['tuning'] = candidates[selected]
             row['fingering_errors'] = errors
-            if errors:
+            if errors and row.get('tuning_explicit'):
                 row['needs_review'] = True
+    for part in information.get('parts', []):
+        rows = by_part.get(part['id'])
+        if rows:
+            part['tuning_used'] = rows[0]['tuning']
+    if records and records[0].get('tuning') is not None:
+        information['tuning_used'] = records[0]['tuning']
     return save_recognition(output, dict(
         layout=str(layout.resolve()),
         info=str(info.resolve()),
@@ -165,6 +185,7 @@ def run(
         midi_program=information.get("midi_program", 25),
         transpose=information.get("transpose"),
         measure_pitch_contexts=information.get("measure_pitch_contexts", []),
+        parts=information.get('parts', []),
         **{
             key: information[key]
             for key in ("document_metadata", "title", "artist", "tuning_used", "capo")

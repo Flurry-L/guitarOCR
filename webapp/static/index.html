@@ -48,7 +48,7 @@
             multiple
         /></label>
         <div id="fileList"></div>
-        <p class="muted">请使用单轨谱。钢琴双谱表和总谱尚不支持自动分轨。</p>
+        <p class="muted">支持 TAB、五线谱、五线谱＋TAB、钢琴双谱表和多轨总谱。</p>
         <label class="project-import"
           >恢复项目备份 <input id="importProject" type="file" accept=".zip"
         /></label>
@@ -164,12 +164,15 @@
           <label>曲名<input id="title" placeholder="未命名乐谱" /></label
           ><label>作者<input id="artist" placeholder="选填" /></label
           ><label
+            >音轨<select id="metadataPart"></select></label><label
+            id="partNameField">音轨名称<input id="partName" maxlength="160" /></label><label
             >乐器<select id="instrument">
               <option value="guitar">吉他</option>
               <option value="bass">贝斯</option>
               <option value="pitched">钢琴或其他旋律乐器</option>
               <option value="drums">鼓组</option>
             </select></label
+          ><label id="midiProgramField">播放音色<select id="midiProgram"></select></label
           ><label
             >速度（BPM）<input
               id="tempo"
@@ -295,6 +298,8 @@
         <div class="export-extras">
           <a id="downloadProject" hidden>下载项目备份（ZIP）</a>
           <a id="downloadScoreText" hidden>下载小节文本</a>
+          <a id="downloadScoreDocument" hidden>下载结构化乐谱</a>
+          <a id="downloadMusicXML" hidden>下载 MusicXML</a>
         </div>
       </section>
       <footer class="page-footer">

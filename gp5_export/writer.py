@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from shared.m2 import parse_measure_target, full_measure_rest_target
+from shared.gp_io import read_gp
 from shared.score_text import model_score_text, display_error
 from shared.instruments import INSTRUMENTS, DEFAULT_PROGRAMS, PROGRAM_NAMES, standard_tuning
 from gp5_export.pitched import storage_tuning, pitch_positions
@@ -16,12 +17,13 @@ from gp5_export.effects import _duration, _enum_member, _note, _apply_beat_effec
 
 
 class GP5ReadbackError(ValueError):
-    def __init__(self, measures):
+    def __init__(self, measures, locations=None):
         self.measures = sorted(set(measures))
+        self.locations = locations or [(0, m) for m in self.measures]
         super().__init__(f"GP5 readback changed notes in measures {self.measures}; check ties and pitches")
 
 
-def _changed_note_measures(expected, actual):
+def _changed_note_locations(expected, actual):
     """GP5 stores ties by string and can silently substitute another pitch."""
     def notes(measure):
         return {
@@ -33,11 +35,20 @@ def _changed_note_measures(expected, actual):
             for beat in voice.beats if beat.notes
         }
 
-    before, after = expected.tracks[0].measures, actual.tracks[0].measures
-    if len(before) != len(after):
-        return list(range(1, len(before) + 1))
-    return [index for index, (left, right) in enumerate(zip(before, after), 1)
-            if notes(left) != notes(right)]
+    changed = []
+    for track_index, track in enumerate(expected.tracks):
+        before = track.measures
+        after = actual.tracks[track_index].measures if track_index < len(actual.tracks) else []
+        if len(before) != len(after):
+            changed.extend((track_index, i) for i in range(1, len(before) + 1))
+        else:
+            changed.extend((track_index, index) for index, (left, right) in enumerate(zip(before, after), 1)
+                           if notes(left) != notes(right))
+    return changed
+
+
+def _changed_note_measures(expected, actual):
+    return sorted({i for _track, i in _changed_note_locations(expected, actual)})
 
 
 def _display_settings(mode: str, gm: Any) -> Any:
@@ -66,6 +77,7 @@ def targets_to_song(
     capo: int = 0,
     instrument: str = "guitar",
     midi_program: int | None = None,
+    virtual_tuning: bool = False,
 ) -> Any:
     from guitarpro import models as gm
 
@@ -85,7 +97,7 @@ def targets_to_song(
         raise ValueError(display_error(str(error))) from None
     if not measures:
         raise ValueError("At least one measure is required")
-    if pitched:
+    if pitched or virtual_tuning:
         tuning_values = storage_tuning(measures, instrument == "drums")
     if not 1 <= len(tuning_values) <= 7:
         raise ValueError("GP5 supports at most seven strings; the complete notes remain in score.json")
@@ -284,16 +296,18 @@ def write_targets_gp5(
     capo: int = 0,
     instrument: str = "guitar",
     midi_program: int | None = None,
+    _song=None,
 ) -> Path:
     import guitarpro
 
     output_path = Path(output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    song = targets_to_song(
+    song = _song if _song is not None else targets_to_song(
         targets, mode=mode, title=title, artist=artist, tuning=tuning, capo=capo,
         instrument=instrument, midi_program=midi_program,
     )
     replacements: list[dict[str, str]] = []
+    detached_ties = []
 
     def cp936_text(value: str, field: str) -> str:
         encoded = value.encode("cp936", errors="replace").decode("cp936")
@@ -303,13 +317,27 @@ def write_targets_gp5(
 
     song.title = cp936_text(song.title, "title")
     song.artist = cp936_text(song.artist, "artist")
-    for measure_index, measure in enumerate(song.tracks[0].measures, start=1):
+    for track in song.tracks:
+      preceding = {}
+      track.name = cp936_text(track.name, f'track {track.number} name')
+      for measure_index, measure in enumerate(track.measures, start=1):
         if measure.header.marker is not None:
             marker = measure.header.marker
             marker.title = cp936_text(marker.title, f"measure {measure_index} marker")
         for voice_index, voice in enumerate(measure.voices, start=1):
             for beat_index, beat in enumerate(voice.beats, start=1):
-                field = f"measure {measure_index} voice {voice_index} beat {beat_index}"
+                field = f"track {track.number} measure {measure_index} voice {voice_index} beat {beat_index}"
+                for note in beat.notes:
+                    key = (voice_index, note.string)
+                    if note.type.name == 'tie' and preceding.get(key) != note.value:
+                        # An excerpt can start inside a tie. GP5 cannot encode
+                        # that pitch without its origin; keep the note audible
+                        # and retain the incoming tie in the independent IR.
+                        note.type = guitarpro.models.NoteType.normal
+                        detached_ties.append({'track': track.number, 'measure': measure_index,
+                                              'voice': voice_index, 'beat': beat_index,
+                                              'string': note.string})
+                    preceding[key] = note.value
                 if beat.text:
                     beat.text = cp936_text(beat.text, f"{field} text")
                 if beat.effect.chord is not None:
@@ -323,9 +351,9 @@ def write_targets_gp5(
         ) as stream:
             temporary = Path(stream.name)
         guitarpro.write(song, str(temporary), version=(5, 1, 0), encoding="cp936")
-        restored = guitarpro.parse(str(temporary), encoding="cp936")
-        if changed := _changed_note_measures(song, restored):
-            raise GP5ReadbackError(changed)
+        restored = read_gp(str(temporary), encoding="cp936")
+        if changed := _changed_note_locations(song, restored):
+            raise GP5ReadbackError([i for _track, i in changed], changed)
         os.replace(temporary, output_path)
         temporary = None
     finally:
@@ -334,7 +362,8 @@ def write_targets_gp5(
 
     report_path = output_path.with_name(f"{output_path.name}.encoding.json")
     report_path.write_text(
-        json.dumps({"encoding": "cp936", "replacements": replacements}, ensure_ascii=False, indent=2)
+        json.dumps({"encoding": "cp936", "replacements": replacements,
+                    "detached_ties": detached_ties}, ensure_ascii=False, indent=2)
         + "\n",
         encoding="utf-8",
     )

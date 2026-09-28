@@ -5,11 +5,24 @@ import re
 from shared.instruments import pitch_reference
 
 
+def conventional_octave(text):
+    if not isinstance(text, str):
+        return None
+    name = ' '.join(text.casefold().strip().rstrip('.').split())
+    return {'piccolo': 12, 'contrabass': -12, 'double bass': -12,
+            'guitar': -12, 'bass guitar': -12}.get(name)
+
+
 def explicit_transposition(text):
     """Decode an explicit signed instruction without interpreting a key signature."""
     if not isinstance(text, str):
         return None
     text = " ".join(text.strip().lower().replace("−", "-").split())
+    conventional = {'concert pitch': 0, 'at concert pitch': 0}
+    if text.rstrip('.') in conventional:
+        return conventional[text.rstrip('.')]
+    if (octave := conventional_octave(text)) is not None:
+        return octave
     match = re.fullmatch(r"(?:transpose|written to sounding:)\s*([+-]?\d+)\s+semitones?\.?", text)
     if match:
         shift = int(match[1])
@@ -20,6 +33,10 @@ def explicit_transposition(text):
             # instrument/register and its key are explicitly printed.
             name = re.sub(r"\b([a-g])[ -]flat\b", r"\1b", text.replace("♭", "b")).rstrip(".")
             for instrument, key, offset in (
+                (r"clarinet", "bb", -2),
+                (r"clarinet", "a", -3),
+                (r"clarinet", "eb", 3),
+                (r"bass clarinet", "bb", -14),
                 (r"trumpet", "bb", -2),
                 (r"soprano sax(?:ophone)?", "bb", -2),
                 (r"alto sax(?:ophone)?", "eb", -9),
@@ -49,7 +66,7 @@ def transpose_key(name, semitones):
     return min(choices, key=lambda k: (abs(k.value[0]), abs(k.value[0] - fifths))).name
 
 
-def convert_pitch_target(target, context, *, to_written=False):
+def convert_pitch_target(target, context, *, to_written=False, mode="notation"):
     """Convert notation pitches once, including pitched grace/trill notes.
 
     The OCR adapter declares whether its notation output is written or sounding.
@@ -88,7 +105,7 @@ def convert_pitch_target(target, context, *, to_written=False):
                             parts[1] = (f"f{fret}" if fret is not None else "") + f"p{pitch + shift}"
                     effects.append(":".join(parts))
                 note["effects"] = effects
-    return format_measure_target(measure, "notation", preserve_playback=True)
+    return format_measure_target(measure, mode, preserve_playback=True)
 
 
 def _staff(record):
@@ -98,10 +115,11 @@ def _staff(record):
 def _distance(box, region):
     _, top, _, height = box
     _, y, _, h = region
-    return max(top - y - h, y - top - height, 0)
+    center = y + h / 2
+    return max(top - center, center - top - height, 0), abs(center - top - height / 2)
 
 
-def apply_pitch_regions(records, predictions, *, instrument="guitar", transpose=None):
+def apply_pitch_regions(records, predictions, *, instrument="guitar", transpose=None, default_transpose=None):
     """Resolve per-staff state; octave lines keep their horizontal extent.
 
     semitones means sounding minus written, excluding the separate guitar/bass
@@ -112,6 +130,8 @@ def apply_pitch_regions(records, predictions, *, instrument="guitar", transpose=
     for prediction in predictions:
         kind = prediction.get("kind")
         if kind not in {"clef", "transposition"} or not prediction.get("bbox"):
+            continue
+        if kind == 'transposition' and prediction.get('parsed', {}).get('kind') is None:
             continue
         page = prediction.get("page")
         candidates = [(i, r) for i, r in enumerate(records) if r.get("page") == page]
@@ -160,6 +180,7 @@ def apply_pitch_regions(records, predictions, *, instrument="guitar", transpose=
         pending = uncertain.setdefault(_staff(record), set())
         state = states.setdefault(_staff(record), {
             "instrument_transpose": transpose if transpose is not None else
+                default_transpose if default_transpose is not None else
                 (-12 if local_instrument in {"guitar", "bass"} else 0),
             "clef": None, "clef_octave": 0,
         })
@@ -180,7 +201,8 @@ def apply_pitch_regions(records, predictions, *, instrument="guitar", transpose=
                         pending.add("instrument_transpose")
                     else:
                         state["instrument_transpose"] = parsed["semitones"]
-                        explicit_transposition.add(_staff(record))
+                        if conventional_octave(parsed.get('text')) is None:
+                            explicit_transposition.add(_staff(record))
                         pending.discard("instrument_transpose")
             elif parsed.get("kind") == "capo":
                 if parsed.get("capo") is None:
@@ -192,10 +214,9 @@ def apply_pitch_regions(records, predictions, *, instrument="guitar", transpose=
                 unresolved.add(index)
         effective = dict(state)
         if (transpose is None and _staff(record) not in explicit_transposition
-                and local_instrument in {"guitar", "bass"} and state["clef_octave"] == -12):
-            # The common small 8 under a guitar/bass clef already specifies
-            # its conventional octave displacement. Do not add the implicit
-            # instrument default a second time.
+                and state['clef_octave'] and state['clef_octave'] == state['instrument_transpose']):
+            # An octave clef can express the instrument's conventional shift.
+            # Explicit numeric instructions and manual overrides stay additive.
             effective["instrument_transpose"] = 0
         record["pitch_context"] = {**effective, "octave_spans": spans.get(index, [])}
         record["pitch_reference"] = pitch_reference(local_instrument)
@@ -209,6 +230,7 @@ def prompt_pitch_context(context):
     return {
         key: ([{k: span[k] for k in ("semitones", "start", "end")} for span in value]
               if key == "octave_spans" else value)
-        for key, value in context.items()
-        if key in {"clef", "clef_octave", "instrument_transpose", "octave_spans"}
+        for key in ("clef", "clef_octave", "instrument_transpose", "octave_spans")
+        if key in context
+        for value in [context[key]]
     }

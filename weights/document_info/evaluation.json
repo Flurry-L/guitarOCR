@@ -1,163 +1,118 @@
 {
-  "date": "2026-09-28",
-  "samples": 15323,
-  "fields": {
-    "title": {
-      "correct": 1761,
-      "total": 1767,
-      "accuracy": 0.9966044142614601
+  "release": "score-support-2026-09-28",
+  "scope": "held_out_metadata_crops_and_pages_reference_row_geometry",
+  "samples": 20440,
+  "metrics": {
+    "header": {
+      "samples": 1927,
+      "title_total": 1927,
+      "title_correct": 1912,
+      "artist_total": 1927,
+      "artist_correct": 1913,
+      "tuning_name_total": 1927,
+      "tuning_name_correct": 1927,
+      "exact": 1898
     },
-    "artist": {
-      "correct": 1765,
-      "total": 1767,
-      "accuracy": 0.9988681380871534
+    "tempo": {
+      "samples": 2096,
+      "tempo_quarter_total": 2096,
+      "tempo_quarter_correct": 2096,
+      "exact": 2096
     },
-    "tuning_name": {
-      "correct": 1767,
-      "total": 1767,
-      "accuracy": 1.0
-    },
-    "tempo_quarter": {
-      "correct": 2096,
-      "total": 2096,
-      "accuracy": 1.0
-    },
-    "instrument": {
-      "correct": 1124,
-      "total": 1124,
-      "accuracy": 1.0
-    },
-    "string_count": {
-      "correct": 1123,
-      "total": 1124,
-      "accuracy": 0.9991103202846975
+    "staff": {
+      "samples": 1543,
+      "instrument_total": 1543,
+      "instrument_correct": 1536,
+      "string_count_total": 1543,
+      "string_count_correct": 1543,
+      "exact": 1536
     },
     "clef": {
-      "correct": 8536,
-      "total": 8536,
-      "accuracy": 1.0
+      "samples": 10787,
+      "clef_total": 10787,
+      "clef_correct": 10787,
+      "clef_octave_total": 10787,
+      "clef_octave_correct": 10787,
+      "exact": 10787
     },
-    "clef_octave": {
-      "correct": 8536,
-      "total": 8536,
-      "accuracy": 1.0
+    "transposition": {
+      "samples": 1800,
+      "kind_total": 1800,
+      "kind_correct": 1800,
+      "semitones_total": 1800,
+      "semitones_correct": 1800,
+      "capo_total": 1800,
+      "capo_correct": 1800,
+      "text_total": 1800,
+      "text_correct": 1800,
+      "exact": 1800
     },
-    "kind": {
-      "correct": 1800,
-      "total": 1800,
-      "accuracy": 1.0
+    "structure": {
+      "samples": 2287,
+      "valid": 2287,
+      "rows": 14067,
+      "instrument_total": 14067,
+      "strings_total": 14067,
+      "program_total": 14067,
+      "name_total": 14067,
+      "part_count_correct": 2287,
+      "grouping_exact": 2287,
+      "rows_correct": 14067,
+      "instrument_correct": 13622,
+      "strings_correct": 13998,
+      "program_correct": 13622,
+      "name_correct": 13609,
+      "exact": 2131
     },
-    "semitones": {
-      "correct": 1785,
-      "total": 1800,
-      "accuracy": 0.9916666666666667
-    },
-    "capo": {
-      "correct": 1800,
-      "total": 1800,
-      "accuracy": 1.0
-    },
-    "text": {
-      "correct": 1799,
-      "total": 1800,
-      "accuracy": 0.9994444444444445
+    "structure_model": {
+      "samples": 2287,
+      "valid": 2287,
+      "rows": 14067,
+      "instrument_total": 14067,
+      "strings_total": 14067,
+      "program_total": 14067,
+      "name_total": 14067,
+      "part_count_correct": 2287,
+      "grouping_exact": 2284,
+      "rows_correct": 14060,
+      "instrument_correct": 13622,
+      "strings_correct": 13998,
+      "program_correct": 13618,
+      "name_correct": 13605,
+      "exact": 2128
     }
   },
   "runtime": {
-    "samples": 15323,
-    "generated_tokens": 264208,
-    "startup_seconds": 28.753899808973074,
-    "inference_seconds": 142.03942421637475,
+    "engine_startup_seconds": 50.1528431288898,
+    "worker_seconds": 368.6375944800675,
+    "speculative_tokens": 4,
     "speculation": [
       {
         "name": "vllm:spec_decode_num_drafts",
-        "value": 86512,
+        "value": 103093,
         "values": null
       },
       {
         "name": "vllm:spec_decode_num_draft_tokens",
-        "value": 173024,
+        "value": 407611,
         "values": null
       },
       {
         "name": "vllm:spec_decode_num_accepted_tokens",
-        "value": 170365,
+        "value": 383013,
         "values": null
       },
       {
         "name": "vllm:spec_decode_num_accepted_tokens_per_pos",
         "value": null,
         "values": [
-          86425,
-          83940
+          103014,
+          98999,
+          93815,
+          87185
         ]
       }
     ]
   },
-  "selection": {
-    "adapter": "output/parallel-score/info-mtp-adapter",
-    "model": "output/parallel-score/info-mtp-merged",
-    "validation": {
-      "title": {
-        "correct": 1737,
-        "total": 1746,
-        "accuracy": 0.9948453608247423
-      },
-      "artist": {
-        "correct": 1717,
-        "total": 1746,
-        "accuracy": 0.9833906071019473
-      },
-      "tuning_name": {
-        "correct": 1746,
-        "total": 1746,
-        "accuracy": 1.0
-      },
-      "tempo_quarter": {
-        "correct": 2132,
-        "total": 2132,
-        "accuracy": 1.0
-      },
-      "instrument": {
-        "correct": 1107,
-        "total": 1108,
-        "accuracy": 0.9990974729241877
-      },
-      "string_count": {
-        "correct": 1107,
-        "total": 1108,
-        "accuracy": 0.9990974729241877
-      },
-      "clef": {
-        "correct": 8564,
-        "total": 8564,
-        "accuracy": 1.0
-      },
-      "clef_octave": {
-        "correct": 8564,
-        "total": 8564,
-        "accuracy": 1.0
-      },
-      "kind": {
-        "correct": 1779,
-        "total": 1782,
-        "accuracy": 0.9983164983164983
-      },
-      "semitones": {
-        "correct": 1771,
-        "total": 1782,
-        "accuracy": 0.9938271604938271
-      },
-      "capo": {
-        "correct": 1782,
-        "total": 1782,
-        "accuracy": 1.0
-      },
-      "text": {
-        "correct": 1779,
-        "total": 1782,
-        "accuracy": 0.9983164983164983
-      }
-    }
-  }
+  "structure_geometry": "Exact row count constrained JSON plus piano/brace and repeated-system reconciliation"
 }

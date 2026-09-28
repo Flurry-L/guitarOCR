@@ -315,6 +315,9 @@ def evaluate(predictions: Path, metrics_path: Path | None) -> dict[str, Any]:
     by_instrument: dict[str, MeasureSequenceMetrics] = {}
     by_strings: dict[str, MeasureSequenceMetrics] = {}
     by_pitched_family: dict[str, MeasureSequenceMetrics] = {}
+    by_program: dict[str, MeasureSequenceMetrics] = {}
+    by_voices: dict[str, MeasureSequenceMetrics] = {}
+    by_corpus: dict[str, MeasureSequenceMetrics] = {}
     by_transpose: dict[str, MeasureSequenceMetrics] = {}
     by_octave_marking: dict[str, MeasureSequenceMetrics] = {}
     conditions, signatures, review = set(), set(), 0
@@ -338,6 +341,11 @@ def evaluate(predictions: Path, metrics_path: Path | None) -> dict[str, Any]:
         raw_prediction = row.get("raw_prediction", row["predicted"])
         instrument = row.get("instrument", "guitar")
         groups = [by_instrument.setdefault(instrument, MeasureSequenceMetrics())]
+        groups.append(by_voices.setdefault(str(row['expected'].count('||') + 1), MeasureSequenceMetrics()))
+        if row.get('corpus'):
+            groups.append(by_corpus.setdefault(row['corpus'], MeasureSequenceMetrics()))
+        if type(row.get('midi_program')) is int:
+            groups.append(by_program.setdefault(str(row['midi_program']), MeasureSequenceMetrics()))
         if instrument in {"guitar", "bass"}:
             key = f"{instrument}/{row.get('string_count')}/{row['mode']}"
             groups.append(by_strings.setdefault(key, MeasureSequenceMetrics()))
@@ -375,6 +383,9 @@ def evaluate(predictions: Path, metrics_path: Path | None) -> dict[str, Any]:
         "by_instrument": {key: value.result() for key, value in sorted(by_instrument.items())},
         "by_strings": {key: value.result() for key, value in sorted(by_strings.items())},
         "by_pitched_family": {key: value.result() for key, value in sorted(by_pitched_family.items())},
+        "by_program": {key: value.result() for key, value in sorted(by_program.items())},
+        "by_voices": {key: value.result() for key, value in sorted(by_voices.items())},
+        "by_corpus": {key: value.result() for key, value in sorted(by_corpus.items())},
         "by_transpose": {key: value.result() for key, value in sorted(by_transpose.items())},
         "by_octave_marking": {key: value.result() for key, value in sorted(by_octave_marking.items())},
         # Rest placeholders keep the sequence usable but are not valid OCR outputs.

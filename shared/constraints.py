@@ -141,8 +141,8 @@ def validate_measure_target(
     maximum_string = string_count or (len(tuning) if tuning else 8)
     for voice in measure.get("voices", []):
         voice_id = int(voice["voice"])
-        if voice_id not in {0, 1}:
-            errors.append(f"unsupported_gp5_voice:V{voice_id}")
+        if not 0 <= voice_id <= 15:
+            errors.append(f"invalid_voice:V{voice_id}")
         if voice_id in voice_ids:
             errors.append(f"duplicate_voice:V{voice_id}")
         voice_ids.add(voice_id)

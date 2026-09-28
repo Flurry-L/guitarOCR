@@ -19,6 +19,8 @@ def _unassigned(chord, bases):
 
 def storage_tuning(measures, percussion=False):
     if percussion:
+        if any(len(e.get('notes', [])) > 7 for m in measures for v in m['voices'] for e in v['events']):
+            raise ValueError('Percussion chord requires more than seven GP5 slots')
         return [0] * 7
 
     def span(note):
@@ -67,9 +69,35 @@ def storage_tuning(measures, percussion=False):
             break
         bases, current = replacement, best
     if current:
-        raise ValueError(
-            "These chords and pitch range cannot fit the GP5 note slots; the complete notes remain in score.json"
-        )
+        # Coordinate descent can get stuck when several slots must move
+        # together. Intervals have a consecutive-neighbourhood matching:
+        # every interval must contain enough slots for all notes whose
+        # admissible bases lie entirely inside it.
+        import numpy as np
+        from scipy.optimize import Bounds, LinearConstraint, milp
+        from scipy.sparse import csr_matrix
+
+        requirements = {}
+        for chord in chords:
+            intervals = [(max(0, high - MAX_MELODIC_FRET), low) for low, high in chord]
+            for left, _ in intervals:
+                for _, right in intervals:
+                    if left <= right:
+                        demand = sum(left <= a <= b <= right for a, b in intervals)
+                        requirements[left, right] = max(requirements.get((left, right), 0), demand)
+        matrix = [[int(left <= base <= right) for base in range(128)] for left, right in requirements]
+        matrix.append([1] * 128)
+        solution = milp(np.ones(128), integrality=np.ones(128), bounds=Bounds(0, 7),
+                        constraints=LinearConstraint(csr_matrix(matrix, dtype=float),
+                                                     [*requirements.values(), 0],
+                                                     [*[np.inf] * len(requirements), 7]),
+                        options={'time_limit': 5})
+        if solution.x is not None:
+            bases = [base for base, count in enumerate(solution.x) for _ in range(round(count))]
+            bases += [low] * (7 - len(bases))
+            if len(bases) == 7 and cost(bases) == 0:
+                return sorted(bases, reverse=True)
+        raise ValueError('GP5 note slots cannot preserve these notes; use the score IR or MusicXML')
     return bases
 
 
@@ -87,7 +115,9 @@ def pitch_positions(notes, tuning, previous, reserved):
         pitch = int(note["pitch"])
         choices = [s for s, (p, _f) in previous.items() if p == pitch and s not in used]
         if not choices:
-            raise ValueError(f"Tie has no preceding pitch {pitch}")
+            # Excerpts may omit the tie's origin. Allocate its explicit pitch
+            # normally; the writer records the detached tie in its projection.
+            continue
         string = min(choices)
         used.add(string)
         positions[index] = (string, pitch - tuning[string - 1])

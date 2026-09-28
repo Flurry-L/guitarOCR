@@ -39,6 +39,8 @@ def export_model(base, adapter, output, mtp=None):
     model.config.save_pretrained(output)
     model.generation_config.save_pretrained(output)
     AutoProcessor.from_pretrained(base).save_pretrained(output)
+    if (base / 'music_vocabulary.json').is_file():
+        shutil.copyfile(base / 'music_vocabulary.json', output / 'music_vocabulary.json')
     capability_root = Path(adapter) if adapter else base
     if (capability_root / 'capabilities.json').exists():
         capabilities = json.loads((capability_root / 'capabilities.json').read_text())

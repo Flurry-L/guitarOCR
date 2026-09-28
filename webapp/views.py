@@ -73,6 +73,10 @@ def project_view(workspace, sid):
                 for instruction in metadata["pitch_instructions"]
             ]
         state["metadata"]["document_metadata"] = metadata
+        if info.get('parts'):
+            state['metadata']['parts'] = [{k: p[k] for k in (
+                'id', 'name', 'instrument', 'midi_program', 'tuning_used', 'capo', 'transpose', 'document_metadata'
+            ) if k in p} for p in info['parts']]
     state["measures"], state["review_measures"] = [], []
     if saved["recognition"]:
         data = read_result(Path(saved["recognition"]), "measure_ocr")
@@ -80,6 +84,14 @@ def project_view(workspace, sid):
             state['metadata']['tuning_used'] = data['tuning_used']
         state["review_measures"] = data.get("review_measures", [])
         state["score_text_url"] = f"/api/sessions/{sid}/score.txt"
+        state['score_document_url'] = asset(data['score_document'])
+        if data.get('musicxml'):
+            state['musicxml_url'] = asset(data['musicxml'])
+        if (state.get('metadata') or {}).get('parts'):
+            for part in state['metadata']['parts']:
+                row = next((r for r in data['records'] if r.get('part_id') == part['id']), None)
+                if row is not None:
+                    part['tuning_used'] = row.get('tuning', part['tuning_used'])
         for row in data["records"]:
             state["measures"].append(
                 {
@@ -102,7 +114,10 @@ def project_view(workspace, sid):
             )
     if saved["export"]:
         exported = read_result(Path(saved["export"]), "gp5_export")
-        state["gp5_url"] = asset(exported["gp5"])
-        state["gp5_name"] = Path(exported["gp5"]).name
-        state["encoding_url"] = asset(exported["encoding_report"])
+        if exported.get('gp5'):
+            state["gp5_url"] = asset(exported["gp5"])
+            state["gp5_name"] = Path(exported["gp5"]).name
+            state["encoding_url"] = asset(exported["encoding_report"])
+        if exported.get('musicxml'):
+            state['musicxml_url'] = asset(exported['musicxml'])
     return state

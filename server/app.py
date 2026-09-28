@@ -531,7 +531,7 @@ def create_app(config: Config, workflow=None):
         if (
             not path.is_relative_to(root)
             or not path.is_file()
-            or path.suffix.lower() not in {".png", ".gp5", ".txt", ".json"}
+            or path.suffix.lower() not in {".png", ".gp5", ".txt", ".json", ".musicxml"}
         ):
             raise HTTPException(404, "文件不存在")
         if path.suffix == ".json" and "encoding" not in path.name:
