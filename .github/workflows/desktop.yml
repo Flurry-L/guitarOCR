@@ -29,7 +29,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          lfs: true
+          lfs: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -47,69 +47,11 @@ jobs:
       - run: npm ci
         working-directory: desktop
       - run: cargo fetch --locked --manifest-path desktop/src-tauri/Cargo.toml
-      - uses: actions/cache@v4
-        id: model_cache
-        with:
-          path: |
-            tools/models/GLM-OCR
-            tools/model-bundles
-          key: desktop-models-${{ hashFiles('weights/manifest.json') }}
-      - name: Reuse models from the release ZIP
-        if: inputs.release_tag != '' && steps.model_cache.outputs.cache-hit != 'true'
-        shell: python
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.release_tag }}
-        run: |
-          import hashlib, json, os, shutil, subprocess, tempfile, tomllib, zipfile
-          from pathlib import Path
-          version = tomllib.loads(Path('pyproject.toml').read_text(encoding='utf-8'))['project']['version']
-          prefix = f'GuitarOCR-{version}'
-          manifest = Path('weights/manifest.json').read_bytes()
-          # A prepared source release already contains the losslessly compressed
-          # models. Reuse that archive instead of compressing it on every runner.
-          with tempfile.TemporaryDirectory() as directory:
-              result = subprocess.run(['gh', 'release', 'download', os.environ['RELEASE_TAG'],
-                                       '--pattern', f'{prefix}.zip', '--dir', directory])
-              if result.returncode == 0:
-                  with zipfile.ZipFile(Path(directory) / f'{prefix}.zip') as archive:
-                      if json.loads(archive.read(f'{prefix}/weights/manifest.json')) == json.loads(manifest):
-                          cached = Path('tools/model-bundles') / f'{hashlib.sha256(manifest).hexdigest()}.tar.xz'
-                          cached.parent.mkdir(parents=True, exist_ok=True)
-                          temporary = cached.with_suffix('.part')
-                          with archive.open(f'{prefix}/models.tar.xz') as source, temporary.open('wb') as output:
-                              shutil.copyfileobj(source, output, 8 * 1024**2)
-                          temporary.replace(cached)
-                          print('Using the model bundle from the source release.')
-      - run: python scripts/prepare_desktop.py --fetch-models
+      - run: python scripts/prepare_desktop.py
       - run: node --test tests/score-editor.test.mjs
       - run: cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml
       - run: npm run build -- --verbose --bundles ${{ matrix.platform == 'linux-x64' && 'deb,appimage' || matrix.platform == 'windows-x64' && 'nsis' || 'dmg' }} -- --locked
         working-directory: desktop
-      - name: Compress AppImage for release hosting
-        if: runner.os == 'Linux'
-        shell: python
-        run: |
-          import os, shutil, subprocess, tempfile
-          from pathlib import Path
-          bundle = Path('desktop/src-tauri/target/release/bundle/appimage').resolve()
-          for image in bundle.glob('*.AppImage'):
-              if image.stat().st_size < 2**31:
-                  continue
-              # Keep every model and library. Increase zstd compression without
-              # enlarging filesystem blocks, which would slow application startup.
-              plugin = next((Path.home() / '.cache/tauri').glob('linuxdeploy-plugin-appimage*.AppImage'))
-              with tempfile.TemporaryDirectory() as directory:
-                  subprocess.run([str(plugin), '--appimage-extract'], cwd=directory,
-                                 stdout=subprocess.DEVNULL, check=True)
-                  toolkit = Path(directory) / 'squashfs-root/usr'
-                  env = dict(os.environ, PATH=f"{toolkit / 'bin'}:{os.environ['PATH']}",
-                             LD_LIBRARY_PATH=f"{toolkit / 'lib'}:{os.environ.get('LD_LIBRARY_PATH', '')}")
-                  compressed = Path(directory) / image.name
-                  subprocess.run([str(toolkit / 'bin/appimagetool'), '--comp', 'zstd',
-                                  '--mksquashfs-opt=-Xcompression-level', '--mksquashfs-opt=19',
-                                  str(bundle / 'GuitarOCR.AppDir'), str(compressed)], env=env, check=True)
-                  shutil.move(compressed, image)
       - name: Check release asset sizes
         shell: python
         run: |
@@ -118,7 +60,9 @@ jobs:
               if path.suffix in {'.exe', '.dmg', '.deb', '.AppImage'} and path.is_file():
                   assert path.stat().st_size < 2**31, f'{path} exceeds the GitHub asset limit'
       - if: inputs.release_tag != '' && matrix.platform == 'linux-x64'
-        run: python scripts/package_release.py --output output/releases
+        run: |
+          git lfs pull --include='weights/**'
+          python scripts/package_release.py --output output/releases
       - name: Upload to draft release
         if: inputs.release_tag != ''
         shell: python
@@ -135,7 +79,8 @@ jobs:
           assert release['isDraft'], 'Only draft releases can receive new builds'
           assets = [p for p in Path('desktop/src-tauri/target/release/bundle').rglob('*')
                     if p.is_file() and p.suffix in {'.exe', '.dmg', '.deb', '.AppImage'}]
-          assets += list(Path('output/releases').glob('GuitarOCR-*.*'))
+          assets += list(Path('output/releases').glob('GuitarOCR-*.zip'))
+          assets += list(Path('output/releases/models').glob('*'))
           assert assets, 'No release assets built'
           subprocess.run(['gh', 'release', 'upload', tag, *map(str, assets), '--clobber'], check=True)
       - uses: actions/upload-artifact@v4

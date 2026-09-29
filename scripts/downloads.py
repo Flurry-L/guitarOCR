@@ -12,7 +12,7 @@ from urllib.request import Request, urlopen
 from shared.model_files import verify_files
 
 
-def download_verified(url, destination, expected, *, attempts=3):
+def download_verified(url, destination, expected, *, attempts=3, on_progress=None):
     destination = Path(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
     # Different sources keep separate partial files; all must match the same hash.
@@ -50,6 +50,8 @@ def download_verified(url, destination, expected, *, attempts=3):
                             raise ValueError("下载内容超过预期大小")
                         if time.monotonic() - last_progress >= 5:
                             print(f"  {received / 1024**2:.1f} / {expected['bytes'] / 1024**2:.1f} MiB", flush=True)
+                            if on_progress:
+                                on_progress(received, expected['bytes'])
                             last_progress = time.monotonic()
             if partial.stat().st_size < expected["bytes"]:
                 raise OSError("下载中断，将从已下载位置继续")
@@ -57,6 +59,8 @@ def download_verified(url, destination, expected, *, attempts=3):
             if errors:
                 raise ValueError("；".join(errors))
             partial.replace(destination)
+            if on_progress:
+                on_progress(expected['bytes'], expected['bytes'])
             return
         except (OSError, ValueError, http.client.HTTPException) as error:
             if isinstance(error, ValueError):

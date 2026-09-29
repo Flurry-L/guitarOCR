@@ -25,7 +25,7 @@ uv run --no-sync python -m unittest discover -s tests -v
 | 音乐文本语法、音高含义、节奏和奏法约束 | `shared/m2.py`、`shared/pitch_context.py`、`shared/constraints.py`、`shared/techniques.py` |
 | 指法分配及 Guitar Pro 文件表示 | `gp5_export/` |
 
-小节记录保存各自的谱面类型，OCR 按该类型选择提示词。模型池共用一个 GLM 基座，两项 OCR 任务切换适配器。Paddle 在独立环境中运行。训练与推理的小节裁图留白共用 `shared/crops.py`。
+小节记录保存各自的谱面类型，OCR 按该类型选择提示词。模型池分别加载两项 OCR 的完整合并模型，CUDA 优先使用 vLLM。Paddle 在独立环境中运行。训练与推理的小节裁图留白共用 `shared/crops.py`。
 
 网页编辑从 `pipeline/workspace.py` 的 `Workspace` 进入同一组阶段。它管理项目目录、当前阶段、待续跑任务和 revision。修改成功后先写出新的阶段结果，再原子替换 `session.json`；失败时仍指向上次保存的结果。哪些编辑会使后续结果失效，见[工作台说明](docs/webui.md#保存与重新处理)。
 
@@ -47,7 +47,7 @@ uv run --no-sync python -m unittest discover -s tests -v
 
 模型默认路径由 `shared/defaults.py` 相对安装目录解析；显式传入的路径优先。`scripts/launcher.py` 负责安装和环境复用判断，桌面启动器也使用它。`shared/model_files.py` 提供不加载模型的文件校验，安装、诊断和打包共用。
 
-取得当前任务权重和 GLM-OCR 基座后执行 `uv run --no-project --python 3.11 scripts/package_release.py`，生成启动 ZIP 和校验文件。发布前从解压后的包验证启动、项目恢复和 GP5 导出。启动 ZIP 不包含测试和 CI 配置。桌面后端的文件范围由 `scripts/prepare_desktop.py` 的 `backend_files` 定义；移动模块后检查打包后的独立环境能导入工作台。模型文件由 `weights/manifest.json` 指定，打包前校验，生成的 `models.tar.xz` 随包提供；构建缓存保存在 `tools/model-bundles/`。
+取得当前任务权重后执行 `uv run --no-project --python 3.11 scripts/package_release.py`，生成轻量启动 ZIP 及 `output/releases/models/` 中的模型附件。发布前从解压后的包验证启动、项目恢复和 GP5 导出。启动 ZIP 不包含测试和 CI 配置。桌面后端的文件范围由 `scripts/prepare_desktop.py` 的 `backend_files` 定义；移动模块后检查打包后的独立环境能导入工作台。模型文件由 `weights/manifest.json` 指定，打包前校验；原始权重按分片独立发布，启动器首次使用时下载对应版本。`--bundle-models` 可生成包含模型的大型离线模型 ZIP（运行依赖仍需联网安装），此 ZIP 可能超过 GitHub 单附件大小上限。
 
 模型变更需更新 `weights/manifest.json`、模型说明、训练配置和评测结果。数据、模型缓存、用户项目及私人曲谱放在 Git 忽略的目录中。
 
@@ -62,10 +62,10 @@ uv run --no-sync python -m unittest discover -s tests -v
 ```bash
 npm ci --prefix desktop
 cargo fetch --locked --manifest-path desktop/src-tauri/Cargo.toml
-python scripts/prepare_desktop.py --fetch-models
+python scripts/prepare_desktop.py
 npm run build --prefix desktop -- -- --locked
 ```
 
-资源准备脚本记录当前提交，本机识别按该提交下载权重。产物位于 `desktop/src-tauri/target/release/bundle/`。
+资源准备脚本记录当前提交，本机识别按该版本下载 Release 的模型附件；缺失的小型配置按构建提交修复。产物位于 `desktop/src-tauri/target/release/bundle/`。
 
-也可手动运行 **Build desktop installers** 工作流，生成 Windows、两种 macOS 和 Linux 安装包；产物位于该次运行的 Artifacts。发布时将安装包与启动 ZIP 放入同一个 Release，附上 SHA-256 校验文件。
+也可手动运行 **Build desktop installers** 工作流，生成 Windows、两种 macOS 和 Linux 安装包；产物位于该次运行的 Artifacts。发布时将安装包、启动 ZIP 与模型附件放入同一个 Release；全部构建成功后公开发布。

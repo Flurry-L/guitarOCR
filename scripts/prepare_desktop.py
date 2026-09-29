@@ -1,4 +1,4 @@
-"""Prepare Tauri resources, including all inference models."""
+"""Prepare lightweight Tauri resources; local recognition downloads its models."""
 import argparse
 from hashlib import sha256
 import io
@@ -8,14 +8,13 @@ import platform
 import os
 import tomllib
 import shutil
-import subprocess
 import sys
 import urllib.request
 from zipfile import ZipFile
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from scripts.model_bundle import build_bundle  # noqa: E402
+from scripts.model_bundle import model_files, release_metadata, release_model_assets  # noqa: E402
 
 DEST = ROOT / 'desktop/src-tauri/resources'
 UV_VERSION = '0.12.17'
@@ -33,13 +32,16 @@ def backend_files(root):
     paths.extend(root / p for p in ('pyproject.toml', 'uv.lock', 'README.md', 'THIRD_PARTY_NOTICES.md',
                                    'weights/manifest.json', 'webapp/static/vendor/README.md', 'scripts/launcher.py', 'scripts/downloads.py',
                                    'scripts/desktop_runtime.py', 'scripts/bootstrap-uv.toml',
-                                   'scripts/model_bundle.py', 'scripts/progress.py'))
+                                   'scripts/model_bundle.py', 'scripts/progress.py', 'scripts/setup_acceleration.py'))
     paths.extend(p for p in (root / 'weights').rglob('*.json') if p.is_file() and not p.is_symlink())
+    manifest = json.loads((root / 'weights/manifest.json').read_text(encoding='utf-8'))
+    assets = release_model_assets(manifest)
+    paths.extend(root / name for name in model_files(manifest) if name not in assets)
     paths.extend(p for p in (root / 'weights/licenses').rglob('*') if p.is_file())
     return sorted(set(paths))
 
 
-def prepare(fetch_models=False):
+def prepare():
     if DEST.exists():
         shutil.rmtree(DEST)
     # Cargo dependencies are fetched by the build workflow before this step.
@@ -72,14 +74,7 @@ def prepare(fetch_models=False):
         dest = backend / p.relative_to(ROOT)
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(p, dest)
-    commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
-    (backend / 'release.json').write_text(json.dumps({'repository': 'Flurry-L/guitarOCR', 'commit': commit,
-                                                   'bundled_models': True}), encoding='utf-8')
-    bundle = build_bundle(ROOT, DEST / 'models/models.tar.xz', fetch_models=fetch_models)
-    # Both NSIS and GitHub release assets have a 2 GiB limit. Leave room for
-    # the workbench and uv; fail here instead of publishing an incomplete app.
-    if bundle.stat().st_size > 2000 * 1024**2:
-        raise ValueError('Compressed models exceed the installer size budget')
+    (backend / 'release.json').write_text(json.dumps(release_metadata(ROOT)), encoding='utf-8')
     machine = platform.machine().lower()
     tag = {('Windows', 'amd64'): 'win_amd64', ('Windows', 'x86_64'): 'win_amd64',
            ('Darwin', 'arm64'): 'macosx_11_0_arm64', ('Darwin', 'x86_64'): 'macosx_10_12_x86_64',
@@ -102,10 +97,10 @@ def prepare(fetch_models=False):
             if '/licenses/' in name and not name.endswith('/'):
                 (uv_dir / Path(name).name).write_bytes(archive.read(name))
     (uv_dir / 'source.json').write_text(json.dumps({'version': UV_VERSION, 'url': item['url'], 'sha256': item['digests']['sha256']}, indent=2), encoding='utf-8')
-    print(f'Prepared {platform.system()} {machine}; uv and all inference models included.')
+    print(f'Prepared {platform.system()} {machine}; uv and workbench included, models downloaded on demand.')
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--fetch-models', action='store_true', help='Download the pinned base model before packaging')
-    prepare(parser.parse_args().fetch_models)
+    parser.parse_args()
+    prepare()

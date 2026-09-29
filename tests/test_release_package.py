@@ -2,6 +2,7 @@ from hashlib import sha256
 import json
 from pathlib import Path
 import tempfile
+import subprocess
 import unittest
 from unittest.mock import patch
 from zipfile import ZipFile
@@ -11,6 +12,12 @@ from scripts.model_bundle import restore_bundle
 
 
 class ReleasePackageTest(unittest.TestCase):
+    def init_source(self, root):
+        subprocess.run(['git', 'init', '-q', str(root)], check=True)
+        subprocess.run(['git', 'add', '.'], cwd=root, check=True)
+        subprocess.run(['git', '-c', 'user.name=Package Fixture', '-c', 'user.email=fixture@localhost',
+                        'commit', '-qm', 'Package fixture'], cwd=root, check=True)
+
     def test_release_keeps_notices_and_excludes_local_credentials(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -34,6 +41,7 @@ class ReleasePackageTest(unittest.TestCase):
                 path = root / name
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(contents, encoding="utf-8")
+            self.init_source(root)
             with patch.object(package_release, "ROOT", root):
                 destination = package_release.build(root / "output")
             with ZipFile(destination) as archive:
@@ -43,19 +51,11 @@ class ReleasePackageTest(unittest.TestCase):
                 expected = {
                     name for name, data in payloads.items() if data != "PRIVATE"
                 }
-                self.assertEqual(names, expected | {"SHA256SUMS", "release.json", "models.tar.xz"})
+                self.assertEqual(names, expected | {"release.json"})
                 self.assertEqual(json.loads(archive.read("GuitarOCR-0.1.0/release.json"))["version"], "0.1.0")
                 self.assertEqual(
                     archive.read("GuitarOCR-0.1.0/start.bat"), b"@echo off\r\n"
                 )
-                for row in (
-                    archive.read("GuitarOCR-0.1.0/SHA256SUMS").decode().splitlines()
-                ):
-                    digest, name = row.split("  ", 1)
-                    self.assertEqual(
-                        sha256(archive.read(f"GuitarOCR-0.1.0/{name}")).hexdigest(),
-                        digest,
-                    )
 
     def test_release_includes_models_and_reuses_installed_version(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -74,8 +74,9 @@ class ReleasePackageTest(unittest.TestCase):
                 'name': base.name, 'bytes': base.stat().st_size, 'sha256': sha256(base.read_bytes()).hexdigest(),
             }]}}
             (root / "weights/manifest.json").write_text(json.dumps(manifest))
+            self.init_source(root)
             with patch.object(package_release, "ROOT", root):
-                destination = package_release.build(root / "output")
+                destination = package_release.build(root / "output", bundle_models=True)
                 with ZipFile(destination) as archive:
                     bundled = root / 'bundle.tar.xz'
                     bundled.write_bytes(archive.read('GuitarOCR-0.1.0/models.tar.xz'))

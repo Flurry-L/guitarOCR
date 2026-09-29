@@ -24,3 +24,9 @@ Git 用户通过 `git lfs pull` 获取完整任务权重，默认推理无需另
 | 小节 | [training.json](measure_ocr/training.json) | [evaluation.json](measure_ocr/evaluation.json) |
 
 实际准确率和计时条件见[模型评测](../docs/model-evaluation.md)，训练入口见[训练说明](../docs/training.md)，输出格式见[小节文本格式](../docs/score-text.md)，模型授权见[第三方说明](../THIRD_PARTY_NOTICES.md)。
+
+## 可选 GGUF
+
+0.1 Release 另提供两套 GGUF 模型包：语言模型 Q8_0 ＋配套 F16 视觉编码器，单任务约 1.9 GB。它们由本目录的完整训练权重转换，保留扩展音乐词表。`scripts/export_gguf.py` 可重新导出。
+
+设置 `GUITAROCR_BACKEND=llamacpp` 后，两项 OCR 使用各自的本机 llama-server；原始后端保持默认。完整流程已在 Linux CUDA 运行，Metal / Vulkan 与手机真机未验证。当前 llama.cpp 保留但不执行本模型的 MTP 层。转换对照与启动命令见[GGUF 可选后端](../docs/setup.md#gguf-可选后端)。

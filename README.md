@@ -4,11 +4,11 @@
 
 工作台提供一键识别、项目库、任务中心和明暗主题；桌面端、本地网页与多人服务使用同一套乐谱编辑器。
 
-![多轨乐谱工作台：音轨导航、谱面编辑与原谱对照](docs/assets/workbench.webp)
+![多轨乐谱工作台：音轨导航、谱面编辑与原谱对照](docs/assets/score-editor-0.1.webp)
 
-吉他和贝斯支持 TAB、五线谱和五线谱＋TAB，自动判断谱面类型；鼓、钢琴及其他旋律乐器使用五线谱。总谱按乐器、谱表和共同小节时间轴组织，支持钢琴双谱表和混合记谱。识别结果保存为独立的结构化乐谱，可导出 GP5 或 MusicXML；GP5 对超出单轨弦数和声部限制的内容拆轨保存。具体效果见[模型评测](docs/model-evaluation.md)。
+吉他和贝斯支持 TAB、五线谱和五线谱＋TAB，自动判断谱面类型；鼓、钢琴及其他旋律乐器使用五线谱。总谱按乐器、谱表和共同小节时间轴组织，支持钢琴双谱表和混合记谱。识别结果保存为独立的结构化乐谱，可导出 GP5 或 MusicXML；GP5 对超出单轨弦数和声部限制的内容拆轨保存。具体效果见[模型评测](docs/model-evaluation.md)。模型采用通用 safetensors 格式，并非 TensorRT 专用；另提供 [GGUF 可选模型](docs/setup.md#gguf-可选后端)。各平台的本地与远程支持见[平台支持](docs/setup.md#平台支持)。
 
-当前源码默认模型使用等比例乐谱图像、音乐词表和 MTP 4，并行识别小节。评测分别列出音符节奏、指法、奏法和完整 PDF 的效果；下方既有安装包不代表本次源码模型更新。
+当前源码默认模型使用等比例乐谱图像、音乐词表和 MTP 4，并行识别小节。评测分别列出音符节奏、指法、奏法和完整 PDF 的效果。0.1 发布版采用当前工作台和模型。
 
 ## 下载与启动
 
@@ -18,19 +18,19 @@
 
 | 系统 | 安装包 |
 | --- | --- |
-| Windows x64 | [安装程序](https://github.com/Flurry-L/guitarOCR/releases/download/v0.2.2/GuitarOCR_0.2.2_x64-setup.exe) |
-| macOS Apple Silicon | [DMG](https://github.com/Flurry-L/guitarOCR/releases/download/v0.2.2/GuitarOCR_0.2.2_aarch64.dmg) |
-| macOS Intel | [DMG](https://github.com/Flurry-L/guitarOCR/releases/download/v0.2.2/GuitarOCR_0.2.2_x64.dmg) |
-| Linux x64 | [DEB](https://github.com/Flurry-L/guitarOCR/releases/download/v0.2.2/GuitarOCR_0.2.2_amd64.deb) · [AppImage](https://github.com/Flurry-L/guitarOCR/releases/download/v0.2.2/GuitarOCR_0.2.2_amd64.AppImage) |
+| Windows x64 | [安装程序](https://github.com/Flurry-L/guitarOCR/releases/download/v0.1.0/GuitarOCR_0.1.0_x64-setup.exe) |
+| macOS Apple Silicon | [DMG](https://github.com/Flurry-L/guitarOCR/releases/download/v0.1.0/GuitarOCR_0.1.0_aarch64.dmg) |
+| macOS Intel | [DMG](https://github.com/Flurry-L/guitarOCR/releases/download/v0.1.0/GuitarOCR_0.1.0_x64.dmg) |
+| Linux x64 | [DEB](https://github.com/Flurry-L/guitarOCR/releases/download/v0.1.0/GuitarOCR_0.1.0_amd64.deb) · [AppImage](https://github.com/Flurry-L/guitarOCR/releases/download/v0.1.0/GuitarOCR_0.1.0_amd64.AppImage) |
 
 安装包尚未签名或公证。本机 GPU 识别支持 Windows / Linux x64；macOS 可连接服务器，或在本机校对和导出。使用方式见[安装说明](docs/setup.md)。
 
-也可下载包含完整模型的 [GuitarOCR-0.2.2.zip](https://github.com/Flurry-L/guitarOCR/releases/download/v0.2.2/GuitarOCR-0.2.2.zip)，完整解压到可写文件夹，无需 Git：
+也可下载 [GuitarOCR-0.1.0.zip](https://github.com/Flurry-L/guitarOCR/releases/download/v0.1.0/GuitarOCR-0.1.0.zip)，完整解压到可写文件夹，无需 Git：
 
 - Windows 双击 `start.bat`。
 - Linux x64 在项目目录运行 `bash start.sh`。
 
-桌面安装包和启动 ZIP 均包含 GLM-OCR 基座、两套 OCR 适配器和版面模型，约 2 GB。首次本机识别会联网安装 Python 和运行依赖，仍需下载数 GB，建议预留 25 GB 磁盘。安装后打开 http://127.0.0.1:7860，使用期间保留启动窗口。中断后重跑同一脚本即可。
+桌面安装包和启动 ZIP 为轻量启动包。首次本机识别自动下载约 5.7 GB 的当前模型，以及 Python 和运行依赖；下载可续传，建议预留 50 GB 磁盘。连接服务或仅校对无需下载模型。安装后打开 http://127.0.0.1:7860，使用期间保留启动窗口。中断后重跑同一脚本即可。
 
 Python、Python 包和 PyTorch 默认使用国内源，失败时尝试官方源。ZIP 下载仍需访问 GitHub，uv 和 Windows C++ 运行库从官方站点下载。安装失败见[故障排查](docs/setup.md#故障排查)。
 
@@ -60,7 +60,7 @@ cd guitarOCR
 git lfs pull
 ```
 
-GitHub 自动生成的 Source code ZIP 可能只含权重指针，直接使用请下载上面的启动 ZIP。
+GitHub 自动生成的 Source code ZIP 可能只含权重指针，直接使用请下载上面的启动 ZIP；启动器自动获取该版本的完整权重。
 
 仓库按产品职责组织，共用推理和乐谱表示，不在各界面重复实现音乐规则：
 

@@ -17,6 +17,16 @@ def create_backend(model_path, adapter_path, device):
     config = Path(adapter_path) / 'inference.json' if adapter_path else Path(model_path) / 'inference.json'
     settings = json.loads(config.read_text()) if config.exists() else {}
     merged = config.parent / settings['model'] if settings.get('model') else None
+    if os.environ.get('GUITAROCR_BACKEND') == 'llamacpp':
+        from shared.llamacpp_backend import LlamaCppBackend
+
+        resolved = merged if merged and merged.is_dir() else Path(model_path)
+        task = 'MEASURE' if (resolved / 'music_vocabulary.json').is_file() else 'INFO'
+        variable = f'GUITAROCR_LLAMA_{task}_URL'
+        endpoint = os.environ.get(variable)
+        if not endpoint:
+            raise ValueError(f'Set {variable} to the corresponding local llama-server URL')
+        return LlamaCppBackend(resolved, endpoint)
     if device.startswith('cuda') and merged and merged.is_dir() and os.environ.get('GUITAROCR_BACKEND', 'auto') != 'transformers':
         from shared.vllm_backend import VllmBackend, engine_python
 

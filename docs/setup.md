@@ -9,8 +9,10 @@ Windows 运行安装程序，macOS 打开 DMG 后将应用拖入 Applications，
 启动后选择：
 
 - **连接 GPU 服务**：填写已部署服务的 HTTPS 地址，登录后提交识别。关闭窗口后服务器仍继续处理。
-- **使用本机 GPU**：支持 Windows / Linux x64，模型已随安装包提供，首次联网安装 Python 和运行依赖。
+- **使用本机 GPU**：支持 Windows / Linux x64，首次下载约 5.7 GB 模型并安装 Python 和运行依赖，之后复用本地文件。
 - **仅校对与导出**：下载 Python 和基础依赖，恢复项目备份后编辑和导出 GP5。macOS 也可使用。
+
+![0.1 桌面启动器：连接服务、本机识别或仅校对](assets/desktop-0.1.webp)
 
 安装包尚未签名或公证，系统可能提示未知发布者。Windows 缺少 WebView2 时，安装程序会从 Microsoft 下载；本机 GPU 环境还需 [Microsoft Visual C++ x64 运行库](https://aka.ms/vs/17/release/vc_redist.x64.exe)。
 
@@ -39,6 +41,54 @@ sudo apt-get install -y curl ca-certificates libgl1 libglib2.0-0
 
 环境保存在 `tools/webui-venv/`、`tools/webui-paddle-venv/` 和 Linux CUDA 使用的 `tools/vllm-venv/`，项目在 `output/webui/`，日志在 `output/logs/`。
 
+## 平台支持
+
+权重格式是 Hugging Face safetensors。NVIDIA 本机推理使用 vLLM（Linux）或 Transformers；版面检测使用 Paddle。没有依赖某一块 H100 的 TensorRT engine。安装器目前使用 CUDA 13，需 NVIDIA 580 或更新驱动。
+
+| 设备 | 0.1 安装包可用功能 | 本机识别 |
+| --- | --- | --- |
+| Windows / Linux x64 + NVIDIA | 完整工作台 | 支持；性能评测在 Linux H100 上完成 |
+| Windows / Linux x64 CPU | 完整工作台 | 启动 ZIP 支持 CPU，较慢 |
+| macOS Apple Silicon / Intel | 连接 GPU 服务、校对、导出 | DMG 不包含 Mac 本机识别后端 |
+| AMD / Intel GPU | 连接 GPU 服务、校对、导出 | 当前安装器不安装 ROCm / Vulkan 推理环境 |
+| Android / iPhone / iPad | 浏览器连接 GPU 服务 | 没有本地推理 APK / IPA |
+
+跨平台转换需要同时适配 OCR 的视觉编码器、音乐词表、图像预处理、版面检测和拍号／调号分类器。只转换语言模型不能完成整份谱面的识别。Apple Silicon 可考虑 MLX / Metal；其他 GPU 和移动设备可考虑 llama.cpp 的 Vulkan / Metal 后端。0.1 另提供经过 Linux CUDA 验证的 GGUF 可选后端；Metal / Vulkan 和手机真机尚未验证，详情见下节。
+
+## GGUF 可选后端
+
+Release 中的 `GuitarOCR-0.1-measure_ocr-GGUF.zip` 与 `GuitarOCR-0.1-document_info-GGUF.zip` 是两项 OCR 的可选模型包，每包约 1.9 GB。语言部分使用 Q8_0，视觉编码器保留 F16，音乐词表和图像缩放策略随包提供。两个任务的视觉编码器不同，必须各自加载配套文件。它们不是 APK / IPA，也不包含版面检测、拍号／调号分类器或推理程序。
+
+使用已验证的 [llama.cpp 提交](https://github.com/ggml-org/llama.cpp/tree/8019dc563b1ecbae6b161a70c3a1359f1b206c1e) 构建 `llama-server`。其后端可选择 CUDA、Metal 或 Vulkan，构建方式见[上游说明](https://github.com/ggml-org/llama.cpp/blob/master/docs/build.md)。本项目已在 Linux CUDA 上完成双 OCR 后端、整份 PDF 和 GP5 导出的运行验证；没有把这个结果当作 Mac 或手机真机验证。Mac DMG 仍提供远程识别及本机编辑。
+
+解压两个 GGUF ZIP 后，分别在两个终端启动（Windows 程序名为 `llama-server.exe`）：
+
+```bash
+llama-server -m measure_ocr/model-Q8_0.gguf --mmproj measure_ocr/vision-F16.gguf --host 127.0.0.1 --port 8081 -ngl 99 -c 16384 --parallel 1 --jinja
+llama-server -m document_info/model-Q8_0.gguf --mmproj document_info/vision-F16.gguf --host 127.0.0.1 --port 8082 -ngl 99 -c 8192 --parallel 1 --jinja
+```
+
+在已经安装完整 CPU 推理环境的项目目录中，指定这两个服务并启动工作台。以下命令适用于 Linux shell；Windows 在 PowerShell 中用 `$env:变量名="值"` 设置同名变量。
+
+```bash
+export GUITAROCR_BACKEND=llamacpp
+export GUITAROCR_LLAMA_MEASURE_URL=http://127.0.0.1:8081
+export GUITAROCR_LLAMA_INFO_URL=http://127.0.0.1:8082
+tools/webui-venv/bin/python -m webapp.app --device cpu --layout-python tools/webui-paddle-venv/bin/python
+```
+
+这里 `--device cpu` 控制版面检测和拍号／调号分类器；两个 OCR 的设备由各自的 llama-server 决定。接入层保留等比例图像预处理、相邻小节图片和音乐词表，不加载两套原始 OCR 权重。已有安装中的原始权重仍保留。
+
+同一批随机抽取的 256 个测试集小节对照：原 vLLM 后端的音符＋起点＋时值 F1 为 98.48%，GGUF 为 97.34%；两者文本语法合法率均为 100%。这是转换回归抽查，不能替代[完整模型评测](model-evaluation.md)。原生 MTP 参数保留在 GGUF 中，但当前 llama.cpp GLM-OCR 运行时不使用它们；默认后端继续使用 vLLM 的 MTP 加速，GGUF 为手动选择项。
+
+重新转换仓库中的当前模型：
+
+```bash
+uv run --no-sync python scripts/export_gguf.py --llama-cpp /path/to/llama.cpp --output output/gguf
+```
+
+该脚本需要安装 llama.cpp 转换器要求的 Python 包，且检查上面固定的运行时提交。手机本地版还需要将版面检测、分类器、页面处理及模型内存调度一起移植，并在 Android / iOS 设备上验证；当前可直接使用浏览器连接 GPU 服务。
+
 ## 硬件要求
 
 推荐自行部署 NVIDIA GPU，或连接已部署的 GPU 服务。远程用户的设备只需能打开网页和上传文件。
@@ -54,18 +104,19 @@ sudo apt-get install -y curl ca-certificates libgl1 libglib2.0-0
 
 ## 下载源与模型路径
 
-下载失败时自动尝试备用源，模型下载支持续传和 SHA-256 校验。
+Python 和依赖下载失败时尝试备用源；发布模型从 GitHub Release 下载，支持续传并校验清单中的文件大小。
 
 | 内容 | 默认来源 | 备用来源 |
 | --- | --- | --- |
 | Python 3.11 | 南京大学镜像 | Astral GitHub Release |
 | Python 包和 Paddle | 清华 PyPI 镜像 | PyPI |
 | PyTorch | 上海交大镜像 | PyTorch 官方索引 |
-| GLM-OCR 基座 | 魔搭 | Hugging Face |
+| 当前推理模型 | GitHub Release（自动下载）或 Git LFS | 无需原始基座 |
+| 训练用 GLM-OCR 基座 | 魔搭 | Hugging Face |
 
 已有 uv 配置优先用于普通依赖；`UV_PYTHON_INSTALL_MIRROR` 可指定 Python 来源，`HF_ENDPOINT` 可指定模型来源。ZIP、uv 和 Windows C++ 运行库仍需访问各自的官方站点。
 
-桌面安装包和启动 ZIP 已包含对应发布版本的模型。首次本机识别会展开包内模型并记录版本，之后直接复用本地文件。桌面窗口显示当前安装步骤、正在下载的组件和包内模型的展开进度。Python 与运行依赖仍需联网安装。当前源码通过 Git LFS 获取完整任务模型，默认推理无需原始基座；版本和文件大小见 `weights/manifest.json`。
+桌面安装包和启动 ZIP 的模型版本固定在发布清单中。首次本机识别从同一 Release 下载原始 safetensors 分片和版面模型，支持断点续传；后续直接复用。桌面窗口显示下载和安装进度。连接服务器或仅校对不会下载模型。Python 与运行依赖仍需联网安装。当前源码通过 Git LFS 获取完整任务模型，默认推理无需原始基座；版本和文件大小见 `weights/manifest.json`。
 
 默认模型路径相对安装目录解析，可用 `--model`、`--adapter`、`--info-adapter`、`--layout-model-dir` 覆盖。多人服务将模型位置写入配置文件。
 
@@ -75,7 +126,7 @@ sudo apt-get install -y curl ca-certificates libgl1 libglib2.0-0
 
 ```bash
 uv sync --locked --python 3.11 --extra webui
-uv run --no-sync guitarocr-web --device cpu
+uv run --no-sync guitarocr-web --edit-only --device cpu
 ```
 
 基础安装不拉取 Torch。这个环境可以导入、画框、校对和导出；自动识别还需要下面的模型环境。

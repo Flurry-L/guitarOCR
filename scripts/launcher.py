@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from shared.defaults import environment_python  # noqa: E402
 from shared.model_files import verify_files  # noqa: E402
-from scripts.downloads import acquire_base_model  # noqa: E402
+from scripts.downloads import acquire_base_model, download_verified  # noqa: E402
 from scripts.model_bundle import restore_bundle  # noqa: E402
 from scripts.progress import progress  # noqa: E402
 
@@ -168,10 +168,10 @@ def acquire_weights(manifest):
         if verify_files(ROOT / entry["path"], [item])
     ]
     if not missing:
-        print("随项目发布的 LoRA 和版面权重校验通过。", flush=True)
+        print("OCR 和版面模型已就绪。", flush=True)
         return
-    # Release ZIPs normally include all files; their pinned provenance also
-    # allows repair without requiring Git on the user's machine.
+    # Release packages pin their weight assets and source revision, so installs
+    # and repairs do not require Git on the user's machine.
     release_path = ROOT / "release.json"
     if release_path.is_file():
         release = json.loads(release_path.read_text(encoding="utf-8"))
@@ -179,10 +179,30 @@ def acquire_weights(manifest):
         commit = release.get("commit") or ""
         if not re.fullmatch(r"[\w.-]+/[\w.-]+", repository) or not re.fullmatch(r"[0-9a-f]{40}", commit):
             raise ValueError("安装包信息不完整，请重新下载 Release 中的 GuitarOCR ZIP 并完整解压。")
+        tag = release.get('model_release', '')
+        assets = release.get('model_assets', {})
+        if tag and not re.fullmatch(r'v[0-9]+\.[0-9]+\.[0-9]+', tag):
+            raise ValueError('安装包的模型版本无效，请重新下载安装包。')
+        total = sum(item['bytes'] for _, item in missing)
+        completed = 0
         for entry, item in missing:
             path = Path(entry["path"]) / item["name"]
+            asset = assets.get(path.as_posix())
+            progress('models', '正在下载识别模型', completed=completed, total=total, detail=path.as_posix())
+            if tag and asset:
+                if not re.fullmatch(r'[\w.\-]+', asset):
+                    raise ValueError('安装包的模型文件名无效。')
+                url = f'https://github.com/{repository}/releases/download/{tag}/{asset}'
+                download_verified(url, ROOT / path, item,
+                                  on_progress=lambda received, size: progress(
+                                      'models', '正在下载识别模型', completed=completed + received,
+                                      total=total, detail=path.as_posix()))
+                completed += item['bytes']
+                continue
             host = "media.githubusercontent.com/media" if path.suffix in {".safetensors", ".pdiparams"} else "raw.githubusercontent.com"
             download(f"https://{host}/{repository}/{commit}/{path.as_posix()}", ROOT / path, item)
+            completed += item['bytes']
+        progress('models', '识别模型已就绪', completed=total, total=total)
         return
     # Git checkouts fetch the revision they actually checked out.
     try:
@@ -338,7 +358,7 @@ def install(args, uv, tools):
         f"开始安装：{'NVIDIA GPU' if device == 'cuda' else 'CPU（识别较慢）'}。首次需要下载数 GB，请保持窗口开启。",
         flush=True,
     )
-    progress('models', '正在准备包内模型')
+    progress('models', '正在准备识别模型')
     bundle = Path(os.environ.get('GUITAROCR_BUNDLED_MODELS', ROOT / 'models.tar.xz'))
     release = ROOT / 'release.json'
     bundled = release.is_file() and json.loads(release.read_text(encoding='utf-8')).get('bundled_models')

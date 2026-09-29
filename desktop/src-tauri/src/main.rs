@@ -328,10 +328,6 @@ fn start(app: &tauri::AppHandle, mode: &str) -> Result<Url, String> {
     .current_dir(&backend)
     .env("GUITAROCR_UV", &uv)
     .env("GUITAROCR_DESKTOP", "1")
-    .env(
-        "GUITAROCR_BUNDLED_MODELS",
-        resource.join("models/models.tar.xz"),
-    )
     .env("HF_HUB_OFFLINE", "1")
     .env("TRANSFORMERS_OFFLINE", "1")
     .env("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "1")

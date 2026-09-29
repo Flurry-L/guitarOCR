@@ -7,7 +7,7 @@ export class InstallationProgress {
   }
   begin(mode) {
     this.steps = mode === 'gpu'
-      ? [['python', 'Python'], ['models', '包内模型'], ['ocr', '识别依赖'], ['layout', '版面依赖'], ['check', '启动检查']]
+      ? [['python', 'Python'], ['models', '识别模型'], ['ocr', '识别依赖'], ['layout', '版面依赖'], ['check', '启动检查']]
       : [['python', 'Python'], ['editor', '校对依赖'], ['check', '启动检查']];
     this.get('installProgress').hidden = false;
     this.get('installStages').replaceChildren(...this.steps.map(([, label]) => {

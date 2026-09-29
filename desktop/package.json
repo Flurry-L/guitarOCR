@@ -1,7 +1,7 @@
 {
   "name": "guitarocr-desktop",
   "private": true,
-  "version": "0.2.2",
+  "version": "0.1.0",
   "scripts": { "dev": "tauri dev", "build": "tauri build", "resources": "python3 ../scripts/prepare_desktop.py" },
   "devDependencies": { "@tauri-apps/cli": "2.12.0" }
 }
