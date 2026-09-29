@@ -1,5 +1,6 @@
 import { api, auth, setAuth, element as el } from "./http.js";
 const $ = (id) => document.getElementById(id);
+let cachedProjects = [];
 let config,
   registering = false,
   view = "projects",
@@ -61,7 +62,8 @@ function minutes(seconds) {
 function uploadState() {
   if (!config) return;
   $("uploadButton").textContent = signedIn() ? "上传并识别" : "登录后识别";
-  $("uploadButton").disabled = !config.gpu_available;
+  $("uploadButton").disabled =
+    !config.gpu_available || !$("files").files.length;
 }
 function openAuth(reason) {
   $("authReason").textContent =
@@ -82,8 +84,29 @@ function renderIdentity() {
     : "登录后可将已有记录保存到账号，并使用服务器 GPU 继续识别。";
   uploadState();
 }
-function renderProjects(projects) {
-  $("empty").hidden = projects.length > 0;
+function renderProjects(projects, target = "projects") {
+  if (target === "projects") {
+    cachedProjects = projects;
+    renderProjects(
+      projects.filter((p) => p.job),
+      "taskProjects",
+    );
+    $("empty").hidden = projects.length > 0;
+    const query = $("projectSearch").value.trim().toLocaleLowerCase(),
+      filter = $("projectFilter").value;
+    projects = projects.filter(
+      (p) =>
+        (p.title || "").toLocaleLowerCase().includes(query) &&
+        (filter === "all" ||
+          {
+            active: ["queued", "running"].includes(p.job?.status),
+            review: p.stage === "待校对",
+            exported: p.stage === "已导出",
+            failed: ["failed", "cancelled"].includes(p.job?.status),
+          }[filter]),
+    );
+    $("noMatches").hidden = !!projects.length || !cachedProjects.length;
+  } else $("noTasks").hidden = !!projects.length;
   const nodes = [];
   for (const project of projects) {
     const row = el("article", undefined, "project"),
@@ -101,12 +124,7 @@ function renderProjects(projects) {
           : job.message;
     if (job?.status === "failed") status = job.error;
     if (job?.status === "cancelled") status = "已取消，可继续处理";
-    info.append(
-      el(
-        "p",
-        `${project.pages} 页，${status}`,
-      ),
-    );
+    info.append(el("p", `${project.pages} 页，${status}`));
     if (job?.status === "failed") info.append(el("p", `任务编号 ${job.id}`));
     if (busy && job.total) {
       const p = el("progress");
@@ -136,18 +154,19 @@ function renderProjects(projects) {
             await refresh();
           }),
         );
-      if (signedIn()) actions.append(
-        button("删除", async () => {
-          if (!confirm(`删除「${project.title}」及其结果？`)) return;
-          await api(`/api/sessions/${project.id}`, "DELETE");
-          await refresh();
-        }),
-      );
+      if (signedIn())
+        actions.append(
+          button("删除", async () => {
+            if (!confirm(`删除「${project.title}」及其结果？`)) return;
+            await api(`/api/sessions/${project.id}`, "DELETE");
+            await refresh();
+          }),
+        );
     }
     row.append(info, actions);
     nodes.push(row);
   }
-  $("projects").replaceChildren(...nodes);
+  $(target).replaceChildren(...nodes);
 }
 async function renderUsage() {
   const usage = await api("/api/usage");
@@ -234,10 +253,7 @@ async function renderAdmin() {
     ...status.jobs.map((job) => {
       const row = el("div", undefined, "project");
       row.append(
-        el(
-          "span",
-          `${job.username}，${job.message}`,
-        ),
+        el("span", `${job.username}，${job.message}`),
         button("取消任务", async () => {
           await api(`/api/admin/jobs/${job.id}/cancel`, "POST");
           await renderAdmin();
@@ -253,7 +269,8 @@ async function refresh() {
   if (!auth || refreshing) return;
   refreshing = true;
   try {
-    if (view === "projects") renderProjects(await api("/api/sessions"));
+    if (["projects", "tasks"].includes(view))
+      renderProjects(await api("/api/sessions"));
     else if (view === "account") await renderUsage();
     else if (auth.user.admin) await renderAdmin();
   } finally {
@@ -303,6 +320,15 @@ $("logout").onclick = action(async () => {
   localStorage.removeItem("guitarocr-session");
   location.reload();
 });
+$("projectSearch").oninput = () => renderProjects(cachedProjects);
+$("projectFilter").onchange = () => renderProjects(cachedProjects);
+$("files").onchange = () => {
+  const files = [...$("files").files];
+  $("selectedFiles").textContent = files.length
+    ? `${files.length} 个文件 · ${(files.reduce((sum, file) => sum + file.size, 0) / 1024 ** 2).toFixed(1)} MB · ${files.map((f) => f.name).join("、")}`
+    : "多文件按选择顺序合并为一份项目。";
+  uploadState();
+};
 $("uploadForm").onsubmit = action(async () => {
   if (!signedIn()) {
     openAuth("登录后可使用服务器 GPU；已选择的文件会保留。");
@@ -312,10 +338,23 @@ $("uploadForm").onsubmit = action(async () => {
   try {
     const form = new FormData();
     for (const file of $("files").files) form.append("files", file);
+    const selected = [...$("files").files];
+    if (!selected.length) throw new Error("请先选择乐谱文件。");
+    if (
+      selected.some((file) => !/\.(pdf|png|jpe?g|bmp|tiff?)$/i.test(file.name))
+    )
+      throw new Error("请选择 PDF 或支持的乐谱图片。");
+    if (
+      selected.reduce((sum, file) => sum + file.size, 0) >
+      config.max_upload_mb * 1024 ** 2
+    )
+      throw new Error(`总上传大小不能超过 ${config.max_upload_mb} MB。`);
     form.append("action", "full");
+    form.append("mode", $("recognitionMode").value);
     notice("正在上传…");
     await api("/api/sessions", "POST", form);
     $("files").value = "";
+    $("files").onchange();
     notice("");
     await refresh();
   } finally {

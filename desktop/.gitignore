@@ -2,3 +2,7 @@ node_modules/
 src-tauri/target/
 src-tauri/gen/
 src-tauri/resources/
+
+# Generated from webapp/static by sync-assets.mjs
+ui/theme.css
+ui/theme.js

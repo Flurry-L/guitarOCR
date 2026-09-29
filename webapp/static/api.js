@@ -9,7 +9,7 @@ function requestError(detail) {
     tempo_quarter: "速度须为 20 至 400 的整数。",
     capo: "变调夹须为 0 至 24 的整数。",
     transpose: "记谱移调须为 -36 至 36 的整数，留空则自动读取。",
-    tuning_used: "请填写 1 至 7 个弦的 MIDI 音高（0 至 127），用逗号分隔。",
+    tuning_used: "请填写 1 至 12 个弦的 MIDI 音高（0 至 127），用逗号分隔。",
     boxes: "区域格式有误，请检查页码和位置。",
     mode: "请选择谱面类型。",
     measures: "请选择要识别的小节。",

@@ -4,7 +4,9 @@
   "version": "0.2.2",
   "identifier": "io.github.flurry-l.guitarocr",
   "build": {
-    "frontendDist": "../ui"
+    "frontendDist": "../ui",
+    "beforeDevCommand": "node sync-assets.mjs",
+    "beforeBuildCommand": "node sync-assets.mjs"
   },
   "app": {
     "withGlobalTauri": true,

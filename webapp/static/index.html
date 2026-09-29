@@ -3,311 +3,1011 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>GuitarOCR 乐谱转 Guitar Pro</title>
+    <title>GuitarOCR · 乐谱工作台</title>
+    <script type="module" src="/static/theme.js"></script>
     <link rel="stylesheet" href="/static/style.css" />
   </head>
   <body>
-    <header>
+    <aside class="app-sidebar" aria-label="主导航">
       <a class="brand" href="/">Guitar<span>OCR</span></a>
-      <button id="newProject" class="quiet" hidden>导入新乐谱</button>
+      <div class="brand-caption">乐谱工作台</div>
+      <nav class="app-nav">
+        <button data-screen-link="workbench" class="active" title="工作台">
+          <span class="nav-symbol" aria-hidden="true">⊞</span
+          ><span class="nav-label">工作台</span>
+        </button>
+        <button data-screen-link="library" title="项目库">
+          <span class="nav-symbol" aria-hidden="true">▤</span
+          ><span class="nav-label">项目库</span>
+        </button>
+        <button data-screen-link="tasks" title="任务中心">
+          <span class="nav-symbol" aria-hidden="true">◷</span
+          ><span class="nav-label">任务中心</span>
+        </button>
+        <button data-screen-link="settings" title="设置">
+          <span class="nav-symbol" aria-hidden="true">⚙</span
+          ><span class="nav-label">设置</span>
+        </button>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="environment-badge">
+          <span class="status-dot"></span
+          ><span id="environmentLabel">连接工作台…</span>
+        </div>
+        <label
+          >外观<select data-theme-picker aria-label="外观主题">
+            <option value="system">跟随系统</option>
+            <option value="light">浅色</option>
+            <option value="dark">深色</option>
+          </select></label
+        >
+      </div>
+    </aside>
+    <header class="app-header">
+      <div>
+        <h1 id="screenTitle">工作台</h1>
+        <p id="headerSubtitle">从纸上乐谱，到可编辑的音乐</p>
+      </div>
+      <button id="keyboardHelp" class="quiet" aria-label="键盘快捷键">
+        快捷键</button
+      ><button id="newProject">＋ 新建项目</button>
     </header>
     <main>
-      <div id="intro" class="intro">
-        <h1>乐谱转 Guitar Pro</h1>
-        <p>导入 PDF 或图片，校对识别结果，导出 GP5。</p>
-      </div>
-      <nav id="steps" aria-label="处理步骤">
-        <button data-step="0" class="active">01 <span>导入乐谱</span></button
-        ><button data-step="1">02 <span>调整区域</span></button
-        ><button data-step="2">03 <span>谱面信息</span></button
-        ><button data-step="3">04 <span>校对乐谱</span></button
-        ><button data-step="4">05 <span>导出 GP5</span></button>
-      </nav>
-      <div id="currentDocument" class="document-summary" hidden>
-        <span
-          ><strong id="documentName"></strong><span id="documentPages"></span
-        ></span>
-      </div>
       <div id="notice" role="status" aria-live="polite" hidden></div>
-      <button id="cancelJob" class="quiet" hidden>停止识别</button>
-      <section data-panel="0" class="panel active">
-        <div class="section-head">
-          <div>
-            <h2>导入乐谱</h2>
-            <p>支持 PDF、PNG、JPG、BMP 和 TIFF。</p>
-          </div>
+      <div id="jobBanner" class="job-banner" hidden>
+        <span class="job-spinner" aria-hidden="true"></span>
+        <div class="job-detail">
+          <strong id="jobTitle"></strong>
+          <p id="jobMessage" role="status" aria-live="polite"></p>
+          <progress id="jobProgress" aria-label="识别进度"></progress>
         </div>
-        <label id="dropzone" class="dropzone"
-          ><span class="upload-icon">↑</span
-          ><strong>拖入乐谱，或点击选择文件</strong
-          ><span>多文件可在下方调整顺序</span
-          ><input
-            id="files"
-            type="file"
-            accept=".pdf,.png,.jpg,.jpeg,.bmp,.tif,.tiff"
-            multiple
-        /></label>
-        <div id="fileList"></div>
-        <p class="muted">支持 TAB、五线谱、五线谱＋TAB、钢琴双谱表和多轨总谱。</p>
-        <label class="project-import"
-          >恢复项目备份 <input id="importProject" type="file" accept=".zip"
-        /></label>
-        <div class="footer">
-          <span class="muted">每个项目最多 100 页、200 MB</span
-          ><button id="upload" class="primary" disabled>导入乐谱 →</button>
+        <button id="cancelJob" hidden>停止任务</button
+        ><button id="continueJob" hidden>继续识别</button>
+      </div>
+      <div data-screen="workbench">
+        <div id="intro" class="intro">
+          <span class="eyebrow">SCORE WORKSPACE</span>
+          <h1>让乐谱继续创作</h1>
+          <p>导入乐谱，识别并校对，带到你熟悉的音乐软件。</p>
         </div>
-        <div id="recentProjects" class="recent" hidden>
-          <h3>继续已有项目</h3>
-          <div id="projectList"></div>
+        <nav id="steps" aria-label="处理步骤">
+          <button data-step="0" class="active">01 <span>导入乐谱</span></button
+          ><button data-step="1">02 <span>调整区域</span></button
+          ><button data-step="2">03 <span>谱面信息</span></button
+          ><button data-step="3">04 <span>校对乐谱</span></button
+          ><button data-step="4">05 <span>导出乐谱</span></button>
+        </nav>
+        <div id="currentDocument" class="document-summary" hidden>
+          <span
+            ><strong id="documentName"></strong><span id="documentPages"></span
+          ></span>
         </div>
-      </section>
-      <section data-panel="1" class="panel">
-        <div class="section-head">
-          <div>
-            <h2>检查小节和谱头区域</h2>
-            <p>绿色框对应小节。拖动可移动，拖动四角可缩放。</p>
-          </div>
-          <button id="detect">自动检测</button>
-        </div>
-        <div class="toolbar">
-          <label
-            >整份谱面
-            <select id="mode">
-              <option value="auto">自动判断</option>
-              <option value="tab">TAB</option>
-              <option value="notation">五线谱</option>
-              <option value="both">五线谱 + TAB</option>
-            </select></label
-          ><span class="divider"></span
-          ><label
-            >工具
-            <select id="boxTool">
-              <option value="select">选择 / 移动</option>
-              <option value="measure">＋ 小节框</option>
-              <option value="header">＋ 谱头框</option>
-              <option value="tempo">＋ 速度框</option>
-              <option value="clef">＋ 谱号框</option>
-              <option value="transposition">＋ 移调标记框</option>
-            </select></label
-          ><button id="deleteBox" class="quiet">删除选中框</button><button id="undoBox">撤销</button><button id="redoBox">重做</button>
-        </div>
-        <div class="layout-editor">
-          <aside>
-            <div class="aside-head" id="pageListTitle">全部页面</div>
-            <div id="pageList"></div>
-          </aside>
-          <div class="canvas-area">
-            <div class="canvas-bar">
-              <div class="page-navigation">
-                <button id="prevPage" aria-label="上一页">← 上一页</button>
-                <select id="pageSelect" aria-label="选择页面"></select>
-                <button id="nextPage" aria-label="下一页">下一页 →</button>
+        <section data-panel="0" class="panel active">
+          <div class="import-grid">
+            <div class="input-card">
+              <div class="section-head">
+                <div>
+                  <h2>输入乐谱</h2>
+                  <p>一份乐谱可包含多个文件，按顺序合并。</p>
+                </div>
+                <span class="pill">PDF / 图片</span>
               </div>
-              <span id="pageLabel"></span
-              ><label
-                >缩放
-                <input id="zoom" type="range" min="30" max="200" value="100" />
-                <span id="zoomValue">100%</span></label
+              <label id="dropzone" class="dropzone"
+                ><span class="upload-icon" aria-hidden="true">↥</span
+                ><strong>拖入乐谱，或点击选择</strong
+                ><span>PDF、PNG、JPG、BMP、TIFF</span
+                ><input
+                  id="files"
+                  type="file"
+                  accept=".pdf,.png,.jpg,.jpeg,.bmp,.tif,.tiff"
+                  multiple
+                  aria-label="选择乐谱文件"
+              /></label>
+              <div id="fileList"></div>
+              <p class="supported-types">
+                支持 TAB、五线谱、五线谱 + TAB，以及多乐器总谱。
+              </p>
+              <label class="project-import"
+                >恢复项目备份<input
+                  id="importProject"
+                  type="file"
+                  accept=".zip"
+                  aria-label="恢复项目备份"
+              /></label>
+            </div>
+            <div class="setup-card">
+              <h3>识别设置</h3>
+              <label
+                >处理方式<select id="importAction">
+                  <option value="full">自动识别并进入校对</option>
+                  <option value="import">先导入，手动检查区域</option></select
+                ><small id="actionDescription"
+                  >自动完成页面展开、小节检测、谱面信息和音符识别。</small
+                ></label
               >
-            </div>
-            <div id="canvasScroll">
-              <canvas id="canvas" tabindex="0" aria-label="页面框选编辑器"></canvas>
-            </div>
-          </div>
-          <aside class="box-sidebar">
-            <div class="aside-head">区域与阅读顺序</div>
-            <div class="legend">
-              <span>■ 小节</span><span>■ 谱头</span><span>■ 速度</span>
-            </div>
-            <div id="boxList"></div>
-            <figure id="boxPreview" hidden><figcaption>区域预览</figcaption><canvas id="cropPreview"></canvas></figure>
-            <div class="coords" id="coords" hidden>
-              <details>
-                <summary>精确位置（像素）</summary>
-                <label>X<input id="boxX" type="number" step="1" /></label
-                ><label>Y<input id="boxY" type="number" step="1" /></label
-                ><label>宽<input id="boxW" type="number" step="1" /></label
-                ><label>高<input id="boxH" type="number" step="1" /></label
-                ><button id="applyCoords">应用位置</button>
-              </details>
-              <label id="boxModeField"
-                >此小节谱面
-                <select id="boxMode">
-                  <option value="" disabled>待识别</option>
-                  <option value="tab">TAB</option>
+              <label
+                >谱面类型<select id="importMode">
+                  <option value="auto">自动判断（推荐）</option>
+                  <option value="tab">TAB 六线谱</option>
                   <option value="notation">五线谱</option>
                   <option value="both">五线谱 + TAB</option>
-                </select>
-              </label>
-              <div class="row">
-                <button id="earlier">前移</button
-                ><button id="later">后移</button>
+                </select></label
+              >
+              <div class="setup-note" id="taskHint">
+                识别在后台运行，关闭网页后可回来继续校对。
+              </div>
+              <span id="uploadLimits" class="import-limits"
+                >每个项目最多 100 页 · 200 MB</span
+              ><button id="upload" class="primary" disabled>开始识别</button>
+            </div>
+          </div>
+          <div id="recentProjects" class="recent" hidden>
+            <div class="section-head">
+              <h3>最近项目</h3>
+              <button id="allProjects" class="quiet">查看全部 →</button>
+            </div>
+            <div id="projectList" class="project-grid"></div>
+          </div>
+        </section>
+        <section data-panel="1" class="panel">
+          <div class="section-head">
+            <div>
+              <h2>检查小节和谱头区域</h2>
+              <p>蓝色框对应小节。拖动可移动，拖动四角可缩放。</p>
+            </div>
+            <button id="detect">自动检测</button>
+          </div>
+          <div class="toolbar">
+            <label
+              >整份谱面
+              <select id="mode">
+                <option value="auto">自动判断</option>
+                <option value="tab">TAB</option>
+                <option value="notation">五线谱</option>
+                <option value="both">五线谱 + TAB</option>
+              </select></label
+            ><span class="divider"></span
+            ><label
+              >工具
+              <select id="boxTool">
+                <option value="select">选择 / 移动</option>
+                <option value="measure">＋ 小节框</option>
+                <option value="header">＋ 谱头框</option>
+                <option value="tempo">＋ 速度框</option>
+                <option value="clef">＋ 谱号框</option>
+                <option value="transposition">＋ 移调标记框</option>
+              </select></label
+            ><button id="deleteBox" class="quiet">删除选中框</button
+            ><button id="undoBox">撤销</button
+            ><button id="redoBox">重做</button>
+          </div>
+          <div class="layout-editor">
+            <aside>
+              <div class="aside-head" id="pageListTitle">全部页面</div>
+              <div id="pageList"></div>
+            </aside>
+            <div class="canvas-area">
+              <div class="canvas-bar">
+                <div class="page-navigation">
+                  <button id="prevPage" aria-label="上一页">← 上一页</button>
+                  <select id="pageSelect" aria-label="选择页面"></select>
+                  <button id="nextPage" aria-label="下一页">下一页 →</button>
+                </div>
+                <span id="pageLabel"></span
+                ><label
+                  >缩放
+                  <input
+                    id="zoom"
+                    type="range"
+                    min="30"
+                    max="200"
+                    value="100"
+                  />
+                  <span id="zoomValue">100%</span></label
+                >
+              </div>
+              <div id="canvasScroll">
+                <canvas
+                  id="canvas"
+                  tabindex="0"
+                  aria-label="页面框选编辑器"
+                ></canvas>
               </div>
             </div>
-          </aside>
-        </div>
-        <div class="footer">
-          <span id="boxSummary" class="muted"
-            >点击「自动检测」开始，也可手动添加框。</span
-          ><button id="saveBoxes" class="primary">保存并继续</button>
-        </div>
-      </section>
-      <section data-panel="2" class="panel">
-        <div class="section-head">
-          <div>
-            <h2>校对谱面信息</h2>
-            <p>从原图核对曲名、作者、乐器和速度。</p>
-          </div>
-          <button id="readInfo">自动读取信息</button>
-        </div>
-        <div class="metadata">
-          <label>曲名<input id="title" placeholder="未命名乐谱" /></label
-          ><label>作者<input id="artist" placeholder="选填" /></label
-          ><label
-            >音轨<select id="metadataPart"></select></label><label
-            id="partNameField">音轨名称<input id="partName" maxlength="160" /></label><label
-            >乐器<select id="instrument">
-              <option value="guitar">吉他</option>
-              <option value="bass">贝斯</option>
-              <option value="pitched">钢琴或其他旋律乐器</option>
-              <option value="drums">鼓组</option>
-            </select></label
-          ><label id="midiProgramField">播放音色<select id="midiProgram"></select></label
-          ><label
-            >速度（BPM）<input
-              id="tempo"
-              type="number"
-              min="20"
-              max="400"
-              value="120" /></label
-          ><label id="capoField"
-            >变调夹（品）<input
-              id="capo"
-              type="number"
-              min="0"
-              max="24"
-              value="0" /></label
-          ><label id="transposeField">记谱移调（半音）
-            <input id="transpose" type="number" min="-36" max="36" placeholder="自动读取" />
-            <small>实际音高减去谱面音高，例如降 B 调小号填 -2。8va／8vb 按谱中范围识别。</small>
-          </label><label id="tuningField"
-            >常用调弦<select id="tuningPreset">
-              <option value="64,59,55,50,45,40">六弦吉他（E B G D A E）</option>
-              <option value="64,59,55,50,45,40,35">
-                七弦吉他（E B G D A E B）
-              </option>
-              <option value="43,38,33,28">四弦贝斯（G D A E）</option>
-              <option value="43,38,33,28,23">五弦贝斯（G D A E B）</option>
-              <option value="48,43,38,33,28,23">六弦贝斯（C G D A E B）</option>
-              <option value="64,59,55,50,45,38">Drop D（E B G D A D）</option>
-              <option value="62,57,53,48,43,38">全音降调（D A F C G D）</option>
-              <option value="custom">自定义</option>
-            </select></label
-          ><label id="customTuning" hidden
-            >各弦音高（从第 1 弦到低音弦）<input
-              id="tuning"
-              value="64,59,55,50,45,40"
-            /><small
-              >填 MIDI 音高编号，例如 E4 为 64。各弦用逗号分隔。</small
-            ></label
-          >
-        </div>
-        <div id="infoWarnings" class="hint" hidden></div>
-        <div class="footer">
-          <span class="muted">更改乐器、调弦或移调后需重新识别小节。</span>
-          <button id="saveInfo" class="primary">保存并继续</button>
-        </div>
-      </section>
-      <section data-panel="3" class="panel">
-        <div class="section-head">
-          <div><h2>校对乐谱</h2><p>在谱面上点选音符，用工具栏或键盘修改，随时对照原谱。</p></div>
-          <div class="row">
-            <button id="resumeOcr" hidden>继续识别</button>
-            <button id="retryIssues" hidden>重试待检查小节</button>
-            <button id="recognize" class="primary">识别乐谱</button>
-          </div>
-        </div>
-        <div id="ocrEmpty" class="empty">点击「识别乐谱」，读取音符和节奏。</div>
-        <div id="reviewEditor" hidden>
-          <div class="overview-toolbar">
-            <span id="recognitionSummary" class="muted"></span>
-            <div class="row"><label class="zoom-control">谱面大小 <select id="scoreZoom"><option value="0.9">90%</option><option value="1.1" selected>110%</option><option value="1.3">130%</option><option value="1.5">150%</option></select></label><button id="nextIssue">下一个待检查小节</button></div>
-          </div>
-          <div id="scoreEditor" class="score-workspace">
-            <div class="score-document">
-              <div class="editor-tools" role="toolbar" aria-label="乐谱编辑工具">
-                <div class="editor-navigation">
-                  <div class="row"><button id="prevMeasure" aria-label="上一小节">‹</button><select id="measureSelect" aria-label="选择小节"></select><button id="nextMeasure" aria-label="下一小节">›</button><span id="reviewStatus" class="pill"></span></div>
-                  <div class="row"><button id="showSource" class="mobile-source">原谱</button><span id="saveStatus" class="muted small"></span><button id="saveMeasure" class="primary">确认小节</button></div>
-                </div>
-            <div class="note-tools">
-              <div class="score-toolbar">
-                <label>声部 <select id="editorVoice"><option value="0">1</option><option value="1">2</option></select></label>
-                <div id="durationTools" class="tool-group" aria-label="音符时值">
-                  <button data-duration="1" title="全音符" aria-label="全音符"><svg viewBox="0 0 28 30" width="26" height="28" aria-hidden="true"><ellipse cx="8" cy="22" rx="5" ry="3.5" transform="rotate(-20 8 22)" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></button><button data-duration="2" title="二分音符" aria-label="二分音符"><svg viewBox="0 0 28 30" width="26" height="28" aria-hidden="true"><ellipse cx="8" cy="22" rx="5" ry="3.5" transform="rotate(-20 8 22)" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M12 21V3" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></button><button data-duration="4" title="四分音符" aria-label="四分音符"><svg viewBox="0 0 28 30" width="26" height="28" aria-hidden="true"><ellipse cx="8" cy="22" rx="5" ry="3.5" transform="rotate(-20 8 22)" fill="currentColor" stroke="currentColor" stroke-width="1.5"/><path d="M12 21V3" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></button><button data-duration="8" title="八分音符" aria-label="八分音符"><svg viewBox="0 0 28 30" width="26" height="28" aria-hidden="true"><ellipse cx="8" cy="22" rx="5" ry="3.5" transform="rotate(-20 8 22)" fill="currentColor" stroke="currentColor" stroke-width="1.5"/><path d="M12 21V3" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M12 3Q23 7 17 13" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button><button data-duration="16" title="十六分音符" aria-label="十六分音符"><svg viewBox="0 0 28 30" width="26" height="28" aria-hidden="true"><ellipse cx="8" cy="22" rx="5" ry="3.5" transform="rotate(-20 8 22)" fill="currentColor" stroke="currentColor" stroke-width="1.5"/><path d="M12 21V3" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M12 3Q23 7 17 13" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 7Q23 11 17 17" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button><button data-duration="32" title="三十二分音符" aria-label="三十二分音符"><svg viewBox="0 0 28 30" width="26" height="28" aria-hidden="true"><ellipse cx="8" cy="22" rx="5" ry="3.5" transform="rotate(-20 8 22)" fill="currentColor" stroke="currentColor" stroke-width="1.5"/><path d="M12 21V3" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M12 3Q23 7 17 13" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 7Q23 11 17 17" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 11Q23 15 17 21" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button><button data-duration="64" title="六十四分音符" aria-label="六十四分音符"><svg viewBox="0 0 28 30" width="26" height="28" aria-hidden="true"><ellipse cx="8" cy="22" rx="5" ry="3.5" transform="rotate(-20 8 22)" fill="currentColor" stroke="currentColor" stroke-width="1.5"/><path d="M12 21V3" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M12 3Q23 7 17 13" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 7Q23 11 17 17" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 11Q23 15 17 21" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 15Q23 19 17 25" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button>
-                </div>
-                <label>附点 <select id="durationDots"><option value="0">无</option><option value="1">·</option><option value="2">··</option></select></label>
-                <label>连音 <select id="eventTuplet"><option value="1:1">无</option><option value="3:2">3</option><option value="5:4">5:4</option><option value="6:4">6:4</option><option value="7:4">7:4</option></select></label>
-                <button id="undoNote" title="撤销（Ctrl / ⌘ + Z）">撤销</button><button id="redoNote" title="重做（Ctrl / ⌘ + Shift + Z）">重做</button>
+            <aside class="box-sidebar">
+              <div class="aside-head">区域与阅读顺序</div>
+              <div class="legend">
+                <span>■ 小节</span><span>■ 谱头</span><span>■ 速度</span>
               </div>
-              <div class="score-toolbar">
-                <button id="lowerNote" title="降低一个半音或品位">♭ 降半音</button><button id="raiseNote" title="升高一个半音或品位">♯ 升半音</button>
-                <button id="addChordNote">加和弦音</button><button id="makeRest">休止符</button><button id="deleteNote">删音</button>
-                <button id="addEvent">插入音符</button><button id="deleteEvent">删除此拍</button>
-              </div>
-            </div>
-                <div class="score-toolbar effect-tools" aria-label="奏法"><span class="muted small">奏法</span><button data-effect="tie" title="与前一个同音延音">延音线</button><button data-effect="hammer">击勾弦</button><button data-effect="sl">滑音</button><button data-effect="pm">掌闷音</button><button data-effect="vib">颤音</button><button data-effect="stacc">断奏</button><button data-effect="accent">重音</button><select id="bendValue" aria-label="推弦"><option value="">无推弦</option><option value="bend:bend:50">半音推弦</option><option value="bend:bend:100">全音推弦</option><option value="bend:bendRelease:100">推弦回落</option></select></div>
-                <div class="note-inputs">            <div id="fretTools" class="score-toolbar"><span>输入品位</span><div id="fretButtons" class="tool-group"></div><label>品区 <select id="fretRange"><option value="0">0–12</option><option value="12">12–24</option><option value="24">24–30</option></select></label></div>
-            <div id="pitchTools" class="score-toolbar" hidden><span>插入音高</span><div id="pitchButtons" class="tool-group"></div><label>八度 <select id="pitchOctave"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4" selected>4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option></select></label></div>
-            <div id="drumTools" class="score-toolbar" hidden><label>鼓件 <select id="drumValue"></select></label><button id="placeDrum">放入当前拍</button></div>
+              <div id="boxList"></div>
+              <figure id="boxPreview" hidden>
+                <figcaption>区域预览</figcaption>
+                <canvas id="cropPreview"></canvas>
+              </figure>
+              <div class="coords" id="coords" hidden>
+                <details>
+                  <summary>精确位置（像素）</summary>
+                  <label>X<input id="boxX" type="number" step="1" /></label
+                  ><label>Y<input id="boxY" type="number" step="1" /></label
+                  ><label>宽<input id="boxW" type="number" step="1" /></label
+                  ><label>高<input id="boxH" type="number" step="1" /></label
+                  ><button id="applyCoords">应用位置</button>
+                </details>
+                <label id="boxModeField"
+                  >此小节谱面
+                  <select id="boxMode">
+                    <option value="" disabled>待识别</option>
+                    <option value="tab">TAB</option>
+                    <option value="notation">五线谱</option>
+                    <option value="both">五线谱 + TAB</option>
+                  </select>
+                </label>
+                <div class="row">
+                  <button id="earlier">前移</button
+                  ><button id="later">后移</button>
                 </div>
-                <div class="editor-cursor"><span id="selectedNote" class="muted small"></span><button id="discardMeasure" class="quiet" hidden>放弃修改</button></div>
-                <div id="measureFeedback" role="status" aria-live="polite" hidden></div>
               </div>
-              <div class="score-paper"><h2 id="scoreTitle"></h2><p id="scoreCredits"></p><div id="scoreCanvas" tabindex="0" role="application" aria-label="可编辑整谱，方向键移动，数字键输入品位"></div><p id="scoreWarning" class="hint warning" hidden></p></div>
-            </div>
-            <aside class="score-reference">
-              <div class="reference-heading"><h3 id="currentMeasureTitle">原谱</h3><button id="retryMeasure" class="quiet">重新识别</button></div>
-              <button id="sourceZoom" class="crop" aria-label="放大原谱"><img id="measureImage" alt="选中小节的原谱" /></button>
-              <div id="fallback" class="hint warning" hidden></div>
-              <p id="editHint" class="muted small"></p>
-            <details class="measure-settings"><summary>拍号、速度与起点</summary><div class="score-toolbar">
-              <label>拍号 <input id="timeSignature" placeholder="沿用上一小节" size="8" /></label>
-              <label>速度 <input id="measureTempo" type="number" placeholder="沿用" min="1" max="999" /></label>
-              <label>当前拍起点 <input id="eventStart" type="number" min="0" step="0.0625" /></label>
-            </div></details>
-              <details class="measure-settings"><summary>小节文本</summary><label>编辑方式 <select id="editMode"><option value="score">谱面</option><option value="text">文本</option></select></label><div id="textEditor" hidden><textarea id="measureText" aria-label="小节文本" rows="7" spellcheck="false"></textarea></div></details>
             </aside>
           </div>
-        </div>
-        <div class="footer"><span class="muted">红色小节识别失败，黄色小节需要核对。</span><button id="toExport" class="primary">导出 GP5 →</button></div>
-      </section>
-      <section data-panel="4" class="panel">
+          <div class="footer">
+            <span id="boxSummary" class="muted"
+              >点击「自动检测」开始，也可手动添加框。</span
+            ><button id="saveBoxes" class="primary">保存并继续</button>
+          </div>
+        </section>
+        <section data-panel="2" class="panel">
+          <div class="section-head">
+            <div>
+              <h2>校对谱面信息</h2>
+              <p>从原图核对曲名、作者、乐器和速度。</p>
+            </div>
+            <button id="readInfo">自动读取信息</button>
+          </div>
+          <div class="metadata">
+            <label>曲名<input id="title" placeholder="未命名乐谱" /></label
+            ><label>作者<input id="artist" placeholder="选填" /></label
+            ><label>音轨<select id="metadataPart"></select></label
+            ><label id="partNameField"
+              >音轨名称<input id="partName" maxlength="160" /></label
+            ><label
+              >乐器<select id="instrument">
+                <option value="guitar">吉他</option>
+                <option value="bass">贝斯</option>
+                <option value="pitched">钢琴或其他旋律乐器</option>
+                <option value="drums">鼓组</option>
+              </select></label
+            ><label id="midiProgramField"
+              >播放音色<select id="midiProgram"></select></label
+            ><label
+              >速度（BPM）<input
+                id="tempo"
+                type="number"
+                min="20"
+                max="400"
+                value="120" /></label
+            ><label id="capoField"
+              >变调夹（品）<input
+                id="capo"
+                type="number"
+                min="0"
+                max="24"
+                value="0" /></label
+            ><label id="transposeField"
+              >记谱移调（半音）
+              <input
+                id="transpose"
+                type="number"
+                min="-36"
+                max="36"
+                placeholder="自动读取"
+              />
+              <small
+                >实际音高减去谱面音高，例如降 B 调小号填 -2。8va／8vb
+                按谱中范围识别。</small
+              > </label
+            ><label id="tuningField"
+              >常用调弦<select id="tuningPreset">
+                <option value="64,59,55,50,45,40">
+                  六弦吉他（E B G D A E）
+                </option>
+                <option value="64,59,55,50,45,40,35">
+                  七弦吉他（E B G D A E B）
+                </option>
+                <option value="43,38,33,28">四弦贝斯（G D A E）</option>
+                <option value="43,38,33,28,23">五弦贝斯（G D A E B）</option>
+                <option value="48,43,38,33,28,23">
+                  六弦贝斯（C G D A E B）
+                </option>
+                <option value="64,59,55,50,45,38">Drop D（E B G D A D）</option>
+                <option value="62,57,53,48,43,38">
+                  全音降调（D A F C G D）
+                </option>
+                <option value="custom">自定义</option>
+              </select></label
+            ><label id="customTuning" hidden
+              >各弦音高（从第 1 弦到低音弦）<input
+                id="tuning"
+                value="64,59,55,50,45,40"
+              /><small
+                >填 MIDI 音高编号，例如 E4 为 64。各弦用逗号分隔。</small
+              ></label
+            >
+          </div>
+          <div id="infoWarnings" class="hint" hidden></div>
+          <div class="footer">
+            <span class="muted">更改乐器、调弦或移调后需重新识别小节。</span>
+            <button id="saveInfo" class="primary">保存并继续</button>
+          </div>
+        </section>
+        <section data-panel="3" class="panel">
+          <div class="section-head">
+            <div>
+              <h2>校对乐谱</h2>
+              <p>在谱面上点选音符，用工具栏或键盘修改，随时对照原谱。</p>
+            </div>
+            <div class="row">
+              <button id="resumeOcr" hidden>继续识别</button>
+              <button id="retryIssues" hidden>重试待检查小节</button>
+              <button id="recognize" class="primary">识别乐谱</button>
+            </div>
+          </div>
+          <div id="ocrEmpty" class="empty">
+            点击「识别乐谱」，读取音符和节奏。
+          </div>
+          <div id="reviewEditor" hidden>
+            <div class="overview-toolbar">
+              <span id="recognitionSummary" class="muted"></span>
+              <div class="row">
+                <label class="zoom-control"
+                  >谱面大小
+                  <select id="scoreZoom">
+                    <option value="0.9">90%</option>
+                    <option value="1.1" selected>110%</option>
+                    <option value="1.3">130%</option>
+                    <option value="1.5">150%</option>
+                  </select></label
+                ><button id="nextIssue">下一个待检查小节</button>
+              </div>
+            </div>
+            <div class="track-browser">
+              <div class="track-controls">
+                <label
+                  >音轨<select
+                    id="trackSelect"
+                    aria-label="选择音轨"
+                  ></select></label
+                ><label
+                  >显示<select id="reviewFilter">
+                    <option value="all">全部小节</option>
+                    <option value="review">待检查</option>
+                    <option value="confirmed">已确认</option>
+                  </select></label
+                ><span id="trackSummary" class="muted small"></span
+                ><button id="confirmNext" class="quiet">
+                  确认并检查下一个
+                </button>
+              </div>
+              <div
+                id="measureMap"
+                class="measure-map"
+                aria-label="小节导航"
+              ></div>
+            </div>
+            <div id="scoreEditor" class="score-workspace">
+              <div class="score-document">
+                <div
+                  class="editor-tools"
+                  role="toolbar"
+                  aria-label="乐谱编辑工具"
+                >
+                  <div class="editor-navigation">
+                    <div class="row">
+                      <button id="prevMeasure" aria-label="上一小节">‹</button
+                      ><select id="measureSelect" aria-label="选择小节"></select
+                      ><button id="nextMeasure" aria-label="下一小节">›</button
+                      ><span id="reviewStatus" class="pill"></span>
+                    </div>
+                    <div class="row">
+                      <button id="showSource" class="mobile-source">原谱</button
+                      ><span id="saveStatus" class="muted small"></span
+                      ><button id="saveMeasure" class="primary">
+                        确认小节
+                      </button>
+                    </div>
+                  </div>
+                  <div class="note-tools">
+                    <div class="score-toolbar">
+                      <label
+                        >声部
+                        <select id="editorVoice">
+                          <option value="0">1</option>
+                          <option value="1">2</option>
+                        </select></label
+                      >
+                      <div
+                        id="durationTools"
+                        class="tool-group"
+                        aria-label="音符时值"
+                      >
+                        <button
+                          data-duration="1"
+                          title="全音符"
+                          aria-label="全音符"
+                        >
+                          <svg
+                            viewBox="0 0 28 30"
+                            width="26"
+                            height="28"
+                            aria-hidden="true"
+                          >
+                            <ellipse
+                              cx="8"
+                              cy="22"
+                              rx="5"
+                              ry="3.5"
+                              transform="rotate(-20 8 22)"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="1.5"
+                            />
+                          </svg></button
+                        ><button
+                          data-duration="2"
+                          title="二分音符"
+                          aria-label="二分音符"
+                        >
+                          <svg
+                            viewBox="0 0 28 30"
+                            width="26"
+                            height="28"
+                            aria-hidden="true"
+                          >
+                            <ellipse
+                              cx="8"
+                              cy="22"
+                              rx="5"
+                              ry="3.5"
+                              transform="rotate(-20 8 22)"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="1.5"
+                            />
+                            <path
+                              d="M12 21V3"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="1.5"
+                            />
+                          </svg></button
+                        ><button
+                          data-duration="4"
+                          title="四分音符"
+                          aria-label="四分音符"
+                        >
+                          <svg
+                            viewBox="0 0 28 30"
+                            width="26"
+                            height="28"
+                            aria-hidden="true"
+                          >
+                            <ellipse
+                              cx="8"
+                              cy="22"
+                              rx="5"
+                              ry="3.5"
+                              transform="rotate(-20 8 22)"
+                              fill="currentColor"
+                              stroke="currentColor"
+                              stroke-width="1.5"
+                            />
+                            <path
+                              d="M12 21V3"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="1.5"
+                            />
+                          </svg></button
+                        ><button
+                          data-duration="8"
+                          title="八分音符"
+                          aria-label="八分音符"
+                        >
+                          <svg
+                            viewBox="0 0 28 30"
+                            width="26"
+                            height="28"
+                            aria-hidden="true"
+                          >
+                            <ellipse
+                              cx="8"
+                              cy="22"
+                              rx="5"
+                              ry="3.5"
+                              transform="rotate(-20 8 22)"
+                              fill="currentColor"
+                              stroke="currentColor"
+                              stroke-width="1.5"
+                            />
+                            <path
+                              d="M12 21V3"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="1.5"
+                            />
+                            <path
+                              d="M12 3Q23 7 17 13"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="1.8"
+                            />
+                          </svg></button
+                        ><button
+                          data-duration="16"
+                          title="十六分音符"
+                          aria-label="十六分音符"
+                        >
+                          <svg
+                            viewBox="0 0 28 30"
+                            width="26"
+                            height="28"
+                            aria-hidden="true"
+                          >
+                            <ellipse
+                              cx="8"
+                              cy="22"
+                              rx="5"
+                              ry="3.5"
+                              transform="rotate(-20 8 22)"
+                              fill="currentColor"
+                              stroke="currentColor"
+                              stroke-width="1.5"
+                            />
+                            <path
+                              d="M12 21V3"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="1.5"
+                            />
+                            <path
+                              d="M12 3Q23 7 17 13"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="1.8"
+                            />
+                            <path
+                              d="M12 7Q23 11 17 17"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="1.8"
+                            />
+                          </svg></button
+                        ><button
+                          data-duration="32"
+                          title="三十二分音符"
+                          aria-label="三十二分音符"
+                        >
+                          <svg
+                            viewBox="0 0 28 30"
+                            width="26"
+                            height="28"
+                            aria-hidden="true"
+                          >
+                            <ellipse
+                              cx="8"
+                              cy="22"
+                              rx="5"
+                              ry="3.5"
+                              transform="rotate(-20 8 22)"
+                              fill="currentColor"
+                              stroke="currentColor"
+                              stroke-width="1.5"
+                            />
+                            <path
+                              d="M12 21V3"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="1.5"
+                            />
+                            <path
+                              d="M12 3Q23 7 17 13"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="1.8"
+                            />
+                            <path
+                              d="M12 7Q23 11 17 17"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="1.8"
+                            />
+                            <path
+                              d="M12 11Q23 15 17 21"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="1.8"
+                            />
+                          </svg></button
+                        ><button
+                          data-duration="64"
+                          title="六十四分音符"
+                          aria-label="六十四分音符"
+                        >
+                          <svg
+                            viewBox="0 0 28 30"
+                            width="26"
+                            height="28"
+                            aria-hidden="true"
+                          >
+                            <ellipse
+                              cx="8"
+                              cy="22"
+                              rx="5"
+                              ry="3.5"
+                              transform="rotate(-20 8 22)"
+                              fill="currentColor"
+                              stroke="currentColor"
+                              stroke-width="1.5"
+                            />
+                            <path
+                              d="M12 21V3"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="1.5"
+                            />
+                            <path
+                              d="M12 3Q23 7 17 13"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="1.8"
+                            />
+                            <path
+                              d="M12 7Q23 11 17 17"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="1.8"
+                            />
+                            <path
+                              d="M12 11Q23 15 17 21"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="1.8"
+                            />
+                            <path
+                              d="M12 15Q23 19 17 25"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="1.8"
+                            />
+                          </svg>
+                        </button>
+                      </div>
+                      <label
+                        >附点
+                        <select id="durationDots">
+                          <option value="0">无</option>
+                          <option value="1">·</option>
+                          <option value="2">··</option>
+                        </select></label
+                      >
+                      <label
+                        >连音
+                        <select id="eventTuplet">
+                          <option value="1:1">无</option>
+                          <option value="3:2">3</option>
+                          <option value="5:4">5:4</option>
+                          <option value="6:4">6:4</option>
+                          <option value="7:4">7:4</option>
+                        </select></label
+                      >
+                      <button id="undoNote" title="撤销（Ctrl / ⌘ + Z）">
+                        撤销</button
+                      ><button
+                        id="redoNote"
+                        title="重做（Ctrl / ⌘ + Shift + Z）"
+                      >
+                        重做
+                      </button>
+                    </div>
+                    <div class="score-toolbar">
+                      <button id="lowerNote" title="降低一个半音或品位">
+                        ♭ 降半音</button
+                      ><button id="raiseNote" title="升高一个半音或品位">
+                        ♯ 升半音
+                      </button>
+                      <button id="addChordNote">加和弦音</button
+                      ><button id="makeRest">休止符</button
+                      ><button id="deleteNote">删音</button>
+                      <button id="addEvent">插入音符</button
+                      ><button id="deleteEvent">删除此拍</button>
+                    </div>
+                  </div>
+                  <details class="advanced-note-tools">
+                    <summary>更多工具 · 奏法、品位与音高输入</summary>
+                    <div class="score-toolbar effect-tools" aria-label="奏法">
+                      <span class="muted small">奏法</span
+                      ><button data-effect="tie" title="与前一个同音延音">
+                        延音线</button
+                      ><button data-effect="hammer">击勾弦</button
+                      ><button data-effect="sl">滑音</button
+                      ><button data-effect="pm">掌闷音</button
+                      ><button data-effect="vib">颤音</button
+                      ><button data-effect="stacc">断奏</button
+                      ><button data-effect="accent">重音</button
+                      ><select id="bendValue" aria-label="推弦">
+                        <option value="">无推弦</option>
+                        <option value="bend:bend:50">半音推弦</option>
+                        <option value="bend:bend:100">全音推弦</option>
+                        <option value="bend:bendRelease:100">推弦回落</option>
+                      </select>
+                    </div>
+                    <div class="note-inputs">
+                      <div id="fretTools" class="score-toolbar">
+                        <span>输入品位</span>
+                        <div id="fretButtons" class="tool-group"></div>
+                        <label
+                          >品区
+                          <select id="fretRange">
+                            <option value="0">0–12</option>
+                            <option value="12">12–24</option>
+                            <option value="24">24–30</option>
+                          </select></label
+                        >
+                      </div>
+                      <div id="pitchTools" class="score-toolbar" hidden>
+                        <span>插入音高</span>
+                        <div id="pitchButtons" class="tool-group"></div>
+                        <label
+                          >八度
+                          <select id="pitchOctave">
+                            <option value="1">1</option>
+                            <option value="2">2</option>
+                            <option value="3">3</option>
+                            <option value="4" selected>4</option>
+                            <option value="5">5</option>
+                            <option value="6">6</option>
+                            <option value="7">7</option>
+                          </select></label
+                        >
+                      </div>
+                      <div id="drumTools" class="score-toolbar" hidden>
+                        <label
+                          >鼓件
+                          <select id="drumValue"></select></label
+                        ><button id="placeDrum">放入当前拍</button>
+                      </div>
+                    </div>
+                  </details>
+                  <div class="editor-cursor">
+                    <span id="selectedNote" class="muted small"></span
+                    ><button id="discardMeasure" class="quiet" hidden>
+                      放弃修改
+                    </button>
+                  </div>
+                  <div
+                    id="measureFeedback"
+                    role="status"
+                    aria-live="polite"
+                    hidden
+                  ></div>
+                </div>
+                <div class="score-paper">
+                  <h2 id="scoreTitle"></h2>
+                  <p id="scoreCredits"></p>
+                  <div
+                    id="scoreCanvas"
+                    tabindex="0"
+                    role="application"
+                    aria-label="可编辑整谱，方向键移动，数字键输入品位"
+                  ></div>
+                  <p id="scoreWarning" class="hint warning" hidden></p>
+                </div>
+              </div>
+              <aside class="score-reference">
+                <div class="reference-heading">
+                  <h3 id="currentMeasureTitle">原谱</h3>
+                  <button id="retryMeasure" class="quiet">重新识别</button>
+                </div>
+                <button id="sourceZoom" class="crop" aria-label="放大原谱">
+                  <img id="measureImage" alt="选中小节的原谱" />
+                </button>
+                <div id="fallback" class="hint warning" hidden></div>
+                <p id="editHint" class="muted small"></p>
+                <details class="measure-settings">
+                  <summary>拍号、速度与起点</summary>
+                  <div class="score-toolbar">
+                    <label
+                      >拍号
+                      <input
+                        id="timeSignature"
+                        placeholder="沿用上一小节"
+                        size="8"
+                    /></label>
+                    <label
+                      >速度
+                      <input
+                        id="measureTempo"
+                        type="number"
+                        placeholder="沿用"
+                        min="1"
+                        max="999"
+                    /></label>
+                    <label
+                      >当前拍起点
+                      <input
+                        id="eventStart"
+                        type="number"
+                        min="0"
+                        step="0.0625"
+                    /></label>
+                  </div>
+                </details>
+                <details class="measure-settings">
+                  <summary>小节文本</summary>
+                  <label
+                    >编辑方式
+                    <select id="editMode">
+                      <option value="score">谱面</option>
+                      <option value="text">文本</option>
+                    </select></label
+                  >
+                  <div id="textEditor" hidden>
+                    <textarea
+                      id="measureText"
+                      aria-label="小节文本"
+                      rows="7"
+                      spellcheck="false"
+                    ></textarea>
+                  </div>
+                </details>
+              </aside>
+            </div>
+          </div>
+          <div class="footer">
+            <span class="muted">红色小节识别失败，黄色小节需要核对。</span
+            ><button id="toExport" class="primary">导出乐谱 →</button>
+          </div>
+        </section>
+        <section data-panel="4" class="panel">
+          <div class="section-head">
+            <div>
+              <h2>导出乐谱</h2>
+              <p>下载 GP5、MusicXML 或项目备份，继续编曲与制作。</p>
+            </div>
+          </div>
+          <div id="exportSummary" class="export-summary"></div>
+          <div class="footer">
+            <button id="export" class="primary">生成 GP5</button>
+            <a id="downloadGP5" class="button primary" hidden>下载 GP5</a>
+          </div>
+          <div id="exportWarning" class="hint" hidden></div>
+          <button id="reviewBeforeExport" hidden>检查待处理小节</button>
+          <div class="export-extras">
+            <a id="downloadProject" hidden>下载项目备份（ZIP）</a>
+            <a id="downloadScoreText" hidden>下载小节文本</a>
+            <a id="downloadScoreDocument" hidden>下载结构化乐谱</a>
+            <a id="downloadMusicXML" hidden>下载 MusicXML</a>
+          </div>
+        </section>
+      </div>
+      <section data-screen="library" hidden>
         <div class="section-head">
           <div>
-            <h2>导出 GP5</h2>
-            <p>在 Guitar Pro 中打开并继续编辑。</p>
+            <span class="eyebrow">PROJECT LIBRARY</span>
+            <h1>项目库</h1>
+            <p>识别结果和校对内容保存在这里。</p>
+          </div>
+          <button id="refreshProjects">刷新</button>
+        </div>
+        <div class="library-tools">
+          <input
+            id="projectSearch"
+            type="search"
+            placeholder="搜索曲名或文件名"
+            aria-label="搜索项目"
+          /><select id="projectFilter" aria-label="项目状态">
+            <option value="all">全部状态</option>
+            <option value="active">处理中</option>
+            <option value="review">待校对</option>
+            <option value="exported">已导出</option>
+            <option value="failed">中断或失败</option></select
+          ><select id="projectSort" aria-label="项目排序">
+            <option value="recent">最近修改</option>
+            <option value="title">按名称</option>
+          </select>
+        </div>
+        <div id="libraryList" class="project-grid"></div>
+        <div id="libraryEmpty" class="empty" hidden>
+          <strong>还没有项目</strong>
+          <p>在工作台导入乐谱，或恢复项目 ZIP。</p>
+        </div>
+      </section>
+      <section data-screen="tasks" hidden>
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">TASK CENTER</span>
+            <h1>任务中心</h1>
+            <p>查看处理进度，打开结果，或继续中断的任务。</p>
+          </div>
+          <button id="refreshTasks">刷新</button>
+        </div>
+        <div id="taskList" class="task-list"></div>
+        <div id="tasksEmpty" class="empty" hidden>
+          <strong>暂无识别任务</strong>
+          <p>导入并开始识别后，任务会显示在这里。</p>
+        </div>
+      </section>
+      <section data-screen="settings" hidden>
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">PREFERENCES</span>
+            <h1>设置</h1>
+            <p>外观与当前运行环境。</p>
           </div>
         </div>
-        <div id="exportSummary" class="export-summary"></div>
-        <div class="footer">
-          <button id="export" class="primary">生成 GP5</button>
-          <a id="downloadGP5" class="button primary" hidden>下载 GP5</a>
-        </div>
-        <div id="exportWarning" class="hint" hidden></div><button id="reviewBeforeExport" hidden>检查待处理小节</button>
-        <div class="export-extras">
-          <a id="downloadProject" hidden>下载项目备份（ZIP）</a>
-          <a id="downloadScoreText" hidden>下载小节文本</a>
-          <a id="downloadScoreDocument" hidden>下载结构化乐谱</a>
-          <a id="downloadMusicXML" hidden>下载 MusicXML</a>
+        <div class="settings-grid">
+          <div class="surface-card">
+            <h2>工作台</h2>
+            <label class="setting-row"
+              >外观<select data-theme-picker aria-label="设置外观主题">
+                <option value="system">跟随系统</option>
+                <option value="light">浅色</option>
+                <option value="dark">深色</option>
+              </select></label
+            >
+            <div class="setting-row">
+              <span>连接方式</span><strong id="settingConnection">—</strong>
+            </div>
+            <div class="setting-row">
+              <span>处理设备</span><strong id="settingDevice">—</strong>
+            </div>
+            <p>外观偏好会自动保存在当前浏览器。</p>
+          </div>
+          <div class="surface-card">
+            <h2>识别环境</h2>
+            <div class="setting-row">
+              <span>音符识别模型</span><strong id="settingModel">检查中</strong>
+            </div>
+            <div class="setting-row">
+              <span>版面检测模型</span
+              ><strong id="settingLayout">检查中</strong>
+            </div>
+            <div class="setting-row">
+              <span>上传限制</span><strong id="settingLimits">—</strong>
+            </div>
+            <p id="settingHint">
+              项目保存在运行服务的设备上；下载项目 ZIP 可迁移并继续编辑。
+            </p>
+          </div>
         </div>
       </section>
       <footer class="page-footer">
-        <span>GuitarOCR</span>
+        <span>GuitarOCR · 乐谱识别与校对</span>
         <button id="deleteProject" class="quiet" hidden>删除项目</button>
       </footer>
     </main>
-    <dialog id="sourceDialog" aria-label="原谱大图"><button id="closeSource">关闭</button><img id="largeSource" alt="当前小节原谱大图" /></dialog>
+    <dialog id="sourceDialog" aria-label="原谱大图">
+      <button id="closeSource">关闭</button
+      ><img id="largeSource" alt="当前小节原谱大图" />
+    </dialog>
+    <dialog
+      id="shortcutDialog"
+      class="help-dialog"
+      aria-labelledby="shortcutTitle"
+    >
+      <div class="section-head">
+        <h2 id="shortcutTitle">编辑快捷键</h2>
+        <button id="closeShortcuts" class="quiet">关闭</button>
+      </div>
+      <div class="shortcut-list">
+        <div><span>保存当前小节</span><kbd>Ctrl / ⌘ S</kbd></div>
+        <div><span>撤销 / 重做</span><kbd>Ctrl / ⌘ Z / ⇧ Z</kbd></div>
+        <div><span>移动音符 / 琴弦</span><kbd>← ↑ ↓ →</kbd></div>
+        <div><span>输入品位</span><kbd>0–9 / X</kbd></div>
+        <div><span>输入音高</span><kbd>A–G</kbd></div>
+        <div><span>休止符 / 删除</span><kbd>R / Delete</kbd></div>
+      </div>
+      <p class="small">音符快捷键在点选谱面后生效。切换小节会先保存修改。</p>
+    </dialog>
     <script type="module" src="/static/app.js"></script>
   </body>
 </html>

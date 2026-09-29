@@ -5,18 +5,28 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>GuitarOCR</title>
     <link rel="stylesheet" href="/server-static/style.css" />
+    <script type="module" src="/static/theme.js"></script>
     <script type="module" src="/server-static/app.js"></script>
   </head>
   <body>
-    <header>
+    <header class="server-sidebar">
       <a class="brand" href="/">Guitar<span>OCR</span></a>
-      <button id="loginButton" type="button">登录</button>
+      <p class="sidebar-caption">远程乐谱工作台</p>
+      <button id="loginButton" type="button">登录账号</button>
       <nav id="navigation" hidden>
-        <button data-view="projects" class="selected">我的乐谱</button
-        ><button data-view="account">账号</button
+        <button data-view="projects" class="selected">▤ 项目与识别</button
+        ><button data-view="tasks">◷ 任务中心</button
+        ><button data-view="account">⚙ 账号设置</button
         ><button data-view="admin" id="adminTab" hidden>管理</button
         ><button id="logout">退出</button>
       </nav>
+      <label class="server-theme"
+        >外观<select data-theme-picker aria-label="外观主题">
+          <option value="system">跟随系统</option>
+          <option value="light">浅色</option>
+          <option value="dark">深色</option>
+        </select></label
+      >
     </header>
     <main>
       <div id="notice" role="status" aria-live="polite" hidden></div>
@@ -60,15 +70,11 @@
               required
               minlength="10"
               maxlength="128"
-              aria-describedby="passwordHint passwordStorage"
+              aria-describedby="passwordHint"
           /></label>
           <p id="passwordHint" class="hint">
             至少 10
             个字符。请设置本站专用密码，避免复用常用密码或使用容易猜到的密码。
-          </p>
-          <p id="passwordStorage" class="hint">
-            服务器只保存加入随机盐后计算的 scrypt
-            密码哈希，不保存明文密码。登录时通过重新计算哈希来核验。
           </p>
           <button id="authSubmit" class="primary" type="submit">登录</button
           ><button id="authToggle" type="button">创建账号</button>
@@ -76,38 +82,87 @@
       </dialog>
       <section data-view="projects">
         <div class="heading">
-          <h1>把乐谱转换为 GP5</h1>
+          <h1>让乐谱继续创作</h1>
           <span id="identity" class="muted"></span>
         </div>
-        <p>上传 PDF 或图片，识别 TAB、五线谱、钢琴双谱表和多轨总谱，按音轨校对并下载。</p>
-        <p>登录后由服务器 GPU 识别，适合手机和低端电脑。任务可能排队，关闭网页后仍会继续处理，可回来查看结果或取消任务。</p>
-        <p class="hint">识别耗时取决于页数、音符密度和服务器负载。有 NVIDIA 显卡的设备也可<a href="https://github.com/Flurry-L/guitarOCR/blob/main/docs/setup.md" target="_blank" rel="noreferrer">自行部署</a>。</p>
+        <p class="server-intro">
+          导入 PDF 或图片，识别音符与节奏，在工作台校对并导出。
+        </p>
         <form id="uploadForm" class="upload">
-          <label class="file"
-            >选择 PDF 或图片<input
-              id="files"
-              type="file"
-              accept=".pdf,.png,.jpg,.jpeg,.bmp,.tif,.tiff"
-              multiple
-              required
-          /></label>
-          <p id="gpuUnavailable" class="error" hidden>本站尚未启用 GPU 推理。</p>
-          <button class="primary" id="uploadButton" type="submit" disabled>
-            上传并识别
-          </button>
-          <p id="limits" class="hint"></p>
+          <div class="server-input">
+            <h2>输入乐谱</h2>
+            <p class="hint">TAB、五线谱、钢琴双谱表与多乐器总谱</p>
+            <label class="file"
+              >选择 PDF 或图片<input
+                id="files"
+                type="file"
+                accept=".pdf,.png,.jpg,.jpeg,.bmp,.tif,.tiff"
+                multiple
+                required
+            /></label>
+            <p id="selectedFiles" class="hint">
+              多文件按选择顺序合并为一份项目。
+            </p>
+          </div>
+          <div class="server-options">
+            <h2>识别设置</h2>
+            <label
+              >谱面类型<select id="recognitionMode">
+                <option value="auto">自动判断（推荐）</option>
+                <option value="tab">TAB</option>
+                <option value="notation">五线谱</option>
+                <option value="both">五线谱 + TAB</option>
+              </select></label
+            >
+            <p class="hint">服务器自动完成识别。关闭网页后任务继续运行。</p>
+            <p id="gpuUnavailable" class="error" hidden>
+              本站尚未启用 GPU 推理。
+            </p>
+            <button class="primary" id="uploadButton" type="submit" disabled>
+              上传并识别
+            </button>
+            <p id="limits" class="hint"></p>
+          </div>
         </form>
         <div id="history" hidden>
-        <div class="heading history-heading">
-          <h2 id="historyTitle">识别记录</h2>
-          <button id="saveAccount" type="button">登录并保存到账号</button>
+          <div class="heading history-heading">
+            <h2 id="historyTitle">识别记录</h2>
+            <button id="saveAccount" type="button">登录并保存到账号</button>
+          </div>
+          <p id="sessionHint" class="hint"></p>
+          <p id="empty" class="empty" hidden>
+            上传乐谱后，可在这里查看进度和结果，或取消任务。
+          </p>
+          <div class="project-filters">
+            <input
+              id="projectSearch"
+              type="search"
+              aria-label="搜索项目"
+              placeholder="搜索曲名或文件名"
+            /><select id="projectFilter" aria-label="筛选项目">
+              <option value="all">全部状态</option>
+              <option value="active">处理中</option>
+              <option value="review">待校对</option>
+              <option value="exported">已导出</option>
+              <option value="failed">失败或停止</option>
+            </select>
+          </div>
+          <div id="projects" class="project-list"></div>
+          <p id="noMatches" class="empty" hidden>
+            没有匹配的项目，请调整搜索或筛选条件。
+          </p>
         </div>
-        <p id="sessionHint" class="hint"></p>
-        <p id="empty" class="empty" hidden>
-          上传乐谱后，可在这里查看进度和结果，或取消任务。
+      </section>
+      <section data-view="tasks" hidden>
+        <div class="heading">
+          <h1>任务中心</h1>
+          <span class="muted">处理进度自动更新</span>
+        </div>
+        <p class="hint">可随时停止任务，已完成的阶段会保留。</p>
+        <div id="taskProjects" class="project-list"></div>
+        <p id="noTasks" class="empty" hidden>
+          暂无识别任务。上传乐谱后，进度会显示在这里。
         </p>
-        <div id="projects" class="project-list"></div>
-        </div>
       </section>
       <section data-view="account" hidden>
         <h1>账号</h1>

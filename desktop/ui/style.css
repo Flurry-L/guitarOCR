@@ -1,3 +1,204 @@
-:root{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#203b35;background:#f5f6f2;color-scheme:light}*{box-sizing:border-box}body{margin:0}header{padding:22px 32px;display:flex;justify-content:space-between;align-items:center;background:#fff;border-bottom:1px solid #dae3dc}header strong{font-size:24px}header strong span{color:#28785b}header>span,.small{font-size:12px;color:#61776d}main{max-width:750px;margin:auto;padding:24px 32px}h1{font-size:25px;margin:0 0 10px}h2{font-size:17px;margin:0}p{font-size:14px;line-height:1.65;margin:10px 0 16px}section{border:1px solid #dbe4de;background:#fff;border-radius:10px;padding:20px;margin:20px 0}label{display:block;font-size:13px;margin-bottom:7px}.row{display:flex;gap:10px;align-items:center}input{min-width:0;flex:1;font:inherit;padding:10px;border:1px solid #bbcfc3;border-radius:6px}button{font:inherit;cursor:pointer;padding:10px 16px;border:1px solid #28785b;border-radius:6px;color:#fff;background:#28785b;white-space:nowrap}.secondary{color:#28785b;background:#fff}.quiet{background:transparent;color:#526d60;border-color:transparent;font-size:12px}button:disabled{opacity:.5;cursor:default}#status{padding:12px;background:#e5f1e8;border-radius:6px;font-size:13px}#status.error{background:#fff0e9;color:#943e23}pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:210px;overflow:auto;background:#fff;padding:12px;font-size:11px}details{margin-top:15px;font-size:13px}.footer{margin-top:16px}[hidden]{display:none!important}
-
-#installProgress{padding:16px}#installStages{display:flex;flex-wrap:wrap;gap:7px 18px;margin:0 0 14px;padding:0;list-style:none;font-size:12px;color:#6a7b72}#installStages li.active{color:#205f46;font-weight:700}#installStages li.done::before{content:"✓ ";color:#28785b}#progressLabel{margin:0 0 8px;font-weight:600}#progressBar{width:100%;height:12px;accent-color:#28785b}#progressDetail{margin:8px 0 0}#downloadList{font-size:12px;color:#526d60;max-height:120px;overflow:auto;margin:8px 0 0;padding-left:20px}#downloadList:empty{display:none}
+header {
+  padding: 20px 32px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--paper);
+  border-bottom: 1px solid var(--line);
+}
+header strong {
+  font-size: 23px;
+  letter-spacing: -0.7px;
+}
+header strong span {
+  color: var(--accent);
+}
+.theme-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.theme-control select {
+  font-size: 12px;
+}
+main {
+  max-width: 800px;
+  margin: auto;
+  padding: 32px;
+}
+.eyebrow {
+  font-size: 10px;
+  letter-spacing: 1.6px;
+  color: var(--accent);
+  font-weight: 650;
+}
+h1 {
+  font-size: 27px;
+  margin-top: 5px;
+}
+h2 {
+  font-size: 17px;
+}
+.intro {
+  margin: 8px 0 26px;
+}
+.connection-card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 23px;
+  margin: 18px 0;
+  box-shadow: var(--shadow);
+}
+.card-heading {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.card-heading .pill {
+  margin-left: auto;
+}
+.connection-icon {
+  font-size: 24px;
+  background: var(--soft);
+  color: var(--accent);
+  border-radius: 10px;
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+}
+.card-heading .eyebrow {
+  font-size: 9px;
+}
+.connection-card p {
+  font-size: 13px;
+  margin: 14px 0 16px;
+}
+.connection-card .small {
+  font-size: 12px;
+}
+.connection-card label {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 7px;
+}
+.row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.row input {
+  flex: 1;
+  min-width: 0;
+}
+button {
+  padding: 9px 15px;
+}
+.secondary {
+  background: var(--surface);
+}
+.quiet {
+  font-size: 12px;
+}
+#status {
+  padding: 12px 16px;
+  background: var(--soft);
+  border-radius: 8px;
+  font-size: 13px;
+}
+#status.error {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 210px;
+  overflow: auto;
+  background: var(--paper);
+  padding: 12px;
+  font-size: 11px;
+}
+details {
+  margin-top: 15px;
+  font-size: 13px;
+}
+.footer {
+  margin: 20px 0 10px;
+}
+.small {
+  font-size: 12px;
+  color: var(--muted);
+}
+#installProgress {
+  padding: 20px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  margin-top: 18px;
+}
+#installStages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px 18px;
+  margin: 0 0 14px;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  color: var(--muted);
+}
+#installStages li.active {
+  color: var(--accent);
+  font-weight: 650;
+}
+#installStages li.done::before {
+  content: "✓ ";
+  color: var(--success);
+}
+#progressLabel {
+  margin: 0 0 8px;
+  font-weight: 600;
+  font-size: 13px;
+}
+#progressBar {
+  width: 100%;
+  height: 8px;
+}
+#progressDetail {
+  margin: 8px 0 0;
+}
+#downloadList {
+  font-size: 12px;
+  color: var(--muted);
+  max-height: 120px;
+  overflow: auto;
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+#downloadList:empty {
+  display: none;
+}
+@media (max-width: 550px) {
+  header {
+    padding: 16px 20px;
+  }
+  main {
+    padding: 24px 18px;
+  }
+  .connection-card {
+    padding: 18px;
+  }
+  h1 {
+    font-size: 24px;
+  }
+  .row {
+    flex-wrap: wrap;
+  }
+  .row input {
+    flex-basis: 100%;
+  }
+}

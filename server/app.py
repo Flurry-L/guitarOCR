@@ -20,7 +20,14 @@ from server.config import Config
 from server.store import ACTIVE, Store, check_password, password_hash, token_hash
 from server.projects import make_workflow, project_lock, sync_usage
 from webapp.views import project_view
-from webapp.contracts import Boxes, Correction, Detection, Metadata, Recognition, check_revision
+from webapp.contracts import (
+    Boxes,
+    Correction,
+    Detection,
+    Metadata,
+    Recognition,
+    check_revision,
+)
 from pipeline.archive import export_project
 
 
@@ -171,7 +178,9 @@ def create_app(config: Config, workflow=None):
                 if (store.job(sid) or {}).get("status") in ACTIVE:
                     raise HTTPException(409, "项目正在处理，请等待完成或取消任务")
                 if revision:
-                    check_revision(request.headers.get("if-match"), workflow.load(sid)["revision"])
+                    check_revision(
+                        request.headers.get("if-match"), workflow.load(sid)["revision"]
+                    )
                     sync_usage(store, workflow, sid)
                     used = store.one(
                         "SELECT coalesce(sum(bytes),0) AS n FROM projects WHERE user_id=?",
@@ -359,7 +368,19 @@ def create_app(config: Config, workflow=None):
                     else "编辑中"
                 )
                 row["pages"] = len(state["pages"])
-        return rows
+                row["updated"] = (
+                    (workflow.directory(row["id"]) / "session.json").stat().st_mtime
+                )
+                if state["info"]:
+                    row["title"] = (
+                        json.loads(Path(state["info"]).read_text(encoding="utf-8")).get(
+                            "title"
+                        )
+                        or row["title"]
+                    )
+        return sorted(
+            rows, key=lambda row: row.get("updated", row["created"]), reverse=True
+        )
 
     @app.post("/api/sessions")
     async def upload(
@@ -367,6 +388,7 @@ def create_app(config: Config, workflow=None):
         files: list[UploadFile] = File(...),
         engine: Literal["gpu"] = Form("gpu"),
         action: Literal["full", "import"] = Form("import"),
+        mode: Literal["auto", "tab", "notation", "both"] = Form("auto"),
     ):
         rate(request, "upload", 30, 3600)
         if not 1 <= len(files) <= config.max_pages:
@@ -420,7 +442,12 @@ def create_app(config: Config, workflow=None):
                 )
                 inputs.append(path.relative_to(root).as_posix())
             project = store.one("SELECT * FROM projects WHERE id=?", (sid,))
-            params = {"inputs": inputs, "names": names, "model_paths": config.model_paths()}
+            params = {
+                "inputs": inputs,
+                "names": names,
+                "mode": mode,
+                "model_paths": config.model_paths(),
+            }
             job = store.enqueue(project, action, params, config.max_pending)
             store.execute("UPDATE projects SET bytes=? WHERE id=?", (total, sid))
         except BaseException:

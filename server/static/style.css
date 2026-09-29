@@ -1,37 +1,18 @@
-:root {
-  font:
-    16px/1.6 system-ui,
-    -apple-system,
-    "Segoe UI",
-    sans-serif;
-  color: #253532;
-  background: #f5f7f6;
-  --accent: #176752;
-  --border: #dbe3df;
-}
-* {
-  box-sizing: border-box;
-}
-[hidden] {
-  display: none !important;
-}
-body {
-  margin: 0;
-}
+@import url("/static/theme.css");
 header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   padding: 20px max(24px, calc((100% - 1080px) / 2));
-  background: #fff;
+  background: var(--paper);
   border-bottom: 1px solid var(--border);
 }
 .brand {
   font-weight: 800;
   font-size: 24px;
   text-decoration: none;
-  color: #263d34;
+  color: var(--ink);
 }
 .brand span {
   color: var(--accent);
@@ -46,7 +27,7 @@ nav button {
   background: transparent;
 }
 nav .selected {
-  background: #e6f1eb;
+  background: var(--soft);
   color: var(--accent);
 }
 main {
@@ -79,8 +60,8 @@ button,
   border: 1px solid var(--border);
   border-radius: 7px;
   padding: 8px 15px;
-  background: #fff;
-  color: #253532;
+  background: var(--paper);
+  color: var(--ink);
   cursor: pointer;
   text-decoration: none;
   text-align: center;
@@ -95,7 +76,7 @@ button:disabled {
 }
 .primary {
   background: var(--accent);
-  color: #fff;
+  color: var(--paper);
   border-color: var(--accent);
 }
 input:not([type="checkbox"]):not([type="radio"]),
@@ -103,9 +84,9 @@ select {
   display: block;
   width: 100%;
   padding: 10px;
-  border: 1px solid #b9c8c0;
+  border: 1px solid var(--line);
   border-radius: 6px;
-  background: #fff;
+  background: var(--paper);
   color: inherit;
 }
 label {
@@ -119,7 +100,7 @@ label select {
 }
 .hint,
 .muted {
-  color: #61716a;
+  color: var(--muted);
   font-size: 14px;
   font-weight: 400;
 }
@@ -132,7 +113,7 @@ label select {
   max-height: calc(100dvh - 32px);
   margin: auto;
   padding: 30px;
-  background: #fff;
+  background: var(--paper);
   border: 1px solid var(--border);
   border-radius: 12px;
 }
@@ -160,7 +141,7 @@ label select {
 .upload,
 .update {
   padding: 22px;
-  background: #fff;
+  background: var(--paper);
   border: 1px solid var(--border);
   border-radius: 10px;
 }
@@ -190,7 +171,7 @@ label select {
 }
 .project p {
   margin: 4px 0;
-  color: #61716a;
+  color: var(--muted);
   font-size: 14px;
 }
 .actions {
@@ -202,10 +183,10 @@ label select {
 }
 .error,
 #notice.error {
-  color: #a2362c;
+  color: var(--danger);
 }
 #notice {
-  background: #e5f2eb;
+  background: var(--soft);
   border-radius: 7px;
   padding: 12px 16px;
   margin-bottom: 20px;
@@ -217,7 +198,7 @@ label select {
 .empty {
   text-align: center;
   padding: 40px 0;
-  color: #61716a;
+  color: var(--muted);
 }
 .stats {
   display: flex;
@@ -225,7 +206,7 @@ label select {
   flex-wrap: wrap;
 }
 .stat {
-  background: #fff;
+  background: var(--paper);
   padding: 18px 24px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -236,7 +217,7 @@ label select {
   display: block;
 }
 .stat span {
-  color: #61716a;
+  color: var(--muted);
 }
 .narrow {
   max-width: 420px;
@@ -253,7 +234,7 @@ label select {
 table {
   width: 100%;
   border-collapse: collapse;
-  background: #fff;
+  background: var(--paper);
 }
 th,
 td {
@@ -267,7 +248,7 @@ td button {
 footer {
   padding: 24px;
   text-align: center;
-  color: #7a8982;
+  color: var(--muted);
   font-size: 13px;
 }
 progress {
@@ -275,7 +256,7 @@ progress {
   accent-color: var(--accent);
 }
 :focus-visible {
-  outline: 3px solid #59a88d;
+  outline: 3px solid var(--accent);
   outline-offset: 3px;
 }
 @media (max-width: 650px) {
@@ -310,4 +291,283 @@ progress {
   .login {
     padding: 22px;
   }
+}
+
+/* Server entry shares the workbench's surfaces and navigation hierarchy. */
+.server-sidebar {
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: 192px;
+  padding: 26px 18px;
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-start;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+  border-bottom: 0;
+}
+.server-sidebar .brand {
+  font-size: 22px;
+  letter-spacing: -0.8px;
+}
+.sidebar-caption {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 0 0 24px;
+}
+.server-sidebar nav {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.server-sidebar nav button {
+  text-align: left;
+  padding: 11px 10px;
+}
+.server-theme {
+  margin-top: auto;
+  font-size: 11px;
+  color: var(--muted);
+}
+.server-theme select {
+  font-size: 12px;
+  margin-top: 7px;
+}
+main {
+  max-width: 1450px;
+  margin: 0 0 0 192px;
+  padding: 32px;
+  min-height: calc(100vh - 70px);
+}
+h1 {
+  font-size: 28px;
+  font-weight: 650;
+  letter-spacing: -0.6px;
+}
+.server-intro {
+  margin: -8px 0 26px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.upload {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 28px;
+  padding: 24px;
+  border-radius: 12px;
+}
+.upload h2 {
+  margin: 0 0 12px;
+}
+.server-input .file {
+  padding: 26px 20px;
+  background: var(--surface);
+  border: 1px dashed var(--line);
+  border-radius: 9px;
+  min-height: 200px;
+  display: flex;
+  justify-content: center;
+  flex-direction: column;
+  gap: 14px;
+  text-align: center;
+  font-size: 15px;
+}
+.server-input input {
+  font-size: 12px;
+  border: 0 !important;
+}
+.server-options {
+  border-left: 1px solid var(--line);
+  padding-left: 25px;
+  display: flex;
+  flex-direction: column;
+}
+.server-options .primary {
+  margin-top: auto;
+  min-height: 43px;
+}
+.server-options .hint {
+  font-size: 12px;
+}
+.project-filters {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+}
+.project-filters input {
+  flex: 1;
+}
+.project-filters select {
+  width: auto;
+}
+#projects,
+#taskProjects {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+.project {
+  padding: 18px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.project h2 {
+  font-size: 15px;
+}
+.project p {
+  font-size: 12px;
+}
+.project .actions button,
+.project .actions a {
+  font-size: 12px;
+}
+.heading h2 {
+  font-size: 17px;
+}
+footer {
+  margin-left: 192px;
+}
+.login {
+  color: var(--ink);
+}
+#notice.error {
+  background: var(--danger-bg);
+}
+.primary {
+  color: #fff;
+}
+.hint {
+  padding: 0;
+  background: transparent;
+  border-radius: 0;
+}
+.stats .stat {
+  background: var(--paper);
+}
+@media (max-width: 1000px) {
+  .upload {
+    grid-template-columns: minmax(0, 1fr) 250px;
+    gap: 20px;
+  }
+  main {
+    padding: 24px;
+  }
+  .server-sidebar {
+    width: 156px;
+    padding: 22px 12px;
+  }
+  main,
+  footer {
+    margin-left: 156px;
+  }
+  .server-sidebar .brand {
+    font-size: 20px;
+  }
+}
+@media (max-width: 760px) {
+  .server-sidebar {
+    position: static;
+    width: auto;
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: wrap;
+    padding: 14px 18px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    gap: 10px;
+  }
+  .sidebar-caption {
+    display: none;
+  }
+  .server-sidebar nav {
+    flex-direction: row;
+    flex: 1;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 3px;
+  }
+  .server-sidebar nav button {
+    font-size: 12px;
+    padding: 7px;
+  }
+  .server-theme {
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .server-theme select {
+    width: auto;
+    margin: 0;
+  }
+  .server-sidebar #loginButton {
+    margin-left: auto;
+  }
+  main,
+  footer {
+    margin-left: 0;
+  }
+  main {
+    padding: 22px 16px;
+  }
+  .upload {
+    grid-template-columns: 1fr;
+    padding: 18px;
+  }
+  .server-options {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    padding: 18px 0 0;
+  }
+  .server-input .file {
+    min-height: 170px;
+  }
+  .project-filters {
+    flex-wrap: wrap;
+  }
+  .project-filters input {
+    min-width: 160px;
+  }
+  .project {
+    grid-template-columns: 1fr;
+  }
+  .project .actions {
+    justify-content: flex-start;
+  }
+  h1 {
+    font-size: 24px;
+  }
+}
+
+.server-input .file {
+  position: relative;
+  cursor: pointer;
+}
+.server-input .file input[type="file"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+.server-input .file:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.server-input .file::before {
+  content: "↥";
+  font-size: 24px;
+  color: var(--accent);
+  display: block;
+}
+.server-input .file::after {
+  content: "PDF、PNG、JPG、BMP、TIFF";
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+}
+#selectedFiles {
+  overflow-wrap: anywhere;
 }

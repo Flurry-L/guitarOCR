@@ -1,0 +1,258 @@
+/* Shared tokens for the workbench, server and desktop launcher. */
+:root {
+  color-scheme: light;
+  --bg: #f3f5f9;
+  --paper: #fff;
+  --surface: #f8f9fc;
+  --inset: #edf0f6;
+  --ink: #202b40;
+  --muted: #667389;
+  --line: #dde3ed;
+  --accent: #426fd0;
+  --accent-hover: #355fb9;
+  --soft: #eaf0fd;
+  --amber: #9b6b1c;
+  --blue: #426fd0;
+  --danger: #b83b47;
+  --danger-bg: #fff0f2;
+  --warning: #8c631e;
+  --warning-bg: #fff7e5;
+  --success: #287461;
+  --shadow: 0 4px 24px #23314d06;
+  --border: var(--line);
+  font-family:
+    Inter,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    "Noto Sans SC",
+    sans-serif;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #11151e;
+  --paper: #1a202c;
+  --surface: #161c27;
+  --inset: #222b3a;
+  --ink: #e0e6f1;
+  --muted: #9aa7bd;
+  --line: #303b4e;
+  --accent: #82a8f4;
+  --accent-hover: #a3bfff;
+  --soft: #243654;
+  --amber: #d8b069;
+  --blue: #82a8f4;
+  --danger: #ffa3ad;
+  --danger-bg: #3c252f;
+  --warning: #edc57d;
+  --warning-bg: #372e21;
+  --success: #7ec8b2;
+  --shadow: none;
+}
+* {
+  box-sizing: border-box;
+}
+[hidden] {
+  display: none !important;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.6;
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+button,
+a,
+input,
+select,
+textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+a {
+  color: var(--accent);
+}
+button,
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 8px 13px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+}
+button:hover,
+.button:hover {
+  background: var(--soft);
+  border-color: var(--accent);
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+button.primary,
+.button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+:root[data-theme="dark"] .primary {
+  color: #101a2e;
+}
+button.primary:hover,
+.button.primary:hover {
+  background: var(--accent-hover);
+}
+button.quiet,
+.button.quiet {
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+}
+input,
+select,
+textarea {
+  max-width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+input[type="range"],
+progress {
+  accent-color: var(--accent);
+}
+input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+h1 {
+  font-size: 28px;
+  line-height: 1.4;
+  font-weight: 650;
+  letter-spacing: -0.6px;
+}
+h2 {
+  font-size: 18px;
+  font-weight: 620;
+}
+h3 {
+  font-size: 14px;
+  font-weight: 600;
+}
+p,
+.muted {
+  color: var(--muted);
+}
+.small {
+  font-size: 12px;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+label {
+  font-size: 13px;
+}
+label small {
+  font-size: 12px;
+  color: var(--muted);
+}
+textarea {
+  width: 100%;
+  font-family: ui-monospace, monospace;
+}
+input[type="number"] {
+  max-width: 115px;
+}
+input[type="range"] {
+  padding: 0;
+  width: 100px;
+}
+.pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  white-space: nowrap;
+  padding: 3px 9px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  color: var(--muted);
+}
+.hint {
+  background: var(--soft);
+  border-radius: 7px;
+  padding: 12px 14px;
+  font-size: 13px;
+  margin-top: 14px;
+  white-space: pre-wrap;
+}
+.warning {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+.error {
+  color: var(--danger);
+}
+details {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  margin-top: 14px;
+}
+summary {
+  cursor: pointer;
+  font-size: 12px;
+}
+dialog {
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+dialog::backdrop {
+  background: #080e1c88;
+}
+kbd {
+  padding: 2px 6px;
+  background: var(--inset);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-size: 12px;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    scroll-behavior: auto !important;
+    transition: none !important;
+  }
+}

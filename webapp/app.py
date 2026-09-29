@@ -10,16 +10,25 @@ from pathlib import Path
 from shared.defaults import MODEL, LAYOUT_MODEL
 from threading import RLock, Event
 from uuid import uuid4
+from time import time
+from typing import Literal
 import logging
 import json
 import shutil
 from urllib.parse import urlparse
 
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from webapp.contracts import Boxes, Correction, Detection, Metadata, Recognition, check_revision
+from webapp.contracts import (
+    Boxes,
+    Correction,
+    Detection,
+    Metadata,
+    Recognition,
+    check_revision,
+)
 from webapp.views import project_view
 from pipeline.workspace import Workspace
 from pipeline.archive import export_project, import_project
@@ -30,8 +39,10 @@ from shared.score_text import display_error
 
 
 def create_app(
-    workflow: Workspace | None = None, *, allowed_hosts: list[str] | None = None,
-    inference_enabled: bool = True
+    workflow: Workspace | None = None,
+    *,
+    allowed_hosts: list[str] | None = None,
+    inference_enabled: bool = True,
 ):
     workflow = workflow or Workspace(Path("output/webui"))
     hosts = {"127.0.0.1", "localhost", "::1"}
@@ -55,11 +66,14 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app):
         if inference_enabled:
+
             def prepare():
                 try:
                     workflow.warmup()
                 except Exception:
-                    logging.exception('Model initialization failed; recognition can retry it')
+                    logging.exception(
+                        "Model initialization failed; recognition can retry it"
+                    )
 
             executor.submit(prepare)
         yield
@@ -127,11 +141,15 @@ def create_app(
         (workflow.directory(sid) / "job.json").unlink(missing_ok=True)
         return project_view(workflow, sid)
 
-    def submit(sid, label, operation, request=None, cancellable=False):
+    def submit(
+        sid, label, operation, request=None, cancellable=False, action=None, title=None
+    ):
         with lock:
             idle(sid)
             if request is not None:
-                check_revision(request.headers.get("if-match"), workflow.load(sid)["revision"])
+                check_revision(
+                    request.headers.get("if-match"), workflow.load(sid)["revision"]
+                )
             job = {
                 "status": "queued",
                 "message": label,
@@ -139,6 +157,9 @@ def create_app(
                 "total": 0,
                 "error": None,
                 "cancellable": cancellable,
+                "action": action,
+                "created": time(),
+                "title": title,
             }
             jobs[sid] = job
             cancel = cancellations[sid] = Event()
@@ -149,7 +170,11 @@ def create_app(
                     job.update(
                         done=done,
                         total=total,
-                        message=f"正在识别第 {done} / {total} 小节",
+                        message=(
+                            "正在停止，已完成部分会保留"
+                            if cancel.is_set()
+                            else f"正在识别第 {done} / {total} 小节"
+                        ),
                     )
                     save_job(sid, job)
 
@@ -168,18 +193,44 @@ def create_app(
                     outcome = dict(status="cancelled", error=None, message=str(error))
                 except Exception as error:
                     logging.exception("Session %s failed", sid)
-                    outcome = dict(
-                        status="failed", error=display_error(str(error))
-                    )
+                    outcome = dict(status="failed", error=display_error(str(error)))
                 else:
                     outcome = dict(status="complete", message="处理完成")
                 with lock:
-                    job.update(**outcome, cancellable=False)
+                    job.update(**outcome, cancellable=False, finished=time())
                     save_job(sid, job)
                     cancellations.pop(sid, None)
 
             executor.submit(run)
             return {"id": sid, "job": job.copy()}
+
+    def process(sid, mode, progress, cancelled):
+        for key, label, operation in (
+            ("layout", "正在检测小节与音轨", lambda: workflow.detect(sid, mode)),
+            (
+                "info",
+                "正在读取乐器与谱面信息",
+                lambda: workflow.information(sid, cancelled=cancelled),
+            ),
+            (
+                "recognition",
+                "正在识别音符与节奏",
+                lambda: workflow.recognize(
+                    sid,
+                    progress,
+                    resume=bool(workflow.load(sid).get("ocr_task")),
+                    cancelled=cancelled,
+                ),
+            ),
+        ):
+            if cancelled():
+                raise Cancelled("任务已停止，已完成的阶段已保存")
+            if workflow.load(sid)[key]:
+                continue
+            with lock:
+                jobs[sid].update(message=label, done=0, total=0)
+                save_job(sid, jobs[sid])
+            operation()
 
     @app.get("/")
     def index():
@@ -187,7 +238,9 @@ def create_app(
 
     def require_inference():
         if not inference_enabled:
-            raise HTTPException(409, "当前为校对模式。识别请连接 GPU 服务，或从桌面启动页选择本机 GPU。")
+            raise HTTPException(
+                409, "当前为校对模式。识别请连接 GPU 服务，或从桌面启动页选择本机 GPU。"
+            )
 
     @app.get("/api/config")
     def config():
@@ -207,7 +260,7 @@ def create_app(
             workflow.root.glob("*/session.json"),
             key=lambda p: p.stat().st_mtime,
             reverse=True,
-        )[:30]:
+        ):
             try:
                 state = workflow.load(path.parent.name)
                 title = "、".join(
@@ -229,14 +282,35 @@ def create_app(
                         "title": title,
                         "pages": len(state["pages"]),
                         "stage": stage,
+                        "updated": path.stat().st_mtime,
+                        "job": jobs.get(state["id"], {}).copy() or None,
                     }
                 )
             except (ValueError, OSError, KeyError):
                 continue
-        return results
+        known = {row["id"] for row in results}
+        for sid, job in list(jobs.items()):
+            if sid not in known:
+                results.append(
+                    {
+                        "id": sid,
+                        "title": job.get("title") or "正在导入的乐谱",
+                        "pages": 0,
+                        "stage": "待导入",
+                        "updated": job.get("created", 0),
+                        "job": job.copy(),
+                    }
+                )
+        return sorted(results, key=lambda row: row["updated"], reverse=True)
 
     @app.post("/api/sessions")
-    async def upload(files: list[UploadFile] = File(...)):
+    async def upload(
+        files: list[UploadFile] = File(...),
+        action: Literal["import", "full"] = Form("import"),
+        mode: Literal["auto", "tab", "notation", "both"] = Form("auto"),
+    ):
+        if action == "full":
+            require_inference()
         if not 1 <= len(files) <= 100:
             raise HTTPException(400, "每个项目支持 1–100 个文件")
         sid = uuid4().hex
@@ -268,11 +342,37 @@ def create_app(
             for upload in files:
                 await upload.close()
 
-        def import_files(progress):
+        def import_files(progress, cancelled):
             validate_inputs(inputs, 100)
+            if cancelled():
+                raise Cancelled("导入已停止")
             workflow.create(sid, inputs, input_names)
+            if action == "full":
+                process(sid, mode, progress, cancelled)
 
-        return submit(sid, "正在导入页面", import_files)
+        return submit(
+            sid,
+            "正在导入页面",
+            import_files,
+            cancellable=True,
+            action=action,
+            title="、".join(input_names),
+        )
+
+    @app.post("/api/sessions/{sid}/process")
+    def continue_process(sid: str, request: Request):
+        require_inference()
+        state = workflow.load(sid)
+        return submit(
+            sid,
+            "正在继续识别",
+            lambda progress, cancelled: process(
+                sid, state.get("mode_setting", "auto"), progress, cancelled
+            ),
+            request,
+            cancellable=True,
+            action="full",
+        )
 
     @app.post("/api/projects/import")
     def restore_project(file: UploadFile):
@@ -334,7 +434,9 @@ def create_app(
     def boxes(sid: str, body: Boxes, request: Request):
         with lock:
             idle(sid)
-            check_revision(request.headers.get("if-match"), workflow.load(sid)["revision"])
+            check_revision(
+                request.headers.get("if-match"), workflow.load(sid)["revision"]
+            )
             workflow.boxes(sid, [box.model_dump() for box in body.boxes], body.mode)
             return edited(sid)
 
@@ -354,7 +456,9 @@ def create_app(
     def metadata(sid: str, body: Metadata, request: Request):
         with lock:
             idle(sid)
-            check_revision(request.headers.get("if-match"), workflow.load(sid)["revision"])
+            check_revision(
+                request.headers.get("if-match"), workflow.load(sid)["revision"]
+            )
             workflow.metadata(sid, body.model_dump())
             return edited(sid)
 
@@ -373,20 +477,26 @@ def create_app(
         )
 
     @app.post("/api/sessions/{sid}/cancel")
-    def cancel(sid: str, request: Request):
+    def cancel(sid: str):
         with lock:
-            check_revision(request.headers.get("if-match"), workflow.load(sid)["revision"])
+            # Cancellation targets the active job, not a score revision. Stages
+            # may advance while the browser is polling their progress.
+            workflow.directory(sid)
             event = cancellations.get(sid)
             if event is None or not jobs[sid].get("cancellable"):
                 raise HTTPException(409, "当前没有可以停止的识别任务")
             event.set()
+            jobs[sid].update(cancellable=False, message="正在停止，已完成部分会保留")
+            save_job(sid, jobs[sid])
             return {"message": "正在停止，当前小节处理结束后生效"}
 
     @app.put("/api/sessions/{sid}/measures/{number}")
     def correct(sid: str, number: int, body: Correction, request: Request):
         with lock:
             idle(sid)
-            check_revision(request.headers.get("if-match"), workflow.load(sid)["revision"])
+            check_revision(
+                request.headers.get("if-match"), workflow.load(sid)["revision"]
+            )
             workflow.correct(sid, number, **body.model_dump())
             return edited(sid)
 
@@ -394,7 +504,9 @@ def create_app(
     def export(sid: str, request: Request):
         with lock:
             idle(sid)
-            check_revision(request.headers.get("if-match"), workflow.load(sid)["revision"])
+            check_revision(
+                request.headers.get("if-match"), workflow.load(sid)["revision"]
+            )
             workflow.export(sid)
             return edited(sid)
 
@@ -402,7 +514,10 @@ def create_app(
     def delete(sid: str, request: Request):
         with lock:
             idle(sid)
-            check_revision(request.headers.get("if-match"), workflow.load(sid)["revision"])
+            if (workflow.directory(sid) / "session.json").exists():
+                check_revision(
+                    request.headers.get("if-match"), workflow.load(sid)["revision"]
+                )
             shutil.rmtree(workflow.directory(sid))
             for archive in (workflow.root / ".archives").glob(f"{sid}-*.zip"):
                 archive.unlink(missing_ok=True)
@@ -414,7 +529,10 @@ def create_app(
         return Response(
             workflow.score_text(sid),
             media_type="text/plain; charset=utf-8",
-            headers={"Content-Disposition": 'attachment; filename="score.txt"', "Cache-Control": "no-store"},
+            headers={
+                "Content-Disposition": 'attachment; filename="score.txt"',
+                "Cache-Control": "no-store",
+            },
         )
 
     @app.get("/api/sessions/{sid}/files/{filename:path}")
@@ -456,6 +574,11 @@ def main():
     parser.add_argument("--output", type=Path, default=Path("output/webui"))
     parser.add_argument("--model", type=Path, default=MODEL)
     parser.add_argument("--device", default="cuda")
+    parser.add_argument(
+        "--edit-only",
+        action="store_true",
+        help="Open the editor without loading recognition models",
+    )
     parser.add_argument("--layout-model", type=Path)
     parser.add_argument("--layout-python", type=Path)
     args = parser.parse_args()
@@ -470,7 +593,9 @@ def main():
     if args.host not in {"0.0.0.0", "::"}:
         allowed_hosts.append(args.host)
     uvicorn.run(
-        create_app(workflow, allowed_hosts=allowed_hosts),
+        create_app(
+            workflow, allowed_hosts=allowed_hosts, inference_enabled=not args.edit_only
+        ),
         host=args.host,
         port=args.port,
     )
