@@ -1,137 +1,7 @@
 @import url("./theme.css");
+@import url("./shell.css");
 @import url("./editor.css");
-/* Application shell, project library and task setup. Editor rules live separately. */
-.app-sidebar {
-  position: fixed;
-  inset: 0 auto 0 0;
-  width: 192px;
-  background: var(--surface);
-  border-right: 1px solid var(--line);
-  display: flex;
-  flex-direction: column;
-  padding: 24px 14px;
-  z-index: 20;
-}
-.brand {
-  font-size: 22px;
-  letter-spacing: -0.8px;
-  font-weight: 780;
-  text-decoration: none;
-  color: var(--ink);
-}
-.brand span {
-  color: var(--accent);
-}
-.app-sidebar .brand {
-  padding: 0 10px;
-}
-.brand-caption {
-  font-size: 11px;
-  color: var(--muted);
-  padding: 1px 10px 28px;
-  letter-spacing: 1px;
-}
-.app-nav {
-  display: grid;
-  gap: 6px;
-}
-.app-nav button {
-  justify-content: flex-start;
-  text-align: left;
-  border-color: transparent;
-  background: transparent;
-  color: var(--muted);
-  padding: 11px 12px;
-}
-.app-nav button.active {
-  background: var(--soft);
-  color: var(--accent);
-  font-weight: 600;
-}
-.nav-symbol {
-  font-size: 19px;
-  width: 22px;
-  text-align: center;
-  line-height: 1;
-}
-.sidebar-bottom {
-  margin-top: auto;
-  display: grid;
-  gap: 14px;
-  padding: 18px 8px 0;
-}
-.sidebar-bottom label {
-  font-size: 11px;
-  color: var(--muted);
-}
-.sidebar-bottom select {
-  display: block;
-  width: 100%;
-  margin-top: 6px;
-  font-size: 12px;
-}
-.environment-badge {
-  font-size: 11px;
-  color: var(--muted);
-  display: flex;
-  gap: 7px;
-  align-items: center;
-}
-.status-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--success);
-}
-.app-header {
-  position: sticky;
-  top: 0;
-  z-index: 12;
-  margin-left: 192px;
-  height: 68px;
-  border-bottom: 1px solid var(--line);
-  background: var(--paper);
-  padding: 0 30px;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-.app-header > div {
-  flex: 1;
-}
-.app-header h1 {
-  font-size: 16px;
-  letter-spacing: 0;
-}
-.app-header p {
-  font-size: 11px;
-}
-.app-header button {
-  font-size: 12px;
-}
-.app-header a {
-  font-size: 12px;
-  text-decoration: none;
-}
-main {
-  margin-left: 192px;
-  padding: 28px 30px 12px;
-  max-width: 2000px;
-}
-.intro {
-  margin: 4px 0 26px;
-}
-.intro p {
-  margin-top: 6px;
-}
-.eyebrow {
-  color: var(--accent);
-  font-size: 11px;
-  letter-spacing: 1.6px;
-  margin-bottom: 7px;
-  display: block;
-  font-weight: 650;
-}
+/* Project library, task setup and workflow panels. The frame lives in shell.css. */
 #steps {
   display: flex;
   gap: 4px;
@@ -157,8 +27,8 @@ main {
   color: var(--accent);
   border-bottom-color: var(--accent);
 }
-#steps button.done {
-  color: var(--success);
+#steps button.done:not(.active) {
+  color: var(--ink);
 }
 .panel {
   display: none;
@@ -171,20 +41,6 @@ main {
 .panel.active {
   display: block;
 }
-.section-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 20px;
-}
-.section-head p {
-  margin-top: 4px;
-  font-size: 13px;
-}
-.section-head .row {
-  margin: 0;
-}
 .footer {
   display: flex;
   align-items: center;
@@ -195,102 +51,12 @@ main {
 .footer .muted {
   font-size: 12px;
 }
-[data-panel="0"] {
+[data-panel="0"],
+[data-panel="3"] {
   background: transparent;
   border: 0;
   box-shadow: none;
   padding: 0;
-}
-.import-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
-  gap: 20px;
-}
-.input-card,
-.setup-card,
-.surface-card {
-  background: var(--paper);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 24px;
-  box-shadow: var(--shadow);
-}
-.setup-card {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-}
-.setup-card label {
-  display: grid;
-  gap: 6px;
-}
-.setup-card label small {
-  font-size: 11px;
-  line-height: 1.6;
-}
-.setup-card .primary {
-  width: 100%;
-  margin-top: auto;
-  padding: 12px;
-}
-.setup-card h3 {
-  border-bottom: 1px solid var(--line);
-  padding-bottom: 12px;
-}
-.setup-note {
-  font-size: 12px;
-  padding: 12px;
-  border-radius: 7px;
-  background: var(--surface);
-}
-.dropzone {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-direction: column;
-  gap: 10px;
-  min-height: 265px;
-  border: 1.5px dashed var(--line);
-  border-radius: 9px;
-  background: var(--surface);
-  cursor: pointer;
-  padding: 22px;
-  text-align: center;
-}
-.dropzone:focus-within,
-.dropzone.drag {
-  background: var(--soft);
-  border-color: var(--accent);
-}
-.dropzone strong {
-  font-size: 16px;
-  font-weight: 550;
-}
-.dropzone > span {
-  font-size: 12px;
-  color: var(--muted);
-}
-.dropzone .upload-icon {
-  display: grid;
-  place-items: center;
-  width: 48px;
-  height: 48px;
-  background: var(--soft);
-  border-radius: 12px;
-  color: var(--accent);
-  font-size: 24px;
-  margin-bottom: 8px;
-}
-.dropzone input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-}
-.supported-types {
-  font-size: 12px;
-  margin-top: 15px;
 }
 .file-row {
   display: flex;
@@ -393,7 +159,7 @@ main {
 .job-banner:not([data-status="running"]):not([data-status="queued"])
   .job-spinner {
   animation: none;
-  border-color: var(--success);
+  border-color: var(--muted);
 }
 @keyframes spin {
   to {
@@ -591,23 +357,6 @@ main {
   }
 }
 @media (max-width: 1100px) {
-  .app-sidebar {
-    width: 156px;
-    padding: 22px 10px;
-  }
-  .app-sidebar .brand {
-    font-size: 20px;
-  }
-  .app-header,
-  main {
-    margin-left: 156px;
-  }
-  .app-header {
-    padding: 0 20px;
-  }
-  main {
-    padding: 22px 20px;
-  }
   .import-grid {
     grid-template-columns: minmax(0, 1fr) 260px;
   }
@@ -615,50 +364,8 @@ main {
   .setup-card {
     padding: 18px;
   }
-  .score-workspace {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 @media (max-width: 760px) {
-  .app-sidebar {
-    width: 68px;
-    padding: 16px 6px;
-  }
-  .app-sidebar .brand {
-    font-size: 0;
-    padding: 0;
-    text-align: center;
-  }
-  .app-sidebar .brand span {
-    font-size: 15px;
-  }
-  .brand-caption,
-  .app-nav .nav-label,
-  .sidebar-bottom label,
-  .environment-badge {
-    display: none;
-  }
-  .app-nav {
-    margin-top: 24px;
-  }
-  .app-nav button {
-    justify-content: center;
-    padding: 12px 8px;
-  }
-  .app-header,
-  main {
-    margin-left: 68px;
-  }
-  .app-header {
-    height: 60px;
-    padding: 0 14px;
-  }
-  .app-header p {
-    display: none;
-  }
-  main {
-    padding: 18px 14px;
-  }
   .intro {
     margin-bottom: 18px;
   }
@@ -725,22 +432,6 @@ main {
   }
 }
 @media (max-width: 430px) {
-  .app-sidebar {
-    width: 54px;
-  }
-  .app-header,
-  main {
-    margin-left: 54px;
-  }
-  main {
-    padding: 14px 10px;
-  }
-  .app-header {
-    padding: 0 10px;
-  }
-  .app-header #headerSubtitle {
-    display: none;
-  }
   .panel {
     padding: 12px;
   }
@@ -759,23 +450,5 @@ main {
   }
   .track-controls label {
     font-size: 12px;
-  }
-  .editor-tools {
-    top: 0;
-  }
-  .app-header h1 {
-    font-size: 14px;
-  }
-}
-
-@media (min-width: 761px) {
-  .editor-tools,
-  .score-reference {
-    top: 80px;
-  }
-}
-@media (max-width: 760px) {
-  .editor-tools {
-    top: 68px;
   }
 }

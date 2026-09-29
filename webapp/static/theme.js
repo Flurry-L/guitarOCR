@@ -1,3 +1,4 @@
+import "./icons.js";
 // A single preference shared by every surface on this origin.
 const key = "guitarocr-theme";
 const system = matchMedia("(prefers-color-scheme: dark)");

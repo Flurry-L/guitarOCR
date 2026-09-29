@@ -1,178 +1,108 @@
 @import url("/static/theme.css");
-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 20px max(24px, calc((100% - 1080px) / 2));
-  background: var(--paper);
-  border-bottom: 1px solid var(--border);
-}
-.brand {
-  font-weight: 800;
-  font-size: 24px;
-  text-decoration: none;
-  color: var(--ink);
-}
-.brand span {
-  color: var(--accent);
-}
-nav {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-nav button {
-  border: 0;
-  background: transparent;
-}
-nav .selected {
-  background: var(--soft);
-  color: var(--accent);
-}
-main {
-  max-width: 1080px;
-  margin: 32px auto;
-  padding: 0 24px;
-  min-height: 70vh;
-}
-h1 {
-  font-size: 28px;
-  line-height: 1.35;
-  margin: 0 0 24px;
-}
-h2 {
-  font-size: 19px;
-  margin: 28px 0 12px;
-}
-p {
-  margin: 8px 0 16px;
-}
-button,
-.button,
-input,
-select {
-  font: inherit;
-}
-button,
-.button {
-  display: inline-block;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  padding: 8px 15px;
-  background: var(--paper);
-  color: var(--ink);
-  cursor: pointer;
-  text-decoration: none;
-  text-align: center;
-}
-button:hover,
-.button:hover {
-  border-color: var(--accent);
-}
-button:disabled {
-  cursor: wait;
-  opacity: 0.5;
-}
-.primary {
-  background: var(--accent);
-  color: var(--paper);
-  border-color: var(--accent);
-}
-input:not([type="checkbox"]):not([type="radio"]),
-select {
-  display: block;
-  width: 100%;
-  padding: 10px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--paper);
-  color: inherit;
-}
-label {
-  display: block;
-  font-weight: 600;
-  margin: 10px 0;
-}
-label input,
-label select {
-  margin-top: 5px;
-}
-.hint,
-.muted {
-  color: var(--muted);
-  font-size: 14px;
-  font-weight: 400;
-}
-.hint {
-  margin: 8px 0 12px;
-}
+@import url("/static/shell.css");
+
+/* The server owns account and queue content; the application frame is shared. */
 .login {
-  width: calc(100% - 32px);
-  max-width: 470px;
+  width: min(470px, calc(100% - 32px));
   max-height: calc(100dvh - 32px);
-  margin: auto;
-  padding: 30px;
-  background: var(--paper);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  padding: 28px;
 }
-.login h2 {
-  font-size: 25px;
-  margin: 0;
+.login label,
+.narrow label {
+  display: grid;
+  gap: 6px;
+  margin: 14px 0;
 }
 .login form > button {
-  margin-top: 12px;
-  margin-right: 8px;
-}
-.login::backdrop {
-  background: #182d2699;
+  margin: 12px 8px 0 0;
 }
 .heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-}
-.heading h1,
-.heading h2 {
   margin-bottom: 16px;
 }
-.upload,
-.update {
-  padding: 22px;
-  background: var(--paper);
-  border: 1px solid var(--border);
-  border-radius: 10px;
+.heading h1 {
+  font-size: 22px;
 }
-.history-heading {
-  margin-top: 24px;
+.hint {
+  padding: 0;
+  background: transparent;
+  margin: 8px 0 12px;
+  font-size: 12px;
 }
-.history-heading h2 {
+.server-input h2 {
+  margin-bottom: 10px;
+}
+.server-input .dropzone {
+  margin: 16px 0;
+}
+.server-options h2 {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 12px;
+}
+.server-options .hint {
   margin: 0;
 }
-.file input {
-  border-style: dashed;
+.server-options label {
+  display: grid;
+  gap: 6px;
+}
+#selectedFiles {
+  overflow-wrap: anywhere;
+}
+#notice {
+  padding: 11px 15px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 8px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+#notice.error {
+  background: var(--danger-bg);
+}
+.project-filters {
+  display: flex;
+  gap: 10px;
+  margin: 20px 0;
+}
+.project-filters input {
+  flex: 1;
 }
 .project-list {
-  margin-top: 28px;
+  display: grid;
+  gap: 14px;
+}
+#projects {
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
 }
 .project {
+  min-width: 0;
+  padding: 18px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 10px;
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px;
-  padding: 22px 0;
-  border-bottom: 1px solid var(--border);
+}
+#projects .project {
+  grid-template-columns: minmax(0, 1fr);
 }
 .project h2 {
-  font-size: 18px;
-  margin: 0;
+  font-size: 14px;
   overflow-wrap: anywhere;
 }
 .project p {
-  margin: 4px 0;
-  color: var(--muted);
-  font-size: 14px;
+  font-size: 12px;
+  margin-top: 6px;
+}
+.project progress {
+  width: 100%;
+  height: 6px;
 }
 .actions {
   display: flex;
@@ -181,52 +111,60 @@ label select {
   gap: 8px;
   flex-wrap: wrap;
 }
-.error,
-#notice.error {
-  color: var(--danger);
+#projects .actions {
+  justify-content: flex-start;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
 }
-#notice {
-  background: var(--soft);
-  border-radius: 7px;
-  padding: 12px 16px;
-  margin-bottom: 20px;
-  white-space: pre-wrap;
-}
-#notice.error {
-  background: #fff0ed;
+.actions :is(button, a) {
+  font-size: 12px;
 }
 .empty {
+  padding: 60px 20px;
   text-align: center;
-  padding: 40px 0;
   color: var(--muted);
+  background: var(--surface);
+  border: 1px dashed var(--line);
+  border-radius: 10px;
 }
 .stats {
   display: flex;
   gap: 16px;
   flex-wrap: wrap;
+  margin: 16px 0;
 }
 .stat {
   background: var(--paper);
   padding: 18px 24px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line);
   border-radius: 8px;
-  min-width: 200px;
+  min-width: 190px;
 }
 .stat strong {
   font-size: 24px;
   display: block;
+  font-weight: 550;
 }
 .stat span {
   color: var(--muted);
+  font-size: 12px;
 }
 .narrow {
-  max-width: 420px;
+  max-width: 480px;
+  padding: 24px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  margin-top: 14px;
 }
-.inline {
-  font-size: 14px;
+section[data-view="account"] > h2,
+section[data-view="admin"] > h2 {
+  margin-top: 24px;
 }
-.inline input {
-  accent-color: var(--accent);
+section[data-view="account"] > h1,
+section[data-view="admin"] > h1 {
+  font-size: 22px;
+  margin-bottom: 20px;
 }
 .table-scroll {
   overflow: auto;
@@ -240,334 +178,39 @@ th,
 td {
   text-align: left;
   padding: 12px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--line);
 }
 td button {
   margin: 2px 5px 2px 0;
 }
-footer {
-  padding: 24px;
-  text-align: center;
-  color: var(--muted);
-  font-size: 13px;
+.update {
+  padding: 22px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  margin-bottom: 24px;
 }
-progress {
-  width: 100%;
-  accent-color: var(--accent);
-}
-:focus-visible {
-  outline: 3px solid var(--accent);
-  outline-offset: 3px;
-}
-@media (max-width: 650px) {
-  header {
-    padding: 16px;
-    align-items: flex-start;
-  }
-  .brand {
-    font-size: 21px;
-  }
-  nav {
-    justify-content: flex-end;
-    gap: 0;
-  }
-  nav button {
-    padding: 6px 8px;
-    font-size: 14px;
-  }
-  main {
-    padding: 0 16px;
-    margin-top: 24px;
+@media (max-width: 760px) {
+  #projects {
+    grid-template-columns: minmax(0, 1fr);
   }
   .project {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .actions {
     justify-content: flex-start;
   }
-  .heading {
-    flex-wrap: wrap;
-  }
-  .login {
-    padding: 22px;
-  }
-}
-
-/* Server entry shares the workbench's surfaces and navigation hierarchy. */
-.server-sidebar {
-  position: fixed;
-  inset: 0 auto 0 0;
-  width: 192px;
-  padding: 26px 18px;
-  display: flex;
-  align-items: stretch;
-  justify-content: flex-start;
-  flex-direction: column;
-  gap: 12px;
-  background: var(--surface);
-  border-right: 1px solid var(--line);
-  border-bottom: 0;
-}
-.server-sidebar .brand {
-  font-size: 22px;
-  letter-spacing: -0.8px;
-}
-.sidebar-caption {
-  font-size: 11px;
-  color: var(--muted);
-  margin: 0 0 24px;
-}
-.server-sidebar nav {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-}
-.server-sidebar nav button {
-  text-align: left;
-  padding: 11px 10px;
-}
-.server-theme {
-  margin-top: auto;
-  font-size: 11px;
-  color: var(--muted);
-}
-.server-theme select {
-  font-size: 12px;
-  margin-top: 7px;
-}
-main {
-  max-width: 1450px;
-  margin: 0 0 0 192px;
-  padding: 32px;
-  min-height: calc(100vh - 70px);
-}
-h1 {
-  font-size: 28px;
-  font-weight: 650;
-  letter-spacing: -0.6px;
-}
-.server-intro {
-  margin: -8px 0 26px;
-  color: var(--muted);
-  font-size: 13px;
-}
-.upload {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
-  gap: 28px;
-  padding: 24px;
-  border-radius: 12px;
-}
-.upload h2 {
-  margin: 0 0 12px;
-}
-.server-input .file {
-  padding: 26px 20px;
-  background: var(--surface);
-  border: 1px dashed var(--line);
-  border-radius: 9px;
-  min-height: 200px;
-  display: flex;
-  justify-content: center;
-  flex-direction: column;
-  gap: 14px;
-  text-align: center;
-  font-size: 15px;
-}
-.server-input input {
-  font-size: 12px;
-  border: 0 !important;
-}
-.server-options {
-  border-left: 1px solid var(--line);
-  padding-left: 25px;
-  display: flex;
-  flex-direction: column;
-}
-.server-options .primary {
-  margin-top: auto;
-  min-height: 43px;
-}
-.server-options .hint {
-  font-size: 12px;
-}
-.project-filters {
-  display: flex;
-  gap: 10px;
-  margin-top: 20px;
-}
-.project-filters input {
-  flex: 1;
-}
-.project-filters select {
-  width: auto;
-}
-#projects,
-#taskProjects {
-  display: grid;
-  gap: 12px;
-  margin-top: 16px;
-}
-.project {
-  padding: 18px;
-  background: var(--paper);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-}
-.project h2 {
-  font-size: 15px;
-}
-.project p {
-  font-size: 12px;
-}
-.project .actions button,
-.project .actions a {
-  font-size: 12px;
-}
-.heading h2 {
-  font-size: 17px;
-}
-footer {
-  margin-left: 192px;
-}
-.login {
-  color: var(--ink);
-}
-#notice.error {
-  background: var(--danger-bg);
-}
-.primary {
-  color: #fff;
-}
-.hint {
-  padding: 0;
-  background: transparent;
-  border-radius: 0;
-}
-.stats .stat {
-  background: var(--paper);
-}
-@media (max-width: 1000px) {
-  .upload {
-    grid-template-columns: minmax(0, 1fr) 250px;
-    gap: 20px;
-  }
-  main {
-    padding: 24px;
-  }
-  .server-sidebar {
-    width: 156px;
-    padding: 22px 12px;
-  }
-  main,
-  footer {
-    margin-left: 156px;
-  }
-  .server-sidebar .brand {
-    font-size: 20px;
-  }
-}
-@media (max-width: 760px) {
-  .server-sidebar {
-    position: static;
-    width: auto;
-    flex-direction: row;
-    align-items: center;
-    flex-wrap: wrap;
-    padding: 14px 18px;
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
-    gap: 10px;
-  }
-  .sidebar-caption {
-    display: none;
-  }
-  .server-sidebar nav {
-    flex-direction: row;
-    flex: 1;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    gap: 3px;
-  }
-  .server-sidebar nav button {
-    font-size: 12px;
-    padding: 7px;
-  }
-  .server-theme {
-    margin: 0;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .server-theme select {
-    width: auto;
-    margin: 0;
-  }
-  .server-sidebar #loginButton {
-    margin-left: auto;
-  }
-  main,
-  footer {
-    margin-left: 0;
-  }
-  main {
-    padding: 22px 16px;
-  }
-  .upload {
-    grid-template-columns: 1fr;
-    padding: 18px;
-  }
-  .server-options {
-    border-left: 0;
-    border-top: 1px solid var(--line);
-    padding: 18px 0 0;
-  }
-  .server-input .file {
-    min-height: 170px;
-  }
+  .heading,
   .project-filters {
     flex-wrap: wrap;
   }
   .project-filters input {
-    min-width: 160px;
+    min-width: 150px;
   }
-  .project {
-    grid-template-columns: 1fr;
+  .login {
+    padding: 20px;
   }
-  .project .actions {
-    justify-content: flex-start;
+  .narrow {
+    padding: 16px;
   }
-  h1 {
-    font-size: 24px;
-  }
-}
-
-.server-input .file {
-  position: relative;
-  cursor: pointer;
-}
-.server-input .file input[type="file"] {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-}
-.server-input .file:focus-within {
-  outline: 2px solid var(--accent);
-  outline-offset: 3px;
-}
-.server-input .file::before {
-  content: "↥";
-  font-size: 24px;
-  color: var(--accent);
-  display: block;
-}
-.server-input .file::after {
-  content: "PDF、PNG、JPG、BMP、TIFF";
-  font-size: 12px;
-  font-weight: 400;
-  color: var(--muted);
-}
-#selectedFiles {
-  overflow-wrap: anywhere;
 }

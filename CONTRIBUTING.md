@@ -35,7 +35,7 @@ uv run --no-sync python -m unittest discover -s tests -v
 
 同一项目的写操作由调用方串行化：本地入口使用线程锁，多用户服务使用 `server/projects.py` 的文件锁，并以数据库租约识别任务归属。`Workspace` 的内部锁只保护单次读取与替换，不替代整个操作的互斥。关闭网页不影响服务器任务；任务恢复按提交时的模型路径继续。
 
-`webapp/static/` 使用原生 ES modules，无需前端构建。`app.js` 连接导入、阶段操作与编辑器，`workspace.js` 管理导航、项目库、任务和运行设置。`theme.css` / `theme.js` 是三种入口共用的外观源；`style.css` 管理工作台布局，`editor.css` 管理画框和乐谱编辑。`state.js` 区分已保存快照和编辑草稿；打开项目和接受保存结果是显式操作。`metadata-editor.js`、`boxes.js`、`measure-editor.js` 各自负责一个编辑面板。`score-model.js` 修改音符数据，`score-engraving.js` 将识别数据映射为 alphaTab 排版模型，`score-view.js` 根据排版后的坐标处理点选和拖动。排版模型不写回识别数据。保存时显式传入读取时的 revision，冲突后保留草稿。
+`webapp/static/` 使用原生 ES modules，无需前端构建。`app.js` 连接导入、阶段操作与编辑器，`workspace.js` 管理导航、项目库、任务和运行设置。`theme.css` / `theme.js`、`shell.css` 和 `icons.js` 是三种入口共用的主题、框架和图标源，桌面打包时由 `sync-assets.mjs` 同步；`style.css` 管理工作流程面板，`editor.css` 管理画框和乐谱编辑。`state.js` 区分已保存快照和编辑草稿；打开项目和接受保存结果是显式操作。`metadata-editor.js`、`boxes.js`、`measure-editor.js` 各自负责一个编辑面板。`score-model.js` 修改音符数据，`score-engraving.js` 将识别数据映射为 alphaTab 排版模型，`score-view.js` 根据排版后的坐标处理点选和拖动。排版模型不写回识别数据。保存时显式传入读取时的 revision，冲突后保留草稿。
 
 桌面入口是 `desktop/ui/` 和 `desktop/src-tauri/src/main.rs`。Tauri 管理窗口、下载和本机子进程；本机通过 `scripts/desktop_runtime.py` 启动同一个网页工作台，远程窗口连接服务器。音乐处理规则不在桌面壳中重复实现。Tauri 的开发和构建钩子调用 `desktop/sync-assets.mjs`，将共用主题复制到桌面前端目录；生成文件不入库。
 

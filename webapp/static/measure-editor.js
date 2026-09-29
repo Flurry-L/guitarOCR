@@ -1,10 +1,13 @@
 import { ui, endpoint, receiveProject } from "./state.js";
 import { $, el, action, notice } from "./dom.js";
 import { api } from "./api.js";
+import { editorMenu } from "./editor-menu.js";
 import { scoreView } from "./score-view.js";
 import { measureProfile, reviewKind } from "./score-engraving.js";
 import {
   clone,
+  ticks,
+  pitchName,
   parsePitch,
   pitchShift,
   setFret,
@@ -24,13 +27,58 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     redo = [],
     saving = false,
     digits = "",
-    digitTime = 0;
+    digitTime = 0,
+    digitUndoRecorded = false;
   let projectId,
     projectRevision,
     track = "all";
   const histories = new Map();
+  let clipboard = null;
+  const menu = editorMenu($("scoreContextMenu"), $("scoreCanvas"));
+  const studio = $("reviewEditor");
+  function inspector(visible) {
+    studio.classList.toggle("hide-inspector", !visible);
+    $("toggleInspector").setAttribute("aria-pressed", String(visible));
+  }
+  inspector(!matchMedia("(max-width: 760px)").matches);
+  $("toggleInspector").onclick = () =>
+    inspector(studio.classList.contains("hide-inspector"));
+  function focusEditor(focused) {
+    studio.classList.toggle("is-focused", focused);
+    $("focusEditor").setAttribute("aria-pressed", String(focused));
+    $("focusEditor").title = focused
+      ? "退出专注编辑（Esc）"
+      : "专注编辑（Esc 退出）";
+    $("scoreCanvas").focus({ preventScroll: true });
+  }
+  $("focusEditor").onclick = () =>
+    focusEditor(!studio.classList.contains("is-focused"));
+  document.addEventListener("keydown", (e) => {
+    if (
+      e.key === "Escape" &&
+      studio.classList.contains("is-focused") &&
+      !document.querySelector("dialog[open]")
+    ) {
+      focusEditor(false);
+    }
+  });
+  studio.addEventListener("click", (e) => {
+    if (
+      e.target.closest(
+        ".command-toolbar button,.effect-tools button,#fretButtons button,#pitchButtons button",
+      )
+    )
+      $("scoreCanvas").focus({ preventScroll: true });
+  });
+  studio.addEventListener("change", (e) => {
+    if (e.target.closest(".command-toolbar"))
+      $("scoreCanvas").focus({ preventScroll: true });
+  });
   const view = scoreView($("scoreCanvas"), {
     onSelect: (hit) => selectMeasure(hit.mi, hit),
+    onContext: async (hit, x, y) => {
+      if (await selectMeasure(hit.mi, hit)) menu.open(x, y);
+    },
     onPlace: async (hit, pitch, add) => {
       if (!(await selectMeasure(hit.mi, hit))) return;
       change(() => {
@@ -85,8 +133,12 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
   function snapshot() {
     return { draft: clone(draft), selected: clone(selected) };
   }
-  function change(fn) {
+  function change(fn, { merge = false, typed = false } = {}) {
     if (ui.busy || saving || !draft || ui.editorMode !== "score") return;
+    if (!typed) {
+      digits = "";
+      digitTime = 0;
+    }
     const before = snapshot();
     try {
       fn();
@@ -97,12 +149,13 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
       return;
     }
     if (JSON.stringify(before.draft) === JSON.stringify(draft)) return;
-    undo.push(before);
+    if (!merge || !undo.length) undo.push(before);
     if (undo.length > 100) undo.shift();
     redo = [];
     updateDirty();
     feedback();
     draw();
+    return true;
   }
   function updateDirty() {
     ui.measureDirty =
@@ -112,6 +165,8 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
   }
   function restore(from, to) {
     if (!from.length || ui.busy || saving || ui.editorMode !== "score") return;
+    digits = "";
+    digitTime = 0;
     to.push(snapshot());
     const before = from.pop();
     draft = before.draft;
@@ -176,7 +231,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     $("measureMap").replaceChildren(
       ...[...groups.values()].map((indexes) => {
         const row = el("div", undefined, "measure-map-group");
-        if (groups.size > 1) {
+        {
           const m = measures[indexes[0]];
           row.append(
             el(
@@ -216,10 +271,17 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
       $("trackSelect").value = track;
       return;
     }
+    const bar = current()?.bar_index;
     track = next;
-    const index = ui.state.measures.findIndex(
-      (m) => track === "all" || (m.part_id || "part-1") === track,
+    let index = ui.state.measures.findIndex(
+      (m) =>
+        m.bar_index === bar &&
+        (track === "all" || (m.part_id || "part-1") === track),
     );
+    if (index < 0)
+      index = ui.state.measures.findIndex(
+        (m) => track === "all" || (m.part_id || "part-1") === track,
+      );
     if (index >= 0) await selectMeasure(index, undefined, true);
     renderNavigator();
     draw();
@@ -318,7 +380,11 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
       renderNavigator();
     }
     if (hit) selected = { ...hit };
+    selected.string =
+      event()?.notes[selected.ni]?.string || selected.string || 1;
     digits = "";
+    digitTime = 0;
+    menu.close();
     draw();
     view.select(selected, scroll);
     $("scoreCanvas").focus({ preventScroll: true });
@@ -402,6 +468,10 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
         ? "未保存"
         : "已保存";
     $("discardMeasure").hidden = !ui.measureDirty;
+    $("copyBeat").disabled = busy || !event() || ui.editorMode !== "score";
+    $("pasteBeat").disabled =
+      busy || !clipboard || !event() || ui.editorMode !== "score";
+    $("duplicateBeat").disabled = busy || !event() || ui.editorMode !== "score";
     $("undoNote").disabled = busy || !undo.length || ui.editorMode === "text";
     $("redoNote").disabled = busy || !redo.length || ui.editorMode === "text";
     document
@@ -409,7 +479,15 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
         ".note-tools button,.note-tools select,.effect-tools button,.effect-tools select,#fretTools button,#fretTools select,#pitchTools button,#pitchTools select,#drumTools button,#drumTools select,#timeSignature,#measureTempo,#eventStart",
       )
       .forEach((node) => {
-        if (!["undoNote", "redoNote"].includes(node.id))
+        if (
+          ![
+            "undoNote",
+            "redoNote",
+            "copyBeat",
+            "pasteBeat",
+            "duplicateBeat",
+          ].includes(node.id)
+        )
           node.disabled = busy || !draft || ui.editorMode === "text";
       });
     document.querySelectorAll("[data-effect],#bendValue").forEach((node) => {
@@ -476,11 +554,55 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     }
     const drums = profile.instrument === "drums",
       tab = selected.kind === "tab";
+    $("noteValue").textContent = n
+      ? drums
+        ? drumNames[n.pitch] || `鼓音 ${n.pitch}`
+        : tab
+          ? `${selected.string} 弦 · ${n.fret === "x" ? "X" : n.fret + " 品"}`
+          : pitchName(
+              n.pitch -
+                pitchShift(
+                  profile.pitch_context,
+                  e.effects,
+                  profile.instrument,
+                ),
+            )
+      : e?.status === "rest"
+        ? "休止符"
+        : "空弦位";
+    $("noteDescription").textContent = e
+      ? `${{ 1: "全", 2: "二分", 4: "四分", 8: "八分", 16: "十六分", 32: "三十二分", 64: "六十四分" }[e.duration.value] || e.duration.value}音符${e.duration.double_dotted ? " · 双附点" : e.duration.dotted ? " · 附点" : ""}${e.notes.length > 1 ? ` · ${e.notes.length} 音和弦` : ""}`
+      : "";
+    const signature =
+      draft.time_signature ||
+      current().score_state?.time ||
+      ui.state.metadata?.time_signature ||
+      "4/4";
+    const [beats, unit] = String(signature).split("/").map(Number);
+    const expected = (beats * 3840) / unit;
+    const voiceEvents = draft.voices[selected.vi]?.events || [];
+    const used = Math.max(0, ...voiceEvents.map((e) => e.start + ticks(e)));
+    const over = used > expected;
+    $("rhythmStatus").textContent = Number.isFinite(expected)
+      ? `${signature} · 本声部 ${Number((used / 960).toFixed(3))} / ${expected / 960} 拍${over ? " · 超出小节" : used < expected ? " · 尚有空拍" : " · 时值完整"}`
+      : "";
+    $("rhythmStatus").classList.toggle("warning", over);
     $("fretTools").hidden = !tab;
     $("pitchTools").hidden = tab || drums;
     $("drumTools").hidden = !drums;
     $("raiseNote").hidden = $("lowerNote").hidden = drums;
     if (drums && n) $("drumValue").value = n.pitch;
+    if (n && !tab && !drums) {
+      const written =
+        n.pitch -
+        pitchShift(profile.pitch_context, e.effects, profile.instrument);
+      const octave = String(Math.floor(written / 12) - 1);
+      if (
+        ![...$("pitchOctave").options].some((option) => option.value === octave)
+      )
+        $("pitchOctave").append(new Option(octave, octave));
+      $("pitchOctave").value = octave;
+    }
     $("editHint").textContent = tab
       ? "点选弦位，输入数字或 X。方向键换拍、换弦，Delete 删音。"
       : drums
@@ -494,11 +616,17 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
             String(n.fret).toLowerCase() === b.dataset.fret.toLowerCase(),
         ),
       );
-    for (const b of document.querySelectorAll("[data-effect]"))
+    for (const b of document.querySelectorAll("[data-effect]")) {
+      b.hidden =
+        drums &&
+        ["tie", "hammer", "sl", "pm", "vib"].includes(b.dataset.effect);
       b.setAttribute(
         "aria-pressed",
         String(!!n?.effects?.includes(b.dataset.effect)),
       );
+    }
+    $("bendValue").hidden = drums;
+    if (drums) document.querySelector(".note-input-panel").open = true;
     const bend = n?.effects?.find((e) => e.startsWith("bend:")) || "";
     $("bendValue").value = bend;
     if (bend && !$("bendValue").value) {
@@ -509,34 +637,105 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     }
     updateMeasureControls();
   }
-  function applyValue(value) {
+  function applyValue(value, merge = false, typed = false) {
+    return change(
+      () => {
+        const e = event();
+        if (selected.kind === "tab")
+          selected.ni = setFret(
+            e,
+            selected.string,
+            value,
+            profile.mode,
+            profile.tuning,
+          );
+        else {
+          const pitch =
+            profile.instrument === "drums"
+              ? Number(value)
+              : parsePitch(value) +
+                pitchShift(
+                  profile.pitch_context,
+                  e.effects,
+                  profile.instrument,
+                );
+          selected.ni = setPitch(
+            e,
+            selected.ni,
+            pitch,
+            profile.mode,
+            profile.tuning,
+          );
+          selected.string = e.notes[selected.ni].string || selected.string;
+        }
+      },
+      { merge, typed },
+    );
+  }
+  $("copyBeat").onclick = () => {
+    if (!event() || ui.busy || saving) return;
+    digits = "";
+    digitTime = 0;
+    clipboard = { beat: clone(event()), profile: clone(profile) };
+    feedback("已复制当前拍，可在目标拍粘贴。");
+    updateMeasureControls();
+  };
+  function pasteBeat() {
+    if (!clipboard) return;
     change(() => {
-      const e = event();
-      if (selected.kind === "tab")
-        selected.ni = setFret(
-          e,
-          selected.string,
-          value,
-          profile.mode,
-          profile.tuning,
+      const source = clipboard.profile,
+        copy = clone(clipboard.beat);
+      if ((source.instrument === "drums") !== (profile.instrument === "drums"))
+        throw new Error(
+          "鼓轨与旋律音轨的音符类型不同，请在相同类型音轨间粘贴。",
         );
-      else {
-        const pitch =
-          profile.instrument === "drums"
-            ? Number(value)
-            : parsePitch(value) +
-              pitchShift(profile.pitch_context, e.effects, profile.instrument);
-        selected.ni = setPitch(
-          e,
-          selected.ni,
-          pitch,
-          profile.mode,
-          profile.tuning,
-        );
-        selected.string = e.notes[selected.ni].string || selected.string;
+      const same =
+        source.mode === profile.mode &&
+        JSON.stringify(source.tuning) === JSON.stringify(profile.tuning);
+      if (!same) {
+        const notes = copy.notes;
+        copy.notes = [];
+        for (const note of notes) {
+          const pitch =
+            note.pitch ??
+            source.tuning[note.string - 1] +
+              (note.fret === "x" ? 0 : note.fret);
+          const index = setPitch(
+            copy,
+            -1,
+            pitch,
+            profile.mode === "tab" ? "both" : profile.mode,
+            profile.tuning,
+          );
+          copy.notes[index].effects = clone(note.effects || []);
+          if (profile.mode === "tab") delete copy.notes[index].pitch;
+          if (note.fret === "x" && profile.mode !== "notation")
+            copy.notes[index].fret = "x";
+        }
       }
+      const voice = draft.voices[selected.vi],
+        start = event().start;
+      changeDuration(voice, selected.ei, copy.duration);
+      copy.start = start;
+      voice.events[selected.ei] = copy;
+      selected.ni =
+        selected.kind === "tab"
+          ? copy.notes.findIndex((n) => n.string === selected.string)
+          : copy.notes.length
+            ? 0
+            : -1;
     });
   }
+  $("pasteBeat").onclick = pasteBeat;
+  $("duplicateBeat").onclick = () =>
+    change(() => {
+      const copy = clone(event()),
+        voice = draft.voices[selected.vi];
+      const index = insertEvent(voice, selected.ei);
+      copy.start = voice.events[index].start;
+      voice.events[index] = copy;
+      selected.ei = index;
+    });
   function fretButtons() {
     const begin = +$("fretRange").value;
     $("fretButtons").replaceChildren(
@@ -594,6 +793,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
           profile.mode,
           profile.tuning,
         );
+      selected.string = e.notes[selected.ni]?.string || selected.string;
     });
   }
   $("lowerNote").onclick = () => shiftNote(-1);
@@ -742,12 +942,6 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
       n.effects = (n.effects || []).filter((e) => !e.startsWith("bend:"));
       if ($("bendValue").value) n.effects.push($("bendValue").value);
     });
-  new ResizeObserver(() => {
-    $("scoreCanvas").style.setProperty(
-      "--toolbar-height",
-      `${document.querySelector(".editor-tools").offsetHeight + 90}px`,
-    );
-  }).observe(document.querySelector(".editor-tools"));
   $("scoreZoom").onchange = () => view.zoom(+$("scoreZoom").value);
   $("sourceZoom").onclick = () => {
     $("largeSource").src = current().url;
@@ -764,7 +958,19 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     }
     if (ui.editorMode !== "score" || e.target.matches("input,textarea,select"))
       return;
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+    const modifier = e.ctrlKey || e.metaKey;
+    const key = e.key.toLowerCase();
+    const command = modifier
+      ? { c: "copyBeat", v: "pasteBeat", d: "duplicateBeat", y: "redoNote" }[
+          key
+        ]
+      : null;
+    if (command) {
+      e.preventDefault();
+      menu.run(command);
+      return;
+    }
+    if (modifier && key === "z") {
       e.preventDefault();
       restore(e.shiftKey ? redo : undo, e.shiftKey ? undo : redo);
     }
@@ -776,12 +982,60 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
       ui.editorMode !== "score" ||
       !event() ||
       e.ctrlKey ||
-      e.metaKey
+      e.metaKey ||
+      e.altKey
     )
       return;
     if (e.key === "Delete" || e.key === "Backspace") {
       e.preventDefault();
-      removeSelected();
+      if (e.shiftKey) $("deleteEvent").click();
+      else removeSelected();
+      return;
+    }
+    if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
+      e.preventDefault();
+      const rect =
+        $("scoreCanvas")
+          .querySelector(".note-selection,.score-selection")
+          ?.getBoundingClientRect() || $("scoreCanvas").getBoundingClientRect();
+      menu.open(rect.left + 10, rect.top + 24);
+      return;
+    }
+    if (["+", "=", "-", ".", "t", "T", "Insert"].includes(e.key)) {
+      e.preventDefault();
+      if (e.key === "Insert") $("addEvent").click();
+      else if (e.key === ".") {
+        $("durationDots").value = String(
+          (Number($("durationDots").value) + 1) % 3,
+        );
+        duration();
+      } else if (e.key.toLowerCase() === "t") {
+        $("eventTuplet").value =
+          $("eventTuplet").value === "3:2" ? "1:1" : "3:2";
+        duration();
+      } else
+        duration(
+          Math.max(
+            1,
+            Math.min(64, event().duration.value * (e.key === "-" ? 0.5 : 2)),
+          ),
+        );
+      return;
+    }
+    if (e.key === "Home" || e.key === "End") {
+      e.preventDefault();
+      selected.ei =
+        e.key === "Home" ? 0 : draft.voices[selected.vi].events.length - 1;
+      selected.ni =
+        selected.kind === "tab"
+          ? event().notes.findIndex((n) => n.string === selected.string)
+          : event().notes.length
+            ? 0
+            : -1;
+      digits = "";
+      digitTime = 0;
+      draw();
+      view.select(selected, true);
       return;
     }
     if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
@@ -822,11 +1076,19 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
             ? 0
             : -1;
       digits = "";
+      digitTime = 0;
       draw();
+      view.select(selected, true);
       return;
     }
     if (e.key === "ArrowUp" || e.key === "ArrowDown") {
       e.preventDefault();
+      digits = "";
+      digitTime = 0;
+      if (e.shiftKey && profile.instrument !== "drums") {
+        shiftNote(e.key === "ArrowUp" ? 1 : -1);
+        return;
+      }
       if (selected.kind === "tab") {
         selected.string = Math.max(
           1,
@@ -845,11 +1107,16 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     }
     if (selected.kind === "tab" && /^[0-9xX]$/.test(e.key)) {
       e.preventDefault();
-      digits = Date.now() - digitTime < 800 ? digits + e.key : e.key;
+      let merge = Date.now() - digitTime < 800 && !!digits;
+      digits = merge ? digits + e.key : e.key;
       digitTime = Date.now();
-      if (digits.length > 2 || Number(digits) > 30 || /x/i.test(digits))
+      if (digits.length > 2 || Number(digits) > 30 || /x/i.test(digits)) {
         digits = e.key;
-      applyValue(digits);
+        merge = false;
+      }
+      if (!merge) digitUndoRecorded = false;
+      const changed = applyValue(digits, merge && digitUndoRecorded, true);
+      digitUndoRecorded ||= !!changed;
     } else if (e.key.toLowerCase() === "r") {
       $("makeRest").click();
       e.preventDefault();
@@ -864,6 +1131,8 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
   };
   async function save(reviewed = true) {
     if (saving || ui.busy || !draft) return false;
+    digits = "";
+    digitTime = 0;
     saving = true;
     setBusy(true);
     feedback();
@@ -910,6 +1179,8 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
       saving = false;
       setBusy(false);
       updateMeasureControls();
+      if (ui.editorMode === "score")
+        $("scoreCanvas").focus({ preventScroll: true });
     }
   }
   $("saveMeasure").onclick = () => save();

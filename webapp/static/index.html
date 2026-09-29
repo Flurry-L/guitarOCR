@@ -13,19 +13,27 @@
       <div class="brand-caption">乐谱工作台</div>
       <nav class="app-nav">
         <button data-screen-link="workbench" class="active" title="工作台">
-          <span class="nav-symbol" aria-hidden="true">⊞</span
+          <span
+            class="nav-symbol"
+            aria-hidden="true"
+            data-icon="workbench"
+          ></span
           ><span class="nav-label">工作台</span>
         </button>
         <button data-screen-link="library" title="项目库">
-          <span class="nav-symbol" aria-hidden="true">▤</span
+          <span class="nav-symbol" aria-hidden="true" data-icon="library"></span
           ><span class="nav-label">项目库</span>
         </button>
         <button data-screen-link="tasks" title="任务中心">
-          <span class="nav-symbol" aria-hidden="true">◷</span
+          <span class="nav-symbol" aria-hidden="true" data-icon="tasks"></span
           ><span class="nav-label">任务中心</span>
         </button>
         <button data-screen-link="settings" title="设置">
-          <span class="nav-symbol" aria-hidden="true">⚙</span
+          <span
+            class="nav-symbol"
+            aria-hidden="true"
+            data-icon="settings"
+          ></span
           ><span class="nav-label">设置</span>
         </button>
       </nav>
@@ -35,7 +43,7 @@
           ><span id="environmentLabel">连接工作台…</span>
         </div>
         <label
-          >外观<select data-theme-picker aria-label="外观主题">
+          >外观<select data-theme-picker="" aria-label="外观主题">
             <option value="system">跟随系统</option>
             <option value="light">浅色</option>
             <option value="dark">深色</option>
@@ -52,17 +60,17 @@
         快捷键</button
       ><button id="newProject">＋ 新建项目</button>
     </header>
-    <main>
-      <div id="notice" role="status" aria-live="polite" hidden></div>
-      <div id="jobBanner" class="job-banner" hidden>
+    <main class="app-main">
+      <div id="notice" role="status" aria-live="polite" hidden=""></div>
+      <div id="jobBanner" class="job-banner" hidden="">
         <span class="job-spinner" aria-hidden="true"></span>
         <div class="job-detail">
           <strong id="jobTitle"></strong>
           <p id="jobMessage" role="status" aria-live="polite"></p>
           <progress id="jobProgress" aria-label="识别进度"></progress>
         </div>
-        <button id="cancelJob" hidden>停止任务</button
-        ><button id="continueJob" hidden>继续识别</button>
+        <button id="cancelJob" hidden="">停止任务</button
+        ><button id="continueJob" hidden="">继续识别</button>
       </div>
       <div data-screen="workbench">
         <div id="intro" class="intro">
@@ -77,7 +85,7 @@
           ><button data-step="3">04 <span>校对乐谱</span></button
           ><button data-step="4">05 <span>导出乐谱</span></button>
         </nav>
-        <div id="currentDocument" class="document-summary" hidden>
+        <div id="currentDocument" class="document-summary" hidden="">
           <span
             ><strong id="documentName"></strong><span id="documentPages"></span
           ></span>
@@ -93,14 +101,18 @@
                 <span class="pill">PDF / 图片</span>
               </div>
               <label id="dropzone" class="dropzone"
-                ><span class="upload-icon" aria-hidden="true">↥</span
+                ><span
+                  class="upload-icon"
+                  aria-hidden="true"
+                  data-icon="upload"
+                ></span
                 ><strong>拖入乐谱，或点击选择</strong
                 ><span>PDF、PNG、JPG、BMP、TIFF</span
                 ><input
                   id="files"
                   type="file"
                   accept=".pdf,.png,.jpg,.jpeg,.bmp,.tif,.tiff"
-                  multiple
+                  multiple=""
                   aria-label="选择乐谱文件"
               /></label>
               <div id="fileList"></div>
@@ -138,10 +150,10 @@
               </div>
               <span id="uploadLimits" class="import-limits"
                 >每个项目最多 100 页 · 200 MB</span
-              ><button id="upload" class="primary" disabled>开始识别</button>
+              ><button id="upload" class="primary" disabled="">开始识别</button>
             </div>
           </div>
-          <div id="recentProjects" class="recent" hidden>
+          <div id="recentProjects" class="recent" hidden="">
             <div class="section-head">
               <h3>最近项目</h3>
               <button id="allProjects" class="quiet">查看全部 →</button>
@@ -220,11 +232,11 @@
                 <span>■ 小节</span><span>■ 谱头</span><span>■ 速度</span>
               </div>
               <div id="boxList"></div>
-              <figure id="boxPreview" hidden>
+              <figure id="boxPreview" hidden="">
                 <figcaption>区域预览</figcaption>
                 <canvas id="cropPreview"></canvas>
               </figure>
-              <div class="coords" id="coords" hidden>
+              <div class="coords" id="coords" hidden="">
                 <details>
                   <summary>精确位置（像素）</summary>
                   <label>X<input id="boxX" type="number" step="1" /></label
@@ -236,7 +248,7 @@
                 <label id="boxModeField"
                   >此小节谱面
                   <select id="boxMode">
-                    <option value="" disabled>待识别</option>
+                    <option value="" disabled="">待识别</option>
                     <option value="tab">TAB</option>
                     <option value="notation">五线谱</option>
                     <option value="both">五线谱 + TAB</option>
@@ -324,7 +336,7 @@
                 </option>
                 <option value="custom">自定义</option>
               </select></label
-            ><label id="customTuning" hidden
+            ><label id="customTuning" hidden=""
               >各弦音高（从第 1 弦到低音弦）<input
                 id="tuning"
                 value="64,59,55,50,45,40"
@@ -333,7 +345,7 @@
               ></label
             >
           </div>
-          <div id="infoWarnings" class="hint" hidden></div>
+          <div id="infoWarnings" class="hint" hidden=""></div>
           <div class="footer">
             <span class="muted">更改乐器、调弦或移调后需重新识别小节。</span>
             <button id="saveInfo" class="primary">保存并继续</button>
@@ -346,400 +358,493 @@
               <p>在谱面上点选音符，用工具栏或键盘修改，随时对照原谱。</p>
             </div>
             <div class="row">
-              <button id="resumeOcr" hidden>继续识别</button>
-              <button id="retryIssues" hidden>重试待检查小节</button>
+              <button id="resumeOcr" hidden="">继续识别</button>
+              <button id="retryIssues" hidden="">重试待检查小节</button>
               <button id="recognize" class="primary">识别乐谱</button>
             </div>
           </div>
           <div id="ocrEmpty" class="empty">
             点击「识别乐谱」，读取音符和节奏。
           </div>
-          <div id="reviewEditor" hidden>
-            <div class="overview-toolbar">
-              <span id="recognitionSummary" class="muted"></span>
-              <div class="row">
-                <label class="zoom-control"
-                  >谱面大小
-                  <select id="scoreZoom">
-                    <option value="0.9">90%</option>
-                    <option value="1.1" selected>110%</option>
-                    <option value="1.3">130%</option>
-                    <option value="1.5">150%</option>
-                  </select></label
-                ><button id="nextIssue">下一个待检查小节</button>
+          <div id="reviewEditor" hidden="" class="editor-studio">
+            <div class="editor-tools" role="toolbar" aria-label="乐谱编辑工具">
+              <div class="editor-navigation">
+                <div class="row">
+                  <select id="trackSelect" aria-label="选择音轨"></select>
+                  <button id="prevMeasure" aria-label="上一小节">‹</button
+                  ><select id="measureSelect" aria-label="选择小节"></select
+                  ><button id="nextMeasure" aria-label="下一小节">›</button>
+                </div>
+                <div class="row">
+                  <label class="zoom-control"
+                    ><select id="scoreZoom" aria-label="谱面缩放">
+                      <option value="0.9">90%</option>
+                      <option value="1.1" selected="">110%</option>
+                      <option value="1.3">130%</option>
+                      <option value="1.5">150%</option>
+                    </select></label
+                  >
+                  <button id="showSource" class="mobile-source">原谱</button
+                  ><span id="saveStatus" class="muted small"></span
+                  ><button id="saveMeasure" class="primary">确认小节</button>
+                  <button
+                    id="toggleInspector"
+                    class="icon-button"
+                    title="原谱与音符属性"
+                    aria-label="原谱与音符属性"
+                    aria-pressed="true"
+                    data-icon="inspector"
+                  ></button
+                  ><button
+                    id="focusEditor"
+                    class="icon-button"
+                    title="专注编辑（Esc 退出）"
+                    aria-label="专注编辑"
+                    aria-pressed="false"
+                    data-icon="focus"
+                  ></button>
+                </div>
               </div>
-            </div>
-            <div class="track-browser">
-              <div class="track-controls">
+              <div class="note-tools command-toolbar">
+                <div class="tool-group" role="group" aria-label="编辑历史">
+                  <button
+                    id="undoNote"
+                    title="撤销（Ctrl / ⌘ Z）"
+                    aria-label="撤销（Ctrl / ⌘ Z）"
+                    class="icon-button"
+                    data-icon="undo"
+                  ></button
+                  ><button
+                    id="redoNote"
+                    title="重做（Ctrl / ⌘ Shift Z）"
+                    aria-label="重做（Ctrl / ⌘ Shift Z）"
+                    class="icon-button"
+                    data-icon="redo"
+                  ></button>
+                </div>
+                <div class="tool-group" role="group" aria-label="复制与粘贴">
+                  <button
+                    id="copyBeat"
+                    class="icon-button"
+                    title="复制当前拍（Ctrl / ⌘ C）"
+                    aria-label="复制当前拍"
+                    data-icon="copy"
+                  ></button
+                  ><button
+                    id="pasteBeat"
+                    class="icon-button"
+                    title="粘贴到当前拍（Ctrl / ⌘ V）"
+                    aria-label="粘贴到当前拍"
+                    data-icon="paste"
+                  ></button
+                  ><button
+                    id="duplicateBeat"
+                    class="icon-button"
+                    title="复制到下一拍（Ctrl / ⌘ D）"
+                    aria-label="复制到下一拍"
+                    data-icon="duplicate"
+                  ></button>
+                </div>
+                <div class="tool-group" role="group" aria-label="节奏">
+                  <div
+                    id="durationTools"
+                    class="tool-group"
+                    aria-label="音符时值"
+                  >
+                    <button
+                      data-duration="1"
+                      title="全音符"
+                      aria-label="全音符"
+                    >
+                      <svg
+                        viewBox="0 0 28 30"
+                        width="26"
+                        height="28"
+                        aria-hidden="true"
+                      >
+                        <ellipse
+                          cx="8"
+                          cy="22"
+                          rx="5"
+                          ry="3.5"
+                          transform="rotate(-20 8 22)"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="1.5"
+                        ></ellipse>
+                      </svg></button
+                    ><button
+                      data-duration="2"
+                      title="二分音符"
+                      aria-label="二分音符"
+                    >
+                      <svg
+                        viewBox="0 0 28 30"
+                        width="26"
+                        height="28"
+                        aria-hidden="true"
+                      >
+                        <ellipse
+                          cx="8"
+                          cy="22"
+                          rx="5"
+                          ry="3.5"
+                          transform="rotate(-20 8 22)"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="1.5"
+                        ></ellipse>
+                        <path
+                          d="M12 21V3"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="1.5"
+                        ></path>
+                      </svg></button
+                    ><button
+                      data-duration="4"
+                      title="四分音符"
+                      aria-label="四分音符"
+                    >
+                      <svg
+                        viewBox="0 0 28 30"
+                        width="26"
+                        height="28"
+                        aria-hidden="true"
+                      >
+                        <ellipse
+                          cx="8"
+                          cy="22"
+                          rx="5"
+                          ry="3.5"
+                          transform="rotate(-20 8 22)"
+                          fill="currentColor"
+                          stroke="currentColor"
+                          stroke-width="1.5"
+                        ></ellipse>
+                        <path
+                          d="M12 21V3"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="1.5"
+                        ></path>
+                      </svg></button
+                    ><button
+                      data-duration="8"
+                      title="八分音符"
+                      aria-label="八分音符"
+                    >
+                      <svg
+                        viewBox="0 0 28 30"
+                        width="26"
+                        height="28"
+                        aria-hidden="true"
+                      >
+                        <ellipse
+                          cx="8"
+                          cy="22"
+                          rx="5"
+                          ry="3.5"
+                          transform="rotate(-20 8 22)"
+                          fill="currentColor"
+                          stroke="currentColor"
+                          stroke-width="1.5"
+                        ></ellipse>
+                        <path
+                          d="M12 21V3"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="1.5"
+                        ></path>
+                        <path
+                          d="M12 3Q23 7 17 13"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="1.8"
+                        ></path>
+                      </svg></button
+                    ><button
+                      data-duration="16"
+                      title="十六分音符"
+                      aria-label="十六分音符"
+                    >
+                      <svg
+                        viewBox="0 0 28 30"
+                        width="26"
+                        height="28"
+                        aria-hidden="true"
+                      >
+                        <ellipse
+                          cx="8"
+                          cy="22"
+                          rx="5"
+                          ry="3.5"
+                          transform="rotate(-20 8 22)"
+                          fill="currentColor"
+                          stroke="currentColor"
+                          stroke-width="1.5"
+                        ></ellipse>
+                        <path
+                          d="M12 21V3"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="1.5"
+                        ></path>
+                        <path
+                          d="M12 3Q23 7 17 13"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="1.8"
+                        ></path>
+                        <path
+                          d="M12 7Q23 11 17 17"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="1.8"
+                        ></path>
+                      </svg></button
+                    ><button
+                      data-duration="32"
+                      title="三十二分音符"
+                      aria-label="三十二分音符"
+                    >
+                      <svg
+                        viewBox="0 0 28 30"
+                        width="26"
+                        height="28"
+                        aria-hidden="true"
+                      >
+                        <ellipse
+                          cx="8"
+                          cy="22"
+                          rx="5"
+                          ry="3.5"
+                          transform="rotate(-20 8 22)"
+                          fill="currentColor"
+                          stroke="currentColor"
+                          stroke-width="1.5"
+                        ></ellipse>
+                        <path
+                          d="M12 21V3"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="1.5"
+                        ></path>
+                        <path
+                          d="M12 3Q23 7 17 13"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="1.8"
+                        ></path>
+                        <path
+                          d="M12 7Q23 11 17 17"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="1.8"
+                        ></path>
+                        <path
+                          d="M12 11Q23 15 17 21"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="1.8"
+                        ></path>
+                      </svg></button
+                    ><button
+                      data-duration="64"
+                      title="六十四分音符"
+                      aria-label="六十四分音符"
+                    >
+                      <svg
+                        viewBox="0 0 28 30"
+                        width="26"
+                        height="28"
+                        aria-hidden="true"
+                      >
+                        <ellipse
+                          cx="8"
+                          cy="22"
+                          rx="5"
+                          ry="3.5"
+                          transform="rotate(-20 8 22)"
+                          fill="currentColor"
+                          stroke="currentColor"
+                          stroke-width="1.5"
+                        ></ellipse>
+                        <path
+                          d="M12 21V3"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="1.5"
+                        ></path>
+                        <path
+                          d="M12 3Q23 7 17 13"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="1.8"
+                        ></path>
+                        <path
+                          d="M12 7Q23 11 17 17"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="1.8"
+                        ></path>
+                        <path
+                          d="M12 11Q23 15 17 21"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="1.8"
+                        ></path>
+                        <path
+                          d="M12 15Q23 19 17 25"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="1.8"
+                        ></path>
+                      </svg>
+                    </button>
+                  </div>
+                  <label
+                    ><select
+                      id="durationDots"
+                      aria-label="附点"
+                      title="附点（.）"
+                    >
+                      <option value="0">附点</option>
+                      <option value="1">·</option>
+                      <option value="2">··</option>
+                    </select></label
+                  ><label
+                    ><select
+                      id="eventTuplet"
+                      aria-label="连音"
+                      title="三连音（T）"
+                    >
+                      <option value="1:1">连音</option>
+                      <option value="3:2">3</option>
+                      <option value="5:4">5:4</option>
+                      <option value="6:4">6:4</option>
+                      <option value="7:4">7:4</option>
+                    </select></label
+                  ><button
+                    id="makeRest"
+                    title="休止符（R）"
+                    aria-label="休止符（R）"
+                    class="icon-button"
+                    data-icon="rest"
+                  ></button>
+                </div>
+                <div class="tool-group" role="group" aria-label="音高与音符">
+                  <button
+                    id="lowerNote"
+                    title="降低半音（Shift ↓）"
+                    aria-label="降低半音（Shift ↓）"
+                    class="icon-button"
+                  >
+                    ♭</button
+                  ><button
+                    id="raiseNote"
+                    title="升高半音（Shift ↑）"
+                    aria-label="升高半音（Shift ↑）"
+                    class="icon-button"
+                  >
+                    ♯</button
+                  ><button
+                    id="addChordNote"
+                    title="加入和弦音"
+                    aria-label="加入和弦音"
+                    class="icon-button"
+                    data-icon="addNote"
+                  ></button
+                  ><button
+                    id="deleteNote"
+                    title="删除音符（Delete）"
+                    aria-label="删除音符（Delete）"
+                    class="icon-button"
+                    data-icon="deleteNote"
+                  ></button
+                  ><button
+                    id="addEvent"
+                    title="插入空拍（Insert）"
+                    aria-label="插入空拍（Insert）"
+                    class="icon-button"
+                    data-icon="addBeat"
+                  ></button
+                  ><button
+                    id="deleteEvent"
+                    title="删除当前拍（Shift Delete）"
+                    aria-label="删除当前拍（Shift Delete）"
+                    class="icon-button"
+                    data-icon="deleteBeat"
+                  ></button>
+                </div>
                 <label
-                  >音轨<select
-                    id="trackSelect"
-                    aria-label="选择音轨"
-                  ></select></label
-                ><label
-                  >显示<select id="reviewFilter">
-                    <option value="all">全部小节</option>
-                    <option value="review">待检查</option>
-                    <option value="confirmed">已确认</option>
+                  ><select id="editorVoice" aria-label="声部">
+                    <option value="0">1</option>
+                    <option value="1">2</option>
                   </select></label
-                ><span id="trackSummary" class="muted small"></span
-                ><button id="confirmNext" class="quiet">
-                  确认并检查下一个
-                </button>
+                >
               </div>
+
               <div
-                id="measureMap"
-                class="measure-map"
-                aria-label="小节导航"
+                id="measureFeedback"
+                role="status"
+                aria-live="polite"
+                hidden=""
               ></div>
             </div>
+
             <div id="scoreEditor" class="score-workspace">
               <div class="score-document">
-                <div
-                  class="editor-tools"
-                  role="toolbar"
-                  aria-label="乐谱编辑工具"
-                >
-                  <div class="editor-navigation">
-                    <div class="row">
-                      <button id="prevMeasure" aria-label="上一小节">‹</button
-                      ><select id="measureSelect" aria-label="选择小节"></select
-                      ><button id="nextMeasure" aria-label="下一小节">›</button
-                      ><span id="reviewStatus" class="pill"></span>
-                    </div>
-                    <div class="row">
-                      <button id="showSource" class="mobile-source">原谱</button
-                      ><span id="saveStatus" class="muted small"></span
-                      ><button id="saveMeasure" class="primary">
-                        确认小节
-                      </button>
-                    </div>
+                <div class="score-viewport">
+                  <div class="score-paper">
+                    <h2 id="scoreTitle"></h2>
+                    <p id="scoreCredits"></p>
+                    <div
+                      id="scoreCanvas"
+                      tabindex="0"
+                      role="application"
+                      aria-label="可编辑整谱，方向键移动，数字键输入品位"
+                    ></div>
+                    <p id="scoreWarning" class="hint warning" hidden=""></p>
                   </div>
-                  <div class="note-tools">
-                    <div class="score-toolbar">
-                      <label
-                        >声部
-                        <select id="editorVoice">
-                          <option value="0">1</option>
-                          <option value="1">2</option>
-                        </select></label
-                      >
-                      <div
-                        id="durationTools"
-                        class="tool-group"
-                        aria-label="音符时值"
-                      >
-                        <button
-                          data-duration="1"
-                          title="全音符"
-                          aria-label="全音符"
-                        >
-                          <svg
-                            viewBox="0 0 28 30"
-                            width="26"
-                            height="28"
-                            aria-hidden="true"
-                          >
-                            <ellipse
-                              cx="8"
-                              cy="22"
-                              rx="5"
-                              ry="3.5"
-                              transform="rotate(-20 8 22)"
-                              fill="none"
-                              stroke="currentColor"
-                              stroke-width="1.5"
-                            />
-                          </svg></button
-                        ><button
-                          data-duration="2"
-                          title="二分音符"
-                          aria-label="二分音符"
-                        >
-                          <svg
-                            viewBox="0 0 28 30"
-                            width="26"
-                            height="28"
-                            aria-hidden="true"
-                          >
-                            <ellipse
-                              cx="8"
-                              cy="22"
-                              rx="5"
-                              ry="3.5"
-                              transform="rotate(-20 8 22)"
-                              fill="none"
-                              stroke="currentColor"
-                              stroke-width="1.5"
-                            />
-                            <path
-                              d="M12 21V3"
-                              fill="none"
-                              stroke="currentColor"
-                              stroke-width="1.5"
-                            />
-                          </svg></button
-                        ><button
-                          data-duration="4"
-                          title="四分音符"
-                          aria-label="四分音符"
-                        >
-                          <svg
-                            viewBox="0 0 28 30"
-                            width="26"
-                            height="28"
-                            aria-hidden="true"
-                          >
-                            <ellipse
-                              cx="8"
-                              cy="22"
-                              rx="5"
-                              ry="3.5"
-                              transform="rotate(-20 8 22)"
-                              fill="currentColor"
-                              stroke="currentColor"
-                              stroke-width="1.5"
-                            />
-                            <path
-                              d="M12 21V3"
-                              fill="none"
-                              stroke="currentColor"
-                              stroke-width="1.5"
-                            />
-                          </svg></button
-                        ><button
-                          data-duration="8"
-                          title="八分音符"
-                          aria-label="八分音符"
-                        >
-                          <svg
-                            viewBox="0 0 28 30"
-                            width="26"
-                            height="28"
-                            aria-hidden="true"
-                          >
-                            <ellipse
-                              cx="8"
-                              cy="22"
-                              rx="5"
-                              ry="3.5"
-                              transform="rotate(-20 8 22)"
-                              fill="currentColor"
-                              stroke="currentColor"
-                              stroke-width="1.5"
-                            />
-                            <path
-                              d="M12 21V3"
-                              fill="none"
-                              stroke="currentColor"
-                              stroke-width="1.5"
-                            />
-                            <path
-                              d="M12 3Q23 7 17 13"
-                              fill="none"
-                              stroke="currentColor"
-                              stroke-width="1.8"
-                            />
-                          </svg></button
-                        ><button
-                          data-duration="16"
-                          title="十六分音符"
-                          aria-label="十六分音符"
-                        >
-                          <svg
-                            viewBox="0 0 28 30"
-                            width="26"
-                            height="28"
-                            aria-hidden="true"
-                          >
-                            <ellipse
-                              cx="8"
-                              cy="22"
-                              rx="5"
-                              ry="3.5"
-                              transform="rotate(-20 8 22)"
-                              fill="currentColor"
-                              stroke="currentColor"
-                              stroke-width="1.5"
-                            />
-                            <path
-                              d="M12 21V3"
-                              fill="none"
-                              stroke="currentColor"
-                              stroke-width="1.5"
-                            />
-                            <path
-                              d="M12 3Q23 7 17 13"
-                              fill="none"
-                              stroke="currentColor"
-                              stroke-width="1.8"
-                            />
-                            <path
-                              d="M12 7Q23 11 17 17"
-                              fill="none"
-                              stroke="currentColor"
-                              stroke-width="1.8"
-                            />
-                          </svg></button
-                        ><button
-                          data-duration="32"
-                          title="三十二分音符"
-                          aria-label="三十二分音符"
-                        >
-                          <svg
-                            viewBox="0 0 28 30"
-                            width="26"
-                            height="28"
-                            aria-hidden="true"
-                          >
-                            <ellipse
-                              cx="8"
-                              cy="22"
-                              rx="5"
-                              ry="3.5"
-                              transform="rotate(-20 8 22)"
-                              fill="currentColor"
-                              stroke="currentColor"
-                              stroke-width="1.5"
-                            />
-                            <path
-                              d="M12 21V3"
-                              fill="none"
-                              stroke="currentColor"
-                              stroke-width="1.5"
-                            />
-                            <path
-                              d="M12 3Q23 7 17 13"
-                              fill="none"
-                              stroke="currentColor"
-                              stroke-width="1.8"
-                            />
-                            <path
-                              d="M12 7Q23 11 17 17"
-                              fill="none"
-                              stroke="currentColor"
-                              stroke-width="1.8"
-                            />
-                            <path
-                              d="M12 11Q23 15 17 21"
-                              fill="none"
-                              stroke="currentColor"
-                              stroke-width="1.8"
-                            />
-                          </svg></button
-                        ><button
-                          data-duration="64"
-                          title="六十四分音符"
-                          aria-label="六十四分音符"
-                        >
-                          <svg
-                            viewBox="0 0 28 30"
-                            width="26"
-                            height="28"
-                            aria-hidden="true"
-                          >
-                            <ellipse
-                              cx="8"
-                              cy="22"
-                              rx="5"
-                              ry="3.5"
-                              transform="rotate(-20 8 22)"
-                              fill="currentColor"
-                              stroke="currentColor"
-                              stroke-width="1.5"
-                            />
-                            <path
-                              d="M12 21V3"
-                              fill="none"
-                              stroke="currentColor"
-                              stroke-width="1.5"
-                            />
-                            <path
-                              d="M12 3Q23 7 17 13"
-                              fill="none"
-                              stroke="currentColor"
-                              stroke-width="1.8"
-                            />
-                            <path
-                              d="M12 7Q23 11 17 17"
-                              fill="none"
-                              stroke="currentColor"
-                              stroke-width="1.8"
-                            />
-                            <path
-                              d="M12 11Q23 15 17 21"
-                              fill="none"
-                              stroke="currentColor"
-                              stroke-width="1.8"
-                            />
-                            <path
-                              d="M12 15Q23 19 17 25"
-                              fill="none"
-                              stroke="currentColor"
-                              stroke-width="1.8"
-                            />
-                          </svg>
-                        </button>
-                      </div>
-                      <label
-                        >附点
-                        <select id="durationDots">
-                          <option value="0">无</option>
-                          <option value="1">·</option>
-                          <option value="2">··</option>
-                        </select></label
-                      >
-                      <label
-                        >连音
-                        <select id="eventTuplet">
-                          <option value="1:1">无</option>
-                          <option value="3:2">3</option>
-                          <option value="5:4">5:4</option>
-                          <option value="6:4">6:4</option>
-                          <option value="7:4">7:4</option>
-                        </select></label
-                      >
-                      <button id="undoNote" title="撤销（Ctrl / ⌘ + Z）">
-                        撤销</button
-                      ><button
-                        id="redoNote"
-                        title="重做（Ctrl / ⌘ + Shift + Z）"
-                      >
-                        重做
-                      </button>
-                    </div>
-                    <div class="score-toolbar">
-                      <button id="lowerNote" title="降低一个半音或品位">
-                        ♭ 降半音</button
-                      ><button id="raiseNote" title="升高一个半音或品位">
-                        ♯ 升半音
-                      </button>
-                      <button id="addChordNote">加和弦音</button
-                      ><button id="makeRest">休止符</button
-                      ><button id="deleteNote">删音</button>
-                      <button id="addEvent">插入音符</button
-                      ><button id="deleteEvent">删除此拍</button>
-                    </div>
+                </div>
+              </div>
+              <aside class="score-reference" id="scoreInspector">
+                <div class="inspector-heading">
+                  <h3>检查器</h3>
+                  <span id="reviewStatus" class="pill"></span>
+                </div>
+                <div class="reference-heading">
+                  <h3 id="currentMeasureTitle">原谱对照</h3>
+                  <button id="retryMeasure" class="quiet">重新识别</button>
+                </div>
+                <button id="sourceZoom" class="crop" aria-label="放大原谱">
+                  <img id="measureImage" alt="选中小节的原谱" />
+                </button>
+                <div id="fallback" class="hint warning" hidden=""></div>
+                <p id="editHint" class="muted small"></p>
+                <section class="note-properties">
+                  <div class="inspector-section-title">
+                    选中音符<span id="noteValue" class="note-value">—</span>
                   </div>
-                  <details class="advanced-note-tools">
-                    <summary>更多工具 · 奏法、品位与音高输入</summary>
-                    <div class="score-toolbar effect-tools" aria-label="奏法">
-                      <span class="muted small">奏法</span
-                      ><button data-effect="tie" title="与前一个同音延音">
-                        延音线</button
-                      ><button data-effect="hammer">击勾弦</button
-                      ><button data-effect="sl">滑音</button
-                      ><button data-effect="pm">掌闷音</button
-                      ><button data-effect="vib">颤音</button
-                      ><button data-effect="stacc">断奏</button
-                      ><button data-effect="accent">重音</button
-                      ><select id="bendValue" aria-label="推弦">
-                        <option value="">无推弦</option>
-                        <option value="bend:bend:50">半音推弦</option>
-                        <option value="bend:bend:100">全音推弦</option>
-                        <option value="bend:bendRelease:100">推弦回落</option>
-                      </select>
-                    </div>
+                  <p id="noteDescription" class="small muted"></p>
+                  <div class="score-toolbar effect-tools" aria-label="奏法">
+                    <button data-effect="tie" title="延音线">延音线</button
+                    ><button data-effect="hammer" title="击勾弦">击勾弦</button
+                    ><button data-effect="sl" title="滑音">滑音</button
+                    ><button data-effect="pm" title="掌闷音">掌闷音</button
+                    ><button data-effect="vib" title="颤音">颤音</button
+                    ><button data-effect="stacc" title="断奏">断奏</button
+                    ><button data-effect="accent" title="重音">重音</button
+                    ><select id="bendValue" aria-label="推弦">
+                      <option value="">无推弦</option>
+                      <option value="bend:bend:50">半音推弦</option>
+                      <option value="bend:bend:100">全音推弦</option>
+                      <option value="bend:bendRelease:100">推弦回落</option>
+                    </select>
+                  </div>
+                  <details class="note-input-panel">
+                    <summary>输入音符</summary>
                     <div class="note-inputs">
                       <div id="fretTools" class="score-toolbar">
                         <span>输入品位</span>
@@ -753,7 +858,7 @@
                           </select></label
                         >
                       </div>
-                      <div id="pitchTools" class="score-toolbar" hidden>
+                      <div id="pitchTools" class="score-toolbar" hidden="">
                         <span>插入音高</span>
                         <div id="pitchButtons" class="tool-group"></div>
                         <label
@@ -762,14 +867,14 @@
                             <option value="1">1</option>
                             <option value="2">2</option>
                             <option value="3">3</option>
-                            <option value="4" selected>4</option>
+                            <option value="4" selected="">4</option>
                             <option value="5">5</option>
                             <option value="6">6</option>
                             <option value="7">7</option>
                           </select></label
                         >
                       </div>
-                      <div id="drumTools" class="score-toolbar" hidden>
+                      <div id="drumTools" class="score-toolbar" hidden="">
                         <label
                           >鼓件
                           <select id="drumValue"></select></label
@@ -777,41 +882,12 @@
                       </div>
                     </div>
                   </details>
-                  <div class="editor-cursor">
-                    <span id="selectedNote" class="muted small"></span
-                    ><button id="discardMeasure" class="quiet" hidden>
-                      放弃修改
-                    </button>
-                  </div>
-                  <div
-                    id="measureFeedback"
-                    role="status"
-                    aria-live="polite"
-                    hidden
-                  ></div>
-                </div>
-                <div class="score-paper">
-                  <h2 id="scoreTitle"></h2>
-                  <p id="scoreCredits"></p>
-                  <div
-                    id="scoreCanvas"
-                    tabindex="0"
-                    role="application"
-                    aria-label="可编辑整谱，方向键移动，数字键输入品位"
-                  ></div>
-                  <p id="scoreWarning" class="hint warning" hidden></p>
-                </div>
-              </div>
-              <aside class="score-reference">
-                <div class="reference-heading">
-                  <h3 id="currentMeasureTitle">原谱</h3>
-                  <button id="retryMeasure" class="quiet">重新识别</button>
-                </div>
-                <button id="sourceZoom" class="crop" aria-label="放大原谱">
-                  <img id="measureImage" alt="选中小节的原谱" />
-                </button>
-                <div id="fallback" class="hint warning" hidden></div>
-                <p id="editHint" class="muted small"></p>
+                </section>
+                <div
+                  id="rhythmStatus"
+                  class="rhythm-status"
+                  role="status"
+                ></div>
                 <details class="measure-settings">
                   <summary>拍号、速度与起点</summary>
                   <div class="score-toolbar">
@@ -850,7 +926,7 @@
                       <option value="text">文本</option>
                     </select></label
                   >
-                  <div id="textEditor" hidden>
+                  <div id="textEditor" hidden="">
                     <textarea
                       id="measureText"
                       aria-label="小节文本"
@@ -861,6 +937,43 @@
                 </details>
               </aside>
             </div>
+            <div class="track-browser">
+              <div class="track-controls">
+                <span class="timeline-label">音轨 / 小节</span>
+                <label
+                  >显示<select id="reviewFilter">
+                    <option value="all">全部小节</option>
+                    <option value="review">待检查</option>
+                    <option value="confirmed">已确认</option>
+                  </select></label
+                ><span id="trackSummary" class="muted small"></span
+                ><button id="confirmNext" class="quiet">
+                  确认并检查下一个
+                </button>
+                <button id="nextIssue">下一个待检查小节</button>
+              </div>
+              <div
+                id="measureMap"
+                class="measure-map"
+                aria-label="小节导航"
+              ></div>
+            </div>
+            <div class="editor-statusbar">
+              <div class="editor-cursor">
+                <span id="selectedNote" class="muted small"></span
+                ><button id="discardMeasure" class="quiet" hidden="">
+                  放弃修改
+                </button>
+              </div>
+              <span id="recognitionSummary" class="muted"></span>
+            </div>
+            <div
+              id="scoreContextMenu"
+              class="score-context-menu"
+              role="menu"
+              aria-label="乐谱编辑"
+              hidden=""
+            ></div>
           </div>
           <div class="footer">
             <span class="muted">红色小节识别失败，黄色小节需要核对。</span
@@ -877,19 +990,19 @@
           <div id="exportSummary" class="export-summary"></div>
           <div class="footer">
             <button id="export" class="primary">生成 GP5</button>
-            <a id="downloadGP5" class="button primary" hidden>下载 GP5</a>
+            <a id="downloadGP5" class="button primary" hidden="">下载 GP5</a>
           </div>
-          <div id="exportWarning" class="hint" hidden></div>
-          <button id="reviewBeforeExport" hidden>检查待处理小节</button>
+          <div id="exportWarning" class="hint" hidden=""></div>
+          <button id="reviewBeforeExport" hidden="">检查待处理小节</button>
           <div class="export-extras">
-            <a id="downloadProject" hidden>下载项目备份（ZIP）</a>
-            <a id="downloadScoreText" hidden>下载小节文本</a>
-            <a id="downloadScoreDocument" hidden>下载结构化乐谱</a>
-            <a id="downloadMusicXML" hidden>下载 MusicXML</a>
+            <a id="downloadProject" hidden="">下载项目备份（ZIP）</a>
+            <a id="downloadScoreText" hidden="">下载小节文本</a>
+            <a id="downloadScoreDocument" hidden="">下载结构化乐谱</a>
+            <a id="downloadMusicXML" hidden="">下载 MusicXML</a>
           </div>
         </section>
       </div>
-      <section data-screen="library" hidden>
+      <section data-screen="library" hidden="">
         <div class="section-head">
           <div>
             <span class="eyebrow">PROJECT LIBRARY</span>
@@ -916,12 +1029,12 @@
           </select>
         </div>
         <div id="libraryList" class="project-grid"></div>
-        <div id="libraryEmpty" class="empty" hidden>
+        <div id="libraryEmpty" class="empty" hidden="">
           <strong>还没有项目</strong>
           <p>在工作台导入乐谱，或恢复项目 ZIP。</p>
         </div>
       </section>
-      <section data-screen="tasks" hidden>
+      <section data-screen="tasks" hidden="">
         <div class="section-head">
           <div>
             <span class="eyebrow">TASK CENTER</span>
@@ -931,12 +1044,12 @@
           <button id="refreshTasks">刷新</button>
         </div>
         <div id="taskList" class="task-list"></div>
-        <div id="tasksEmpty" class="empty" hidden>
+        <div id="tasksEmpty" class="empty" hidden="">
           <strong>暂无识别任务</strong>
           <p>导入并开始识别后，任务会显示在这里。</p>
         </div>
       </section>
-      <section data-screen="settings" hidden>
+      <section data-screen="settings" hidden="">
         <div class="section-head">
           <div>
             <span class="eyebrow">PREFERENCES</span>
@@ -948,7 +1061,7 @@
           <div class="surface-card">
             <h2>工作台</h2>
             <label class="setting-row"
-              >外观<select data-theme-picker aria-label="设置外观主题">
+              >外观<select data-theme-picker="" aria-label="设置外观主题">
                 <option value="system">跟随系统</option>
                 <option value="light">浅色</option>
                 <option value="dark">深色</option>
@@ -982,7 +1095,7 @@
       </section>
       <footer class="page-footer">
         <span>GuitarOCR · 乐谱识别与校对</span>
-        <button id="deleteProject" class="quiet" hidden>删除项目</button>
+        <button id="deleteProject" class="quiet" hidden="">删除项目</button>
       </footer>
     </main>
     <dialog id="sourceDialog" aria-label="原谱大图">
@@ -1005,6 +1118,17 @@
         <div><span>输入品位</span><kbd>0–9 / X</kbd></div>
         <div><span>输入音高</span><kbd>A–G</kbd></div>
         <div><span>休止符 / 删除</span><kbd>R / Delete</kbd></div>
+        <div>
+          <span>复制 / 粘贴 / 复制到下一拍</span><kbd>Ctrl / ⌘ C / V / D</kbd>
+        </div>
+        <div><span>缩短 / 延长时值</span><kbd>+ / −</kbd></div>
+        <div><span>附点 / 三连音</span><kbd>. / T</kbd></div>
+        <div><span>升降半音</span><kbd>Shift ↑ / ↓</kbd></div>
+        <div>
+          <span>插入 / 删除当前拍</span><kbd>Insert / Shift Delete</kbd>
+        </div>
+        <div><span>首拍 / 末拍</span><kbd>Home / End</kbd></div>
+        <div><span>右键编辑菜单</span><kbd>Shift F10</kbd></div>
       </div>
       <p class="small">音符快捷键在点选谱面后生效。切换小节会先保存修改。</p>
     </dialog>

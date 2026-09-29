@@ -6,3 +6,5 @@ src-tauri/resources/
 # Generated from webapp/static by sync-assets.mjs
 ui/theme.css
 ui/theme.js
+ui/shell.css
+ui/icons.js

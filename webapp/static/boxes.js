@@ -1,7 +1,7 @@
 import { ui, endpoint, receiveProject } from "./state.js";
 import { $, el, action, notice } from "./dom.js";
 import { api } from "./api.js";
-const colors = { measure: "#426fd0", header: "#6189ac", tempo: "#b07628", clef: "#7756a4", transposition: "#2468aa" };
+const colors = { measure: "#4267c5", header: "#6189ac", tempo: "#b07628", clef: "#7756a4", transposition: "#2468aa" };
 const names = { measure: "小节", header: "谱头", tempo: "速度", clef: "谱号", transposition: "移调" };
 const modeNames = { tab: "TAB", notation: "五线谱", both: "五线谱 + TAB" };
 

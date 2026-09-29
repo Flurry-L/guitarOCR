@@ -22,10 +22,15 @@ function rectangle(node, bounds) {
 
 // The renderer owns engraving and hit bounds; this view
 // translates those bounds back to the original measures, voices and notes.
-function engravedSection(host, { onSelect, onPlace, onError }, range) {
+function engravedSection(
+  host,
+  { onSelect, onPlace, onError, onContext },
+  range,
+) {
   const surface = el("div", undefined, "engraved-score");
   const overlay = el("div", undefined, "score-overlay");
   host.replaceChildren(surface, overlay);
+  const palette = getComputedStyle(document.documentElement);
   const api = new alphaTab.AlphaTabApi(surface, {
     core: {
       useWorkers: false,
@@ -45,7 +50,12 @@ function engravedSection(host, { onSelect, onPlace, onError }, range) {
       scale: 1.1,
       layoutMode: alphaTab.LayoutMode.Page,
       padding: [28, 20, 28, 20],
-      resources: { barNumberColor: "#68736c", staffLineColor: "#a4aaa5" },
+      resources: {
+        mainGlyphColor: palette.getPropertyValue("--score-ink").trim(),
+        secondaryGlyphColor: palette.getPropertyValue("--score-ink").trim(),
+        barNumberColor: palette.getPropertyValue("--score-muted").trim(),
+        staffLineColor: palette.getPropertyValue("--score-line").trim(),
+      },
     },
     notation: {
       elements: {
@@ -203,6 +213,7 @@ function engravedSection(host, { onSelect, onPlace, onError }, range) {
       });
       overlay.append(cursor);
       if (kinds(bounds) === "tab") {
+        if (!Number.isInteger(selected.string)) continue;
         const count = measureProfile(state.measures[selected.mi], state).tuning
           .length;
         const staff = bounds.barBounds.visualBounds;
@@ -231,11 +242,25 @@ function engravedSection(host, { onSelect, onPlace, onError }, range) {
     }
     if (scrollToSelection && boxes.length) {
       scrollToSelection = false;
-      overlay.querySelector(".score-selection")?.scrollIntoView({
-        block: "nearest",
-        inline: "nearest",
-        behavior: "smooth",
-      });
+      const cursor = overlay.querySelector(".score-selection");
+      const viewport = host.closest(".score-viewport");
+      if (cursor && viewport) {
+        const rect = cursor.getBoundingClientRect(),
+          frame = viewport.getBoundingClientRect();
+        const dy =
+          rect.top < frame.top + 24
+            ? rect.top - frame.top - 24
+            : rect.bottom > frame.bottom - 24
+              ? rect.bottom - frame.bottom + 24
+              : 0;
+        const dx =
+          rect.left < frame.left + 12
+            ? rect.left - frame.left - 12
+            : rect.right > frame.right - 12
+              ? rect.right - frame.right + 12
+              : 0;
+        viewport.scrollBy({ top: dy, left: dx, behavior: "instant" });
+      }
     }
   }
   function decorate() {
@@ -302,7 +327,7 @@ function engravedSection(host, { onSelect, onPlace, onError }, range) {
     return { x: event.clientX - b.left, y: event.clientY - b.top };
   }
   host.addEventListener("pointerdown", (event) => {
-    if (event.target.closest("button")) return;
+    if (event.button !== 0 || event.target.closest("button")) return;
     const p = coordinates(event),
       hit = hitAt(p.x, p.y);
     if (!hit) return;
@@ -344,6 +369,12 @@ function engravedSection(host, { onSelect, onPlace, onError }, range) {
   };
   host.addEventListener("pointercancel", releasePointer);
   window.addEventListener("pointerup", releasePointer);
+  host.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    const p = coordinates(event),
+      hit = hitAt(p.x, p.y);
+    if (hit) onContext?.(hit, event.clientX, event.clientY);
+  });
   host.addEventListener("dblclick", (event) => {
     const p = coordinates(event),
       hit = hitAt(p.x, p.y);

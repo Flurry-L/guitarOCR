@@ -4,7 +4,8 @@ let cachedProjects = [];
 let config,
   registering = false,
   view = "projects",
-  refreshing = false;
+  refreshing = false,
+  pendingView = location.hash.slice(1) || "projects";
 const signedIn = () => Boolean(auth?.user && !auth.user.guest);
 function notice(text, error = false) {
   if ($("auth").open) {
@@ -31,17 +32,31 @@ function action(fn) {
   };
 }
 function show(name) {
+  const titles = {
+    projects: "工作台",
+    library: "项目库",
+    tasks: "任务中心",
+    account: "设置",
+    admin: "服务管理",
+  };
+  if (!Object.hasOwn(titles, name)) name = "projects";
+  if (name !== "projects" && !signedIn()) {
+    pendingView = name;
+    openAuth("登录后查看保存的乐谱、任务和账号设置。");
+    return;
+  }
+  if (name === "admin" && !auth?.user?.admin) name = "projects";
   view = name;
+  history.replaceState(null, "", name === "projects" ? "/" : `/#${name}`);
   document
     .querySelectorAll("section[data-view]")
-    .forEach(
-      (n) =>
-        (n.hidden =
-          n.dataset.view !== name || (name !== "projects" && !signedIn())),
-    );
-  document
-    .querySelectorAll("nav [data-view]")
-    .forEach((n) => n.classList.toggle("selected", n.dataset.view === name));
+    .forEach((n) => (n.hidden = n.dataset.view !== name));
+  document.querySelectorAll("nav [data-view]").forEach((n) => {
+    n.classList.toggle("active", n.dataset.view === name);
+    if (n.dataset.view === name) n.setAttribute("aria-current", "page");
+    else n.removeAttribute("aria-current");
+  });
+  $("screenTitle").textContent = titles[name];
 }
 function button(label, fn) {
   const n = el("button", label);
@@ -73,11 +88,10 @@ function openAuth(reason) {
 }
 function renderIdentity() {
   $("loginButton").hidden = signedIn();
-  $("navigation").hidden = !signedIn();
+  $("logout").hidden = !signedIn();
+  $("newProject").hidden = !signedIn();
   $("adminTab").hidden = !auth?.user?.admin;
-  $("identity").textContent = signedIn() ? auth.user.username : "";
-  $("historyTitle").textContent = signedIn() ? "我的乐谱" : "识别记录";
-  $("saveAccount").hidden = signedIn() || !auth;
+  $("accountIdentity").textContent = signedIn() ? auth.user.username : "";
   $("history").hidden = !auth;
   $("sessionHint").textContent = signedIn()
     ? "任务和结果已保存到账号。关闭网页后继续处理。"
@@ -269,7 +283,7 @@ async function refresh() {
   if (!auth || refreshing) return;
   refreshing = true;
   try {
-    if (["projects", "tasks"].includes(view))
+    if (["projects", "library", "tasks"].includes(view))
       renderProjects(await api("/api/sessions"));
     else if (view === "account") await renderUsage();
     else if (auth.user.admin) await renderAdmin();
@@ -281,7 +295,7 @@ async function enterSession(data) {
   setAuth(data);
   $("auth").close();
   renderIdentity();
-  show("projects");
+  show(pendingView);
   notice("");
   await refresh();
 }
@@ -309,8 +323,8 @@ $("authToggle").onclick = () => {
     : "current-password";
 };
 $("loginButton").onclick = () => openAuth();
-$("saveAccount").onclick = () =>
-  openAuth("登录或创建账号后，当前访客任务和结果会保存到账号。");
+$("newProject").onclick = () => show("projects");
+$("refreshProjects").onclick = action(refresh);
 $("closeAuth").onclick = () => $("auth").close();
 $("auth").addEventListener("close", () => {
   $("password").value = "";
@@ -356,6 +370,7 @@ $("uploadForm").onsubmit = action(async () => {
     $("files").value = "";
     $("files").onchange();
     notice("");
+    show("tasks");
     await refresh();
   } finally {
     uploadState();
@@ -400,6 +415,7 @@ $("applyUpdate").onclick = action(async () => {
     else {
       renderIdentity();
       renderProjects([]);
+      show(pendingView);
     }
   } catch (error) {
     notice(error.message, true);
@@ -409,3 +425,11 @@ setInterval(() => {
   if (!document.hidden)
     refresh().catch(() => notice("暂时无法连接服务，正在等待恢复。", true));
 }, 3000);
+
+window.addEventListener(
+  "hashchange",
+  action(async () => {
+    show(location.hash.slice(1) || "projects");
+    await refresh();
+  }),
+);

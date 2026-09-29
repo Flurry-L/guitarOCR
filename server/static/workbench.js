@@ -4,8 +4,10 @@ const session = response.ok ? await response.json() : null;
 if (!session?.user) location.replace("/");
 else {
   setAuth(session);
-  const back = element("a", "返回账号");
-  back.href = "/";
-  document.querySelector(".app-header").append(back);
+  const account = element("a", "账号与服务设置", "button");
+  account.href = "/#account";
+  document
+    .querySelector('[data-screen="settings"] .surface-card')
+    .append(account);
   document.querySelector(".project-import").hidden = true;
 }
