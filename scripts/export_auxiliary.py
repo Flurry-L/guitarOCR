@@ -18,7 +18,7 @@ def export(output, paddle_python):
     subprocess.run([str(paddle_python.parent / ('paddle2onnx.exe' if sys.platform == 'win32' else 'paddle2onnx')),
                     '--model_dir', str(ROOT / 'weights/layout'), '--model_filename', 'inference.json',
                     '--params_filename', 'inference.pdiparams', '--save_file', str(output / 'layout.onnx'),
-                    '--opset_version', '17'], check=True)
+                    '--opset_version', '17', '--optimize_tool', 'None'], check=True)
     # The product consumes rectangular boxes; discard unused segmentation outputs.
     import onnx
     path = output / 'layout.onnx'
@@ -32,6 +32,15 @@ def export(output, paddle_python):
                       input_names=['images'], output_names=['key', 'numerator', 'denominator'],
                       dynamic_axes={name: {0: 'batch'} for name in ('images', 'key', 'numerator', 'denominator')},
                       opset_version=17, dynamo=False)
+    # Exported debug strings contain local source paths. Keep deployment files
+    # reproducible across the developer machine and release runners.
+    for name in ('layout', 'signature'):
+        path = output / f'{name}.onnx'
+        model = onnx.load(path)
+        onnx.helper.strip_doc_string(model)
+        model.producer_name = 'guitarocr'
+        model.producer_version = '0.1'
+        onnx.save(model, path)
 
 
 if __name__ == '__main__':
