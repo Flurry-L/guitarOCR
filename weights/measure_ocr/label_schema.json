@@ -1,94 +1,43 @@
 {
   "label_schema": "visible_music_with_pitch_context",
   "representation_marker": "M2",
-  "renderer": "Guitar Pro 8 native",
-  "visibility_experiments": {
-    "grace": {
-      "tab": {
-        "d16": true,
-        "d32": true,
-        "d64": true,
-        "onbeat": true,
-        "dead": false,
-        "plain": false
-      },
-      "notation": {
-        "d16": true,
-        "d32": true,
-        "d64": true,
-        "onbeat": false,
-        "dead": false,
-        "plain": false
-      },
-      "both": {
-        "d16": true,
-        "d32": true,
-        "d64": true,
-        "onbeat": false,
-        "dead": false,
-        "plain": false
-      }
-    },
-    "trill": {
-      "tab": {
-        "identical_pixels_for_trill16_and_trill64": true
-      },
-      "notation": {
-        "identical_pixels_for_trill16_and_trill64": true
-      },
-      "both": {
-        "identical_pixels_for_trill16_and_trill64": true
-      }
-    },
-    "dynamics": {
-      "tab": {
-        "31": false,
-        "79": false,
-        "95": true
-      },
-      "notation": {
-        "31": false,
-        "79": false,
-        "95": true
-      },
-      "both": {
-        "31": false,
-        "79": false,
-        "95": true
-      }
-    }
-  },
-  "code_sha256": {
-    "shared/m2.py": "c2c7e9cd3b6e4aa92ad2e902db4abffe21da5afcb22e38fec379ef86f2347575",
-    "shared/techniques.py": "40433c69bcb4eb89b589f4a882a90b9529aa961e773eb7131e6b97a7f2fdc995",
-    "shared/constraints.py": "eecac6a3aa50764cc4a9b64d76376ec9d7c660e6797560f29d6185adfe752df8",
-    "datagen/gp_sources.py": "dc47e533009fa3d3c58bec4790558ac01e189a232b68bb865bdaf9bf8f9b3c26",
-    "datagen/build_measure_data.py": "dde7f06939226fdf8620777a6712ed90281763fbab3589bcc2cd271bd5627e17",
-    "datagen/scan_augment.py": "050681669c43663a70fe61aa3a3b26fd18256bc4c075cab20877a1a602f119b5",
-    "datagen/curate_measure_data.py": "c7d52c610908911be3d42490e798733536095d2011f56b1e599dbd83ffbc97a4",
-    "shared/instruments.py": "fccb0a196c20d82b85cc008c2589de1598d65bc149c4177c0fbf2b3c7bc8444c",
-    "shared/percussion.py": "8e6cbe3ab6397012414b7fedf2949ebe95a4e6a5048a3358fb2592b205f025b6",
-    "shared/pitch_context.py": "e3bdb8540a66ffdc6b78452c60dc61c996d1b1d1541154d9ed76e8d325c68b8d",
-    "shared/score_document.py": "ed47748b4e62be36faeb5ba8bf96a5783242652ce45fe6a5b959ee5ac8641248",
-    "document_info/run.py": "8ac19772a75089e43e5b1a6902178d4a238b1cbf4275d1668af82018257d4f16",
-    "document_info/image_ocr.py": "81b911a05ed915dea52dbd680e711e94b7a58fb012f636cafaa0605cab7b45c5",
-    "datagen/build_pitch_data.py": "743cc4663f78f580c64c0ed32714d64bc58b79428664c198bfea44e91364585f",
-    "datagen/prepare_pitch_data.py": "6a57e5f6aa595b516a6ecf2a7aa896dec0a03e4d8dd3cb6652e991efefcc749c",
-    "datagen/native_alignment.py": "2d26e66d3923e5d382b23d485bbbefc5f37ca75ea03c388b00a32a50ff30dc17",
-    "datagen/written_pitch_data.py": "aa1f1e07633d28f924b3813bc716468a1a7eefce9983322f0b64fc308efd512a",
-    "measure_ocr/prompts.py": "25716c8c092c77757fe8997c1bba88c825a31b14127ef3e9438b47c911073534"
-  },
-  "limitations": [
-    "Printed dynamics are not supervised; source velocity normalized.",
-    "Arbitrary bend control points not preserved; common type contours restored.",
-    "Trill occurs in only 10 final training records, including repeats and augmentation; learned coverage is limited.",
-    "Automatic part/staff grouping and multi-part GP5 export are not implemented.",
-    "GP5 supports at most seven strings and seven simultaneous notes per voice; melodic storage offsets are limited to 30 for native compatibility.",
-    "C3/C4 clefs and small clef octave digits are not trained or independently validated.",
-    "Capo text reading is not trained. Nonzero capo in notation or mixed scores requires manual pitch review.",
-    "Absent printed instrument transposition cannot be inferred reliably; supply a manual setting."
+  "score_document_schema": "guitarocr.score/2",
+  "renderers": [
+    "Guitar Pro 8 native",
+    "Verovio: Leipzig, Bravura, Gootville"
   ],
-  "source_registry_sha256": "a04c1656dd83de5558a393cdd3b6154b4b00f17acd8d76d952eb6fd9e5d81c5b",
+  "display_modes": [
+    "tab",
+    "notation",
+    "both"
+  ],
+  "structure": {
+    "parts": "Explicit instrument parts with one or more staves",
+    "piano": "Two staves in the same part",
+    "both": "Notation and TAB describe the same musical events",
+    "timeline": "Shared bar indices across parts"
+  },
+  "label_conventions": {
+    "duration": "Positive duration denominator and positive tuplet counts; onset units are 960 ticks per quarter.",
+    "source_velocity": 95,
+    "printed_dynamics_supervision": false,
+    "trill": "Notation targets the visible trill mark; TAB and BOTH retain the visible auxiliary fret/pitch. Playback rate uses the export default.",
+    "grace": "Visible pitch/fret, transition and applicable slash/dead markings; playback-only duration is normalized.",
+    "bend": "Visible bend type and height; GP5 uses the corresponding canonical contour.",
+    "chord_marks": "Notation chord-wide accent, heavy and staccato counts are anchored in descending pitch order.",
+    "state": "Printed time/key signatures are read visually and propagated; neighbouring measure images provide context."
+  },
+  "export": {
+    "primary": "guitarocr.score/2",
+    "formats": [
+      "GP5",
+      "MusicXML"
+    ],
+    "gp5_strings_per_track": 7,
+    "gp5_note_slots_per_voice": 7,
+    "melodic_storage_maximum_offset": 30,
+    "wide_or_dense_melodic_parts": "Partitioned into GP5-compatible tracks while retaining the complete score document."
+  },
   "pitch_reference": {
     "guitar": "MIDI pitch before the separate track capo",
     "bass": "MIDI pitch before the separate track capo",
@@ -109,5 +58,6 @@
     "39": 38,
     "40": 38,
     "41": 45
-  }
+  },
+  "quality_evidence": "evaluation.json"
 }

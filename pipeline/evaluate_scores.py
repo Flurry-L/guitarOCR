@@ -111,7 +111,7 @@ def main():
                 target = row.get('target', '')
                 gold = expected.get('sounding_target', expected['target'])
                 sample = MeasureSequenceMetrics()
-                sample.update(gold, target, mode=mode, tuning=expected.get('tuning'), string_count=expected.get('string_count'))
+                sample.update(gold, target, mode=mode, tuning=expected.get('tuning'), string_count=expected.get('string_count'), instrument=expected.get('instrument'))
                 for metric in (metrics, by_mode[mode]):
                     metric.merge(sample)
                 predictions.write(json.dumps({'id':expected['id'], 'source_id':source,

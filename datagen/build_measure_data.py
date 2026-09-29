@@ -12,6 +12,7 @@ from PIL import Image
 from datagen.native.annotations import measure_boxes
 from datagen.sampling import balanced_hardcase_rows, measure_semantic_tags
 from datagen.training_samples import dataset_entry, measure_sample
+from datagen.source_profile import source_profile
 from shared.artifacts import write_json, write_jsonl
 from shared.crops import crop_measure
 from shared.m2 import format_previous_measure_context
@@ -26,6 +27,7 @@ def _render_pdf_pages(pdf_path: Path, dpi: int) -> list[Image.Image]:
 
 def _crop_source(job):
     label_path, label, output, modes, dpi, split = job
+    profile = source_profile(str(label_path))
     rows, failures = [], []
     source_id = label["source_id"]
     for mode in modes:
@@ -114,8 +116,9 @@ def _crop_source(job):
                     "split": split,
                     "mode": mode,
                     "measure_index": index,
-                    "instrument": label["track"].get("instrument", "guitar"),
-                    "string_count": label["track"]["string_count"],
+                    "instrument": profile["instrument"],
+                    "midi_program": profile["midi_program"],
+                    "string_count": profile["string_count"],
                     "family": label.get("family", source_id),
                     "image": str(crop_path.resolve()),
                     "target": target,

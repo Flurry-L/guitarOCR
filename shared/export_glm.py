@@ -41,7 +41,9 @@ def export_model(base, adapter, output, mtp=None):
     AutoProcessor.from_pretrained(base).save_pretrained(output)
     if (base / 'music_vocabulary.json').is_file():
         shutil.copyfile(base / 'music_vocabulary.json', output / 'music_vocabulary.json')
-    capability_root = Path(adapter) if adapter else base
+    if (base / 'score_image_policy.json').is_file():
+        shutil.copyfile(base / 'score_image_policy.json', output / 'score_image_policy.json')
+    capability_root = Path(adapter) if adapter and (Path(adapter) / 'capabilities.json').is_file() else base
     if (capability_root / 'capabilities.json').exists():
         capabilities = json.loads((capability_root / 'capabilities.json').read_text())
         if capabilities.get('state_reader'):

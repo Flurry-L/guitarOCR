@@ -12,6 +12,13 @@ from shared.instruments import DEFAULT_TUNINGS
 from shared.pitch_context import convert_pitch_target
 
 
+def _retry_error_text(errors, *, compact=False):
+    text = "; ".join(errors[:8])
+    # Parser errors can quote an entire failed generation. Later attempts must
+    # not duplicate thousands of music tokens inside the correction message.
+    return text[:2048] + " ..." if compact and len(text) > 2048 else text
+
+
 def _repair_truncated_optional_text(target: str) -> tuple[str, list[str]]:
     """Drop only an unterminated optional text effect and close open voices."""
 
@@ -265,11 +272,13 @@ def recognize_crops(
                     else:
                         correction = (
                             "Correct the M2 using the same image. Constraint errors: "
-                            + "; ".join(constraint_errors[:8])
+                            + _retry_error_text(constraint_errors, compact=attempt > 1)
                             + ". Return only one corrected M2 fragment."
                         )
                         if hit_token_limit:
                             token_budget = min(max_new_tokens_ceiling, token_budget * 2)
+                    if attempt > 1:
+                        messages = messages[:1]
                     messages.extend(
                         [
                             {

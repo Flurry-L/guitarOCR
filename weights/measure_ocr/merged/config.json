@@ -40,7 +40,7 @@
     },
     "tie_word_embeddings": false,
     "use_cache": true,
-    "vocab_size": 59392
+    "vocab_size": 60416
   },
   "tie_word_embeddings": false,
   "transformers_version": "5.8.0",

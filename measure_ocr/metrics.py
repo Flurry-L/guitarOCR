@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, field, fields
+from fractions import Fraction
 from typing import Any
 
 from shared.m2 import (
@@ -110,6 +111,16 @@ class MeasureSequenceMetrics:
     note_expected: int = 0
     note_predicted: int = 0
     note_overlap: int = 0
+    content_expected: int = 0
+    content_predicted: int = 0
+    content_overlap: int = 0
+    content_duration_overlap: int = 0
+    fingering_expected: int = 0
+    fingering_predicted: int = 0
+    fingering_overlap: int = 0
+    fingering_duration_overlap: int = 0
+    nonempty_predicted_empty: int = 0
+    note_error_types: Counter[str] = field(default_factory=Counter)
     string_expected: int = 0
     string_correct: int = 0
     fret_expected: int = 0
@@ -143,6 +154,7 @@ class MeasureSequenceMetrics:
         *,
         tuning: list[int] | None = None,
         string_count: int | None = None,
+        instrument: str | None = None,
     ) -> None:
         self.samples += 1
         expected_text = expected_text.strip()
@@ -157,8 +169,10 @@ class MeasureSequenceMetrics:
             predicted = parse_measure_target(predicted_text)
         except Exception as error:
             self.parse_errors[error.__class__.__name__] += 1
+            self._compare_content(expected, {'voices': []}, mode, instrument)
             self._count_expected_only(expected)
             return
+        self._compare_content(expected, predicted, mode, instrument)
         self.syntax_valid += 1
         if mode is not None:
             _validated, constraint_errors = validate_measure_target(
@@ -266,6 +280,53 @@ class MeasureSequenceMetrics:
         for key, count in overlapping_techniques.items():
             self.technique_class_overlap[_technique_class(str(key[-1]))] += count
 
+    def _compare_content(self, expected, predicted, mode, instrument):
+        def flatten(measure):
+            notes, timed, slots = Counter(), Counter(), {}
+            fingerings, fingerings_timed = Counter(), Counter()
+            for voice in measure['voices']:
+                for event in voice['events']:
+                    slot = (int(voice['voice']), int(event['start']))
+                    d = event['duration']
+                    ticks = Fraction(3840 * d.get('tuplet_times', 1), d['value'] * d.get('tuplet_enters', 1))
+                    ticks *= Fraction(7, 4) if d.get('double_dotted') else Fraction(3, 2) if d.get('dotted') else 1
+                    for n in event.get('notes', []):
+                        dead = instrument != 'drums' and (n.get('fret') == 'x' or 'dead' in n.get('effects', []))
+                        if dead:
+                            identity = ('dead', n.get('string') if mode == 'tab' else None)
+                        elif mode == 'tab' or 'pitch' not in n:
+                            identity = ('position', n.get('string'), n.get('fret'))
+                        else:
+                            identity = ('pitch', n['pitch'])
+                        notes[(*slot, identity)] += 1
+                        timed[(*slot, identity, ticks)] += 1
+                        slots.setdefault(slot, Counter())[identity] += 1
+                        if mode in {'tab', 'both'} and instrument != 'drums':
+                            position = (*slot, n.get('string'), 'x' if dead else n.get('fret'))
+                            fingerings[position] += 1
+                            fingerings_timed[(*position, ticks)] += 1
+            return notes, timed, slots, fingerings, fingerings_timed
+        a, at, positions, af, aft = flatten(expected)
+        b, bt, predictions, bf, bft = flatten(predicted)
+        self.content_expected += a.total()
+        self.content_predicted += b.total()
+        self.content_overlap += (a & b).total()
+        self.content_duration_overlap += (at & bt).total()
+        self.fingering_expected += af.total()
+        self.fingering_predicted += bf.total()
+        self.fingering_overlap += (af & bf).total()
+        self.fingering_duration_overlap += (aft & bft).total()
+        self.nonempty_predicted_empty += bool(a) and not b
+        for slot in positions.keys() | predictions.keys():
+            left, right = positions.get(slot, Counter()), predictions.get(slot, Counter())
+            if left and right:
+                self.note_error_types['wrong_content_at_shared_onset'] += min(left.total(), right.total()) - (left & right).total()
+                self.note_error_types['fewer_notes_at_shared_onset'] += max(0, left.total() - right.total())
+                self.note_error_types['extra_notes_at_shared_onset'] += max(0, right.total() - left.total())
+            else:
+                self.note_error_types['notes_at_missing_onsets'] += left.total()
+                self.note_error_types['notes_at_extra_onsets'] += right.total()
+
     def _count_expected_only(self, expected: dict[str, Any]) -> None:
         expected_events = _event_map(expected)
         self.event_expected += len(expected_events)
@@ -341,6 +402,12 @@ class MeasureSequenceMetrics:
             "duration_accuracy_on_aligned_events": _safe_div(self.duration_correct, self.aligned_events),
             "status_accuracy_on_aligned_events": _safe_div(self.status_correct, self.aligned_events),
             "note_exact": _f1(self.note_overlap, self.note_predicted, self.note_expected),
+            "note_content_onset": _f1(self.content_overlap, self.content_predicted, self.content_expected),
+            "note_content_onset_duration": _f1(self.content_duration_overlap, self.content_predicted, self.content_expected),
+            "fingering_onset": _f1(self.fingering_overlap, self.fingering_predicted, self.fingering_expected),
+            "fingering_onset_duration": _f1(self.fingering_duration_overlap, self.fingering_predicted, self.fingering_expected),
+            "note_errors": dict(self.note_error_types),
+            "nonempty_predicted_empty": self.nonempty_predicted_empty,
             "string_accuracy": _safe_div(self.string_correct, self.string_expected),
             "fret_accuracy": _safe_div(self.fret_correct, self.fret_expected),
             "pitch_accuracy": _safe_div(self.pitch_correct, self.pitch_expected),
@@ -364,6 +431,12 @@ class MeasureSequenceMetrics:
                 "predicted_events": self.event_predicted,
                 "expected_notes": self.note_expected,
                 "predicted_notes": self.note_predicted,
+                "correct_note_content_onset": self.content_overlap,
+                "correct_note_content_onset_duration": self.content_duration_overlap,
+                "expected_fingerings": self.fingering_expected,
+                "predicted_fingerings": self.fingering_predicted,
+                "correct_fingering_onset": self.fingering_overlap,
+                "correct_fingering_onset_duration": self.fingering_duration_overlap,
             },
             "parse_errors": dict(self.parse_errors),
             "constraint_errors": dict(self.constraint_errors),

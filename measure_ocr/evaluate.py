@@ -335,6 +335,7 @@ def evaluate(predictions: Path, metrics_path: Path | None) -> dict[str, Any]:
             row["mode"],
             tuning=row.get("tuning"),
             string_count=row.get("string_count"),
+            instrument=row.get('instrument'),
         )
         metrics.merge(sample)
         by_mode.setdefault(row["mode"], MeasureSequenceMetrics()).merge(sample)
@@ -349,9 +350,11 @@ def evaluate(predictions: Path, metrics_path: Path | None) -> dict[str, Any]:
         if instrument in {"guitar", "bass"}:
             key = f"{instrument}/{row.get('string_count')}/{row['mode']}"
             groups.append(by_strings.setdefault(key, MeasureSequenceMetrics()))
-        elif instrument == "pitched" and type(row.get("midi_program")) is int:
+        elif instrument == "pitched":
             # GM 0..7 includes acoustic/electric pianos, harpsichord and clavinet.
-            family = "piano_keyboard" if 0 <= row["midi_program"] <= 7 else "other_melodic"
+            program = row.get("midi_program")
+            family = ("unknown" if type(program) is not int else
+                      "piano_keyboard" if 0 <= program <= 7 else "other_melodic")
             groups.append(by_pitched_family.setdefault(family, MeasureSequenceMetrics()))
         if row.get("pitch_context") and row["mode"] != "tab" and instrument != "drums":
             pitch = row["pitch_context"]
@@ -366,6 +369,7 @@ def evaluate(predictions: Path, metrics_path: Path | None) -> dict[str, Any]:
             raw_sample.update(
                 row["expected"], raw_prediction, row["mode"],
                 tuning=row.get("tuning"), string_count=row.get("string_count"),
+                instrument=row.get('instrument'),
             )
         for accumulator in (raw_metrics, raw_by_mode.setdefault(row["mode"], MeasureSequenceMetrics())):
             accumulator.merge(raw_sample)

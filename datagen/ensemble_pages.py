@@ -15,6 +15,8 @@ from layout.structure import STRUCTURE_PROMPT, structure_image
 from shared.instruments import DEFAULT_PROGRAMS
 from shared.pitch_context import convert_pitch_target
 from shared.layout_labels import MEASURE_LABELS
+from shared.score_state import attach_neighbours
+from datagen.source_profile import apply_source_profile
 
 
 def compose(job):
@@ -50,7 +52,18 @@ def compose(job):
     page, page_number, y, page_rows, row_labels, records, pages, chats = None, 0, 0, [], [], [], [], []
     labels = {v: k for k, v in MEASURE_LABELS.items()} if isinstance(MEASURE_LABELS, dict) else None
     del labels
-    row_heights = [230 if rows[0]['mode'] == 'both' else 150 for _, _, rows in staff_sources]
+    # Preserve the engraved glyph geometry. Column widths follow the widest
+    # measure in any simultaneous staff, and short measures receive whitespace.
+    sizes = {}
+    for _, _, rows in staff_sources:
+        for row in rows:
+            with Image.open(row['image']) as im:
+                sizes[row['image']] = im.size
+    row_heights = [max(sizes[r['image']][1] for r in rows) for _, _, rows in staff_sources]
+    widths = [[max(sizes[rows[(system * 4 + column) % len(rows)]['image']][0]
+                   for _, _, rows in staff_sources) for column in range(4)] for system in range(4)]
+    page_width = max(2000, 300 + max(sum(w) for w in widths))
+    page_height = max(2800, round(page_width * 1.4))
     system_height = sum(row_heights) + 26 * (len(staff_sources) - 1)
 
     def finish():
@@ -65,10 +78,10 @@ def compose(job):
         pages.append({'image': str(image_path.resolve()), 'width': page.width, 'height': page.height})
 
     for system in range(4):
-        if page is None or y + system_height + 70 > 2800:
+        if page is None or y + system_height + 70 > page_height:
             finish()
             page_number += 1
-            page = Image.new('RGB', (2000, 2800), 'white')
+            page = Image.new('RGB', (page_width, page_height), 'white')
             draw = ImageDraw.Draw(page)
             draw.text((650, 42), f'Ensemble Study {index + 1}', font=title_font, fill='black')
             y, page_rows, row_labels = 150, [], []
@@ -78,10 +91,11 @@ def compose(job):
             boxes = []
             for column in range(4):
                 original = source[(system * 4 + column) % len(source)]
-                x = 235 + column * 415
+                x = 235 + sum(widths[system][:column])
                 with Image.open(original['image']) as crop:
-                    im = crop.convert('RGB').resize((415, height), Image.Resampling.LANCZOS)
-                page.paste(im, (x, y))
+                    im = crop.convert('RGB')
+                crop_y = y + (height - im.height) // 2
+                page.paste(im, (x, crop_y))
                 number = len(records) + 1
                 crop_path = root / 'crops' / f'{number}.png'
                 crop_path.parent.mkdir(exist_ok=True)
@@ -94,7 +108,7 @@ def compose(job):
                        'part_name': parts[part_index]['name'], 'instrument': parts[part_index]['instrument'],
                        'midi_program': parts[part_index]['program'], 'system_index': page_system,
                        'row_index': len(page_rows), 'system_measure_index': column,
-                       'bbox': [x, y, 415, height], 'image': str(crop_path.resolve()),
+                       'bbox': [x, crop_y, im.width, im.height], 'image': str(crop_path.resolve()),
                        'source_page': str((root / f'page-{page_number}.png').resolve())}
                 if row['instrument'] == 'pitched':
                     row['tuning'] = []
@@ -102,6 +116,7 @@ def compose(job):
                     context.update(instrument_transpose=0, capo=0)
                     row['pitch_context'] = context
                     row['sounding_target'] = convert_pitch_target(row['target'], context)
+                row['string_count'] = len(row.get('tuning') or [])
                 boxes.append(row)
                 records.append(row)
             if staff == 0:
@@ -121,6 +136,7 @@ def compose(job):
         y += 75
         page_system += 1
     finish()
+    attach_neighbours(records)
     images = [Image.open(p['image']).convert('RGB') for p in pages]
     pdf = root / 'score.pdf'
     images[0].save(pdf, save_all=True, append_images=images[1:], resolution=180)
@@ -141,15 +157,19 @@ def build(output, train=2400, validation=240, test=240, workers=12):
         with Path(f'database/score_support/manifest_{split}.jsonl').open() as handle:
             for line in handle:
                 row = json.loads(line)
+                if row.get('corpus') == 'original':
+                    row = apply_source_profile(row)
                 if row['score_state']['time'] == '4/4':
                     groups[(row['source_id'], row['mode'])].append(row)
         pools = defaultdict(list)
         for rows in groups.values():
             rows.sort(key=lambda r: r['measure_index'])
             # Whole contiguous chunks keep ties and accidentals meaningful.
-            for start in range(0, len(rows) - 15, 16):
+            # Start at the source opening so clef/key/time context is actually
+            # visible, rather than copying invisible state from a middle chunk.
+            for start in [0] if len(rows) >= 16 else []:
                 chunk = rows[start:start + 16]
-                if chunk[-1]['measure_index'] - chunk[0]['measure_index'] == 15:
+                if chunk[0]['measure_index'] == 0 and chunk[-1]['measure_index'] == 15:
                     pools[(chunk[0]['instrument'], chunk[0]['mode'])].append(chunk)
         jobs = []
         for index in range(count):

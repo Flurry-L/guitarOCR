@@ -7,6 +7,19 @@ from pathlib import Path
 import re
 
 
+def structured_lexemes(base, training_data=None):
+    """Cover the supported musical fields, with ordinary-token fallback."""
+    pitches = [f'p{i}' for i in range(128)]
+    fingerings = [f's{s}f{f}' for s in range(1, 13) for f in [*range(37), 'x']]
+    onsets = [f'@{i}' for i in range(0, 15361, 40)]
+    durations = [f':{d}{dots}{tuplet}:' for d in 'whqestf'
+                 for dots in ['', '.', '..'] for tuplet in ['', '[3:2]', '[5:4]', '[7:4]', '[7:8]']]
+    fields = pitches + fingerings + onsets + durations
+    if training_data:
+        fields += select_lexemes(base, training_data, minimum_count=20, limit=4096)
+    return list(dict.fromkeys(fields))
+
+
 def select_lexemes(base, training_data, minimum_count=50, limit=2048):
     """Rank whole music fields by saved tokens using training labels only."""
     from transformers import AutoTokenizer
@@ -91,9 +104,11 @@ def prepare_vocabulary(base, adapter, output, lexemes):
     processor.save_pretrained(output)
     save_file(weights, output / 'model.safetensors', metadata={'format': 'pt'})
     metadata = {'original_vocabulary': original, 'vocabulary': len(tokenizer),
-                'embedding_rows': size, 'lexemes': list(lexemes)}
+                'embedding_rows': size, 'lexemes': list(lexemes),
+                'loss_weights': {str(tokenizer.convert_tokens_to_ids(text)): min(4., float(len(ids)))
+                                 for text, ids in pieces.items() if tokenizer.convert_tokens_to_ids(text) >= original}}
     (output / 'music_vocabulary.json').write_text(json.dumps(metadata, indent=2))
-    print(json.dumps({k: v for k, v in metadata.items() if k != 'lexemes'}), flush=True)
+    print(json.dumps({k: v for k, v in metadata.items() if k not in {'lexemes', 'loss_weights'}}), flush=True)
 
 
 if __name__ == '__main__':
@@ -104,13 +119,15 @@ if __name__ == '__main__':
     selection = parser.add_mutually_exclusive_group(required=True)
     selection.add_argument('--lexemes', type=Path)
     selection.add_argument('--training-data', type=Path, help='Select frequent lexemes from training JSONL')
+    parser.add_argument('--structured', action='store_true', help='Complete supported pitch/fingering/rhythm fields')
     parser.add_argument('--tokenized-input', type=Path)
     parser.add_argument('--tokenized-output', type=Path)
     parser.add_argument('--workers', type=int, default=16)
     args = parser.parse_args()
     if bool(args.tokenized_input) != bool(args.tokenized_output):
         parser.error('Both tokenized input and output are required for retokenization')
-    lexemes = json.loads(args.lexemes.read_text())['lexemes'] if args.lexemes else select_lexemes(args.base, args.training_data)
+    lexemes = (structured_lexemes(args.base, args.training_data) if args.structured else
+               json.loads(args.lexemes.read_text())['lexemes'] if args.lexemes else select_lexemes(args.base, args.training_data))
     prepare_vocabulary(args.base, args.adapter, args.output, lexemes)
     if args.tokenized_input:
         retokenize_dataset(args.base, args.output, args.tokenized_input, args.tokenized_output, args.workers)

@@ -54,6 +54,8 @@ class GlmBackend:
         self.processor = AutoProcessor.from_pretrained(
             model_path, trust_remote_code=True
         )
+        from shared.score_image import load_policy
+        self.image_policy = load_policy(model_path)
         model = AutoModelForImageTextToText.from_pretrained(
             model_path, dtype=dtype, trust_remote_code=True
         )
@@ -71,6 +73,9 @@ class GlmBackend:
         skip_special_tokens: bool = True,
     ) -> tuple[str, int]:
         import torch
+
+        from shared.score_image import normalize_messages
+        messages = normalize_messages(messages, self.image_policy)
 
         inputs = self.processor.apply_chat_template(
             messages,
@@ -122,6 +127,8 @@ class GlmBackend:
 
     def _generate_batch(self, messages, max_new_tokens, skip_special_tokens):
         import torch
+        from shared.score_image import normalize_messages
+        messages = [normalize_messages(m, self.image_policy) for m in messages]
 
         inputs = self.processor.apply_chat_template(
             messages, tokenize=True, add_generation_prompt=True,

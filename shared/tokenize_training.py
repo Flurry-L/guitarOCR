@@ -23,6 +23,11 @@ def main() -> None:
 
     torch.set_num_threads(1)
     config = yaml.safe_load(args.config.read_text())
+    from shared.score_image import install_training_policy
+    install_training_policy(config['model_name_or_path'])
+    for key in ('vocab_trainable_from', 'vocab_learning_rate', 'vocab_freeze_original', 'music_field_loss',
+                'batch_token_budget', 'maximum_batch_examples', 'share_context_images', 'context_chunk_size'):
+        config.pop(key, None)
     config["tokenized_path"] = str(args.output)
     model_args, data_args, training_args, finetuning_args, _ = get_train_args(config)
     tokenizer_module = load_tokenizer(model_args)

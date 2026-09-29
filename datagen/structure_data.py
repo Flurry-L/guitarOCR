@@ -9,6 +9,7 @@ from pathlib import Path
 from PIL import Image
 
 from datagen.training_samples import dataset_entry
+from datagen.source_profile import apply_source_profile
 from layout.postprocess import order_measure_boxes
 from layout.structure import STRUCTURE_PROMPT, structure_image, structure_model_image
 from shared.instruments import DEFAULT_PROGRAMS
@@ -25,7 +26,8 @@ def single_page(job):
     rows = list(groups.values())
     if not rows:
         return None
-    instrument = image.get('instrument') or reference.get('instrument', 'guitar')
+    reference = apply_source_profile(reference)
+    instrument = reference.get('instrument') or image.get('instrument', 'guitar')
     part = {'name': {'guitar': 'Guitar', 'bass': 'Bass', 'pitched': 'Piano', 'drums': 'Drums'}[instrument],
             'instrument': instrument, 'strings': len(reference.get('tuning') or []) if image['mode'] in {'tab', 'both'} else None,
             'program': DEFAULT_PROGRAMS[instrument]}

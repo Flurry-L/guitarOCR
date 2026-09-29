@@ -155,7 +155,17 @@ def constrain_rows(value, systems):
     template = []
     if rows and all(isinstance(r, list) and len(r) == 3 and all(type(v) is int for v in r) for r in rows):
         template = [(part, staff) for system, part, staff in rows if system == rows[0][0]]
-    grand = {i for i, part in enumerate(parts) if re.search(r'\b(?:piano|keyboard|organ|harp)\b', part['name'], re.I)}
+    grand = {i for i, part in enumerate(parts)
+             if re.search(r'\b(?:piano|keyboard|organ|harp)\b', part['name'], re.I)}
+    valid_template = (len(template) == width and len(set(template)) == width
+                      and {p for p, _s in template} == set(range(len(parts)))
+                      and all(0 <= staff < 16 for _p, staff in template))
+    if not valid_template and sum(2 if i in grand else 1 for i in range(len(parts))) != width:
+        # Printed names may contain OCR spelling errors. The predicted MIDI
+        # family can complete a grand-staff template when its total row count
+        # agrees with every geometrically detected system.
+        grand |= {i for i, part in enumerate(parts)
+                  if part['instrument'] == 'pitched' and part['program'] in {*range(8), *range(16, 21), 46}}
     grand_template = [(i, staff) for i in range(len(parts)) for staff in range(2 if i in grand else 1)]
     if grand and len(grand_template) == width:
         template = grand_template
@@ -349,8 +359,18 @@ def read_structure(source, output, backend, cancelled=None, *, compact=False):
         path, messages, raw = initial[page_number]
         systems_from_image = geometry[page_number]
         error = None
+        attempts = []
         generation = {'json_schema': structure_schema(len(rows))} if structured else {}
-        for _attempt in range(2):
+        for _attempt in range(3 if compact else 2):
+            if _attempt == 2:
+                # Restore full-page context when the compact margins could
+                # not resolve a valid staff/part assignment.
+                hint = (f' Visible barlines give system indices {systems_from_image} for these rows.'
+                        if systems_from_image is not None else '')
+                messages = [{'role': 'user', 'content': [
+                    {'type': 'image', 'url': path},
+                    {'type': 'text', 'text': STRUCTURE_PROMPT + f'There are {len(rows)} marked rows.' + hint},
+                ]}]
             if _attempt:
                 raw, _ = backend.generate(messages, 2048, **generation)
             try:
@@ -358,6 +378,7 @@ def read_structure(source, output, backend, cancelled=None, *, compact=False):
                 break
             except (ValueError, KeyError, TypeError) as exc:
                 error = str(exc)
+                attempts.append({'raw': raw, 'error': error})
                 references = []
                 for other, reference_rows in grouped.items():
                     if other == page_number:
@@ -373,15 +394,17 @@ def read_structure(source, output, backend, cancelled=None, *, compact=False):
                 messages.extend([{'role': 'assistant', 'content': [{'type': 'text', 'text': raw}]},
                                  {'role': 'user', 'content': [{'type': 'text', 'text': error + '. Return the complete corrected JSON.'}]}])
         else:
+            (Path(output) / f'structure-{page_number}-errors.json').write_text(
+                json.dumps(attempts, ensure_ascii=False, indent=2))
             raise ValueError(f'Cannot resolve score structure on page {page_number}: {error}')
         parsed[page_number] = structure
-        resolved_inputs[page_number] = (path, raw, systems_from_image)
+        resolved_inputs[page_number] = (path, raw, systems_from_image, _attempt + 1)
     reconcile_page_profiles([(parsed[page], rows) for page, rows in sorted(grouped.items())])
     predictions, parts, by_name, identities = [], [], {}, {}
     bar_offset = 0
     for page_number, rows in sorted(grouped.items()):
         structure = parsed[page_number]
-        path, raw, systems_from_image = resolved_inputs[page_number]
+        path, raw, systems_from_image, attempts = resolved_inputs[page_number]
         template, order = page_template(structure, rows)
         mapping = {}
         used = set()
@@ -423,5 +446,6 @@ def read_structure(source, output, backend, cancelled=None, *, compact=False):
                                system_index=system, bar_index=bar_offset + column)
             bar_offset += len(reference)
         predictions.append({'page': page_number, 'image': path, 'raw': raw,
-                            'systems_from_image': systems_from_image, 'parsed': structure})
+                            'systems_from_image': systems_from_image, 'parsed': structure,
+                            'attempts': attempts})
     return parts, predictions

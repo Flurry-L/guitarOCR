@@ -211,12 +211,16 @@ def parse_duration_token(token: str) -> dict[str, Any]:
     reverse = {value: key for key, value in DURATION_NAMES.items()}
     value = int(base[1:]) if base.startswith("d") else reverse[base]
     dots = match.group("dots") or ""
+    enters = int(match.group("enters") or 1)
+    times = int(match.group("times") or 1)
+    if value <= 0 or enters <= 0 or times <= 0:
+        raise ValueError(f"M2 duration and tuplet counts must be positive: {token!r}")
     return {
         "value": value,
         "dotted": dots == ".",
         "double_dotted": dots == "..",
-        "tuplet_enters": int(match.group("enters") or 1),
-        "tuplet_times": int(match.group("times") or 1),
+        "tuplet_enters": enters,
+        "tuplet_times": times,
     }
 
 

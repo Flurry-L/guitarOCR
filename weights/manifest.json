@@ -7,7 +7,7 @@
       "files": [
         {
           "name": "capabilities.json",
-          "bytes": 255
+          "bytes": 286
         },
         {
           "name": "inference.json",
@@ -15,11 +15,11 @@
         },
         {
           "name": "label_schema.json",
-          "bytes": 4929
+          "bytes": 2702
         },
         {
           "name": "merged/capabilities.json",
-          "bytes": 248
+          "bytes": 257
         },
         {
           "name": "merged/chat_template.jinja",
@@ -35,23 +35,31 @@
         },
         {
           "name": "merged/model-00001-of-00003.safetensors",
-          "bytes": 997349504
+          "bytes": 994203512
         },
         {
           "name": "merged/model-00002-of-00003.safetensors",
-          "bytes": 998497952
+          "bytes": 997433920
         },
         {
           "name": "merged/model-00003-of-00003.safetensors",
-          "bytes": 725531504
+          "bytes": 742324424
         },
         {
           "name": "merged/model.safetensors.index.json",
           "bytes": 46363
         },
         {
+          "name": "merged/music_vocabulary.json",
+          "bytes": 35052
+        },
+        {
           "name": "merged/processor_config.json",
           "bytes": 1334
+        },
+        {
+          "name": "merged/score_image_policy.json",
+          "bytes": 135
         },
         {
           "name": "merged/state_reader/state.safetensors",
@@ -59,7 +67,7 @@
         },
         {
           "name": "merged/tokenizer.json",
-          "bytes": 6838609
+          "bytes": 7042805
         },
         {
           "name": "merged/tokenizer_config.json",
@@ -218,5 +226,5 @@
     ],
     "required_for_inference": false
   },
-  "release": "score-support-2026-09-28"
+  "release": "score-quality-2026-09-29"
 }

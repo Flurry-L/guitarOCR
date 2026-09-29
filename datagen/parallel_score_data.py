@@ -13,6 +13,7 @@ from PIL import Image
 from datagen.scan_augment import degrade
 from datagen.training_samples import dataset_entry
 from datagen.written_pitch_data import prepare
+from datagen.source_profile import apply_source_profile
 from shared.pitch_context import transpose_key
 from shared.score_state import SIGNATURE_PROMPT, attach_neighbours, key_fifths, signature_target, state_prompt
 
@@ -53,6 +54,7 @@ def native_pitch_context(rows):
 
 def process_source(job):
     rows, output, augment = job
+    rows = [apply_source_profile(row) for row in rows]
     rows.sort(key=lambda r: r['measure_index'])
     label = json.loads(Path(rows[0]['label_json']).read_text())
     layout = native_layout(rows[0])
@@ -72,8 +74,6 @@ def process_source(job):
     for row in rows:
         index = row['measure_index']
         measure = label['measures'][index]
-        row['instrument'] = row.get('instrument', label['track'].get('instrument', 'guitar'))
-        row['tuning'] = label['track'].get('tuning_midi_high_to_low', []) if row['instrument'] in {'guitar', 'bass'} else []
         sounding_target = row['target'] = native_key_target(row['target'])
         if native_pitch is not None:
             row['pitch_context'] = native_pitch[index]

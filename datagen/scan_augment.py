@@ -19,7 +19,8 @@ def degrade(image: Image.Image, key: str, *, crop: bool = False) -> Image.Image:
         # Vary context without deleting any original symbols.
         x, y = max(2, round(size[0] * 0.018)), max(2, round(size[1] * 0.025))
         border = tuple(int(rng.integers(0, v + 1)) for v in (x, y, x, y))
-        image = ImageOps.expand(image, border, fill=255).resize(size, Image.Resampling.LANCZOS)
+        image = ImageOps.expand(image, border, fill=255)
+        size = image.size
     scale = float(rng.uniform(0.65, 0.95))
     image = image.resize((max(1, round(size[0] * scale)), max(1, round(size[1] * scale))), Image.Resampling.BILINEAR)
     image = image.resize(size, Image.Resampling.BICUBIC).filter(ImageFilter.GaussianBlur(float(rng.uniform(0.15, 0.45))))

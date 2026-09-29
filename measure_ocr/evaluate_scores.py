@@ -46,8 +46,23 @@ def selected_scores(manifest, limit, seed):
     return [(key, groups[key]) for key in keys]
 
 
+def shard_scores(scores, index, shards):
+    if shards == 1:
+        return scores
+    # Instrument buckets repeat in a fixed cycle; striding can put almost all
+    # long guitar scores on one GPU. Assign whole sequences by bar count and
+    # retain their original order within each worker.
+    assignments = [[] for _ in range(shards)]
+    loads = [0] * shards
+    for position, score in sorted(enumerate(scores), key=lambda item: len(item[1][1]), reverse=True):
+        rank = min(range(shards), key=lambda i: (loads[i], len(assignments[i]), i))
+        assignments[rank].append((position, score))
+        loads[rank] += len(score[1])
+    return [score for _position, score in sorted(assignments[index])]
+
+
 def worker(args):
-    scores = selected_scores(args.manifest, args.max_scores, args.seed)[args.shard_index::args.shards]
+    scores = shard_scores(selected_scores(args.manifest, args.max_scores, args.seed), args.shard_index, args.shards)
     capability_path = Path(args.adapter or args.model) / 'capabilities.json'
     capabilities = json.loads(capability_path.read_text()) if capability_path.is_file() else {}
     if capabilities.get('visual_pitch') and any(
@@ -56,6 +71,15 @@ def worker(args):
     ):
         raise ValueError('This model reads written pitches from notation+TAB. Rebuild missing pitch contexts with datagen.score_support_data before evaluation.')
     args.output.mkdir(parents=True, exist_ok=True)
+    predictions = args.output / f'predictions-{args.shard_index}.jsonl'
+    timings = args.output / f'timings-{args.shard_index}.jsonl'
+    completed = set()
+    if args.resume and predictions.exists():
+        for line in predictions.open():
+            completed.add(json.loads(line)['id'])
+        assigned = {row['id'] for _key, rows in scores for row in rows}
+        if not completed.issubset(assigned):
+            raise ValueError('Saved predictions use a different GPU partition; use a fresh output directory')
     loading = time.perf_counter()
     if args.engine == 'vllm':
         from shared.vllm_backend import VllmBackend
@@ -75,13 +99,6 @@ def worker(args):
 
         state_reader = StateReader(args.state_model, 'cuda:0')
     started = time.perf_counter()
-    predictions = args.output / f'predictions-{args.shard_index}.jsonl'
-    timings = args.output / f'timings-{args.shard_index}.jsonl'
-    completed = set()
-    if args.resume and predictions.exists():
-        for line in predictions.open():
-            r = json.loads(line)
-            completed.add(r['id'])
     with predictions.open('a' if args.resume else 'w') as output, timings.open('a' if args.resume else 'w') as times:
         for index, ((source_id, mode), truth) in enumerate(scores):
             if all(r['id'] in completed for r in truth):
@@ -117,7 +134,7 @@ def worker(args):
                              corpus=corpus, midi_program=expected.get('midi_program', track.get('midi_program')),
                              raw_prediction=raw_by_number.get(row['measure_number'], row['target']),
                              needs_review=row.get('needs_review', False), tuning=row.get('tuning'),
-                             string_count=len(row.get('tuning') or []),
+                             string_count=expected.get('string_count', len(expected.get('tuning') or [])),
                              context_source='predicted', measure_index=row['measure_index'],
                              score_state=row.get('score_state'), expected_state=expected['score_state'],
                              printed_state=row.get('printed_state'), expected_signature=expected['signature_target'],
@@ -187,6 +204,10 @@ def aggregate(args, shards):
     result['constrained_decoding'] = (bool(json.loads(capability_path.read_text()).get('m2_constraints'))
                                      if args.constrained_decoding is None and capability_path.is_file()
                                      else bool(args.constrained_decoding)) and not args.legacy
+    capabilities = json.loads(capability_path.read_text()) if capability_path.is_file() else {}
+    result['retry_constrained_decoding'] = not args.legacy and args.engine == 'vllm' and (
+        result['constrained_decoding'] or (args.constrained_decoding is not False
+                                         and bool(capabilities.get('m2_retry_constraints'))))
     result['postprocessing'] = [] if args.legacy else ['printed_state', 'fretted_pitches', 'cross_bar_ties']
     result['workers'] = [json.loads(path.read_text()) for i in range(shards)
                          if (path := args.output / f'runtime-{i}.json').exists()]
@@ -196,6 +217,7 @@ def aggregate(args, shards):
         'track_instrument_tuning_and_pitch_context': 'reference',
         'previous_generated_measures': 'predicted' if args.legacy else 'unused',
         'time_and_key_signatures': 'decoder' if args.legacy else 'predicted_visual_state',
+        'gpu_work_assignment': 'complete_scores_balanced_by_bar_count' if shards > 1 else 'single_gpu',
     }
     write_json(args.output / 'metrics.json', result)
     print(json.dumps({'overall': result['overall'], 'latency': result['latency'], 'state': result['state_counts']}, indent=2))

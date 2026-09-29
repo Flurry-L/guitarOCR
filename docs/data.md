@@ -93,6 +93,10 @@ uv run --no-sync python -m datagen.build_staff_data \
 
 `datagen.ensemble_pages` 将保持原划分的原生谱面片段组合为总谱页面。`datagen.engraved_scores` 从独立乐谱中间表示生成多乐器、钢琴双谱表和复调作品，使用三种字体排版，同时输出小节、谱号、元信息和整页分轨标签。`datagen.ensemble_layout_data` 合并版面数据；`datagen.structure_data --engraved database/engraved_scores --compact --output database/score_support/info_structure_compact` 构建分轨和谱面信息数据；`datagen.score_support_data --engraved database/engraved_scores --rehearsal-focus --output database/score_support_rehearsal` 保留三种排版并增加复调、打击乐和奏法样本。再运行 `datagen.info_crops`，加入仅来自训练曲谱的偏移、缩放和压缩裁图。完整 PDF 由 `pipeline.evaluate_ensembles` 评测。
 
+组合页面保留小节原始宽高比，按同一时间位置最宽的小节分配列宽，并从源曲开头选取连续小节，使谱号、拍号和调号可见。`python -m datagen.ensemble_pages --output database/ensemble_quality` 默认生成 2,400／240／240 份训练、验证和测试总谱。`python -m datagen.quality_data --output database/score_quality_profiles` 将它与旧组合谱、复习样本、TAB 技法定位样本和音乐词表预热数据合并。技法定位按原生起点和实际主音品数字形关联，排除装饰音和颤音旁注。
+
+数据构建器通过 `datagen.source_profile` 从原始 GP 文件恢复旧标签缺失的乐器、调弦和弦数，纠正旧贝斯样本的吉他默认谱号。重读已经组合的页面时保留页面打印的声部身份，只修复源图谱号与弦数信息；音乐目标不随元数据修复而改变。
+
 ## 谱号与移调
 
 谱号裁图依据原生 PDF 字形标注。混合谱中的 TAB 符号单独标为 `tab`，不覆盖五线谱的谱号或改变音高。

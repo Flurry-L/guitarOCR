@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 import shutil
 
-from gp5_export.writer import GP5ReadbackError, write_targets_gp5
+from gp5_export.writer import GP5ReadbackError, GP5TimingError, write_targets_gp5
 from gp5_export.score import write_score_gp5
 from shared.artifacts import read_result, write_result
 
@@ -39,7 +39,7 @@ def run(recognition: Path, output: Path, *, allow_unreviewed: bool = False, fall
             tuning=source["tuning_used"], capo=source["capo"],
             instrument=source.get("instrument", "guitar"), midi_program=source.get("midi_program"),
         )
-    except GP5ReadbackError as error:
+    except (GP5ReadbackError, GP5TimingError) as error:
         from measure_ocr.result import save_recognition
 
         for index in error.measures:

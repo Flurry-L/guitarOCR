@@ -7,5 +7,6 @@
   "capo_pitch": true,
   "state_reader": "merged/state_reader/state.safetensors",
   "visual_pitch": true,
-  "m2_constraints": false
+  "m2_constraints": false,
+  "m2_retry_constraints": true
 }

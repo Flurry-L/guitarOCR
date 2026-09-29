@@ -16,6 +16,13 @@ from gp5_export.fingering import _assign_positions, _tie_reservation_note_ids, _
 from gp5_export.effects import _duration, _enum_member, _note, _apply_beat_effects
 
 
+class GP5TimingError(ValueError):
+    def __init__(self, measures, detail):
+        self.measures = sorted(set(measures))
+        self.detail = detail
+        super().__init__(f"GP5 cannot preserve timing in measures {self.measures}: {detail}")
+
+
 class GP5ReadbackError(ValueError):
     def __init__(self, measures, locations=None):
         self.measures = sorted(set(measures))
@@ -199,18 +206,21 @@ def targets_to_song(
                 for event in voice_data["events"]:
                     event_start = int(event.get("start", 0))
                     if event_start < cursor:
-                        raise ValueError(f"Overlapping events in measure {index} V{voice_index}; GP5 cannot preserve them")
+                        raise GP5TimingError([index], f"Overlapping events in V{voice_index}")
                     if event_start > cursor:
                         # GP5 serializes durations, not Beat.start. Materialize
                         # an explicit M2 gap so saving cannot shift later notes.
-                        rests = parse_measure_target(full_measure_rest_target((event_start - cursor, 3840)))["voices"][0]["events"]
+                        try:
+                            rests = parse_measure_target(full_measure_rest_target((event_start - cursor, 3840)))["voices"][0]["events"]
+                        except ValueError as error:
+                            raise GP5TimingError([index], str(error)) from error
                         for rest in rests:
                             duration = _duration(rest["duration"], gm)
                             voice.beats.append(gm.Beat(voice=voice, start=start + cursor,
                                                       duration=duration, status=gm.BeatStatus.rest))
                             cursor += duration.time
                         if cursor != event_start:
-                            raise ValueError(f"Unrepresentable event gap in measure {index} V{voice_index}")
+                            raise GP5TimingError([index], f"Unrepresentable event gap in V{voice_index}")
                     for effect in event.get("effects") or []:
                         if str(effect).startswith("dyn:"):
                             current_velocity[voice_index] = int(

@@ -112,7 +112,66 @@ def order_measure_boxes(boxes: list[dict], minimum_score: float = 0.2) -> list[d
     return result
 
 
+def deduplicate_measure_pairs(boxes: list[dict]) -> list[dict]:
+    """A complete notation+TAB box supersedes a contained single-staff copy."""
+    pairs = [box for box in boxes if box.get('mode') == 'both']
+    result = []
+    for box in boxes:
+        duplicate = False
+        if box.get('mode') in {'notation', 'tab'}:
+            left, top, right, bottom = _coordinates(box)
+            width, height = right - left, bottom - top
+            for pair in pairs:
+                x0, y0, x1, y1 = _coordinates(pair)
+                intersection = max(0, min(right, x1) - max(left, x0)) * max(0, min(bottom, y1) - max(top, y0))
+                if (width > 0 and height > 0 and intersection >= .9 * width * height
+                        and .8 <= width / max(1, x1 - x0) <= 1.2
+                        and y1 - y0 >= 1.5 * height
+                        and float(pair['score']) >= float(box['score'])):
+                    duplicate = True
+                    break
+        if not duplicate:
+            result.append(box)
+    return result
+
+
+def reconcile_pair_rows(boxes: list[dict]) -> list[dict]:
+    """Join a partial single-staff row to adjacent complete notation+TAB bars."""
+    parents = {box['system_index']: box['system_index'] for box in boxes}
+
+    def root(index):
+        while parents[index] != index:
+            index = parents[index]
+        return index
+
+    for box in boxes:
+        _, top, _, bottom = _coordinates(box)
+        for other in boxes:
+            if root(box['system_index']) == root(other['system_index']):
+                continue
+            _, row_top, _, row_bottom = _coordinates(other)
+            modes = {box.get('mode'), other.get('mode')}
+            tolerance = .15 * min(bottom - top, row_bottom - row_top)
+            if ((modes == {'both', 'notation'} and abs(top - row_top) <= tolerance)
+                    or (modes == {'both', 'tab'} and abs(bottom - row_bottom) <= tolerance)):
+                first, second = sorted((root(box['system_index']), root(other['system_index'])))
+                parents[second] = first
+    if all(index == parent for index, parent in parents.items()):
+        return boxes
+    rows = {}
+    for box in boxes:
+        rows.setdefault(root(box['system_index']), []).append(box)
+    result = []
+    for system, row in sorted(rows.items()):
+        for index, box in enumerate(_select_nonoverlapping(row)):
+            left, top, right, bottom = _coordinates(box)
+            result.append({**box, 'system_index': system, 'system_measure_index': index,
+                           'bbox': [left, top, right - left, bottom - top]})
+    return result
+
+
 def refine_measure_boxes(image: Image.Image, boxes: list[dict]) -> list[dict]:
+    boxes = reconcile_pair_rows(deduplicate_measure_pairs(boxes))
     pixels = np.asarray(image.convert("L"))
 
     def fragment_between_staves(box):

@@ -132,6 +132,8 @@ def recognize_independent(
     capabilities = json.loads(capabilities_path.read_text()) if capabilities_path.exists() else {}
     constrained = capabilities.get('m2_constraints', False) if constrained_decoding is None else constrained_decoding
     constrained = constrained and getattr(backend, 'supports_json_schema', False)
+    retry_constrained = (constrained_decoding is not False and capabilities.get('m2_retry_constraints', False)
+                         and getattr(backend, 'supports_json_schema', False))
     for row in records:
         row['visual_pitch'] = bool(capabilities.get('visual_pitch', row.get('visual_pitch', False)))
     if state_reader is None:
@@ -192,14 +194,14 @@ def recognize_independent(
                 _check(cancelled)
                 token_budget = max(budgets[i] for i in unresolved)
                 grammars = None
-                if constrained:
+                if constrained or (retry_constrained and attempt > 1):
                     from shared.m2_grammar import measure_grammar
 
                     grammars = [measure_grammar(batch[i]['mode'], len(batch[i]['tuning']) or 12) for i in unresolved]
                 outputs = _batch(backend, [messages[i] for i in unresolved], token_budget, grammars)
                 next_unresolved = []
                 for i, (raw, tokens) in zip(unresolved, outputs, strict=True):
-                    from measure_ocr.recognizer import _repair_truncated_optional_text
+                    from measure_ocr.recognizer import _repair_truncated_optional_text, _retry_error_text
 
                     row = batch[i]
                     text = raw.strip()
@@ -246,14 +248,20 @@ def recognize_independent(
                         'attempt': attempt, 'raw': raw, 'target': target, 'accepted': not errors,
                         'generated_token_count': tokens, 'token_budget': token_budget,
                         'hit_token_limit': hit_limit, 'constraint_errors': errors, 'deterministic_repairs': repairs,
+                        'constrained_decoding': grammars is not None,
                         'score_state': row['score_state'],
                         'written_target': text, 'tuning': row['tuning'],
                     }
                     save(value)
                     if errors and attempt < maximum_attempts:
+                        # Keep the original images and most recent draft. A
+                        # third attempt otherwise repeats two drafts plus
+                        # parser exceptions quoting both, overflowing context.
+                        if attempt > 1:
+                            messages[i] = messages[i][:1]
                         messages[i].extend([
                             {'role': 'assistant', 'content': [{'type': 'text', 'text': text}]},
-                            {'role': 'user', 'content': [{'type': 'text', 'text': 'Correct the FIRST measure only. ' + '; '.join(errors[:8]) + '. Return one complete M2 fragment.'}]},
+                            {'role': 'user', 'content': [{'type': 'text', 'text': 'Correct the FIRST measure only. ' + _retry_error_text(errors, compact=attempt > 1) + '. Return one complete M2 fragment.'}]},
                         ])
                         if hit_limit:
                             budgets[i] = min(max_new_tokens_ceiling, budgets[i] * 2)

@@ -35,7 +35,7 @@ def materialize_sampler_lengths():
     LengthGroupedSampler.__init__ = initialize
 
 
-def enable_fused_loss():
+def enable_fused_loss(field_weights=None):
     from liger_kernel.transformers import LigerFusedLinearCrossEntropyLoss
     from transformers.models.glm_ocr.modeling_glm_ocr import (
         GlmOcrForConditionalGeneration, GlmOcrCausalLMOutputWithPast,
@@ -43,6 +43,7 @@ def enable_fused_loss():
 
     original = GlmOcrForConditionalGeneration.forward
     cross_entropy = LigerFusedLinearCrossEntropyLoss()
+    weighted = {}
 
     @wraps(original)
     def forward(self, *args, **kwargs):
@@ -57,7 +58,17 @@ def enable_fused_loss():
         selected = labels[:, 1:] != -100
         hidden = outputs.last_hidden_state[:, :-1][selected].contiguous()
         target = labels[:, 1:][selected].contiguous()
-        loss = cross_entropy(self.lm_head.weight, hidden, target)
+        criterion = cross_entropy
+        if field_weights:
+            import torch
+            key = (hidden.device, self.lm_head.weight.shape[0])
+            if key not in weighted:
+                weights = torch.ones(key[1], device=hidden.device, dtype=torch.float32)
+                for token, weight in field_weights.items():
+                    weights[int(token)] = float(weight)
+                weighted[key] = LigerFusedLinearCrossEntropyLoss(ce_weight=weights)
+            criterion = weighted[key]
+        loss = criterion(self.lm_head.weight, hidden, target)
         return GlmOcrCausalLMOutputWithPast(
             loss=loss, logits=None, past_key_values=outputs.past_key_values,
             hidden_states=outputs.hidden_states, attentions=outputs.attentions,
@@ -67,7 +78,7 @@ def enable_fused_loss():
     GlmOcrForConditionalGeneration.forward = forward
 
 
-def train_music_vocabulary(first_new_token, learning_rate):
+def train_music_vocabulary(first_new_token, learning_rate, freeze_original=True):
     """Learn new lexemes faster while preserving the pretrained vocabulary."""
     from transformers import Trainer
 
@@ -81,7 +92,8 @@ def train_music_vocabulary(first_new_token, learning_rate):
                 def preserve_original(gradient):
                     gradient[:first_new_token] = 0
                     return gradient
-                parameter.register_hook(preserve_original)
+                if freeze_original:
+                    parameter.register_hook(preserve_original)
         result = original(self)
         groups = []
         for group in self.optimizer.param_groups:
@@ -107,14 +119,30 @@ def main():
         key, sep, value = override.partition('=')
         if sep:
             config[key] = yaml.safe_load(value)
+    from shared.score_image import install_training_policy
+    install_training_policy(config['model_name_or_path'])
+    if config.pop('share_context_images', False):
+        from measure_ocr.shared_vision import install_shared_vision
+        install_shared_vision()
+    context_chunk_size = int(config.pop('context_chunk_size', 1))
+    if token_budget := config.pop('batch_token_budget', None):
+        from measure_ocr.token_batching import install_token_batching
+        install_token_batching(int(token_budget), int(config.pop('maximum_batch_examples', 128)), context_chunk_size)
     needs_logits = any(config.get(key) for key in ('compute_accuracy', 'use_dft_loss', 'use_eaft_loss', 'use_asft_loss'))
+    field_weights = None
+    if config.pop('music_field_loss', False):
+        import json
+        from pathlib import Path
+        path = Path(config['model_name_or_path']) / 'music_vocabulary.json'
+        field_weights = json.loads(path.read_text()).get('loss_weights')
     if not needs_logits and os.environ.get('GUITAROCR_DENSE_LOSS') != '1':
-        enable_fused_loss()
+        enable_fused_loss(field_weights)
     materialize_sampler_lengths()
     exact_linear_targets()
     first_new_token = config.pop('vocab_trainable_from', None)
     if first_new_token is not None:
-        train_music_vocabulary(int(first_new_token), float(config.pop('vocab_learning_rate', 5e-4)))
+        train_music_vocabulary(int(first_new_token), float(config.pop('vocab_learning_rate', 5e-4)),
+                               bool(config.pop('vocab_freeze_original', True)))
     from llamafactory.train.tuner import run_exp
     from transformers import TrainerCallback
 

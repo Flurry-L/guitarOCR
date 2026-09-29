@@ -40,7 +40,7 @@ def worker(args):
         preparing = loader.submit(pool.prepare, [args.info_adapter, args.adapter])
         for path in scores:
             truth = json.loads(path.read_text())
-            directory = args.output / 'scores' / truth['id']
+            directory = args.output / 'scores' / path.parents[2].name / truth['id']
             manifest = directory / 'manifest.json'
             if args.resume and manifest.exists() and json.loads(manifest.read_text()).get('status') in {'complete', 'needs_review'}:
                 result = json.loads(manifest.read_text())
@@ -107,14 +107,15 @@ def aggregate(args):
                 output.write(line)
                 sample = MeasureSequenceMetrics()
                 sample.update(row['expected'], row['predicted'], mode=row['mode'], tuning=row.get('tuning'),
-                              string_count=len(row.get('tuning') or []))
+                              string_count=len(row.get('tuning') or []), instrument=row.get('instrument'))
                 for group in ('overall', row['corpus'], 'mode/' + row['mode'], 'instrument/' + row['instrument'], 'program/' + str(row['midi_program'])):
                     metrics[group].merge(sample)
             for line in (args.output / f'scores-{shard}.jsonl').open():
                 row = json.loads(line)
-                if row['score'] in seen:
+                identity = (row['corpus'], row['score'])
+                if identity in seen:
                     raise ValueError('Duplicate score evaluation')
-                seen.add(row['score'])
+                seen.add(identity)
                 counts['overall'].update(row['counts'])
                 counts[row['corpus']].update(row['counts'])
                 if row['seconds'] is not None:

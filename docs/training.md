@@ -41,7 +41,7 @@ tools/paddlex-venv/bin/paddlex --install PaddleDetection
 ```bash
 CUDA_VISIBLE_DEVICES=0 OMP_NUM_THREADS=1 uv run --no-sync python -m shared.tokenize_training \
   --config measure_ocr/configs/train.yaml \
-  --output database/score_support/measure_canonical
+  --output database/score_quality_profiles/vocabulary_final
 CUDA_VISIBLE_DEVICES=0 OMP_NUM_THREADS=1 uv run --no-sync python -m shared.tokenize_training \
   --config document_info/configs/train.yaml \
   --output database/score_support/info_crop_rehearsal/balanced
@@ -57,6 +57,10 @@ PATH="$PWD/.venv/bin:$PATH" FORCE_TORCHRUN=1 NPROC_PER_NODE=8 OMP_NUM_THREADS=1 
 ```
 
 已发布模型使用 Torch 2.14.0+cu130、Transformers 5.8.0、BF16 和 FlashAttention 2.8.3.post1。其他环境可传 `flash_attn=sdpa`；减少 GPU 数量时需重新计算全局批量。并行运行多个分布式任务时，分配不同 GPU 和 `MASTER_PORT`。
+
+小节训练按每卡 token 预算组批，相邻样本共享图像编码；训练和推理从模型的 `score_image_policy.json` 读取相同的等比缩放及白边填充规则。音乐词表的嵌入和输出层使用独立学习率，压缩字段按原 token 长度加权，避免一个音高或节奏字段压缩后在损失中权重过低。词表扩展由 `measure_ocr.music_vocab --structured` 完成，只从训练标签补充高频字段；新增词元先进行音乐事件序列化预热，再参与图像训练。
+
+主模型导出后，可用 `measure_ocr.train_mtp --model 合并模型 --tokenized 训练缓存 --output 输出目录 --epochs 1 --token-budget 131072 --eval-every 400 --early-stopping-patience 2` 蒸馏原生 MTP 层。训练使用与部署一致的图像位置编码，验证覆盖完整验证集。`validation_agreement` 是草稿与主模型的 token 一致率，实际接受率和速度需另用完整曲谱推理测量。
 
 H100 的 FA2 从源码针对 SM90 编译，使用 CUDA 13.0、C++20，以及 `MAX_JOBS=32 NVCC_THREADS=2 FLASH_ATTN_CUDA_ARCHS=90 FLASH_ATTENTION_FORCE_BUILD=TRUE`。安装后应检查真实样本的前向、反向和最长输入显存占用。
 
@@ -106,16 +110,21 @@ uv run --no-sync python -m measure_ocr.evaluate_scores \
   --output output/evaluation/measure-scores
 ```
 
-vLLM 模型路径从适配器的 `inference.json` 读取；也可用 `--model` 指定合并模型。`--speculative-tokens 2` 启用已训练的 MTP 草稿层。每张 GPU 处理完整曲谱，单首曲谱内批量解码小节。`--legacy` 保留旧模型串行前文方案的对照入口。
+vLLM 模型路径从适配器的 `inference.json` 读取；也可用 `--model` 指定合并模型。`--speculative-tokens 4` 使用本次选定的 MTP 长度。完整曲谱按小节数分配给各张 GPU，单首曲谱内批量解码小节。`--legacy` 保留旧模型串行前文方案的对照入口。
 
 比较模型时保持样本、解码参数、重试次数和 batch size 一致。BF16 批量运算可能改变边缘 token 的选择，不能混用逐条与批量结果。扫描退化集应单独报告，它衡量模拟退化下的表现。
 
+拍号／调号分类器的图片预处理默认使用最多 4 个 CPU 线程，保持原变换和输入顺序；设置 `GUITAROCR_STATE_PREPROCESS_WORKERS=1` 可固定为单线程。计时对照需同时记录该设置，区分模型解码和图片预处理带来的收益。
+
 加入其他乐器后，固定验证和测试清单应包含每个乐器、排版及弦数组合，并按来源分散抽样。小节报告的 `by_instrument` 和 `by_strings` 用于检查新乐器是否改善、已有吉他能力是否下降。鼓按可见符号的规范编号比较，钢琴单谱表的结果不能推广到双谱表或总谱。连续识别另用完整来源测试，不能把零散裁图拼成序列。
 
-`by_pitched_family` 将钢琴及键盘音色（GM 0 至 7）与其他旋律乐器分别计分。源文件的 MIDI 音色只用于评测分组，不作为模型输入；移调乐器的结果不能代替钢琴指标。
+`by_pitched_family` 将钢琴及键盘音色（GM 0 至 7）与其他旋律乐器分别计分，缺少 MIDI 编号的旋律小节列入 `unknown`，避免漏计。对照模型时每组样本数必须一致。源文件的 MIDI 音色只用于评测分组，不作为模型输入；移调乐器的结果不能代替钢琴指标。
 
 | 指标 | 含义 |
 | --- | --- |
+| `note_content_onset_duration.f1` | 音符内容、声部、起点和实际时值同时匹配；五线谱比较音高，纯 TAB 比较弦品 |
+| `fingering_onset_duration.f1` | TAB 或混合谱的弦、品、声部、起点和时值同时匹配 |
+| `technique.f1` | 奏法及参数是否附着在正确音符或事件上 |
 | `core_exact_rate` | 小节元数据、节奏、音符字段全部匹配 |
 | `exact_match_rate` | 规范化小节文本完整匹配，含奏法 |
 | `note_fields_exact_rate` / `rhythm_exact_rate` | 分别比较音符字段和节奏 |

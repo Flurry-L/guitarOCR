@@ -3,7 +3,7 @@
 from collections import Counter, defaultdict
 from copy import deepcopy
 
-from gp5_export.writer import GP5ReadbackError, targets_to_song, write_targets_gp5
+from gp5_export.writer import GP5ReadbackError, GP5TimingError, targets_to_song, write_targets_gp5
 from shared.m2 import format_measure_target, full_measure_rest_target, parse_measure_target
 
 
@@ -158,10 +158,14 @@ def score_to_song(result):
                 source_rows.append(row['measure_number'] if row else None)
             partitions = pitch_partitions(targets, instrument == 'drums') if instrument in {'pitched', 'drums'} or virtual_tuning else [targets]
             for partition_index, partition in enumerate(partitions):
-                local = targets_to_song(partition, mode=mode, title=result.get('title', ''), artist=result.get('artist', ''),
-                                        tuning=[tuning[i] for i in string_ids] if string_ids else [],
-                                        capo=first.get('capo', result.get('capo', 0)), instrument=instrument,
-                                        midi_program=first.get('midi_program', result.get('midi_program')), virtual_tuning=virtual_tuning)
+                try:
+                    local = targets_to_song(partition, mode=mode, title=result.get('title', ''), artist=result.get('artist', ''),
+                                            tuning=[tuning[i] for i in string_ids] if string_ids else [],
+                                            capo=first.get('capo', result.get('capo', 0)), instrument=instrument,
+                                            midi_program=first.get('midi_program', result.get('midi_program')), virtual_tuning=virtual_tuning)
+                except GP5TimingError as error:
+                    numbers = [source_rows[index - 1] for index in error.measures]
+                    raise GP5TimingError([number for number in numbers if number is not None], error.detail) from error
                 if song is None:
                     song = local
                     track = song.tracks.pop()

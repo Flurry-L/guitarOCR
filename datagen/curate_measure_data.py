@@ -10,6 +10,7 @@ from pathlib import Path
 from datagen.sampling import balanced_hardcase_rows, load_measure_rows
 from datagen.scan_augment import _save
 from datagen.training_samples import dataset_entry, measure_sample
+from datagen.source_profile import apply_source_profile
 from shared.constraints import validate_measure_target
 
 
@@ -19,7 +20,6 @@ def curate(source: Path, output: Path, seed: int = 20260927, workers: int = 16):
     llama = output / "llamafactory"
     llama.mkdir(exist_ok=True)
     catalog = {r["source_id"]: r for r in json.loads((source / "source_catalog.json").read_text())["sources"]}
-    labels = {sid: json.loads((source / "labels" / f"{sid}.json").read_text())["track"] for sid in catalog}
     reports, info = {}, {}
 
     def write_chat(name, rows):
@@ -45,17 +45,15 @@ def curate(source: Path, output: Path, seed: int = 20260927, workers: int = 16):
             if assignment["split"] != split or row["split"] != split:
                 raise ValueError("Source assignment changed")
             row["family"] = assignment["family"]
-            track = labels[row["source_id"]]
-            row["instrument"] = track.get("instrument", "guitar")
-            row["string_count"] = track["string_count"]
-            row["tuning"] = track["tuning_midi_high_to_low"] if row["instrument"] in {"guitar", "bass"} else []
-            _, errors = validate_measure_target(row["target"], row["mode"], tuning=track["tuning_midi_high_to_low"], string_count=track["string_count"])
+            row.setdefault("label_json", str((source / "labels" / f"{row['source_id']}.json").resolve()))
+            row = apply_source_profile(row)
+            _, errors = validate_measure_target(row["target"], row["mode"], tuning=row["tuning"], string_count=row["string_count"])
             context = row["previous_context"]
-            context_key = (context, row["mode"], tuple(track["tuning_midi_high_to_low"]))
+            context_key = (context, row["mode"], tuple(row["tuning"]), row["string_count"])
             if context_key not in context_checks:
                 context_checks[context_key] = [] if context == "START" else validate_measure_target(
                     context.replace("C2", "M2", 1), row["mode"],
-                    tuning=track["tuning_midi_high_to_low"], string_count=track["string_count"],
+                    tuning=row["tuning"], string_count=row["string_count"],
                 )[1]
             context_errors = context_checks[context_key]
             invalid_targets += bool(errors)

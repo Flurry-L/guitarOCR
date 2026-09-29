@@ -2,6 +2,8 @@
 
 from pathlib import Path
 from functools import lru_cache
+from concurrent.futures import ThreadPoolExecutor
+import os
 
 import numpy as np
 from PIL import Image, ImageOps
@@ -75,18 +77,27 @@ class StateReader:
         from shared.tasks import Cancelled
 
         predictions = []
-        for start in range(0, len(records), batch_size):
-            if cancelled and cancelled():
-                raise Cancelled('识别已停止')
-            images = torch.stack([signature_views(r['image']) for r in records[start:start + batch_size]])
-            with torch.inference_mode(), torch.autocast(self.device.type, dtype=torch.bfloat16,
-                                                        enabled=self.device.type == 'cuda'):
-                outputs = self.model(images.to(self.device))
-            labels = [v.argmax(-1).cpu().tolist() for v in outputs]
-            for key, numerator, denominator in zip(*labels, strict=True):
-                value = {'key': key - 7 if key < 15 else None,
-                         'time': f'{numerator}/{DENOMINATORS[denominator]}' if numerator and denominator else None}
-                predictions.append(value)
+        workers = max(1, min(4, os.cpu_count() or 1))
+        workers = int(os.environ.get('GUITAROCR_STATE_PREPROCESS_WORKERS', workers))
+        if workers < 1:
+            raise ValueError('State preprocessing worker count must be positive')
+        # Image decoding, resizing and NumPy operations release the GIL. Keep
+        # the exact training transform and input order while preparing a batch
+        # concurrently; bound queued images to one batch for long scores.
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            for start in range(0, len(records), batch_size):
+                if cancelled and cancelled():
+                    raise Cancelled('识别已停止')
+                paths = [r['image'] for r in records[start:start + batch_size]]
+                images = torch.stack(list(pool.map(signature_views, paths)))
+                with torch.inference_mode(), torch.autocast(self.device.type, dtype=torch.bfloat16,
+                                                            enabled=self.device.type == 'cuda'):
+                    outputs = self.model(images.to(self.device))
+                labels = [v.argmax(-1).cpu().tolist() for v in outputs]
+                for key, numerator, denominator in zip(*labels, strict=True):
+                    value = {'key': key - 7 if key < 15 else None,
+                             'time': f'{numerator}/{DENOMINATORS[denominator]}' if numerator and denominator else None}
+                    predictions.append(value)
         return predictions
 
 

@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from datagen.training_samples import dataset_entry
+from datagen.source_profile import apply_source_profile
 from shared.pitch_context import convert_pitch_target
 from shared.score_state import state_prompt
 from shared.m2 import format_measure_target, parse_measure_target
@@ -15,6 +16,8 @@ from shared.techniques import canonical_chord_marks
 
 def prepare_source(job):
     rows, corpus, native_focus, rehearsal_focus = job
+    if corpus == 'original':
+        rows = [apply_source_profile(row) for row in rows]
     contexts = {r['measure_index']: r.get('pitch_context') for r in rows if r['mode'] == 'notation'}
     chats, result, counts = [], [], Counter()
     for row in rows:

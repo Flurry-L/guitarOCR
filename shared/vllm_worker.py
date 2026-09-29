@@ -20,6 +20,9 @@ def main():
     from transformers import AutoProcessor
     from vllm import LLM, SamplingParams
     from vllm.sampling_params import StructuredOutputsParams
+    from shared.score_image import load_policy, normalize_score_image
+
+    image_policy = load_policy(args.model)
 
     options = json.loads(args.options)
     speculative_tokens = options.pop('speculative_tokens', 0)
@@ -58,7 +61,7 @@ def main():
                             path = Path(item['url']).resolve()
                             if path not in loaded_images:
                                 with Image.open(path) as im:
-                                    image = im.convert('RGB')
+                                    image = normalize_score_image(im, image_policy) if image_policy else im.convert('RGB')
                                 loaded_images[path] = image
                                 opened.append(image)
                             image = loaded_images[path]
