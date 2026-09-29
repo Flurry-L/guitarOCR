@@ -10,7 +10,7 @@ def export_model(base, adapter, output, mtp=None):
     import torch
     from peft import PeftModel
     from safetensors import safe_open
-    from safetensors.torch import save_file
+    from shared.checkpoint import save_checkpoint
     from transformers import AutoModelForImageTextToText, AutoProcessor
 
     base, output = Path(base), Path(output)
@@ -35,7 +35,7 @@ def export_model(base, adapter, output, mtp=None):
     if not any(k.startswith(prefix) for k in state):
         raise ValueError('No MTP layer found in the original model')
     output.mkdir(parents=True, exist_ok=True)
-    save_file({k: v.contiguous() for k, v in state.items()}, output / 'model.safetensors', metadata={'format': 'pt'})
+    save_checkpoint(state, output)
     model.config.save_pretrained(output)
     model.generation_config.save_pretrained(output)
     AutoProcessor.from_pretrained(base).save_pretrained(output)

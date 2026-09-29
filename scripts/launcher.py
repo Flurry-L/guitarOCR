@@ -350,6 +350,9 @@ def install(args, uv, tools):
         acquire_weights(manifest)
         if manifest['base_model'].get('required_for_inference', True):
             acquire_base_model(manifest['base_model'], ROOT)
+        from shared.model_files import remove_obsolete_checkpoints
+        for entry in manifest['models']:
+            remove_obsolete_checkpoints(ROOT / entry['path'], entry['files'])
     progress('ocr', '正在准备识别环境')
     app_python = environment_python(tools / "webui-venv")
     layout_python = environment_python(tools / "webui-paddle-venv")

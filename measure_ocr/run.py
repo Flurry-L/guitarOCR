@@ -83,11 +83,13 @@ def run(
                 "capabilities.json",
                 "adapter_model.safetensors",
                 "model.safetensors",
+                "model.safetensors.index.json",
                 "inference.json",
             ):
                 artifact = path / name
                 if artifact.is_file():
                     artifacts.append(identity(artifact))
+            artifacts.extend(identity(p) for p in sorted(path.glob('model-*-of-*.safetensors')))
             inference_config = path / 'inference.json'
             if inference_config.is_file():
                 settings = json.loads(inference_config.read_text())

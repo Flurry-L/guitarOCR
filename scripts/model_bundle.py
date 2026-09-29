@@ -6,7 +6,7 @@ from pathlib import Path
 import shutil
 import tarfile
 
-from shared.model_files import verify_files
+from shared.model_files import verify_files, remove_obsolete_checkpoints
 from scripts.downloads import acquire_base_model
 from scripts.progress import progress
 
@@ -69,6 +69,8 @@ def restore_bundle(archive_path, root, manifest):
     missing = {name for name in files
                if not current or not (root / name).is_file()}
     if not missing:
+        for model in model_entries(manifest):
+            remove_obsolete_checkpoints(root / model['path'], model['files'])
         progress('models', '包内模型已就绪', completed=1, total=1)
         return
     total = sum(item['bytes'] for item in files.values())
@@ -99,6 +101,8 @@ def restore_bundle(archive_path, root, manifest):
                 temporary.unlink(missing_ok=True)
     if seen != set(files):
         raise ValueError('安装包缺少模型文件，请重新下载安装包。')
+    for model in model_entries(manifest):
+        remove_obsolete_checkpoints(root / model['path'], model['files'])
     stamp.parent.mkdir(parents=True, exist_ok=True)
     temporary_stamp = stamp.with_suffix('.part')
     temporary_stamp.write_text(version, encoding='utf-8')

@@ -46,6 +46,7 @@ def main():
     config = Config.load(args.config)
     if args.command == "validate":
         from server.app import create_app
+        from shared.model_files import checkpoint_files
 
         with tempfile.TemporaryDirectory() as directory:
             create_app(replace(config, data=Path(directory)))
@@ -55,7 +56,7 @@ def main():
             settings = json.loads(inference.read_text()) if inference.is_file() else {}
             if settings.get('model'):
                 merged = folder / settings['model']
-                artifacts.extend([merged / 'config.json', merged / 'model.safetensors'])
+                artifacts.extend([merged / 'config.json', *checkpoint_files(merged)])
             else:
                 artifacts.extend([Path(config.model) / 'config.json', folder / 'adapter_model.safetensors'])
         for path in artifacts:

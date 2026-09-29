@@ -68,7 +68,7 @@ def retokenize_dataset(base, expanded, source, output, workers=16):
 
 def prepare_vocabulary(base, adapter, output, lexemes):
     import torch
-    from safetensors.torch import load_file, save_file
+    from shared.checkpoint import load_checkpoint, save_checkpoint
     from transformers import AddedToken, AutoConfig, AutoProcessor
     from shared.export_glm import export_model
 
@@ -80,7 +80,7 @@ def prepare_vocabulary(base, adapter, output, lexemes):
     pieces = {text: tokenizer.encode(text, add_special_tokens=False) for text in lexemes}
     tokenizer.add_tokens([AddedToken(text, normalized=False, special=False) for text in lexemes])
     size = (len(tokenizer) + 63) // 64 * 64
-    weights = load_file(output / 'model.safetensors')
+    weights = load_checkpoint(output)
     for name in ('model.language_model.embed_tokens.weight', 'lm_head.weight'):
         old = weights[name]
         value = torch.empty((size, old.shape[1]), dtype=old.dtype)
@@ -102,7 +102,7 @@ def prepare_vocabulary(base, adapter, output, lexemes):
     config.text_config.vocab_size = size
     config.save_pretrained(output)
     processor.save_pretrained(output)
-    save_file(weights, output / 'model.safetensors', metadata={'format': 'pt'})
+    save_checkpoint(weights, output)
     metadata = {'original_vocabulary': original, 'vocabulary': len(tokenizer),
                 'embedding_rows': size, 'lexemes': list(lexemes),
                 'loss_weights': {str(tokenizer.convert_tokens_to_ids(text)): min(4., float(len(ids)))

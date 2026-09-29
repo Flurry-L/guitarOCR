@@ -1,7 +1,35 @@
 """Verify model artifacts locally without importing inference dependencies."""
 
 from hashlib import sha256
+import json
 from pathlib import Path
+
+
+def checkpoint_files(folder: Path) -> list[Path]:
+    """Include the index and every shard, while retaining single-file support."""
+    index = folder / 'model.safetensors.index.json'
+    if not index.is_file():
+        return [folder / 'model.safetensors']
+    names = sorted(set(json.loads(index.read_text(encoding='utf-8'))['weight_map'].values()))
+    if not names or any(Path(name).name != name or not name.endswith('.safetensors') for name in names):
+        raise ValueError(f'Invalid checkpoint index: {index}')
+    return [index, *(folder / name for name in names)]
+
+
+def remove_obsolete_checkpoints(folder: Path, files: list[dict]) -> None:
+    """Avoid loading a stale single file after installing a sharded release."""
+    expected = {folder / item['name'] for item in files}
+    indexes = [path for path in expected if path.name == 'model.safetensors.index.json']
+    if not indexes:
+        return
+    errors = verify_files(folder, files, hashes=False)
+    if errors:
+        raise ValueError('; '.join(errors))
+    for index in indexes:
+        previous = [index.parent / 'model.safetensors', *index.parent.glob('model-*-of-*.safetensors')]
+        for path in previous:
+            if path not in expected:
+                path.unlink(missing_ok=True)
 
 
 def verify_files(folder: Path, files: list[dict], hashes: bool = True) -> list[str]:

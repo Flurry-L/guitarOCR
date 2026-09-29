@@ -38,6 +38,8 @@ def _artifact_identity(path: Path | None) -> dict[str, Any] | None:
         "adapter_model.safetensors",
         "config.json",
         "model.safetensors",
+        "model.safetensors.index.json",
+        *(p.name for p in sorted(resolved.glob('model-*-of-*.safetensors'))),
     ):
         candidate = resolved / name
         if candidate.is_file():
