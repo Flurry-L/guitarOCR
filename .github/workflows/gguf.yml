@@ -1,0 +1,51 @@
+name: Export GGUF models
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: 'Exact source commit to export (same as the draft release)'
+        required: true
+        type: string
+      release_tag:
+        description: 'Draft release to receive the two GGUF model ZIPs'
+        required: true
+        type: string
+permissions:
+  contents: write
+jobs:
+  gguf:
+    runs-on: ubuntu-22.04
+    env:
+      PYTHONUTF8: '1'
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+          lfs: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify release source
+        shell: python
+        run: |
+          import json, os, subprocess, tomllib
+          from pathlib import Path
+          release = json.loads(subprocess.check_output(['gh', 'release', 'view', os.environ['RELEASE_TAG'], '--json', 'isDraft,targetCommitish']))
+          version = tomllib.loads(Path('pyproject.toml').read_text())['project']['version']
+          assert release['isDraft'], 'Only upload models to a draft release'
+          assert os.environ['RELEASE_TAG'] == f'v{version}'
+          head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          assert head == release['targetCommitish'], 'Model source must match the release commit'
+      - name: Install conversion dependencies
+        run: |
+          python -m pip install 'torch==2.11.0' --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install 'transformers==5.8.0' 'numpy==2.2.6' safetensors sentencepiece protobuf
+      - name: Fetch the verified converter
+        run: |
+          git clone https://github.com/ggml-org/llama.cpp.git --filter=blob:none --no-checkout /tmp/llama.cpp
+          git -C /tmp/llama.cpp checkout 8019dc563b1ecbae6b161a70c3a1359f1b206c1e
+      - run: python scripts/export_gguf.py --llama-cpp /tmp/llama.cpp --output output/gguf
+      - name: Upload model packages
+        run: gh release upload "$RELEASE_TAG" output/gguf/GuitarOCR-*-GGUF.zip --clobber
