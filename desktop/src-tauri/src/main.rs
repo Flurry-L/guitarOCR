@@ -287,7 +287,7 @@ fn owned_process(child: Child, mode: &str) -> Result<Process, String> {
 }
 
 fn start(app: &tauri::AppHandle, mode: &str) -> Result<Url, String> {
-    if !matches!(mode, "gpu" | "edit") {
+    if !matches!(mode, "gpu" | "cpu" | "edit") {
         return Err("未知运行方式".into());
     }
     let runtime = app.state::<Runtime>();

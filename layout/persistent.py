@@ -19,12 +19,20 @@ class LayoutBackend:
         self.python = Path(python or (candidate if candidate.is_file() else sys.executable)).absolute()
         self.device = device
         self.process = None
+        self.onnx = None
         self.lock = RLock()
         self.log = None
         atexit.register(self.close)
 
     def __call__(self, pages):
         with self.lock:
+            auxiliary = os.environ.get('GUITAROCR_AUX_MODELS')
+            if auxiliary:
+                from layout.onnx_detector import OnnxDetector
+                from layout.detector import detect_pages
+                if self.onnx is None:
+                    self.onnx = OnnxDetector(Path(auxiliary) / 'layout.onnx')
+                return detect_pages([str(p) for p in pages], self.model, .25, True, model=self.onnx)
             if self.process is None or self.process.poll() is not None:
                 if self.log is not None:
                     self.log.close()

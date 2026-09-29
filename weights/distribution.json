@@ -1,0 +1,41 @@
+{
+  "generation": "score-20260929",
+  "repository": "Flurry-L/guitarOCR",
+  "release": "v0.1.0",
+  "files": {
+    "auxiliary": [
+      {
+        "path": "auxiliary/layout.onnx",
+        "asset": "auxiliary-layout.onnx",
+        "bytes": 130435514
+      },
+      {
+        "path": "auxiliary/signature.onnx",
+        "asset": "auxiliary-signature.onnx",
+        "bytes": 53210843
+      }
+    ],
+    "llamacpp": [
+      {
+        "path": "weights/measure_ocr/gguf/model-Q8_0.gguf",
+        "asset": "measure_ocr-model-Q8_0.gguf",
+        "bytes": 722295296
+      },
+      {
+        "path": "weights/measure_ocr/gguf/vision-F16.gguf",
+        "asset": "measure_ocr-vision-F16.gguf",
+        "bytes": 869017888
+      },
+      {
+        "path": "weights/document_info/gguf/model-Q8_0.gguf",
+        "asset": "document_info-model-Q8_0.gguf",
+        "bytes": 718935840
+      },
+      {
+        "path": "weights/document_info/gguf/vision-F16.gguf",
+        "asset": "document_info-vision-F16.gguf",
+        "bytes": 869017888
+      }
+    ]
+  }
+}

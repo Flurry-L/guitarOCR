@@ -140,9 +140,9 @@ def recognize_independent(
         capabilities_path = Path(adapter_path or model_path) / 'capabilities.json'
         capabilities = json.loads(capabilities_path.read_text()) if capabilities_path.exists() else {}
         if capabilities.get('state_reader'):
-            from measure_ocr.state_reader import cached_reader
+            from measure_ocr.state_reader import cached_reader, state_model_path
 
-            state_model = (capabilities_path.parent / capabilities['state_reader']).resolve()
+            state_model = state_model_path(capabilities_path.parent / capabilities['state_reader']).resolve()
             state_reader = cached_reader(str(state_model), device, state_model.stat().st_mtime_ns)
     started = time.perf_counter()
     state_path = diagnostics_path.with_name('state_predictions.json')

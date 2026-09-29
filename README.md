@@ -8,7 +8,7 @@
 
 吉他和贝斯支持 TAB、五线谱和五线谱＋TAB，自动判断谱面类型；鼓、钢琴及其他旋律乐器使用五线谱。总谱按乐器、谱表和共同小节时间轴组织，支持钢琴双谱表和混合记谱。识别结果保存为独立的结构化乐谱，可导出 GP5 或 MusicXML；GP5 对超出单轨弦数和声部限制的内容拆轨保存。具体效果见[模型评测](docs/model-evaluation.md)。模型采用通用 safetensors 格式，并非 TensorRT 专用；另提供 [GGUF 可选模型](docs/setup.md#gguf-可选后端)。各平台的本地与远程支持见[平台支持](docs/setup.md#平台支持)。
 
-当前源码默认模型使用等比例乐谱图像、音乐词表和 MTP 4，并行识别小节。评测分别列出音符节奏、指法、奏法和完整 PDF 的效果。0.1 发布版采用当前工作台和模型。
+当前模型使用等比例乐谱图像和音乐词表，并行识别小节；Linux 原生 GPU 后端使用 MTP 4 加速。评测分别列出音符节奏、指法、奏法和完整 PDF 的效果。0.1 发布版采用当前工作台和模型。
 
 ## 下载与启动
 
@@ -30,7 +30,7 @@
 - Windows 双击 `start.bat`。
 - Linux x64 在项目目录运行 `bash start.sh`。
 
-桌面安装包和启动 ZIP 为轻量启动包。首次本机识别自动下载约 5.7 GB 的当前模型，以及 Python 和运行依赖；下载可续传，建议预留 50 GB 磁盘。连接服务或仅校对无需下载模型。安装后打开 http://127.0.0.1:7860，使用期间保留启动窗口。中断后重跑同一脚本即可。
+安装包只包含应用，模型与推理环境按需下载。原生识别约需 5.65 GB 模型；可选 llama.cpp 路径约需 3.36 GB。每种安装只使用一套 Python 环境，版面与拍号／调号共用 ONNX Runtime；连接服务或仅校对不下载模型。应用更新会复用已有模型和运行依赖。总磁盘占用、引擎选择及旧环境清理见[安装说明](docs/setup.md#模型环境与更新)。
 
 Python、Python 包和 PyTorch 默认使用国内源，失败时尝试官方源。ZIP 下载仍需访问 GitHub，uv 和 Windows C++ 运行库从官方站点下载。安装失败见[故障排查](docs/setup.md#故障排查)。
 
@@ -55,9 +55,9 @@ Python、Python 包和 PyTorch 默认使用国内源，失败时尝试官方源�
 
 ```bash
 git lfs install
-git clone --depth 1 --single-branch --branch main https://github.com/Flurry-L/guitarOCR.git
+GIT_LFS_SKIP_SMUDGE=1 git clone --depth 1 --single-branch --branch main https://github.com/Flurry-L/guitarOCR.git
 cd guitarOCR
-git lfs pull
+bash install.sh
 ```
 
 GitHub 自动生成的 Source code ZIP 可能只含权重指针，直接使用请下载上面的启动 ZIP；启动器自动获取该版本的完整权重。
@@ -79,11 +79,11 @@ GitHub 自动生成的 Source code ZIP 可能只含权重指针，直接使用�
 uv run --no-sync guitarocr-web --edit-only
 ```
 
-完成[推理环境安装](docs/setup.md#手动安装模型推理)后，可从命令行运行：
+完成[推理环境安装](docs/setup.md#脚本安装)后，可从命令行运行：
 
 ```bash
-uv run --no-sync guitarocr-gp /path/to/score.pdf --output output/score
-uv run --no-sync guitarocr-check
+bash scripts/bootstrap.sh run -- -m pipeline.run /path/to/score.pdf --output output/score
+bash scripts/bootstrap.sh check
 ```
 
 | 需要做什么 | 文档 |

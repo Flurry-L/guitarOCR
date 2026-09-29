@@ -12,7 +12,8 @@ from torch import nn
 from torch.utils.data import DataLoader, Dataset
 from safetensors.torch import save_file
 
-from measure_ocr.state_reader import DENOMINATORS, SignatureNetwork, signature_views
+from measure_ocr.state_reader import DENOMINATORS, signature_views
+from measure_ocr.state_network import SignatureNetwork
 from shared.score_state import parse_signature
 
 

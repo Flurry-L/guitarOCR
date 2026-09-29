@@ -50,32 +50,38 @@ def main():
 
         with tempfile.TemporaryDirectory() as directory:
             create_app(replace(config, data=Path(directory)))
-        artifacts = [Path(config.layout_model) / "inference.pdiparams"]
-        for folder in (Path(config.info_adapter), Path(config.measure_adapter)):
-            inference = folder / 'inference.json'
-            settings = json.loads(inference.read_text()) if inference.is_file() else {}
-            if settings.get('model'):
-                merged = folder / settings['model']
-                artifacts.extend([merged / 'config.json', *checkpoint_files(merged)])
-            else:
-                artifacts.extend([Path(config.model) / 'config.json', folder / 'adapter_model.safetensors'])
-        for path in artifacts:
-            if not path.is_file() or path.stat().st_size < 256:
-                raise ValueError(f"模型文件缺失：{path}")
-        from shared.model_files import verify_files
+        if os.environ.get('GUITAROCR_AUX_MODELS'):
+            from scripts.distribution import check_models
+            errors = check_models(os.environ['GUITAROCR_BACKEND'], Path(os.environ['GUITAROCR_AUX_MODELS']).parent)
+            if errors:
+                raise ValueError('模型校验失败：' + '; '.join(errors))
+        else:
+            artifacts = [Path(config.layout_model) / "inference.pdiparams"]
+            for folder in (Path(config.info_adapter), Path(config.measure_adapter)):
+                inference = folder / 'inference.json'
+                settings = json.loads(inference.read_text()) if inference.is_file() else {}
+                if settings.get('model'):
+                    merged = folder / settings['model']
+                    artifacts.extend([merged / 'config.json', *checkpoint_files(merged)])
+                else:
+                    artifacts.extend([Path(config.model) / 'config.json', folder / 'adapter_model.safetensors'])
+            for path in artifacts:
+                if not path.is_file() or path.stat().st_size < 256:
+                    raise ValueError(f"模型文件缺失：{path}")
+            from shared.model_files import verify_files
 
-        manifest = json.loads(
-            (Path(config.source) / "weights/manifest.json").read_text()
-        )
-        errors = [
-            error
-            for model in manifest["models"]
-            for error in verify_files(
-                Path(config.source) / model["path"], model["files"]
+            manifest = json.loads(
+                (Path(config.source) / "weights/manifest.json").read_text()
             )
-        ]
-        if errors:
-            raise ValueError("模型校验失败：" + "; ".join(errors))
+            errors = [
+                error
+                for model in manifest["models"]
+                for error in verify_files(
+                    Path(config.source) / model["path"], model["files"]
+                )
+            ]
+            if errors:
+                raise ValueError("模型校验失败：" + "; ".join(errors))
         print(json.dumps({"ok": True, "config_fields": len(fields(config))}))
     elif args.command == "admin":
         store = Store(config.database)

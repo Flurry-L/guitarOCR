@@ -24,14 +24,14 @@ def create_backend(model_path, adapter_path, device):
         task = 'MEASURE' if (resolved / 'music_vocabulary.json').is_file() else 'INFO'
         variable = f'GUITAROCR_LLAMA_{task}_URL'
         endpoint = os.environ.get(variable)
-        if not endpoint:
-            raise ValueError(f'Set {variable} to the corresponding local llama-server URL')
-        return LlamaCppBackend(resolved, endpoint)
+        return LlamaCppBackend(resolved, endpoint, device=device)
     if device.startswith('cuda') and merged and merged.is_dir() and os.environ.get('GUITAROCR_BACKEND', 'auto') != 'transformers':
         from shared.vllm_backend import VllmBackend, engine_python
 
         if engine_python().is_file():
             return VllmBackend(merged, device, options=settings.get('options'))
+    if os.environ.get('GUITAROCR_BACKEND') == 'vllm':
+        raise ValueError('所选 vLLM 环境不可用，请重新运行安装脚本。')
     if merged and merged.is_dir():
         return GlmBackend(merged, None, device)
     return GlmBackend(model_path, adapter_path, device)

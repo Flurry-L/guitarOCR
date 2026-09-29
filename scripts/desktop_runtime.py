@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-from hashlib import sha256
 import json
 import os
 from pathlib import Path
@@ -20,8 +19,12 @@ from scripts.progress import progress  # noqa: E402
 
 
 def install_edit(uv, tools):
-    python = environment_python(tools / 'desktop-edit')
-    fingerprint = sha256((ROOT / 'uv.lock').read_bytes()).hexdigest()
+    state_path = tools / 'install-state.json'
+    state = json.loads(state_path.read_text()) if state_path.is_file() else {}
+    if launcher.installation_current(state, tools):
+        return Path(state['python'])
+    python = environment_python(tools / 'runtimes/edit')
+    fingerprint = str(launcher.runtime_manifest()['generation'])
     stamp = tools / 'desktop-edit.json'
     if python.is_file() and stamp.exists() and stamp.read_text() == fingerprint:
         return python
@@ -41,10 +44,10 @@ def serve(args):
     from webapp.app import create_app
     from pipeline.workspace import Workspace
 
-    state = json.loads((ROOT / 'tools/install-state.json').read_text()) if args.mode == 'gpu' else {}
-    workflow = Workspace(args.output, device='cuda', model=Path(state.get('model', MODEL)),
+    state = json.loads((ROOT / 'tools/install-state.json').read_text()) if args.mode != 'edit' else {}
+    workflow = Workspace(args.output, device=state.get('device', 'cpu'), model=Path(state.get('model', MODEL)),
                         layout_python=Path(state['layout_python']) if state else None)
-    app = create_app(workflow, inference_enabled=args.mode == 'gpu')
+    app = create_app(workflow, inference_enabled=args.mode != 'edit')
     # Bind once and pass the socket to Uvicorn; no find-free-port race.
     sock = socket.socket()
     sock.bind(('127.0.0.1', 0))
@@ -62,7 +65,7 @@ def serve(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--mode', choices=('gpu', 'edit'), required=True)
+    parser.add_argument('--mode', choices=('gpu', 'cpu', 'edit'), required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--serve', action='store_true')
     args = parser.parse_args()
@@ -73,20 +76,27 @@ def main():
     tools = ROOT / 'tools'
     uv = os.environ['GUITAROCR_UV']
     with launcher.installation_lock(tools):
-        if args.mode == 'gpu':
-            if launcher.choose_device('auto') != 'cuda':
-                raise ValueError('本机 GPU 识别需要 NVIDIA 显卡及 580 或更新驱动。可连接 GPU 服务，或选择仅校对与导出。')
+        env = os.environ.copy()
+        if args.mode != 'edit':
+            device = 'cuda' if args.mode == 'gpu' else 'cpu'
+            if device == 'cuda' and launcher.choose_device('auto') != 'cuda':
+                raise ValueError('本机 GPU 识别需要 NVIDIA 显卡及 580 或更新驱动。')
+            options = argparse.Namespace(device=device, engine='auto', llama_server=None)
+            profile = launcher.resolve_profile(options)[2]
             path = tools / 'install-state.json'
             state = json.loads(path.read_text()) if path.exists() else {}
-            if state.get('device') != 'cuda' or not launcher.installation_current(state, tools):
-                launcher.install(argparse.Namespace(device='cuda'), uv, tools)
-            python = environment_python(tools / 'webui-venv')
+            if not launcher.installation_current(state, tools, profile):
+                state = launcher.install(options, uv, tools)
+            python = Path(state['python'])
+            from scripts.distribution import environment
+            env = environment(state)
         else:
             python = install_edit(uv, tools)
     progress('check', '正在启动工作台')
     # The Tauri parent owns the process group / Windows Job, including this child.
-    result = subprocess.run([str(python), str(Path(__file__).resolve()), '--serve',
-                             '--mode', args.mode, '--output', str(args.output)])
+    with launcher.installation_lock(tools / 'in-use'):
+        result = subprocess.run([str(python), str(Path(__file__).resolve()), '--serve',
+                             '--mode', args.mode, '--output', str(args.output)], env=env)
     raise SystemExit(result.returncode)
 
 

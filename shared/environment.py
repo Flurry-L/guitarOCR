@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from importlib import metadata, util
 import json
+import os
 from pathlib import Path
 import platform
 import subprocess
@@ -33,7 +34,13 @@ def inspect(
         "uvicorn": "uvicorn",
         "multipart": "python-multipart",
     }
-    if not core:
+    engine = os.environ.get('GUITAROCR_BACKEND', 'transformers')
+    auxiliary = os.environ.get('GUITAROCR_AUX_MODELS')
+    if not core and auxiliary:
+        packages.update(onnxruntime='onnxruntime', cv2='opencv-python-headless')
+    if not core and engine == 'vllm':
+        packages.update(vllm='vllm', torch='torch')
+    if not core and engine == 'transformers':
         packages.update(
             torch="torch",
             torchvision="torchvision",
@@ -55,21 +62,26 @@ def inspect(
             "重新运行 install.bat 或 bash install.sh",
         )
     if not core:
-        manifest = json.loads(
-            (root / "weights/manifest.json").read_text(encoding="utf-8")
-        )
-        for entry in manifest["models"]:
-            check(
-                entry["stage"] + " 权重",
-                verify_files(root / entry["path"], entry["files"], hashes),
-                "重新运行安装脚本；Git 检出也可执行 git lfs pull",
-            )
-        if manifest['base_model'].get('required_for_inference', True):
-            check(
-                "GLM-OCR 基座",
-                verify_files(model, manifest["base_model"]["files"], hashes),
-                "重新运行 install.bat 或 bash install.sh，自动继续下载",
-            )
+        if auxiliary:
+            from scripts.distribution import check_models
+            check('所选模型', check_models(engine, Path(auxiliary).parent), '重新运行安装脚本')
+            if engine == 'llamacpp':
+                import shutil
+                executable = os.environ.get('GUITAROCR_LLAMA_SERVER', 'llama-server')
+                check('llama-server', [] if shutil.which(executable) else ['找不到 llama-server'],
+                      '使用 --llama-server 指定可执行文件')
+            from shared.onnx_runtime import cpu_session
+            for name in ('layout', 'signature'):
+                try:
+                    cpu_session(Path(auxiliary) / f'{name}.onnx')
+                    check(name + ' ONNX', [])
+                except Exception as error:
+                    check(name + ' ONNX', [str(error)], '重新安装所选运行环境')
+        else:
+            manifest = json.loads((root / 'weights/manifest.json').read_text(encoding='utf-8'))
+            for entry in manifest['models']:
+                check(entry['stage'] + ' 权重', verify_files(root / entry['path'], entry['files'], hashes),
+                      '重新运行安装脚本；Git 检出也可执行 git lfs pull')
         if util.find_spec("torch"):
             try:
                 import torch
@@ -86,31 +98,32 @@ def inspect(
                     [str(error)],
                     "运行 install.bat --device cuda / bash install.sh --device cuda 安装 GPU 版；检查 NVIDIA 驱动，或改用 --device cpu",
                 )
-        try:
-            command = [
-                str(layout_python),
-                "-c",
-                "import paddle; from paddlex import create_model; print(paddle.__version__)",
-            ]
-            result = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=90,
-            )
-            check(
-                "Paddle 版面环境",
-                [] if result.returncode == 0 else [result.stderr[-2000:]],
-                "重新运行安装脚本；Linux 若缺 libGL.so.1：sudo apt-get install libgl1 libglib2.0-0",
-            )
-        except (OSError, subprocess.TimeoutExpired) as error:
-            check(
-                "Paddle 版面环境",
-                [str(error)],
-                "重新运行 install.bat 或 bash install.sh",
-            )
+        if not auxiliary:
+            try:
+                command = [
+                    str(layout_python),
+                    "-c",
+                    "import paddle; from paddlex import create_model; print(paddle.__version__)",
+                ]
+                result = subprocess.run(
+                    command,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=90,
+                )
+                check(
+                    "Paddle 版面环境",
+                    [] if result.returncode == 0 else [result.stderr[-2000:]],
+                    "重新运行安装脚本；Linux 若缺 libGL.so.1：sudo apt-get install libgl1 libglib2.0-0",
+                )
+            except (OSError, subprocess.TimeoutExpired) as error:
+                check(
+                    "Paddle 版面环境",
+                    [str(error)],
+                    "重新运行 install.bat 或 bash install.sh",
+                )
     return {
         "ok": all(c["ok"] for c in checks),
         "system": platform.platform(),

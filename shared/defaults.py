@@ -5,9 +5,10 @@ from pathlib import Path
 from shared.paths import PROJECT_ROOT
 
 MODEL = PROJECT_ROOT / Path("tools/models/GLM-OCR")
-MEASURE_ADAPTER = PROJECT_ROOT / Path("weights/measure_ocr")
-INFO_ADAPTER = PROJECT_ROOT / Path("weights/document_info")
-LAYOUT_MODEL = PROJECT_ROOT / Path("weights/layout")
+WEIGHTS_ROOT = Path(os.environ.get("GUITAROCR_WEIGHTS_ROOT", PROJECT_ROOT / "weights"))
+MEASURE_ADAPTER = WEIGHTS_ROOT / "measure_ocr"
+INFO_ADAPTER = WEIGHTS_ROOT / "document_info"
+LAYOUT_MODEL = WEIGHTS_ROOT / "layout"
 
 
 def environment_python(root: Path) -> Path:

@@ -8,11 +8,11 @@ import shutil
 import subprocess
 import sys
 import tomllib
-from zipfile import ZipFile, ZipInfo, ZIP_DEFLATED, ZIP_STORED
+from zipfile import ZipFile, ZIP_DEFLATED
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from scripts.model_bundle import build_bundle, model_files, release_metadata  # noqa: E402
+from scripts.model_bundle import model_files, release_metadata  # noqa: E402
 from shared.model_files import verify_files  # noqa: E402
 
 DIRECTORIES = {
@@ -46,7 +46,7 @@ ROOT_FILES = {
 EXCLUDE = {"__pycache__", ".pytest_cache", ".ruff_cache", ".git", ".venv", "runtime"}
 
 
-def build(output, *, bundle_models=False):
+def build(output):
     manifest = json.loads((ROOT / "weights/manifest.json").read_text(encoding="utf-8"))
     output.mkdir(parents=True, exist_ok=True)
     release = release_metadata(ROOT)
@@ -55,21 +55,21 @@ def build(output, *, bundle_models=False):
               for error in verify_files((ROOT / name).parent, [{**item, 'name': Path(name).name}])]
     if errors:
         raise ValueError('Cannot package incomplete models: ' + '; '.join(errors))
-    bundle = build_bundle(ROOT, output / 'models.tar.xz') if bundle_models else None
-    if bundle_models:
-        release['bundled_models'] = True
-    else:
-        assets = output / 'models'
-        assets.mkdir(exist_ok=True)
-        for name, asset in release['model_assets'].items():
-            source, target = ROOT / name, assets / asset
-            if source.stat().st_size >= 2**31:
-                raise ValueError(f'{name} exceeds the GitHub asset limit; shard the model first')
-            target.unlink(missing_ok=True)
-            try:
-                os.link(source, target)
-            except OSError:
-                shutil.copyfile(source, target)
+    assets = output / 'models'
+    assets.mkdir(exist_ok=True)
+    auxiliary = {f"weights/auxiliary/{Path(item['path']).name}": item['asset']
+                 for item in json.loads((ROOT / 'weights/distribution.json').read_text())['files']['auxiliary']}
+    for name, asset in {**release['model_assets'], **auxiliary}.items():
+        source, target = ROOT / name, assets / asset
+        if name in auxiliary and not source.is_file():
+            continue  # The conversion workflow publishes these assets separately.
+        if source.stat().st_size >= 2**31:
+            raise ValueError(f'{name} exceeds the GitHub asset limit; shard the model first')
+        target.unlink(missing_ok=True)
+        try:
+            os.link(source, target)
+        except OSError:
+            shutil.copyfile(source, target)
     version = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
         "project"
     ]["version"]
@@ -89,7 +89,7 @@ def build(output, *, bundle_models=False):
                 continue
             if any(part in EXCLUDE for part in path.relative_to(ROOT).parts):
                 continue
-            if path.suffix in {".safetensors", ".pdiparams", ".pdparams", ".pt"}:
+            if path.suffix in {".safetensors", ".pdiparams", ".pdparams", ".pt", ".onnx", ".gguf"}:
                 continue
             if path.name == ".env" or (
                 path.name.startswith(".env.") and path.name != ".env.example"
@@ -115,13 +115,6 @@ def build(output, *, bundle_models=False):
             if path.suffix == ".bat" or path.name == "使用说明.txt":
                 contents = contents.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
             archive.writestr(f"{prefix}/{relative}", contents)
-        # The model archive is already compressed; stream it without keeping
-        # several gigabytes in memory or compressing it a second time.
-        if bundle:
-            entry = ZipInfo(f'{prefix}/models.tar.xz')
-            entry.compress_type = ZIP_STORED
-            with bundle.open('rb') as source, archive.open(entry, 'w', force_zip64=True) as dest:
-                shutil.copyfileobj(source, dest, 8 * 1024 * 1024)
     print(f"{destination} ({destination.stat().st_size / 1024**2:.1f} MiB)")
     return destination
 
@@ -129,6 +122,5 @@ def build(output, *, bundle_models=False):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=ROOT / "output/releases")
-    parser.add_argument('--bundle-models', action='store_true', help='Build a large offline-model ZIP instead of release model assets')
     args = parser.parse_args()
-    build(args.output, bundle_models=args.bundle_models)
+    build(args.output)

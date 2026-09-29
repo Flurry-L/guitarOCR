@@ -7,14 +7,12 @@ import os
 
 import numpy as np
 from PIL import Image, ImageOps
-import torch
-from torch import nn
 
 
 DENOMINATORS = (None, 1, 2, 4, 8, 16, 32, 64)
 
 
-def signature_views(path, augment=False):
+def signature_array(path, augment=False):
     with Image.open(path) as opened:
         image = opened.convert('RGB')
     gray = np.asarray(image.convert('L'))
@@ -47,31 +45,34 @@ def signature_views(path, augment=False):
         if augment and np.random.random() < .3:
             values = np.clip(values * np.random.uniform(.65, 1.) + np.random.uniform(0., .08), 0, 1)
         views.append(values.transpose(2, 0, 1))
-    return torch.from_numpy((np.stack(views) - .5) / .5)
+    return (np.stack(views) - .5) / .5
 
 
-class SignatureNetwork(nn.Module):
-    def __init__(self, pretrained=False):
-        super().__init__()
-        from torchvision.models import resnet18, ResNet18_Weights
 
-        base = resnet18(weights=ResNet18_Weights.DEFAULT if pretrained else None)
-        self.features = nn.Sequential(*list(base.children())[:-2], nn.AdaptiveAvgPool2d((1, 4)))
-        self.head = nn.Sequential(nn.Linear(4096, 512), nn.GELU(), nn.Dropout(.1), nn.Linear(512, 57))
 
-    def forward(self, images):
-        features = self.features(images.flatten(0, 1)).reshape(images.shape[0], -1)
-        logits = self.head(features)
-        return logits[:, :16], logits[:, 16:49], logits[:, 49:]
+def signature_views(path, augment=False):
+    import torch
+    return torch.from_numpy(signature_array(path, augment))
+
+
+def state_model_path(path):
+    auxiliary = os.environ.get('GUITAROCR_AUX_MODELS')
+    return Path(auxiliary) / 'signature.onnx' if auxiliary else Path(path)
 
 
 class StateReader:
     def __init__(self, path: Path, device='cuda'):
-        from safetensors.torch import load_file
-
-        self.device = torch.device(device)
-        self.model = SignatureNetwork().to(self.device).eval()
-        self.model.load_state_dict(load_file(str(path), device=str(self.device)))
+        self.session = None
+        if path.suffix == '.onnx':
+            from shared.onnx_runtime import cpu_session
+            self.session = cpu_session(path)
+        else:
+            import torch
+            from safetensors.torch import load_file
+            from measure_ocr.state_network import SignatureNetwork
+            self.device = torch.device(device)
+            self.model = SignatureNetwork().to(self.device).eval()
+            self.model.load_state_dict(load_file(str(path), device=str(self.device)))
 
     def predict(self, records, batch_size=64, cancelled=None):
         from shared.tasks import Cancelled
@@ -89,11 +90,17 @@ class StateReader:
                 if cancelled and cancelled():
                     raise Cancelled('识别已停止')
                 paths = [r['image'] for r in records[start:start + batch_size]]
-                images = torch.stack(list(pool.map(signature_views, paths)))
-                with torch.inference_mode(), torch.autocast(self.device.type, dtype=torch.bfloat16,
-                                                            enabled=self.device.type == 'cuda'):
-                    outputs = self.model(images.to(self.device))
-                labels = [v.argmax(-1).cpu().tolist() for v in outputs]
+                if self.session is not None:
+                    images = np.stack(list(pool.map(signature_array, paths)))
+                    outputs = self.session.run(None, {'images': images})
+                    labels = [v.argmax(-1).tolist() for v in outputs]
+                else:
+                    import torch
+                    images = torch.stack(list(pool.map(signature_views, paths)))
+                    with torch.inference_mode(), torch.autocast(self.device.type, dtype=torch.bfloat16,
+                                                                enabled=self.device.type == 'cuda'):
+                        outputs = self.model(images.to(self.device))
+                    labels = [v.argmax(-1).cpu().tolist() for v in outputs]
                 for key, numerator, denominator in zip(*labels, strict=True):
                     value = {'key': key - 7 if key < 15 else None,
                              'time': f'{numerator}/{DENOMINATORS[denominator]}' if numerator and denominator else None}

@@ -1,6 +1,6 @@
 # 模型
 
-默认流水线包含版面检测、谱面信息、小节识别和拍号／调号分类。两项 OCR 使用分别合并的 GLM-OCR 权重及经过任务训练的原生 MTP 层；CUDA 加速环境可通过 `uv run python -m scripts.setup_acceleration` 安装。
+默认流水线包含版面检测、谱面信息、小节识别和拍号／调号分类。两项 OCR 使用分别合并的 GLM-OCR 权重及经过任务训练的原生 MTP 层；Linux CUDA 环境使用 `bash install.sh --engine vllm --device cuda` 安装。
 
 | 目录 | 用途 | 主要文件 |
 | --- | --- | --- |
@@ -9,7 +9,7 @@
 | `measure_ocr` | 各声部小节并行识别音符、节奏、奏法和局部八度标记 | `merged/` 为完整模型 |
 | `measure_ocr/merged/state_reader` | 批量读取印出的拍号和调号 | 约 53.3 MB 分类器 |
 
-两个合并模型各约 2.7 GB，包含处理器、主模型和 MTP 参数。`inference.json` 记录默认引擎及批量配置。没有 CUDA 加速环境时，Transformers 后端加载同一份完整模型。
+两个合并模型各约 2.7 GB，包含处理器、主模型和 MTP 参数。`inference.json` 记录默认引擎及批量配置。选择 Transformers 时加载同一份 OCR 模型；安装器不会同时安装另一种引擎。推理用版面与分类器由发布流程导出到模型缓存的 `auxiliary/`，使用 ONNX Runtime，无需 Paddle 或第二份 Torch。
 
 小节模型使用增加 1,121 个词元的音乐词表，默认 MTP 4；`merged/music_vocabulary.json` 保存词元与训练权重，`merged/score_image_policy.json` 保存训练和推理共用的等比例缩放、谱线尺度与白边规则。拍号／调号图片预处理使用最多 4 个 CPU 线程。首次生成不加 M2 语法约束，失败重试时启用约束；这些设置不改变 Score IR 或导出格式。
 
@@ -25,8 +25,10 @@ Git 用户通过 `git lfs pull` 获取完整任务权重，默认推理无需另
 
 实际准确率和计时条件见[模型评测](../docs/model-evaluation.md)，训练入口见[训练说明](../docs/training.md)，输出格式见[小节文本格式](../docs/score-text.md)，模型授权见[第三方说明](../THIRD_PARTY_NOTICES.md)。
 
-## 可选 GGUF
+## 按引擎分发
 
-0.1 Release 另提供两套 GGUF 模型包：语言模型 Q8_0 ＋配套 F16 视觉编码器，单任务约 1.9 GB。它们由本目录的完整训练权重转换，保留扩展音乐词表。`scripts/export_gguf.py` 可重新导出。
+`manifest.json` 保存训练权重来源，`distribution.json` 保存部署模型版本、文件名及大小。安装器把所选文件放进独立版本缓存；Git 克隆可用 `GIT_LFS_SKIP_SMUDGE=1` 跳过训练权重。
 
-设置 `GUITAROCR_BACKEND=llamacpp` 后，两项 OCR 使用各自的本机 llama-server；原始后端保持默认。完整流程已在 Linux CUDA 运行，Metal / Vulkan 与手机真机未验证。当前 llama.cpp 保留但不执行本模型的 MTP 层。转换对照与启动命令见[GGUF 可选后端](../docs/setup.md#gguf-可选后端)。
+GGUF 使用 Q8_0 语言模型和 F16 视觉编码器，两项 OCR 加 ONNX 辅助模型共约 3.36 GB，原生路径约 5.65 GB。两项 OCR 的视觉编码器不同，需要各自的配套文件。GGUF 已去掉不执行的 MTP 层，原生 vLLM 继续使用 MTP。所有实际参与 GGUF 推理的张量在裁剪前后保持一致。
+
+安装器选择 `--engine llamacpp` 后不会下载原始 OCR safetensors，也不会安装 Torch / Transformers / Paddle。完整流程已在 Linux CUDA 运行，平台边界和命令见[安装说明](../docs/setup.md#gguf-可选后端)。

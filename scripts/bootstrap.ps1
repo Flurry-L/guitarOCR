@@ -1,5 +1,5 @@
 param(
-    [Parameter(Position=0)][ValidateSet('start', 'install', 'check')][string]$Command = 'start',
+    [Parameter(Position=0)][ValidateSet('start', 'install', 'check', 'status', 'clean', 'run')][string]$Command = 'start',
     [Parameter(ValueFromRemainingArguments=$true)][string[]]$LauncherArgs
 )
 $ErrorActionPreference = 'Stop'

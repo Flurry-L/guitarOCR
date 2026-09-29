@@ -5,13 +5,13 @@ Windows 10 / 11（64 位）
 1. 将 ZIP 完整解压到可写文件夹，例如 D:\GuitarOCR。
 2. 双击文件夹中的 start.bat。
 3. 首次启动会下载约 5.7 GB 模型，并联网安装 Python 和运行依赖。
-   请预留至少 50 GB 磁盘空间，保留启动窗口并等待浏览器自动打开。
+   原生 GPU 建议预留 25 GB 磁盘，保留启动窗口并等待浏览器自动打开。
 4. 在网页中导入 PDF 或图片，校对识别结果，下载 GP5。
 
 以后仍双击 start.bat。首次安装中断后可重跑同一个文件。
 使用期间保留启动窗口，关闭窗口会停止服务。
 
-启动器自动下载与 0.1 版本配套的完整模型，支持断点续传，无需安装 Git 或提前安装 Python。
+启动器按所选引擎下载与 0.1 配套的模型，支持断点续传，无需安装 Git 或提前安装 Python。
 Python 和依赖优先从国内源下载，失败后尝试官方源。
 ZIP 下载仍需访问 GitHub，uv 和 Windows C++ 运行库仍从官方站点下载。
 NVIDIA 驱动 580 或更新版本可自动使用 GPU，否则使用 CPU，识别会较慢。
@@ -20,7 +20,13 @@ Linux x64
 
 在解压后的文件夹中打开终端，运行 bash start.sh。
 Ubuntu / Debian 如提示缺少系统库，执行：
-sudo apt-get install curl ca-certificates libgl1 libglib2.0-0
+sudo apt-get install curl ca-certificates
+
+运行环境与更新
+
+每种安装只需要一套 Python 环境；更新应用复用已有模型及依赖。
+GGUF 轻量路径约需 3.36 GB 模型，不安装 Torch / Paddle，配置方法见 docs/setup.md。
+停止服务后，可以运行 scripts/bootstrap.sh status / clean 查看并清理旧环境。
 
 使用帮助
 

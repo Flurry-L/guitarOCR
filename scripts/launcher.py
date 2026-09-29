@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 from contextlib import contextmanager
-from hashlib import sha256
 import json
 import os
 from pathlib import Path
@@ -24,8 +23,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from shared.defaults import environment_python  # noqa: E402
 from shared.model_files import verify_files  # noqa: E402
-from scripts.downloads import acquire_base_model, download_verified  # noqa: E402
-from scripts.model_bundle import restore_bundle  # noqa: E402
+from scripts.downloads import download_verified  # noqa: E402
 from scripts.progress import progress  # noqa: E402
 
 PYPI_MIRROR = "https://pypi.tuna.tsinghua.edu.cn/simple"
@@ -104,31 +102,21 @@ def run_uv(uv, arguments, *, capture=False):
     return run([uv, "--no-config", *arguments], capture=capture, env=environment)
 
 
-def install_fingerprint():
-    digest = sha256()
-    for name in (
-        "uv.lock",
-        "pyproject.toml",
-        "weights/manifest.json",
-        "scripts/launcher.py",
-        "scripts/downloads.py",
-        "scripts/model_bundle.py",
-        "shared/defaults.py",
-        "shared/model_files.py",
-    ):
-        digest.update((ROOT / name).read_bytes())
-    digest.update(f"{platform.system()}:{platform.machine()}".encode())
-    return digest.hexdigest()
+def runtime_manifest():
+    return json.loads((ROOT / 'scripts/runtime-manifest.json').read_text(encoding='utf-8'))
 
 
-def installation_current(state, tools):
-    """Reuse an environment only while its source and both interpreters match."""
-    return bool(state) and (
-        state.get("root") == str(ROOT)
-        and state.get("installer") == install_fingerprint()
-        and environment_python(tools / "webui-venv").is_file()
-        and environment_python(tools / "webui-paddle-venv").is_file()
-    )
+def installation_current(state, tools, profile=None):
+    if not state or not state.get('engine'):
+        return False
+    manifest = runtime_manifest()
+    from scripts.distribution import catalog
+    return (state.get('generation') == manifest['generation']
+            and state.get('engine_generation') == manifest['engines'][state['engine']]['generation']
+            and (profile is None or profile == state.get('profile'))
+            and Path(state.get('python', '')).is_file()
+            and Path(state.get('models', '')).is_dir()
+            and Path(state['models']).name == catalog()['generation'])
 
 
 def download(url, destination, expected=None):
@@ -160,13 +148,19 @@ def download(url, destination, expected=None):
             time.sleep(2)
 
 
-def acquire_weights(manifest):
+def acquire_weights(manifest, root=None):
+    root = Path(root or ROOT)
     missing = [
         (entry, item)
         for entry in manifest["models"]
         for item in entry["files"]
-        if verify_files(ROOT / entry["path"], [item])
+        if verify_files(root / entry["path"], [item], hashes=False)
     ]
+    if root != ROOT:
+        from scripts.distribution import reuse
+        missing = [(entry, item) for entry, item in missing
+                   if not reuse(ROOT / entry['path'] / item['name'],
+                                root / entry['path'] / item['name'], item)]
     if not missing:
         print("OCR 和版面模型已就绪。", flush=True)
         return
@@ -193,14 +187,14 @@ def acquire_weights(manifest):
                 if not re.fullmatch(r'[\w.\-]+', asset):
                     raise ValueError('安装包的模型文件名无效。')
                 url = f'https://github.com/{repository}/releases/download/{tag}/{asset}'
-                download_verified(url, ROOT / path, item,
+                download_verified(url, root / path, item,
                                   on_progress=lambda received, size: progress(
                                       'models', '正在下载识别模型', completed=completed + received,
                                       total=total, detail=path.as_posix()))
                 completed += item['bytes']
                 continue
             host = "media.githubusercontent.com/media" if path.suffix in {".safetensors", ".pdiparams"} else "raw.githubusercontent.com"
-            download(f"https://{host}/{repository}/{commit}/{path.as_posix()}", ROOT / path, item)
+            download(f"https://{host}/{repository}/{commit}/{path.as_posix()}", root / path, item)
             completed += item['bytes']
         progress('models', '识别模型已就绪', completed=total, total=total)
         return
@@ -229,7 +223,7 @@ def acquire_weights(manifest):
             else "raw.githubusercontent.com"
         )
         url = f"https://{host}/{match[1]}/{commit}/{path.as_posix()}"
-        download(url, ROOT / path, item)
+        download(url, root / path, item)
 
 
 def choose_device(requested):
@@ -306,7 +300,7 @@ def installation_lock(tools):
                 msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
 
 
-def export_requirements(uv, python, device):
+def export_requirements(uv, python, device, engine="transformers"):
     # CI checks lock freshness; installation must not re-resolve it using local indexes.
     requirements = run_uv(
         uv,
@@ -315,8 +309,7 @@ def export_requirements(uv, python, device):
             "--frozen",
             "--python",
             python,
-            "--extra",
-            "glm-ocr",
+            *(["--extra", "glm-ocr"] if engine == "transformers" else []),
             "--extra",
             "webui",
             "--no-dev",
@@ -344,129 +337,54 @@ def export_requirements(uv, python, device):
     )
 
 
-def install(args, uv, tools):
-    if platform.system() not in {
-        "Windows",
-        "Linux",
-    } or platform.machine().lower() not in {"amd64", "x86_64"}:
-        raise ValueError(
-            "一键完整安装目前支持 Windows / Linux x64；其他平台可按 docs/setup.md 安装编辑与导出环境。"
-        )
+def resolve_profile(args):
     device = choose_device(args.device)
-    manifest = json.loads((ROOT / "weights/manifest.json").read_text(encoding="utf-8"))
-    print(
-        f"开始安装：{'NVIDIA GPU' if device == 'cuda' else 'CPU（识别较慢）'}。首次需要下载数 GB，请保持窗口开启。",
-        flush=True,
-    )
-    progress('models', '正在准备识别模型')
-    bundle = Path(os.environ.get('GUITAROCR_BUNDLED_MODELS', ROOT / 'models.tar.xz'))
-    release = ROOT / 'release.json'
-    bundled = release.is_file() and json.loads(release.read_text(encoding='utf-8')).get('bundled_models')
-    if bundle.is_file():
-        restore_bundle(bundle, ROOT, manifest)
-    elif bundled:
-        raise ValueError('安装包缺少模型压缩文件，请重新下载安装包。')
-    else:
-        acquire_weights(manifest)
-        if manifest['base_model'].get('required_for_inference', True):
-            acquire_base_model(manifest['base_model'], ROOT)
-        from shared.model_files import remove_obsolete_checkpoints
-        for entry in manifest['models']:
-            remove_obsolete_checkpoints(ROOT / entry['path'], entry['files'])
-    progress('ocr', '正在准备识别环境')
-    app_python = environment_python(tools / "webui-venv")
-    layout_python = environment_python(tools / "webui-paddle-venv")
-    for folder in (app_python, layout_python):
-        if not folder.is_file():
-            run_uv(
-                uv,
-                [
-                    "venv",
-                    "--python",
-                    "3.11",
-                    "--allow-existing",
-                    folder.parent.parent,
-                ],
-            )
-    progress('ocr', '正在安装识别依赖', detail='包含 PyTorch，首次下载较大。')
-    requirements = export_requirements(uv, app_python, device)
-    requirements_path = tools / "webui-requirements.txt"
-    requirements_path.write_text(requirements, encoding="utf-8")
-    run_uv(
-        uv,
-        [
-            "pip",
-            "install",
-            "--python",
-            app_python,
-            "--torch-backend",
-            "cu130" if device == "cuda" else "cpu",
-            *torch_reinstall_args(app_python, device),
-            "-r",
-            requirements_path,
-        ],
-    )
-    run_uv(uv, ["pip", "install", "--python", app_python, "--no-deps", "-e", ROOT])
-    progress('layout', '正在安装版面检测依赖')
-    gpu_layout = device == 'cuda' and platform.system() == 'Linux'
-    if gpu_layout:
-        run_uv(uv, ['pip', 'uninstall', '--python', layout_python, 'paddlepaddle'])
-        run_uv(uv, ['pip', 'install', '--python', layout_python, 'paddlepaddle-gpu==3.2.0',
-                    '--index', 'https://www.paddlepaddle.org.cn/packages/stable/cu126/',
-                    'numpy==1.26.4'])
-    else:
-        run_uv(uv, ['pip', 'uninstall', '--python', layout_python, 'paddlepaddle-gpu'])
-    run_uv(
-        uv,
-        [
-            "pip",
-            "install",
-            "--python",
-            layout_python,
-            "paddlepaddle-gpu==3.2.0" if gpu_layout else "paddlepaddle==3.2.0",
-            "paddlex[ocr,cv]==3.7.2",
-            "numpy==1.26.4",
-            "opencv-contrib-python==4.10.0.84",
-            "Pillow>=12.3,<13",
-            "pypdfium2>=5.13,<6",
-            "pdfplumber>=0.11.10,<1",
-        ],
-    )
-    run_uv(uv, ["pip", "install", "--python", layout_python, "--no-deps", "-e", ROOT])
-    if device == 'cuda' and platform.system() == 'Linux':
-        progress('ocr', '正在安装推理加速运行时')
-        run([app_python, '-m', 'scripts.setup_acceleration'],
-            env={**os.environ, 'GUITAROCR_UV': str(uv)})
-    base = manifest["base_model"]
-    model = ROOT / base["path"]
-    if not base.get('required_for_inference', True):
-        task = next(entry for entry in manifest['models'] if entry['stage'] == 'measure_ocr')
-        folder = ROOT / task['path']
-        model = folder / json.loads((folder / 'inference.json').read_text())['model']
-    progress('check', '正在检查本机识别环境')
-    run(
-        [
-            app_python,
-            "-m",
-            "shared.environment",
-            "--device",
-            device,
-            "--layout-python",
-            layout_python,
-        ]
-    )
-    state = {
-        "root": str(ROOT),
-        "device": device,
-        "model": str(model),
-        "layout_python": str(layout_python),
-        "lock": sha256((ROOT / "uv.lock").read_bytes()).hexdigest(),
-        "installer": install_fingerprint(),
-    }
-    (tools / "install-state.json").write_text(
-        json.dumps(state, indent=2), encoding="utf-8"
-    )
-    print("\n安装完成。以后双击 start.bat 或运行 bash start.sh 即可。", flush=True)
+    engine = getattr(args, 'engine', 'auto')
+    if engine == 'auto':
+        engine = 'vllm' if device == 'cuda' and platform.system() == 'Linux' else 'transformers'
+    if engine == 'vllm' and (device != 'cuda' or platform.system() != 'Linux'):
+        raise ValueError('vLLM 需要 Linux 和 NVIDIA GPU；此平台请选择 transformers。')
+    if engine != 'llamacpp' and (platform.system() not in {'Windows', 'Linux'}
+                                or platform.machine().lower() not in {'amd64', 'x86_64'}):
+        raise ValueError('此平台请连接服务器，或配置 llama.cpp 后使用 --engine llamacpp。')
+    return engine, device, f'{engine}-{device}'
+
+
+def install(args, uv, tools):
+    from scripts.distribution import acquire, environment
+
+    engine, device, profile = resolve_profile(args)
+    llama = getattr(args, 'llama_server', None) or os.environ.get('GUITAROCR_LLAMA_SERVER')
+    if engine == 'llamacpp':
+        llama = shutil.which(str(llama or 'llama-server'))
+        if not llama:
+            raise ValueError('请用 --llama-server 指定 llama-server 可执行文件，详见 docs/setup.md。')
+    root = acquire(engine)
+    python = environment_python(tools / 'runtimes' / profile).absolute()
+    manifest = runtime_manifest()
+    progress('ocr', '正在准备所选运行环境', detail=f'{engine} / {device}；仅安装这一种 OCR 引擎。')
+    if not python.is_file():
+        run_uv(uv, ['venv', '--python', manifest['python'], python.parent.parent])
+    requirements = ((ROOT / 'scripts/runtime-vllm.txt').read_text() if engine == 'vllm'
+                    else export_requirements(uv, python, device, engine))
+    requirements_path = tools / f'{profile}-requirements.txt'
+    requirements_path.write_text(requirements, encoding='utf-8')
+    packages = [*manifest['auxiliary'], *manifest['engines'][engine].get('packages', [])]
+    backend_args = (['--torch-backend', 'cu130' if device == 'cuda' else 'cpu',
+                     *torch_reinstall_args(python, device)] if engine == 'transformers' else [])
+    run_uv(uv, ['pip', 'install', '--python', python, *backend_args, '-r', requirements_path, *packages])
+    run_uv(uv, ['pip', 'install', '--python', python, '--no-deps', '-e', ROOT])
+    state = dict(engine=engine, device=device, profile=profile, python=str(python), models=str(root),
+                 model=str(root / 'weights/measure_ocr/merged'), layout_python=str(python),
+                 generation=manifest['generation'], engine_generation=manifest['engines'][engine]['generation'],
+                 llama_server=llama)
+    progress('check', '正在检查识别环境')
+    run([python, '-m', 'shared.environment', '--device', device], env=environment(state))
+    path = tools / 'install-state.json'
+    temporary = path.with_suffix('.tmp')
+    temporary.write_text(json.dumps(state, indent=2), encoding='utf-8')
+    temporary.replace(path)
+    print(f'安装完成：{profile}。模型和运行环境会在应用更新时复用。', flush=True)
     return state
 
 
@@ -499,10 +417,11 @@ def launch(args, tools, state):
     if not args.no_browser:
         threading.Thread(target=open_browser, daemon=True).start()
     print(f"\n工作台地址：{url}\n使用期间保留此窗口。按 Ctrl+C 停止。", flush=True)
+    from scripts.distribution import environment
     try:
         run(
             [
-                environment_python(tools / "webui-venv"),
+                state["python"],
                 "-m",
                 "webapp.app",
                 "--port",
@@ -515,7 +434,7 @@ def launch(args, tools, state):
                 state["layout_python"],
                 "--output",
                 args.output,
-            ]
+            ], env=environment(state)
         )
     finally:
         stopped.set()
@@ -523,65 +442,82 @@ def launch(args, tools, state):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("install", "start", "check"))
-    parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
-    parser.add_argument("--port", type=int, default=7860)
-    parser.add_argument("--output", type=Path, default=ROOT / "output/webui")
-    parser.add_argument("--no-browser", action="store_true")
-    parser.add_argument("--runtime-root", type=Path, default=ROOT / "tools")
-    args = parser.parse_args()
+    parser.add_argument('command', choices=('install', 'start', 'check', 'status', 'clean', 'run'))
+    parser.add_argument('--device', choices=('auto', 'cpu', 'cuda'), default='auto')
+    parser.add_argument('--engine', choices=('auto', 'transformers', 'vllm', 'llamacpp'), default='auto')
+    parser.add_argument('--llama-server')
+    parser.add_argument('--port', type=int, default=7860)
+    parser.add_argument('--output', type=Path, default=ROOT / 'output/webui')
+    parser.add_argument('--no-browser', action='store_true')
+    parser.add_argument('--runtime-root', type=Path, default=ROOT / 'tools')
+    # `run -- ...` uses exactly the installed environment for CLI/server commands.
+    argv = sys.argv[1:]
+    command = argv[argv.index('--') + 1:] if '--' in argv else []
+    args = parser.parse_args(argv[:argv.index('--')] if '--' in argv else argv)
     os.chdir(ROOT)
-    tools = args.runtime_root.resolve()
-    uv = os.environ.get("GUITAROCR_UV") or shutil.which("uv")
-    if not uv:
-        raise ValueError("找不到 uv，请使用根目录的 install / start 启动脚本")
-    os.environ["PYTHONUTF8"] = "1"
-    os.environ["PYTHONUNBUFFERED"] = "1"
+    tools = args.runtime_root.absolute()
+    uv = os.environ.get('GUITAROCR_UV') or shutil.which('uv')
+    if not uv and args.command in ('install', 'start'):
+        raise ValueError('找不到 uv，请使用根目录的 install / start 启动脚本')
     if not 1 <= args.port <= 65535:
-        raise ValueError("端口范围为 1–65535")
-    state_path = tools / "install-state.json"
-    state = (
-        json.loads(state_path.read_text(encoding="utf-8"))
-        if state_path.exists()
-        else None
-    )
-    if args.command == "install" or (
-        args.command == "start" and not installation_current(state, tools)
-    ):
-        if args.device == "auto" and state:
-            args.device = state["device"]
+        raise ValueError('端口范围为 1–65535')
+    path = tools / 'install-state.json'
+    state = json.loads(path.read_text(encoding='utf-8')) if path.exists() else None
+    if args.command in ('status', 'clean'):
+        return manage_runtimes(tools, state, clean=args.command == 'clean')
+    if state:
+        if args.device == 'auto':
+            args.device = state['device']
+        if args.engine == 'auto' and state.get('engine') and args.device == state['device']:
+            args.engine = state['engine']
+        if not args.llama_server:
+            args.llama_server = state.get('llama_server')
+    profile = resolve_profile(args)[2]
+    if args.command == 'install' or (args.command == 'start' and not installation_current(state, tools, profile)):
         with installation_lock(tools):
             state = install(args, uv, tools)
-    if args.command == "check":
-        if not state:
-            raise ValueError("尚未完成安装，请运行 install.bat 或 bash install.sh")
-        run(
-            [
-                environment_python(tools / "webui-venv"),
-                "-m",
-                "shared.environment",
-                "--hashes",
-                "--device",
-                state["device"],
-                "--layout-python",
-                state["layout_python"],
-            ]
-        )
-    elif args.command == "start":
-        if args.device != "auto":
-            state = {**state, "device": args.device}
-        launch(args, tools, state)
+    if not state or not state.get('engine'):
+        raise ValueError('请先运行安装脚本，迁移到按后端管理的运行环境。')
+    from scripts.distribution import environment
+    if args.command == 'check':
+        run([state['python'], '-m', 'shared.environment', '--device', state['device']], env=environment(state))
+    elif args.command == 'start':
+        with installation_lock(tools / 'in-use'):
+            launch(args, tools, state)
+    elif args.command == 'run':
+        if not command:
+            raise ValueError('用法：launcher.py run -- -m pipeline.run score.pdf --output output/score')
+        with installation_lock(tools / 'in-use'):
+            run([state['python'], *command], env=environment(state))
 
 
-if __name__ == "__main__":
+def manage_runtimes(tools, state, *, clean=False):
+    active = Path(state['python']).parent.parent if state and state.get('python') else None
+    candidates = [*sorted((tools / 'runtimes').glob('*')),
+                  *(tools / name for name in ('webui-venv', 'webui-paddle-venv', 'vllm-venv', 'desktop-edit'))]
+    if clean and not active:
+        raise ValueError('请先完成新环境安装；当前环境未迁移，不能清理。')
+    with installation_lock(tools / 'in-use'), installation_lock(tools):
+        for folder in candidates:
+            if not (folder / 'pyvenv.cfg').is_file() or folder.is_symlink():
+                continue
+            size = sum(p.stat().st_size for p in folder.rglob('*') if p.is_file() and not p.is_symlink())
+            print(f'{"当前" if folder == active else "未使用"} {folder} {size / 1e9:.2f} GB')
+            if clean and folder != active:
+                shutil.rmtree(folder)
+                print('  已移除旧运行环境')
+    if state and state.get('models'):
+        print('模型缓存：' + state['models'])
+    if not clean:
+        print('关闭本机服务后，可运行 clean 移除上述未使用环境。用户项目和模型不参与清理。')
+
+
+if __name__ == '__main__':
     try:
         main()
     except KeyboardInterrupt:
-        print("\n已停止。下次运行启动脚本可继续。")
+        print('已停止；下次启动可继续下载。')
         raise SystemExit(130)
     except Exception as error:
-        print(
-            f"\n未能完成：{error}\n请查看 output/logs/ 最新日志；处理后重跑同一脚本即可。",
-            file=sys.stderr,
-        )
+        print(f'未能完成：{error}', file=sys.stderr)
         raise SystemExit(1)

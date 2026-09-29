@@ -1,0 +1,28 @@
+{
+  "generation": 1,
+  "python": "3.11",
+  "auxiliary": [
+    "onnxruntime==1.23.2",
+    "opencv-python-headless==4.13.0.92"
+  ],
+  "engines": {
+    "transformers": {
+      "generation": 1,
+      "torch_backend": "cu130"
+    },
+    "vllm": {
+      "generation": 1,
+      "packages": [
+        "vllm==0.30.0"
+      ]
+    },
+    "llamacpp": {
+      "generation": 1,
+      "packages": []
+    },
+    "edit": {
+      "generation": 1,
+      "packages": []
+    }
+  }
+}

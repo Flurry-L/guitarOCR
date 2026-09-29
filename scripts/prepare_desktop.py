@@ -14,7 +14,7 @@ from zipfile import ZipFile
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from scripts.model_bundle import model_files, release_metadata, release_model_assets  # noqa: E402
+from scripts.model_bundle import model_files, release_metadata  # noqa: E402
 
 DEST = ROOT / 'desktop/src-tauri/resources'
 UV_VERSION = '0.12.17'
@@ -32,11 +32,11 @@ def backend_files(root):
     paths.extend(root / p for p in ('pyproject.toml', 'uv.lock', 'README.md', 'THIRD_PARTY_NOTICES.md',
                                    'weights/manifest.json', 'webapp/static/vendor/README.md', 'scripts/launcher.py', 'scripts/downloads.py',
                                    'scripts/desktop_runtime.py', 'scripts/bootstrap-uv.toml',
-                                   'scripts/model_bundle.py', 'scripts/progress.py', 'scripts/setup_acceleration.py'))
+                                   'scripts/model_bundle.py', 'scripts/progress.py', 'scripts/distribution.py',
+                                   'scripts/runtime-manifest.json', 'scripts/runtime-vllm.txt', 'weights/distribution.json'))
     paths.extend(p for p in (root / 'weights').rglob('*.json') if p.is_file() and not p.is_symlink())
     manifest = json.loads((root / 'weights/manifest.json').read_text(encoding='utf-8'))
-    assets = release_model_assets(manifest)
-    paths.extend(root / name for name in model_files(manifest) if name not in assets)
+    paths.extend(root / name for name in model_files(manifest) if Path(name).suffix not in {'.safetensors', '.pdiparams', '.onnx'})
     paths.extend(p for p in (root / 'weights/licenses').rglob('*') if p.is_file())
     return sorted(set(paths))
 

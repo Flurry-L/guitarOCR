@@ -4,8 +4,8 @@ import json
 import logging
 import os
 from pathlib import Path
-import shutil
 import signal
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -24,7 +24,7 @@ def command(args, cwd=None, timeout=300, log=None):
         stderr=subprocess.STDOUT,
         text=True,
         timeout=timeout,
-        env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+        env={**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_LFS_SKIP_SMUDGE": "1"},
     )
     if log:
         with Path(log).open("a") as handle:
@@ -153,41 +153,19 @@ class Supervisor:
                     timeout=300,
                     log=log,
                 )
-            command(["git", "lfs", "pull"], cwd=candidate, timeout=600, log=log)
-            if not (candidate / "server/cli.py").is_file():
-                raise ValueError("此提交不包含服务端入口")
-            uv = shutil.which("uv")
-            if not uv:
-                raise ValueError("更新需要 uv，请先安装 uv 并加入服务的 PATH")
-            python = candidate / ".venv/bin/python"
-            if not python.exists():
-                command(
-                    [uv, "venv", "--python", sys.executable, str(candidate / ".venv")],
-                    timeout=120,
-                    log=log,
-                )
-            command(
-                [
-                    uv,
-                    "sync",
-                    "--frozen",
-                    "--extra",
-                    "webui",
-                    "--extra",
-                    "glm-ocr",
-                    "--no-dev",
-                ],
-                cwd=candidate,
-                timeout=1800,
-                log=log,
-            )
-            if self.config.gpus.strip():
-                command(
-                    [str(python), '-m', 'scripts.setup_acceleration'],
-                    cwd=candidate,
-                    timeout=1800,
-                    log=log,
-                )
+            if not (candidate / 'server/cli.py').is_file():
+                raise ValueError('此提交不包含服务端入口')
+            # Application-only updates keep the same large dependency environment
+            # and versioned model cache. An ABI/model change needs an explicit install.
+            for name in ('scripts/runtime-manifest.json', 'weights/distribution.json'):
+                current, incoming = self.current / name, candidate / name
+                if not current.is_file() or json.loads(current.read_text()) != json.loads(incoming.read_text()):
+                    raise ValueError('此版本需要更新模型或运行环境。请停止服务后运行安装器，再启动服务。')
+            if (self.current / 'scripts/runtime-vllm.txt').read_text() != (candidate / 'scripts/runtime-vllm.txt').read_text():
+                raise ValueError('运行依赖已变化，请先用安装器更新环境。')
+            if not os.environ.get('GUITAROCR_AUX_MODELS'):
+                raise ValueError('请先通过新安装器迁移运行环境；后续应用更新会复用依赖。')
+            python = Path(self.python)
             command(
                 [
                     str(python),

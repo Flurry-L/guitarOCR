@@ -6,11 +6,11 @@
 
 ## 安装与启动
 
-先按[安装说明](setup.md)安装 GPU 推理环境和模型。服务端复用同一套权重。以下命令在仓库目录执行，示例使用 `.venv`；如果通过启动器安装，将 Python 路径换成 `tools/webui-venv/bin/python`。
+先安装一套 GPU 环境，服务端与本机工作台共用安装器和模型缓存：
 
 ```bash
-uv pip install --python .venv/bin/python -e '.[webui]'
-.venv/bin/python -m server.cli init \
+bash install.sh --engine vllm --device cuda
+bash scripts/bootstrap.sh run -- -m server.cli init \
   --data /var/lib/guitarocr \
   --public-url https://ocr.example.com \
   --gpus 0,1,2,3,4,5,6,7 \
@@ -19,13 +19,13 @@ uv pip install --python .venv/bin/python -e '.[webui]'
 
 命令会提示设置管理员密码，至少 10 个字符。数据目录需要当前服务用户可写。不要把数据目录放在临时文件夹或即将被替换的发布目录中。
 
-查看 `/var/lib/guitarocr/config.json`，确认模型路径及 Paddle Python 路径正确，再启动：
+查看 `/var/lib/guitarocr/config.json`，确认模型缓存路径正确，再启动：
 
 ```bash
-.venv/bin/python -m server.cli serve --config /var/lib/guitarocr/config.json
+bash scripts/bootstrap.sh run -- -m server.cli serve --config /var/lib/guitarocr/config.json
 ```
 
-默认监听 `127.0.0.1:8080`。通过 HTTPS 反向代理访问，`public_url` 必须与访问地址一致。仓库提供 [Caddy 配置](../server/deploy/Caddyfile)和 [systemd 服务](../server/deploy/guitarocr.service)，部署前修改域名、运行用户、仓库路径和 Python 路径。`uv`、`git` 和 `git-lfs` 需要在服务的 PATH 中，管理员更新时会用到。
+默认监听 `127.0.0.1:8080`。通过 HTTPS 反向代理访问，`public_url` 必须与访问地址一致。仓库提供 [Caddy 配置](../server/deploy/Caddyfile)和 [systemd 服务](../server/deploy/guitarocr.service)，部署前修改域名、运行用户、仓库路径及启动器路径。`uv` 和 `git` 需要在服务的 PATH 中，管理员更新时会用到。
 
 在单机试用时可以将 `public_url` 设置为 `http://localhost:8080`。公网部署使用 HTTPS。
 
@@ -36,7 +36,7 @@ uv pip install --python .venv/bin/python -e '.[webui]'
 管理员在网页「管理」中开关注册、停用普通用户、重设密码、查看队列及取消任务。普通用户可修改密码。修改密码会撤销旧登录状态；管理员账号的创建或恢复通过服务器命令行完成：
 
 ```bash
-.venv/bin/python -m server.cli admin \
+bash scripts/bootstrap.sh run -- -m server.cli admin \
   --config /var/lib/guitarocr/config.json --username admin
 ```
 
@@ -54,10 +54,12 @@ uv pip install --python .venv/bin/python -e '.[webui]'
 
 ## 从管理员页面更新
 
+应用更新复用当前运行环境和模型缓存，不为每次提交重新安装 Torch / CUDA。涉及模型版本或运行依赖变化的更新，由安装器处理后再启动服务。
+
 服务每 15 分钟检查一次配置的仓库分支，默认是本项目的 `main`。检查结果缓存在数据库中，打开网页不会额外请求 GitHub。管理员也可以手动检查。
 
 点击「安装更新」后，服务会在独立目录下载指定提交、获取 LFS 权重，并按锁文件安装依赖。准备阶段继续处理任务。准备完成后停止领取新任务，等正在运行的任务结束，再备份数据库并重启服务。新进程未通过健康检查时自动恢复旧代码和数据库。更新期间保留排队任务和已有结果。
 
 更新只从配置中的 `repository` 和 `branch` 获取代码，网页不能传入命令或仓库地址。`repository` 应指向你信任且有权发布的仓库。离线或下载失败时原服务继续运行。运行记录保存在 `update.log`，失败原因也会显示在管理页面。
 
-Paddle 环境保存在配置指定的位置，不随代码更新重复下载。仓库自带的完整 OCR 模型和版面权重跟随新提交，默认推理无需另行下载原始 GLM-OCR 基座。已排队和可续跑的任务保留提交时的模型路径，因此不要在这些任务完成前删除旧发布目录。更新需要短暂重启服务。
+模型缓存与运行环境独立于应用发布目录。已排队和可续跑的任务保留提交时的模型路径，不要在这些任务完成前删除相应缓存。应用更新需要短暂重启服务。

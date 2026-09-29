@@ -25,7 +25,7 @@ uv run --no-sync python -m unittest discover -s tests -v
 | 音乐文本语法、音高含义、节奏和奏法约束 | `shared/m2.py`、`shared/pitch_context.py`、`shared/constraints.py`、`shared/techniques.py` |
 | 指法分配及 Guitar Pro 文件表示 | `gp5_export/` |
 
-小节记录保存各自的谱面类型，OCR 按该类型选择提示词。模型池分别加载两项 OCR 的完整合并模型，CUDA 优先使用 vLLM。Paddle 在独立环境中运行。训练与推理的小节裁图留白共用 `shared/crops.py`。
+小节记录保存各自的谱面类型，OCR 按该类型选择提示词。模型池分别加载两项 OCR 的完整合并模型，CUDA 优先使用 vLLM。发布安装使用 ONNX 辅助模型；Paddle 用于训练和原始模型对照。训练与推理的小节裁图留白共用 `shared/crops.py`。
 
 网页编辑从 `pipeline/workspace.py` 的 `Workspace` 进入同一组阶段。它管理项目目录、当前阶段、待续跑任务和 revision。修改成功后先写出新的阶段结果，再原子替换 `session.json`；失败时仍指向上次保存的结果。哪些编辑会使后续结果失效，见[工作台说明](docs/webui.md#保存与重新处理)。
 
@@ -45,9 +45,11 @@ uv run --no-sync python -m unittest discover -s tests -v
 
 ## 打包与依赖
 
-模型默认路径由 `shared/defaults.py` 相对安装目录解析；显式传入的路径优先。`scripts/launcher.py` 负责安装和环境复用判断，桌面启动器也使用它。`shared/model_files.py` 提供不加载模型的文件校验，安装、诊断和打包共用。
+模型路径由 `shared/defaults.py` 读取选定的模型缓存；显式传入路径优先。`scripts/launcher.py` 负责安装和环境复用判断，桌面启动器也使用它。`shared/model_files.py` 提供不加载模型的文件校验，安装、诊断和打包共用。
 
-取得当前任务权重后执行 `uv run --no-project --python 3.11 scripts/package_release.py`，生成轻量启动 ZIP 及 `output/releases/models/` 中的模型附件。发布前从解压后的包验证启动、项目恢复和 GP5 导出。启动 ZIP 不包含测试和 CI 配置。桌面后端的文件范围由 `scripts/prepare_desktop.py` 的 `backend_files` 定义；移动模块后检查打包后的独立环境能导入工作台。模型文件由 `weights/manifest.json` 指定，打包前校验；原始权重按分片独立发布，启动器首次使用时下载对应版本。`--bundle-models` 可生成包含模型的大型离线模型 ZIP（运行依赖仍需联网安装），此 ZIP 可能超过 GitHub 单附件大小上限。
+取得当前训练权重后执行 `uv run --no-project --python 3.11 scripts/package_release.py`，生成轻量启动 ZIP 及原生 OCR、ONNX 附件。`scripts/export_gguf.py` 生成去除未用 MTP 的 GGUF 文件。发布前验证解压包的干净安装、PDF 识别和导出。桌面资源范围由 `scripts/prepare_desktop.py` 定义，模型大文件不会嵌入安装包。
+
+部署模型由 `weights/distribution.json` 管理，更新模型时修改 `generation` 和文件清单。运行依赖由 `scripts/runtime-manifest.json` 与 `scripts/runtime-vllm.txt` 管理；修改依赖时提升对应运行环境 generation。界面及普通代码更新不修改这两个版本。服务端的在线更新仅复用兼容的依赖与模型，运行环境发生变化时通过安装器升级。
 
 模型变更需更新 `weights/manifest.json`、模型说明、训练配置和评测结果。数据、模型缓存、用户项目及私人曲谱放在 Git 忽略的目录中。
 

@@ -5,10 +5,48 @@ import json
 from pathlib import Path
 import subprocess
 import sys
-from zipfile import ZipFile, ZIP_STORED
 
 ROOT = Path(__file__).resolve().parent.parent
 LLAMA_CPP_REVISION = '8019dc563b1ecbae6b161a70c3a1359f1b206c1e'
+
+
+def strip_unused_mtp(path, llama_cpp):
+    """Copy active tensors byte-for-byte, removing the unused NextN block."""
+    sys.path.insert(0, str(llama_cpp / 'gguf-py'))
+    import gguf
+
+    reader = gguf.GGUFReader(path)
+    arch = reader.get_field('general.architecture').contents()
+    count = reader.get_field(f'{arch}.block_count').contents()
+    nextn = reader.get_field(f'{arch}.nextn_predict_layers')
+    extra = nextn.contents() if nextn else 0
+    if not extra:
+        return
+    active = count - extra
+    temporary = path.with_suffix('.slim.gguf')
+    writer = gguf.GGUFWriter(temporary, arch, endianess=reader.endianess)
+    for field in reader.fields.values():
+        if field.name == 'general.architecture' or field.name.startswith('GGUF.'):
+            continue
+        value = field.contents()
+        if field.name == f'{arch}.block_count':
+            value = active
+        elif field.name == f'{arch}.nextn_predict_layers':
+            value = 0
+        subtype = field.types[-1] if field.types[0] == gguf.GGUFValueType.ARRAY else None
+        writer.add_key_value(field.name, value, field.types[0], sub_type=subtype)
+    tensors = [t for t in reader.tensors
+               if not (t.name.startswith('blk.') and int(t.name.split('.')[1]) >= active)]
+    for tensor in tensors:
+        writer.add_tensor_info(tensor.name, tensor.data.shape, tensor.data.dtype, tensor.data.nbytes, tensor.tensor_type)
+    writer.write_header_to_file()
+    writer.write_kv_data_to_file()
+    writer.write_ti_data_to_file()
+    for tensor in tensors:
+        writer.write_tensor_data(tensor.data, tensor_endianess=reader.endianess)
+    writer.close()
+    del tensors, reader
+    temporary.replace(path)
 
 
 def export(llama_cpp, output, tasks):
@@ -24,32 +62,16 @@ def export(llama_cpp, output, tasks):
             subprocess.run([sys.executable, str(llama_cpp / 'convert_hf_to_gguf.py'), str(source),
                             '--outfile', str(folder / name), '--outtype', dtype,
                             *(['--mmproj'] if vision else [])], check=True)
+        strip_unused_mtp(folder / 'model-Q8_0.gguf', llama_cpp)
         metadata = {'task': task, 'source_commit': source_commit, 'llama_cpp_commit': revision,
                     'text_quantization': 'Q8_0', 'vision_dtype': 'F16',
                     'mtp_runtime': False, 'scope': 'OCR only; layout and signature classifier are separate'}
         (folder / 'export.json').write_text(json.dumps(metadata, indent=2) + '\n')
-        destination = output / f'GuitarOCR-0.1-{task}-GGUF.zip'
-        with ZipFile(destination, 'w', ZIP_STORED) as archive:
-            for name in ('model-Q8_0.gguf', 'vision-F16.gguf', 'export.json'):
-                archive.write(folder / name, f'{task}/{name}')
-            for name in ('score_image_policy.json', 'music_vocabulary.json'):
-                if (source / name).is_file():
-                    archive.write(source / name, f'{task}/{name}')
-            for path in (ROOT / 'weights/licenses').rglob('*'):
-                if path.is_file():
-                    archive.write(path, 'licenses/' + str(path.relative_to(ROOT / 'weights/licenses')))
-            archive.write(ROOT / 'THIRD_PARTY_NOTICES.md', 'THIRD_PARTY_NOTICES.md')
-            archive.writestr('README.txt',
-                            'GuitarOCR 0.1 optional OCR models for llama.cpp.\n'
-                            'Load model-Q8_0.gguf together with its matching vision-F16.gguf.\n'
-                            'Keep the two tasks separate: their visual encoders are different.\n'
-                            'This is not an Android/iOS application or a full PDF recognition pipeline.\n'
-                            'MTP parameters are retained but unused by this llama.cpp runtime.\n'
-                            'Setup, image preprocessing and platform validation status:\n'
-                            'https://github.com/Flurry-L/guitarOCR/blob/main/docs/setup.md#gguf-可选后端\n')
-        if destination.stat().st_size >= 2**31:
-            raise ValueError(f'{destination} exceeds the GitHub release asset limit')
-        print(f'{destination}: {destination.stat().st_size / 1e9:.2f} GB', flush=True)
+        for path in folder.glob('*.gguf'):
+            if path.stat().st_size >= 2**31:
+                raise ValueError(f'{path} exceeds the GitHub release asset limit')
+            print(f'{path}: {path.stat().st_size / 1e9:.2f} GB', flush=True)
+
 
 
 if __name__ == '__main__':

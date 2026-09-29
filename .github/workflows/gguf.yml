@@ -7,7 +7,7 @@ on:
         required: true
         type: string
       release_tag:
-        description: 'Draft release to receive the two GGUF model ZIPs'
+        description: 'Draft release to receive the selected-engine model files'
         required: true
         type: string
 permissions:
@@ -48,4 +48,17 @@ jobs:
           git -C /tmp/llama.cpp checkout 8019dc563b1ecbae6b161a70c3a1359f1b206c1e
       - run: python scripts/export_gguf.py --llama-cpp /tmp/llama.cpp --output output/gguf
       - name: Upload model packages
-        run: gh release upload "$RELEASE_TAG" output/gguf/GuitarOCR-*-GGUF.zip --clobber
+        shell: python
+        run: |
+          import json, os, shutil, subprocess
+          from pathlib import Path
+          catalog = json.loads(Path('weights/distribution.json').read_text())
+          folder = Path('output/model-assets')
+          folder.mkdir(parents=True, exist_ok=True)
+          for item in catalog['files']['llamacpp']:
+              path = Path(item['path'])
+              source = Path('output/gguf') / path.parts[1] / path.name
+              assert source.stat().st_size == item['bytes'], f'Unexpected conversion size: {source}'
+              target = folder / item['asset']
+              shutil.move(source, target)
+              subprocess.run(['gh', 'release', 'upload', os.environ['RELEASE_TAG'], str(target), '--clobber'], check=True)

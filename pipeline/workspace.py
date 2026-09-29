@@ -58,9 +58,9 @@ class Workspace:
             path = self.measure_adapter / 'capabilities.json'
             capabilities = json.loads(path.read_text()) if path.exists() else {}
             if capabilities.get('state_reader'):
-                from measure_ocr.state_reader import cached_reader
+                from measure_ocr.state_reader import cached_reader, state_model_path
 
-                weights = (path.parent / capabilities['state_reader']).resolve()
+                weights = state_model_path(path.parent / capabilities['state_reader']).resolve()
                 cached_reader(str(weights), self.device, weights.stat().st_mtime_ns)
 
         with ThreadPoolExecutor(max_workers=3) as loaders:

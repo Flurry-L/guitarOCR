@@ -38,3 +38,6 @@ Thumbs.db
 datagen/native-bin/*.lib
 datagen/native-bin/*.exp
 datagen/native-bin/*.pdb
+
+# Built deployment models are published as release assets.
+weights/auxiliary/*.onnx

@@ -8,9 +8,9 @@ Type=simple
 User=guitarocr
 Group=guitarocr
 WorkingDirectory=/opt/guitarocr
-Environment=PATH=/opt/guitarocr/.venv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=/opt/guitarocr/tools/uv:/usr/local/bin:/usr/bin:/bin
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/opt/guitarocr/.venv/bin/python -m server.cli serve --config /var/lib/guitarocr/config.json
+ExecStart=/bin/bash /opt/guitarocr/scripts/bootstrap.sh run -- -m server.cli serve --config /var/lib/guitarocr/config.json
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=45

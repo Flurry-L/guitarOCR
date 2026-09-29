@@ -97,7 +97,8 @@ def run(
                 artifacts.extend(identity(p) for p in sorted(merged.glob('*.safetensors')))
             context['models'].append([str(path.resolve()), artifacts])
     if capabilities.get('state_reader'):
-        context['state_reader'] = identity(capabilities_path.parent / capabilities['state_reader'])
+        from measure_ocr.state_reader import state_model_path
+        context['state_reader'] = identity(state_model_path(capabilities_path.parent / capabilities['state_reader']))
     signature_path = output / "recognition_context.json"
     if resume and log.is_file():
         previous = (
