@@ -9,6 +9,15 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 
+def strip_source_paths(message):
+    for field, value in message.ListFields():
+        if field.name == 'doc_string':
+            message.ClearField(field.name)
+        elif field.message_type is not None:
+            for child in value if field.is_repeated else [value]:
+                strip_source_paths(child)
+
+
 def export(output, paddle_python):
     import torch
     from safetensors.torch import load_file
@@ -37,7 +46,7 @@ def export(output, paddle_python):
     for name in ('layout', 'signature'):
         path = output / f'{name}.onnx'
         model = onnx.load(path)
-        onnx.helper.strip_doc_string(model)
+        strip_source_paths(model)
         model.producer_name = 'guitarocr'
         model.producer_version = '0.1'
         onnx.save(model, path)

@@ -7,12 +7,12 @@
       {
         "path": "auxiliary/layout.onnx",
         "asset": "auxiliary-layout.onnx",
-        "bytes": 130435514
+        "bytes": 130435504
       },
       {
         "path": "auxiliary/signature.onnx",
         "asset": "auxiliary-signature.onnx",
-        "bytes": 53210843
+        "bytes": 53210842
       }
     ],
     "llamacpp": [
