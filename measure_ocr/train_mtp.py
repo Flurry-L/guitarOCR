@@ -140,12 +140,14 @@ def main():
         import pyarrow.compute as pc
         from measure_ocr.token_batching import TokenBatchSampler, RankBatchSampler, neighbour_chunks
         data = cache['train']
-        lengths = list(data['length']) if 'length' in data.column_names else [len(ids) for ids in data['input_ids']]
+        lengths = (data.data.column('length') if 'length' in data.column_names
+                   else pc.list_value_length(data.data.column('input_ids')))
         images = data.data.column('images')
         if data._indices is not None:
+            lengths = pc.take(lengths, data._indices.column(0))
             images = pc.take(images, data._indices.column(0))
         chunks = neighbour_chunks(images.to_pylist(), args.context_chunk_size)
-        batches = TokenBatchSampler(lengths, world, args.token_budget, args.maximum_batch_examples, args.seed, chunks)
+        batches = TokenBatchSampler(lengths.to_pylist(), world, args.token_budget, args.maximum_batch_examples, args.seed, chunks)
         sampler = RankBatchSampler(batches, rank)
         loader = DataLoader(data, batch_sampler=sampler, collate_fn=collator,
                             num_workers=4, pin_memory=True, persistent_workers=True)
@@ -158,9 +160,23 @@ def main():
     if rank == 0:
         print(json.dumps({'training_examples': len(cache['train']), 'steps_per_epoch': len(loader),
                           'steps': args.steps, 'token_budget': args.token_budget}), flush=True)
-    val_sampler = DistributedSampler(cache['validation'], num_replicas=world, rank=rank, shuffle=False) if 'validation' in cache else None
+    val_sampler = range(rank, len(cache['validation']), world) if 'validation' in cache else None
     validation = DataLoader(cache['validation'], batch_size=args.eval_batch_size, sampler=val_sampler, collate_fn=collator,
-                            num_workers=2, pin_memory=True) if val_sampler else None
+                            num_workers=2, pin_memory=True) if 'validation' in cache else None
+    if args.token_budget and 'validation' in cache:
+        from measure_ocr.token_batching import evaluation_batches
+
+        data = cache['validation']
+        lengths = pc.list_value_length(data.data.column('input_ids'))
+        images = data.data.column('images')
+        if data._indices is not None:
+            lengths = pc.take(lengths, data._indices.column(0))
+            images = pc.take(images, data._indices.column(0))
+        chunks = neighbour_chunks(images.to_pylist(), args.context_chunk_size)
+        batches = evaluation_batches(lengths.to_pylist(), args.token_budget,
+                                     args.maximum_batch_examples, args.seed, rank, world, chunks)
+        validation = DataLoader(data, batch_sampler=batches, collate_fn=collator,
+                                num_workers=4, pin_memory=True, persistent_workers=True)
     if args.early_stopping_patience and validation is None:
         raise ValueError('Early stopping requires a validation split')
     optimizer = torch.optim.AdamW(draft.parameters(), lr=args.lr, weight_decay=.01, fused=True)
@@ -186,8 +202,11 @@ def main():
                     batch['input_ids'], image_grid_thw=batch['image_grid_thw'],
                     attention_mask=batch['attention_mask'], mm_token_type_ids=batch.get('mm_token_type_ids'))
         with torch.autocast('cuda', dtype=torch.bfloat16):
-            output, recurrence = wrapped(embeddings, hidden[:, :-1], batch['attention_mask'][:, :-1],
-                                         positions[..., :-1] if positions is not None else None)
+            # Validation batches cover each row once and may differ in count
+            # between ranks. Bypass DDP's forward-time coordination there.
+            module = wrapped if torch.is_grad_enabled() else draft
+            output, recurrence = module(embeddings, hidden[:, :-1], batch['attention_mask'][:, :-1],
+                                        positions[..., :-1] if positions is not None else None)
             mask = labels[:, 2:] != -100
             student = output[:, :-1][mask]
             target = hidden[:, 1:-1][mask]
@@ -233,18 +252,21 @@ def main():
                               'seconds': time.perf_counter() - started}), flush=True)
         if step % args.eval_every == 0 or step == args.steps:
             draft.eval()
-            stats = torch.zeros(3, device='cuda', dtype=torch.float64)
+            stats = torch.zeros(4, device='cuda', dtype=torch.float64)
             if validation is not None:
                 with torch.no_grad():
                     for batch_index, batch in enumerate(validation, 1):
                         loss, correct, total = forward(batch)
-                        stats += torch.tensor([float(loss) * total, int(correct), total], device='cuda')
+                        stats += torch.tensor([float(loss) * total, int(correct), total,
+                                               batch['input_ids'].shape[0]], device='cuda')
                         if rank == 0 and batch_index % 100 == 0:
                             print(json.dumps({'step': step, 'validation_batches': batch_index,
                                               'validation_total_batches': len(validation)}), flush=True)
                 if world > 1:
                     dist.all_reduce(stats)
                 values = stats.tolist()
+                if int(values[3]) != len(cache['validation']):
+                    raise ValueError('Validation must cover each example exactly once')
                 score = values[0] / max(1, values[2])
             else:
                 score, values = losses, [losses * tokens, hits, tokens]
@@ -258,6 +280,8 @@ def main():
             evaluation = {'step': step, 'validation_loss': score,
                           'validation_agreement': values[1] / max(1, values[2]),
                           'validation_tokens': values[2]}
+            if validation is not None:
+                evaluation['validation_examples'] = int(values[3])
             evaluations.append(evaluation)
             if rank == 0:
                 print(json.dumps(evaluation), flush=True)

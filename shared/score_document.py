@@ -72,6 +72,7 @@ def score_document(result: dict) -> dict:
                 "source_record": record['measure_number'],
                 "mode": record.get("mode") or result["mode"],
                 "needs_review": bool(record.get("needs_review")),
+                "chord_annotations": record.get('chord_annotations', []),
                 "pitch_reference": pitch_reference(instrument),
                 **({"pitch_context": record["pitch_context"]} if record.get("pitch_context") else {}),
                 **({'written': written} if written else {}),
@@ -96,4 +97,7 @@ def score_document(result: dict) -> dict:
         "artist": result.get("artist", ""),
         "timeline": timeline,
         "parts": list(parts.values()),
+        "annotations": [{**p, 'part_id': part.get('id', 'part-1')}
+                        for part in result.get('parts') or [result]
+                        for p in part.get('document_metadata', {}).get('score_annotations', [])],
     }

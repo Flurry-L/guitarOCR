@@ -1,4 +1,4 @@
-"""GLM loading and generation shared by the two OCR stages and their evaluations."""
+"""Shared OCR model loading and generation for all recognition tasks."""
 
 from __future__ import annotations
 
@@ -23,8 +23,8 @@ def create_backend(model_path, adapter_path, device):
         resolved = merged if merged and merged.is_dir() else Path(model_path)
         task = 'MEASURE' if (resolved / 'music_vocabulary.json').is_file() else 'INFO'
         variable = f'GUITAROCR_LLAMA_{task}_URL'
-        endpoint = os.environ.get(variable)
-        return LlamaCppBackend(resolved, endpoint, device=device)
+        endpoint = os.environ.get('GUITAROCR_LLAMA_SCORE_URL') or os.environ.get(variable)
+        return LlamaCppBackend(resolved, endpoint, device=device, options=settings.get('options'))
     if device.startswith('cuda') and merged and merged.is_dir() and os.environ.get('GUITAROCR_BACKEND', 'auto') != 'transformers':
         from shared.vllm_backend import VllmBackend, engine_python
 
@@ -160,7 +160,7 @@ class GlmBackend:
 
 
 class BackendPool:
-    """Cache fixed, merged task models and serialize GPU generation."""
+    """Share one engine across task prompts and serialize GPU generation."""
 
     def __init__(self, model_path: Path, device: str):
         self.model_path = model_path.resolve()
@@ -173,15 +173,27 @@ class BackendPool:
         path = path.resolve() if path is not None else None
         return _AdapterBackend(self, path)
 
+    def _key(self, path):
+        import json
+
+        config = (path or self.model_path) / 'inference.json'
+        settings = json.loads(config.read_text()) if config.is_file() else {}
+        if settings.get('model'):
+            merged = (config.parent / settings['model']).resolve()
+            if merged.is_dir():
+                return ('merged', merged, json.dumps(settings.get('options', {}), sort_keys=True))
+        return ('adapter', path)
+
     def prepare(self, paths):
-        """Load the two resident task engines concurrently before a score arrives."""
+        """Resolve task aliases before loading resident engines."""
         from concurrent.futures import ThreadPoolExecutor
 
-        paths = list(dict.fromkeys(Path(p).resolve() if p is not None else None for p in paths))
+        paths = {self._key(path): path for p in paths
+                 for path in [Path(p).resolve() if p is not None else None]}
         if len(paths) > 2:
-            raise ValueError('A recognition workspace has two resident task models')
+            raise ValueError('A recognition workspace supports at most two distinct OCR models')
         with self.lock:
-            missing = [p for p in paths if p not in self.backends]
+            missing = [(key, path) for key, path in paths.items() if key not in self.backends]
             for path in list(self.backends):
                 if path not in paths:
                     previous = self.backends.pop(path)
@@ -191,10 +203,10 @@ class BackendPool:
                         previous.close()
             failures = []
             with ThreadPoolExecutor(max_workers=2) as workers:
-                futures = [(path, workers.submit(create_backend, self.model_path, path, self.device)) for path in missing]
-                for path, future in futures:
+                futures = [(key, workers.submit(create_backend, self.model_path, path, self.device)) for key, path in missing]
+                for key, future in futures:
                     try:
-                        self.backends[path] = future.result()
+                        self.backends[key] = future.result()
                     except Exception as error:
                         failures.append(error)
             if failures:
@@ -202,7 +214,8 @@ class BackendPool:
 
     def _get_backend(self, path: Path | None):
         with self.lock:
-            if path not in self.backends:
+            key = self._key(path)
+            if key not in self.backends:
                 while len(self.backends) >= 2:
                     _, previous = self.backends.popitem(last=False)
                     if self.backend is previous:
@@ -210,9 +223,9 @@ class BackendPool:
                     if hasattr(previous, 'close'):
                         previous.close()
                     del previous
-                self.backends[path] = create_backend(self.model_path, path, self.device)
-            self.backends.move_to_end(path)
-            self.backend = self.backends[path]
+                self.backends[key] = create_backend(self.model_path, path, self.device)
+            self.backends.move_to_end(key)
+            self.backend = self.backends[key]
             return self.backend
 
     def _generate(self, path: Path | None, method: str, *args, **kwargs):

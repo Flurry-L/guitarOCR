@@ -14,6 +14,8 @@ def llamafactory_main(default_config: Path, *, worker_module: str | None = None)
     parser.add_argument("overrides", nargs="*", help="LLaMA-Factory key=value overrides")
     args = parser.parse_args()
     if worker_module:
+        if 'PYTORCH_ALLOC_CONF' not in os.environ and 'PYTORCH_CUDA_ALLOC_CONF' not in os.environ:
+            os.environ['PYTORCH_ALLOC_CONF'] = 'expandable_segments:True'
         import torch
 
         workers = int(os.environ.get('NPROC_PER_NODE', max(1, torch.cuda.device_count())))

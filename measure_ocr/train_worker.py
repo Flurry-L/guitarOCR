@@ -3,6 +3,20 @@
 from functools import wraps
 
 
+def stage_adapter_weights_on_cpu():
+    """PEFT's generic 'cuda' restore otherwise loads every DDP rank on GPU 0."""
+    from peft import PeftModel
+
+    original = PeftModel.load_adapter
+
+    @wraps(original)
+    def load(self, model_id, adapter_name, is_trainable=False, torch_device=None, **kwargs):
+        return original(self, model_id, adapter_name, is_trainable=is_trainable,
+                        torch_device=torch_device or 'cpu', **kwargs)
+
+    PeftModel.load_adapter = load
+
+
 def exact_linear_targets():
     """LLaMA-Factory's substring expansion also matches GLM projector norms."""
     import torch
@@ -139,6 +153,7 @@ def main():
         enable_fused_loss(field_weights)
     materialize_sampler_lengths()
     exact_linear_targets()
+    stage_adapter_weights_on_cpu()
     first_new_token = config.pop('vocab_trainable_from', None)
     if first_new_token is not None:
         train_music_vocabulary(int(first_new_token), float(config.pop('vocab_learning_rate', 5e-4)),
@@ -160,8 +175,17 @@ def main():
             self.last_evaluation_step = state.global_step
             self.last_evaluation_metrics = metrics
 
+        def on_save(self, args, state, control, **kwargs):
+            from pathlib import Path
+
+            if (Path(args.output_dir) / 'STOP_AFTER_CHECKPOINT').exists():
+                control.should_training_stop = True
+
         def on_train_end(self, args, state, control, **kwargs):
-            if (args.do_eval and not args.load_best_model_at_end
+            latest_is_best = (not args.load_best_model_at_end or
+                              state.best_model_checkpoint and
+                              state.best_model_checkpoint.endswith(f'checkpoint-{state.global_step}'))
+            if (args.do_eval and latest_is_best
                     and self.last_evaluation_step == state.global_step and self.last_evaluation_metrics):
                 # LLaMA-Factory otherwise repeats the complete validation set
                 # immediately after a final-step evaluation of these weights.

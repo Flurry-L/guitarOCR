@@ -10,6 +10,7 @@ from typing import Any
 from PIL import Image
 
 from datagen.native.annotations import measure_boxes
+from datagen.native_alignment import native_text_target
 from datagen.sampling import balanced_hardcase_rows, measure_semantic_tags
 from datagen.training_samples import dataset_entry, measure_sample
 from datagen.source_profile import source_profile
@@ -101,11 +102,12 @@ def _crop_source(job):
                     pages[page_index], [v * dpi / 25.4 for v in box["bbox_mm"]], dpi
                 )
                 crop.save(crop_path, format="PNG", compress_level=3)
-            target = measure["targets"][mode]
+            target = native_text_target(measure["targets"][mode], label_path, mode, index)
             previous_context = "START"
             if index > 0:
                 previous_context = format_previous_measure_context(
-                    label["measures"][index - 1]["targets"][mode],
+                    native_text_target(label["measures"][index - 1]["targets"][mode],
+                                       label_path, mode, index - 1),
                     mode,
                     active_metadata=label["measures"][index - 1],
                 )

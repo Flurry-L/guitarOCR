@@ -8,7 +8,7 @@ import numpy as np
 from shared.onnx_runtime import cpu_session
 
 LABELS = ('measure_tab', 'measure_notation', 'measure_both', 'tempo_region',
-          'clef_region', 'transposition_region')
+          'clef_region', 'annotation_region')
 
 
 class OnnxDetector:
@@ -18,7 +18,8 @@ class OnnxDetector:
     def predict(self, pages, *, threshold=.25, **kwargs):
         for page in pages:
             # imdecode supports Unicode paths on Windows, unlike cv2.imread.
-            image = cv2.imdecode(np.fromfile(page, dtype=np.uint8), cv2.IMREAD_COLOR)
+            image = (page if isinstance(page, np.ndarray) else
+                     cv2.imdecode(np.fromfile(page, dtype=np.uint8), cv2.IMREAD_COLOR))
             if image is None:
                 raise ValueError(f'Cannot open page: {page}')
             height, width = image.shape[:2]

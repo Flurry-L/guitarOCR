@@ -351,7 +351,7 @@ def resolve_profile(args):
 
 
 def install(args, uv, tools):
-    from scripts.distribution import acquire, environment
+    from scripts.distribution import acquire, environment, selected_manifest
 
     engine, device, profile = resolve_profile(args)
     llama = getattr(args, 'llama_server', None) or os.environ.get('GUITAROCR_LLAMA_SERVER')
@@ -375,7 +375,7 @@ def install(args, uv, tools):
     run_uv(uv, ['pip', 'install', '--python', python, *backend_args, '-r', requirements_path, *packages])
     run_uv(uv, ['pip', 'install', '--python', python, '--no-deps', '-e', ROOT])
     state = dict(engine=engine, device=device, profile=profile, python=str(python), models=str(root),
-                 model=str(root / 'weights/measure_ocr/merged'), layout_python=str(python),
+                 model=str(root / selected_manifest(engine)['models'][0]['path'] / 'merged'), layout_python=str(python),
                  generation=manifest['generation'], engine_generation=manifest['engines'][engine]['generation'],
                  llama_server=llama)
     progress('check', '正在检查识别环境')
@@ -492,7 +492,7 @@ def main():
 
 
 def manage_runtimes(tools, state, *, clean=False):
-    active = Path(state['python']).parent.parent if state and state.get('python') else None
+    active = Path(state['python']).parent.parent.resolve() if state and state.get('python') else None
     candidates = [*sorted((tools / 'runtimes').glob('*')),
                   *(tools / name for name in ('webui-venv', 'webui-paddle-venv', 'vllm-venv', 'desktop-edit'))]
     if clean and not active:
@@ -502,8 +502,9 @@ def manage_runtimes(tools, state, *, clean=False):
             if not (folder / 'pyvenv.cfg').is_file() or folder.is_symlink():
                 continue
             size = sum(p.stat().st_size for p in folder.rglob('*') if p.is_file() and not p.is_symlink())
-            print(f'{"当前" if folder == active else "未使用"} {folder} {size / 1e9:.2f} GB')
-            if clean and folder != active:
+            current = folder.resolve() == active
+            print(f'{"当前" if current else "未使用"} {folder} {size / 1e9:.2f} GB')
+            if clean and not current:
                 shutil.rmtree(folder)
                 print('  已移除旧运行环境')
     if state and state.get('models'):

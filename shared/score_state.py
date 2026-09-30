@@ -105,7 +105,7 @@ def attach_neighbours(records):
     return records
 
 
-def resolve_fretted_pitches(target, tuning):
+def resolve_fretted_pitches(target, tuning, *, verified_strings=None):
     """Derive redundant M2 pitches from the visible fingering and tuning."""
     from shared.techniques import ornament_position
 
@@ -119,7 +119,9 @@ def resolve_fretted_pitches(target, tuning):
                 string, fret = note.get('string'), note.get('fret')
                 if not isinstance(string, int) or not 1 <= string <= len(tuning):
                     continue
-                if 'dead' in note.get('effects', []):
+                if verified_strings is not None and string not in verified_strings:
+                    continue
+                if fret == 'x' or any(e in {'dead', 'tie'} or e.startswith('harm:') for e in note.get('effects', [])):
                     continue
                 if isinstance(fret, int) and 0 <= fret <= 36:
                     pitch = int(tuning[string - 1]) + fret

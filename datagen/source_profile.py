@@ -55,6 +55,7 @@ def apply_source_profile(row):
     if profile['legacy'] and old_instrument == 'guitar' and profile['instrument'] == 'bass':
         if row.get('pitch_context') and row['pitch_context'].get('clef') == 'G2':
             result['pitch_context'] = {**row['pitch_context'], 'clef': 'F4'}
+    _align_text(result)
     return result
 
 
@@ -66,4 +67,16 @@ def apply_composed_profile(row):
         context = row.get('pitch_context') or {}
         if profile['legacy'] and profile['instrument'] == 'bass' and context.get('clef') == 'G2':
             result['pitch_context'] = {**context, 'clef': 'F4'}
+        _align_text(result)
     return result
+
+
+def _align_text(row):
+    if row.get('measure_index') is None:
+        return
+    from datagen.native_alignment import native_text_target
+
+    for key in ('target', 'sounding_target'):
+        if row.get(key):
+            row[key] = native_text_target(row[key], row['label_json'], row['mode'],
+                                          row.get('source_measure_index', row['measure_index']))

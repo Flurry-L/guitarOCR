@@ -18,6 +18,7 @@ from measure_ocr.metrics import MeasureSequenceMetrics
 from pipeline.config import parse_args
 from pipeline.evaluate_scores import overlap
 from pipeline.run import _run
+from pipeline.score_metrics import annotation_counts, score_counts, readable_metrics
 from shared.artifacts import read_result
 from shared.defaults import INFO_ADAPTER, LAYOUT_MODEL, MEASURE_ADAPTER, MODEL
 from shared.glm_backend import BackendPool
@@ -37,7 +38,7 @@ def worker(args):
         resources.callback(pool.close)
         resources.callback(detector.close)
         loader = resources.enter_context(ThreadPoolExecutor(max_workers=1))
-        preparing = loader.submit(pool.prepare, [args.info_adapter, args.adapter])
+        preparing = None
         for path in scores:
             truth = json.loads(path.read_text())
             directory = args.output / 'scores' / path.parents[2].name / truth['id']
@@ -45,6 +46,8 @@ def worker(args):
             if args.resume and manifest.exists() and json.loads(manifest.read_text()).get('status') in {'complete', 'needs_review'}:
                 result = json.loads(manifest.read_text())
             else:
+                if preparing is None:
+                    preparing = loader.submit(pool.prepare, [args.info_adapter, args.adapter])
                 options = parse_args([truth['pdf'], '--output', str(directory), '--model', str(args.model),
                                       '--adapter', str(args.adapter), '--info-adapter', str(args.info_adapter),
                                       '--layout-model-dir', str(args.layout_model), '--device', args.device,
@@ -72,6 +75,14 @@ def worker(args):
             gold_groups, predicted_groups = [], []
             counts = Counter(scores=1, expected_bars=len(truth['records']), detected_bars=len(rows), matched_bars=len(matched),
                              extra_bars=len(rows) - len(used), exported=bool(result.get('gp5')), failed=result.get('status') == 'failed')
+            counts.update(score_counts(truth['records'], rows, matched))
+            if 'annotations' in truth:
+                metadata_path = result.get('stages', {}).get('document_info', {}).get('manifest')
+                metadata = read_result(Path(metadata_path), 'document_info') if metadata_path and Path(metadata_path).is_file() else {}
+                annotations = [annotation for part in metadata.get('parts', [metadata])
+                               for kind in ('score_annotations', 'pitch_instructions')
+                               for annotation in part.get('document_metadata', {}).get(kind, [])]
+                counts.update(annotation_counts(truth['annotations'], annotations))
             for i, gold in enumerate(truth['records']):
                 row = rows[matched[i]] if i in matched else {}
                 if row:
@@ -80,8 +91,9 @@ def worker(args):
                 counts['aligned_bars'] += bool(row) and row.get('bar_index') == gold['bar_index']
                 counts['mode_correct'] += row.get('mode') == gold['mode']
                 counts['instrument_correct'] += row.get('instrument') == gold['instrument']
-                counts['program_total'] += gold.get('midi_program') is not None
-                counts['program_correct'] += gold.get('midi_program') is not None and row.get('midi_program') == gold['midi_program']
+                program_visible = gold.get('midi_program') is not None and gold.get('midi_program_visible', True)
+                counts['program_total'] += program_visible
+                counts['program_correct'] += program_visible and row.get('midi_program') == gold['midi_program']
                 value = {k: gold.get(k) for k in ('id', 'mode', 'instrument', 'tuning', 'midi_program', 'part_name')}
                 value.update(score=truth['id'], corpus=path.parents[2].name, expected=gold.get('sounding_target', gold['target']),
                              predicted=row.get('target', ''), matched=i in matched, needs_review=row.get('needs_review', True))
@@ -125,6 +137,7 @@ def aggregate(args):
     import numpy as np
 
     result = {'scope': 'whole_pdf_predicted_layout_structure_metadata_and_notes', 'counts': dict(counts),
+              'score_metrics': {k: readable_metrics(v) for k, v in counts.items()},
               'metrics': {k: v.result() for k, v in metrics.items()}, 'latency': {'sum_seconds': sum(timings),
               'median_seconds': float(np.median(timings)) if timings else None}}
     (args.output / 'metrics.json').write_text(json.dumps(result, indent=2))

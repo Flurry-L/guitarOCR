@@ -238,3 +238,19 @@ def _apply_beat_effects(beat: Any, effects: list[str], string_count: int, gm: An
             )
         elif effect.startswith("text:"):
             beat.text = unquote(effect.partition(":")[2])
+    from shared.chords import event_chord, diagram_for_strings
+    name, diagram = event_chord({'effects': effects})
+    if diagram:
+        if len(diagram['frets']) < string_count:
+            diagram = diagram_for_strings(diagram, list(range(string_count)))
+        if len(diagram['frets']) != string_count:
+            raise ValueError('Chord diagram string count differs from the GP5 track')
+        chord = beat.effect.chord or gm.Chord(length=string_count, name=name or '', newFormat=True)
+        chord.firstFret = diagram['base_fret']
+        chord.strings = [-1 if f == 'x' else f for f in reversed(diagram['frets'])]
+        chord.fingerings = [gm.Fingering(-2 if f is None else f) for f in reversed(diagram['fingers'])]
+        chord.barres = [gm.Barre(fret=f, start=string_count - high, end=string_count - low)
+                        for f, low, high in diagram['barres']]
+        chord.omissions = [False] * 7
+        chord.show = True
+        beat.effect.chord = chord

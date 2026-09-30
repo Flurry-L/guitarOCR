@@ -36,7 +36,7 @@ database/scores/
 
 ## 来源分组
 
-三个模型共用 `source_catalog.json`，由 `datagen/catalog.py` 统一创建和核对。同一曲谱及其转调、重排版变体应使用同一个 `family`，整体进入 train、validation 或 test。默认按文件哈希分组，内容相同但文件不同的曲谱需要提前指定 family。
+版面与共享 OCR 的各项任务共用 `source_catalog.json`，由 `datagen/catalog.py` 统一创建和核对。同一曲谱及其转调、重排版变体应使用同一个 `family`，整体进入 train、validation 或 test。默认按文件哈希分组，内容相同但文件不同的曲谱需要提前指定 family。
 
 完成 select 后，可在标签的 `family` 字段填写分组，再首次运行 crop / datasets。已有 catalog 必须包含全部选中来源，跨 split 的 family 会报错。修改分组后需重新生成对应数据。
 
@@ -82,6 +82,8 @@ uv run --no-sync python -m datagen.curate_measure_data \
 少量钢琴或人声 GP 文件用变调夹字段记录整体升高的音程。选源时将它归入音符和装饰音的实际音高，原值保存在 `source_capo`；吉他、贝斯仍单独保存变调夹。修改这项标签规则后应重新选源和裁图，保留原来的曲源划分。
 
 谱面信息另加一项任务，识别首行的乐器名称、打击乐谱号和 TAB 线数。标签依据实际打印内容，不用文件中隐藏的 MIDI 音色推测页面上的乐器；无名称的旋律五线谱标为通用音高谱，弦数留空。
+
+首行输入保留开头的小节，并将左侧竖排乐器简称转正、放大；训练裁图和运行时使用同一个处理函数。输出同时保留实际印出的乐器名称，少见简称在训练中增加采样，验证和测试不重复。首行谱号上方漏检的短文字会单独重读，变调夹位置必须由完整的文字指令确认。
 
 ```bash
 uv run --no-sync python -m datagen.build_staff_data \
@@ -138,7 +140,7 @@ uv run --no-sync python -m datagen.build_info_data \
   --output database/scores/datasets/document_info --include-test
 ```
 
-类别顺序为 `measure_tab`、`measure_notation`、`measure_both`、`tempo_region`、`clef_region`、`transposition_region`。上述基础流程生成前四类标注，谱号和移调框由 `datagen.build_pitch_data` 生成，再用 `datagen.mix_layout_data` 合并。`--include-test` 单独输出测试标注，训练器只读 train 和 val。
+类别顺序为 `measure_tab`、`measure_notation`、`measure_both`、`tempo_region`、`clef_region`、`annotation_region`。上述基础流程生成前四类标注，谱号和标注框由 `datagen.build_pitch_data` 生成，再用 `datagen.mix_layout_data` 合并。最后一类包括和弦、指法图、奏法和移调说明，不能把所有框都标为移调。`--include-test` 单独输出测试标注，训练器只读 train 和 val。
 
 `track-index.jsonl` 记录 source_id、family、split、mode、renderer、source_track、folder 和 errors。每个文件夹内的 `layout-pages.jsonl` 记录页面图与 annotations；框为原图像素 `[x0,y0,x1,y1]`。WebUI 使用 `[x,y,width,height]`。
 
@@ -184,6 +186,10 @@ uv run --no-sync python -m datagen.augment_info \
 ```
 
 作者缺失时目标为 `null`，副标题保留为独立元数据。中文字段通过原生 UTF-8 属性附属文件设置，需同时检查元数据和实际字形，见[原生工具说明](native-build.md)。
+
+旧 GP 文件还需通过 `text_encoding` 声明原始编码，原生排版前统一解码曲名、轨名、段落、自由文字及和弦名。小节构建器以实际排版所用的原生模型校正文字字段，保持音符与节奏不变。历史图片中的乱码不能配正常中文答案；应修正这些图片对应的文字标签，或重新排版后再使用正常文字。
+
+和弦数据由 `datagen.chord_scores` 生成带节拍位置的 GP 源谱，原生排版后由 `datagen.chord_supplement` 提取可见名称及指法图。指法图标签来自实际绘出的点、空弦／闷弦、手指和横按；和弦名不能代替指法证据。`datagen.chord_annotations` 补充四至八弦图形，`datagen.paired_staves` 补充分离的五线谱与 TAB 配对。曲源及其排版变体共享同一数据划分。
 
 ## 混合后继续训练
 

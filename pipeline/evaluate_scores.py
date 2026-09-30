@@ -57,7 +57,7 @@ def main():
     # Resolve inputs before allocating GPU resources; no missing source is skipped.
     pdfs = [score_pdf(rows[0]) for _, rows in scores]
     args.output.mkdir(parents=True, exist_ok=True)
-    metrics, counts = MeasureSequenceMetrics(), Counter()
+    metrics, written_metrics, counts = MeasureSequenceMetrics(), MeasureSequenceMetrics(), Counter()
     by_mode = defaultdict(MeasureSequenceMetrics)
     timings = []
     pool = BackendPool(args.model, args.device)
@@ -114,8 +114,14 @@ def main():
                 sample.update(gold, target, mode=mode, tuning=expected.get('tuning'), string_count=expected.get('string_count'), instrument=expected.get('instrument'))
                 for metric in (metrics, by_mode[mode]):
                     metric.merge(sample)
+                written = row.get('written_target', target)
+                if mode != 'tab':
+                    written_metrics.update(expected['target'], written, mode=mode,
+                                           tuning=expected.get('tuning'), string_count=expected.get('string_count'),
+                                           instrument=expected.get('instrument'))
                 predictions.write(json.dumps({'id':expected['id'], 'source_id':source,
                     'expected':gold, 'predicted':target, 'mode':mode,
+                    'expected_written': expected['target'], 'predicted_written': written,
                     'instrument':expected.get('instrument', 'guitar'),
                     'tuning':expected.get('tuning'), 'string_count':expected.get('string_count'),
                     'pitch_context':expected.get('pitch_context'), 'context_source':'predicted',
@@ -132,7 +138,8 @@ def main():
             predictions.flush()
             print(json.dumps(report,ensure_ascii=False),flush=True)
     report = {'scope':'complete_pdfs_with_predicted_layout_and_metadata', 'counts':dict(counts),
-              'overall':metrics.result(), 'by_mode':{k:v.result() for k,v in by_mode.items()},
+              'overall':metrics.result(), 'written_notation': written_metrics.result(),
+              'by_mode':{k:v.result() for k,v in by_mode.items()},
               'fresh_run_seconds':sum(timings)}
     (args.output/'metrics.json').write_text(json.dumps(report,indent=2,ensure_ascii=False))
     print(json.dumps({'counts':dict(counts),'core_exact':metrics.result()['core_exact_rate']}),flush=True)

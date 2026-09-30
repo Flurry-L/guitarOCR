@@ -56,8 +56,18 @@ def normalize_score_image(image, policy=None):
         gap, lines = spacing
         target = policy['tab_spacing'] if lines >= 6 else policy['notation_spacing']
         scale = min(policy['max_upscale'], target / gap)
+    # Compact diagrams have both horizontal and vertical grids. A thick barre
+    # can hide one row, so staff-line counting must not shrink their fine dots
+    # or finger numerals. Give all compact symbol crops a stable minimum size.
+    short_edge, long_edge = sorted(image.size)
+    minimum = policy.get('small_crop_min_side', 0)
+    if (minimum and long_edge <= policy.get('small_crop_max_dimension', 512)
+            and long_edge / short_edge <= policy.get('small_crop_max_aspect', 2)):
+        scale = max(scale, min(policy.get('small_crop_max_upscale', 3), minimum / short_edge))
     multiple = int(policy['patch_multiple'])
     budget = int(policy['max_pixels'])
+    if image.width >= 600 and image.height >= 900:
+        budget = int(policy.get('page_max_pixels', budget))
     # Reserve padding inside the budget so the processor never has to resize
     # this already normalized image again to meet its patch geometry.
     scale = min(scale, math.sqrt(budget / (image.width * image.height)))

@@ -2,12 +2,64 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from pathlib import Path
 
 from PIL import Image
 
 from layout.postprocess import order_measure_boxes, refine_measure_boxes, deduplicate_pitch_boxes
 from shared.layout_labels import mode_vote, PITCH_REGION_LABELS
+
+
+def refine_small_regions(image, boxes, model, threshold=.25, batch_size=4):
+    """Read small annotations at a second scale on unusually large pages.
+
+    Full-page detection owns measure geometry. Four overlapping detail views
+    supplement only clefs, text and diagrams, without splitting music bars.
+    """
+    width, height = image.size
+    if width <= 2400 and height <= 3400:
+        return boxes
+    import numpy as np
+
+    tile_width, tile_height = math.ceil(width * .55), math.ceil(height * .55)
+    origins = [(x, y) for y in (0, height - tile_height) for x in (0, width - tile_width)]
+    tiles = [np.asarray(image.crop((x, y, x + tile_width, y + tile_height)).convert('RGB'))
+             [:, :, ::-1].copy() for x, y in origins]
+    kinds = {'clef_region', 'annotation_region', 'transposition_region', 'tempo_region'}
+    candidates = [box for box in boxes if box.get('label') in kinds]
+    predictions = model.predict(tiles, batch_size=batch_size, threshold=threshold,
+                                layout_shape_mode='rect', filter_overlap_boxes=False)
+    for (x, y), prediction in zip(origins, predictions, strict=True):
+        for box in prediction.json['res']['boxes']:
+            if box.get('label') not in kinds or float(box['score']) < threshold:
+                continue
+            a, b, c, d = box['coordinate']
+            # A partial marker at an internal tile edge cannot establish a
+            # pitch instruction. Its complete view is in the overlapping tile.
+            if ((x and a < 3) or (y and b < 3)
+                    or (x + tile_width < width and c > tile_width - 3)
+                    or (y + tile_height < height and d > tile_height - 3)):
+                continue
+            candidates.append({**box, 'coordinate': [float(a + x), float(b + y),
+                                                     float(c + x), float(d + y)],
+                               'geometry_source': 'detail_crop'})
+    kept = []
+    for box in sorted(candidates, key=lambda box: float(box['score']), reverse=True):
+        x, y, right, bottom = box['coordinate']
+        area = (right - x) * (bottom - y)
+        duplicate = False
+        for other in kept:
+            if other['label'] != box['label']:
+                continue
+            a, b, c, d = other['coordinate']
+            intersection = max(0, min(right, c) - max(x, a)) * max(0, min(bottom, d) - max(y, b))
+            if intersection / max(1, area + (c - a) * (d - b) - intersection) > .4:
+                duplicate = True
+                break
+        if not duplicate:
+            kept.append(box)
+    return [box for box in boxes if box.get('label') not in kinds] + kept
 
 
 def detect_pages(
@@ -30,6 +82,8 @@ def detect_pages(
         ordered = order_measure_boxes(boxes, threshold)
         with Image.open(page) as image:
             measures = refine_measure_boxes(image, ordered)
+            if include_tempo:
+                boxes = refine_small_regions(image, boxes, model, threshold, batch_size)
         if include_tempo:
             tempos = [
                 box for box in boxes

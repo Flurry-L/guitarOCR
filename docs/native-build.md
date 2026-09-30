@@ -63,9 +63,11 @@ uv run --no-sync python datagen/native-source/build_linux.py \
 旧 GP3/4/5 字符串没有可靠的编码声明。生成多语言谱头时，可在源文件旁放置 UTF-8 JSON，例如 `source.gp5.metadata.json`：
 
 ```json
-{"title":"海风小品", "subtitle":"进阶课程", "artist":"青竹音乐教室"}
+{"text_encoding":"utf-8", "title":"海风小品", "subtitle":"进阶课程", "artist":"青竹音乐教室"}
 ```
 
-导出器在 Guitar Pro 加载乐谱后调用原生 `Score::setProperty` 设置字段，由 Guitar Pro 自己排版。支持字符串字段 `title`、`subtitle`、`artist`、`album`、`words`、`music`、`copyright`、`tabber`、`instructions`、`notice`；未知字段或非字符串会报错。数据准备和导出阶段都会复制这个附属文件。复用已有导出前会比较 GP 源文件、附属文件内容以及实际谱面类型；发生变化时要求使用新的输出目录，防止复用旧标签或旧页面。新导出也会核对实际类型与请求类型是否一致。
+`text_encoding` 指定原始字符串编码（例如 `gbk` 或 `utf-8`）。导出器在排版前修复标题、轨名、段落、自由文字、歌词和和弦名称的解码；已经正确解码的 Unicode 保持原样。数据准备程序会自动写入编码声明。
+
+其他字段通过原生 `Score::setProperty` 覆盖，由 Guitar Pro 自己排版。支持字符串字段 `title`、`subtitle`、`artist`、`album`、`words`、`music`、`copyright`、`tabber`、`instructions`、`notice`；未知字段或非字符串会报错。数据准备和导出阶段都会复制这个附属文件。复用已有导出前会比较 GP 源文件、附属文件内容以及实际谱面类型；发生变化时要求使用新的输出目录，防止复用旧标签或旧页面。已有数据的小节文字目标取自对应的原生渲染模型，避免源文件解码与可见文字不一致。
 
 Wine 导出环境还需可显示中文的字体。当前使用 `tools/native-build/fonts/NotoSerifCJKsc-Regular.otf`（同目录保留 OFL 许可证），并设置 `FONTCONFIG_FILE` 为同目录 `fonts.conf` 的绝对路径。核对文字标签后，还需打开生成的 PDF 图像，检查中文是否完整显示。

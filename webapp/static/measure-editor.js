@@ -4,6 +4,7 @@ import { api } from "./api.js";
 import { editorMenu } from "./editor-menu.js";
 import { scoreView } from "./score-view.js";
 import { measureProfile, reviewKind } from "./score-engraving.js";
+import { chordEditor } from "./score-chords.js";
 import {
   clone,
   ticks,
@@ -125,6 +126,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     );
   }
   const event = () => draft?.voices[selected?.vi]?.events[selected?.ei];
+  const chords = chordEditor(change, event);
   function feedback(message = "", error = false) {
     $("measureFeedback").textContent = message;
     $("measureFeedback").hidden = !message;
@@ -438,9 +440,11 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
         ? m.export_errors.join("；")
         : m.fingering_errors?.length
           ? "音高或和弦与当前调弦不匹配，请核对音符和调弦。"
-          : m.fallback_reason?.length
-            ? "该小节未通过识别检查，请对照原图核对音符、奏法和音高。"
-            : "请对照原谱核对谱号、移调和音高，确认后即可导出。";
+          : m.annotation_review
+            ? "和弦标注未能确认，请对照原图核对名称与拍点。未确认的内容保留在小节文字中。"
+            : m.fallback_reason?.length
+              ? "该小节未通过识别检查，请对照原图核对音符、奏法和音高。"
+              : "请对照原谱核对谱号、移调和音高，确认后即可导出。";
   }
   function updateMeasureControls() {
     const count = ui.state?.measures?.length || 0,
@@ -493,6 +497,13 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     document.querySelectorAll("[data-effect],#bendValue").forEach((node) => {
       node.disabled ||= !event()?.notes[selected?.ni];
     });
+    document
+      .querySelectorAll(
+        ".chord-settings input,.chord-settings button,#chordLibrary button",
+      )
+      .forEach((node) => {
+        node.disabled = busy || !event() || ui.editorMode !== "score";
+      });
   }
   function editorMode() {
     $("editMode").value = ui.editorMode;
@@ -518,6 +529,8 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     view.select(selected);
     const e = event(),
       n = e?.notes[selected?.ni];
+    chords.render(e);
+    chords.library(ui.state, current()?.part_id || "part-1");
     if (e) {
       const voices = Math.min(
         16,

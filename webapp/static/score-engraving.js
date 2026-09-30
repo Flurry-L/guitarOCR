@@ -17,6 +17,7 @@ export function measureProfile(measure, state) {
 }
 export function reviewKind(measure) {
   if (!measure.needs_review) return "";
+  if (measure.annotation_review) return "review";
   return measure.fallback_reason?.length || measure.timing_errors?.length
     ? "failed"
     : "review";
@@ -131,12 +132,37 @@ function beatEffects(beat, effects) {
     else if (effect === "slap:popping") beat.pop = true;
     else if (effect.startsWith("ottava:"))
       beat.ottava = ottava(+effect.split(":")[1]);
-    else if (effect.startsWith("text:") || effect.startsWith("chord:"))
+    else if (effect.startsWith("text:"))
       beat.text = decode(effect.slice(effect.indexOf(":") + 1));
     else if (effect.startsWith("tempo:"))
       beat.automations.push(
         M.Automation.buildTempoAutomation(false, 0, +effect.split(":")[1], 2),
       );
+  }
+  const name = effects.find((e) => e.startsWith("chord:"));
+  const diagram = effects.find((e) => e.startsWith("diagram:"));
+  if (name || diagram) {
+    const chord = new M.Chord();
+    chord.name = name ? decode(name.slice(6)) : "";
+    chord.showDiagram = !!diagram;
+    chord.showFingering = false;
+    if (diagram) {
+      const [, base, frets, , barres] = diagram.split(":");
+      chord.firstFret = Number(base);
+      // alphaTab uses the same high-to-low order as the staff tuning.
+      chord.strings = frets
+        .split("/")
+        .reverse()
+        .map((f) => (f === "x" ? -1 : Number(f)));
+      chord.barreFrets =
+        barres === "-"
+          ? []
+          : [...new Set(barres.split(";").map((b) => Number(b.split("/")[0])))];
+    }
+    const staff = beat.voice.bar.staff;
+    const id = `${chord.name}:${diagram || "name"}`;
+    staff.addChord(id, chord);
+    beat.chordId = id;
   }
 }
 function colorStyle(Style, Elements, color) {

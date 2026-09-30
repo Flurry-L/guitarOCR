@@ -147,6 +147,11 @@ def score_to_song(result):
                     voice['voice'] = voice_ids.index(voice['voice'])
                     if len(strings) > 1 and mode in {'tab', 'both'}:
                         for event in voice['events']:
+                            from shared.chords import event_chord, diagram_for_strings, diagram_effect
+                            _name, diagram = event_chord(event)
+                            if diagram and len(diagram['frets']) <= len(tuning):
+                                event['effects'] = [e for e in event['effects'] if not e.startswith('diagram:')]
+                                event['effects'].append(diagram_effect(diagram_for_strings(diagram, string_ids)))
                             event['notes'] = [n for n in event.get('notes', []) if n.get('string', 0) - 1 in string_ids]
                             for note in event['notes']:
                                 note['string'] = string_ids.index(note['string'] - 1) + 1

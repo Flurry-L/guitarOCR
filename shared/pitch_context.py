@@ -9,7 +9,7 @@ def conventional_octave(text):
     if not isinstance(text, str):
         return None
     name = ' '.join(text.casefold().strip().rstrip('.').split())
-    return {'piccolo': 12, 'contrabass': -12, 'double bass': -12,
+    return {'piccolo': 12, 'picc': 12, 'contrabass': -12, 'double bass': -12,
             'guitar': -12, 'bass guitar': -12}.get(name)
 
 
@@ -38,6 +38,10 @@ def explicit_transposition(text):
                 (r"clarinet", "eb", 3),
                 (r"bass clarinet", "bb", -14),
                 (r"trumpet", "bb", -2),
+                (r"trumpet", "a", -3),
+                (r"trumpet", "c", 0),
+                (r"trumpet", "d", 2),
+                (r"trumpet", "eb", 3),
                 (r"soprano sax(?:ophone)?", "bb", -2),
                 (r"alto sax(?:ophone)?", "eb", -9),
                 (r"tenor sax(?:ophone)?", "bb", -14),
@@ -131,7 +135,7 @@ def apply_pitch_regions(records, predictions, *, instrument="guitar", transpose=
         kind = prediction.get("kind")
         if kind not in {"clef", "transposition"} or not prediction.get("bbox"):
             continue
-        if kind == 'transposition' and prediction.get('parsed', {}).get('kind') is None:
+        if kind == 'transposition' and prediction.get('parsed', {}).get('kind') not in {'instrument', 'ottava', 'capo'}:
             continue
         page = prediction.get("page")
         candidates = [(i, r) for i, r in enumerate(records) if r.get("page") == page]

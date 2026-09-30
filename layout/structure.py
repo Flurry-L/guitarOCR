@@ -21,6 +21,20 @@ STRUCTURE_PROMPT = (
     '"rows":[[system,part,staff],...]}. Indices start at 0; rows follow the blue numbers. '
     'Keep the same part index in successive systems. Do not infer TAB strings from notation lines. '
 )
+PAIRING_HINT = (' If notation and TAB of one instrument have separate blue row labels, '
+                'assign both rows the SAME system, part and staff indices. '
+                'Different printed part names must keep different part indices, '
+                'including Guitar and Guitar II or multiple parts of the same instrument. '
+                'A row that already contains notation+TAB cannot pair with another TAB row.')
+
+
+def structure_prompt(count, modes=None, systems=None):
+    text = STRUCTURE_PROMPT + PAIRING_HINT + f'There are {count} marked rows.'
+    if modes and 'notation' in modes and 'tab' in modes:
+        text += ' Detected row types: ' + ', '.join(f'R{i + 1}={mode}' for i, mode in enumerate(modes)) + '.'
+        if systems is not None:
+            text += f' Continuous barlines connect the rows into systems {systems}.'
+    return text
 
 STRUCTURE_SCHEMA = {
     'type': 'object', 'additionalProperties': False, 'required': ['parts', 'rows'],
@@ -43,10 +57,20 @@ STRUCTURE_SCHEMA = {
 }
 
 
-def structure_schema(row_count):
+def structure_schema(row_count, systems=None):
     schema = deepcopy(STRUCTURE_SCHEMA)
     schema['properties']['rows'].update(minItems=row_count, maxItems=row_count)
     schema['properties']['parts']['maxItems'] = row_count
+    if systems is not None and len(systems) == row_count:
+        # Exact lengths already forbid trailing items. Omitting `items`
+        # also keeps the tuple compatible with llama.cpp's schema compiler.
+        schema['properties']['rows'].pop('items')
+        schema['properties']['rows'].update(prefixItems=[{
+            'type': 'array', 'minItems': 3, 'maxItems': 3,
+            'prefixItems': [{'const': system},
+                            {'type': 'integer', 'minimum': 0, 'maximum': row_count - 1},
+                            {'type': 'integer', 'minimum': 0, 'maximum': 15}],
+        } for system in systems])
     return schema
 
 
@@ -119,9 +143,13 @@ def marked_systems(path, count):
         hits = lines[(lines > low) & (lines < high)]
         if len(hits) < 4:
             hits = short_lines[(short_lines > low) & (short_lines < high)]
-        if len(hits) < 4:
-            return None
-        staff.append(float(np.median(hits)))
+        # Antialiasing can leave only one thin staff line dark enough.
+        # It locates the staff; the continuous bracket still has to pass the
+        # separate 90% vertical-coverage check below.
+        # Very thin notation lines may disappear when the marked page is
+        # resized. The row label still anchors its detector box; the system
+        # bracket must independently cover the interval below.
+        staff.append(float(np.median(hits)) if len(hits) else center)
     systems = [0]
     for first, second in zip(staff, staff[1:]):
         region = ink[round(first):round(second), :int(rgb.shape[1] * .23)]
@@ -129,12 +157,49 @@ def marked_systems(path, count):
             return None
         score = float(region.mean(0).max())
         if .7 < score < .9:
-            return None
+            # Two disconnected brackets may cover much of a tall interval.
+            # A substantial continuous blank separates systems; scattered
+            # missing pixels could instead be a damaged connecting line.
+            missing = np.flatnonzero(~region[:, int(region.mean(0).argmax())])
+            gaps = np.split(missing, np.flatnonzero(np.diff(missing) > 1) + 1)
+            if max((len(gap) for gap in gaps), default=0) < max(12, len(region) * .08):
+                return None
         systems.append(systems[-1] + int(score < .9))
     return systems
 
 
-def constrain_rows(value, systems):
+def compatible_templates(parts, modes):
+    """Find contiguous part layouts compatible with the detected staff types."""
+    candidates = []
+
+    def visit(part_index, position, template):
+        if len(candidates) > 1:
+            return
+        if part_index == len(parts):
+            if position == len(modes):
+                candidates.append(template)
+            return
+        part = parts[part_index]
+        if part['instrument'] in {'guitar', 'bass'}:
+            patterns = [(('both',), (0,)), (('tab',), (0,)),
+                        (('notation',), (0,)), (('notation', 'tab'), (0, 0)),
+                        (('tab', 'notation'), (0, 0))]
+        else:
+            patterns = [(('notation',), (0,))]
+            if (part['instrument'] == 'pitched' and
+                    (re.search(r'\b(?:piano|keyboard|organ|harp)\b', part['name'], re.I)
+                     or part['program'] in {*range(8), *range(16, 21), 46})):
+                patterns.append((('notation', 'notation'), (0, 1)))
+        for pattern, staves in patterns:
+            end = position + len(pattern)
+            if tuple(modes[position:end]) == pattern:
+                visit(part_index + 1, end, template + [(part_index, staff) for staff in staves])
+
+    visit(0, 0, [])
+    return candidates
+
+
+def constrain_rows(value, systems, modes=None):
     """Use a repeated staff template only when it fits every visible system."""
     groups = defaultdict(list)
     for i, system in enumerate(systems):
@@ -157,9 +222,31 @@ def constrain_rows(value, systems):
         template = [(part, staff) for system, part, staff in rows if system == rows[0][0]]
     grand = {i for i, part in enumerate(parts)
              if re.search(r'\b(?:piano|keyboard|organ|harp)\b', part['name'], re.I)}
-    valid_template = (len(template) == width and len(set(template)) == width
+    valid_template = (len(template) == width
                       and {p for p, _s in template} == set(range(len(parts)))
                       and all(0 <= staff < 16 for _p, staff in template))
+    if valid_template:
+        occurrences = defaultdict(list)
+        first_indices = next(iter(groups.values()))
+        for index, slot in enumerate(template):
+            occurrences[slot].append(index)
+        valid_template = all(len(indices) == 1 or (
+            modes is not None and len(indices) == 2
+            and {modes[first_indices[i]] for i in indices} == {'notation', 'tab'}
+        ) for indices in occurrences.values())
+    if not valid_template and modes is not None:
+        patterns = {tuple(modes[i] for i in indices) for indices in groups.values()}
+        if len(patterns) == 1:
+            candidates = compatible_templates(parts, patterns.pop())
+            if len(candidates) == 1:
+                value['parts'] = parts
+                value['rows'] = [[system, part, staff] for system in groups
+                                 for part, staff in candidates[0]]
+                return
+    if valid_template:
+        value['parts'] = parts
+        value['rows'] = [[system, part, staff] for system in groups for part, staff in template]
+        return
     if not valid_template and sum(2 if i in grand else 1 for i in range(len(parts))) != width:
         # Printed names may contain OCR spelling errors. The predicted MIDI
         # family can complete a grand-staff template when its total row count
@@ -181,7 +268,52 @@ def constrain_rows(value, systems):
     value['rows'] = [[system, part, staff] for system in groups for part, staff in template]
 
 
-def parse_structure(raw, count, systems=None):
+def separate_fretted_lanes(value, modes):
+    """Retain simultaneous fretted rows that cannot be one notation/TAB pair."""
+    rows, parts = value['rows'], value['parts']
+    if modes is None or len(rows) != len(modes) or not all(
+            isinstance(r, list) and len(r) == 3 and all(type(v) is int for v in r)
+            and 0 <= r[1] < len(parts) for r in rows):
+        return
+    groups = defaultdict(list)
+    for index, row in enumerate(rows):
+        groups[row[0]].append(index)
+    templates = {tuple((rows[i][1], rows[i][2], modes[i]) for i in indices)
+                 for indices in groups.values()}
+    if len(templates) != 1:
+        return
+    first = next(iter(groups.values()))
+    slots = defaultdict(list)
+    for i in first:
+        slots[tuple(rows[i][1:])].append(i)
+    duplicated = {slot for slot, indices in slots.items() if len(indices) > 1
+                  and parts[slot[0]]['instrument'] in {'guitar', 'bass'}
+                  and not (len(indices) == 2 and {modes[i] for i in indices} == {'notation', 'tab'})}
+    if not duplicated:
+        return
+    # Repeated notation/TAB layers need a fresh visual reading; only separate
+    # rows whose individually detected mode already represents a whole staff.
+    if any({'notation', 'tab'}.issubset({modes[i] for i in slots[slot]}) for slot in duplicated):
+        return
+    profiles, mapping, occurrence, template = [], {}, Counter(), []
+    for i in first:
+        _, part, staff = rows[i]
+        slot = (part, staff)
+        lane = occurrence[slot] if slot in duplicated else 0
+        occurrence[slot] += 1
+        key = (part, lane)
+        if key not in mapping:
+            mapping[key] = len(profiles)
+            profile = deepcopy(parts[part])
+            if lane:
+                profile['name'] += f' ({lane + 1})'
+            profiles.append(profile)
+        template.append((mapping[key], staff))
+    value.update(parts=profiles, rows=[[system, part, staff] for system in groups for part, staff in template],
+                 separated_fretted_lanes=True)
+
+
+def parse_structure(raw, count, systems=None, modes=None):
     value = json.loads(raw[raw.find('{'):raw.rfind('}') + 1])
     parts, rows = value['parts'], value['rows']
     if not isinstance(parts, list) or not parts or not isinstance(rows, list):
@@ -205,8 +337,34 @@ def parse_structure(raw, count, systems=None):
         elif part['instrument'] == 'bass' and not 32 <= part['program'] <= 39:
             part['program'] = 33
     if systems is not None and len(systems) == count:
-        constrain_rows(value, systems)
+        constrain_rows(value, systems, modes)
         parts, rows = value['parts'], value['rows']
+    elif modes is not None and len(rows) == count and all(
+            isinstance(row, list) and len(row) == 3 and all(type(v) is int for v in row) for row in rows):
+        # The predicted system boundaries can still support an unambiguous
+        # repair of invalid part/staff assignments. Keep those boundaries;
+        # do not infer new systems from a guessed number of instruments.
+        groups = defaultdict(list)
+        seen = defaultdict(list)
+        invalid = False
+        for i, row in enumerate(rows):
+            groups[row[0]].append(i)
+            seen[tuple(row)].append(modes[i])
+            invalid |= not 0 <= row[1] < len(parts)
+        invalid |= any(len(values) > 1 and (len(values) != 2 or set(values) != {'notation', 'tab'})
+                       for values in seen.values())
+        patterns = {tuple(modes[i] for i in indices) for indices in groups.values()}
+        if invalid and len(patterns) == 1:
+            candidates = compatible_templates(parts, patterns.pop())
+            if len(candidates) == 1:
+                rows = value['rows'] = [[system, part, staff] for system in groups
+                                       for part, staff in candidates[0]]
+    separate_fretted_lanes(value, modes)
+    if value.get('separated_fretted_lanes'):
+        # Separating two guitars can also make the remaining piano grand
+        # staff template unique; resolve its two hands with the same rules.
+        constrain_rows(value, systems if systems is not None else [r[0] for r in value['rows']], modes)
+    parts, rows = value['parts'], value['rows']
     if len(rows) != count:
         raise ValueError('Structure does not cover every detected staff row')
     if systems is not None and len(systems) == count:
@@ -216,41 +374,31 @@ def parse_structure(raw, count, systems=None):
         if actual != systems:
             raise ValueError(f'Visible barlines group rows into systems {systems}; each connected system needs all its parts and staves')
     previous = -1
-    seen = set()
-    for system, part, staff in rows:
+    seen = {}
+    for index, (system, part, staff) in enumerate(rows):
         if any(type(x) is not int for x in (system, part, staff)):
             raise ValueError('Structure indices must be integers')
-        if system < 0 or system < previous or not 0 <= part < len(parts) or not 0 <= staff < 16:
-            raise ValueError('Invalid system or part ordering')
+        if not 0 <= part < len(parts):
+            raise ValueError(f'R{index + 1} uses nonexistent part {part}; parts must be 0..{len(parts) - 1}. '
+                             'Separate notation and TAB rows of one instrument share the same part and staff')
+        if system < 0 or system < previous or not 0 <= staff < 16:
+            raise ValueError(f'R{index + 1} has invalid system/staff indices; systems must stay in page order')
         if (system, part, staff) in seen:
-            raise ValueError('Repeated staff in the same system')
-        seen.add((system, part, staff))
+            previous_index = seen[(system, part, staff)]
+            if (modes is None or previous_index is None
+                    or {modes[index], modes[previous_index]} != {'notation', 'tab'}):
+                raise ValueError(f'R{index + 1} repeats system {system}, part {part}, staff {staff}; '
+                                 'only complementary notation/TAB rows may share this triple')
+            seen[(system, part, staff)] = None
+        else:
+            seen[(system, part, staff)] = index
         previous = system
+    if modes is not None:
+        for part_index, part in enumerate(parts):
+            visible = [mode for mode, row in zip(modes, rows, strict=True) if row[1] == part_index]
+            if visible and all(mode == 'notation' for mode in visible):
+                part['strings'] = None
     return value
-
-
-def aligned_columns(boxes, reference):
-    """Match incomplete staff rows to distinct columns in reading order."""
-    n, m = len(boxes), len(reference)
-    if n == m:
-        return list(range(n))
-    costs = [[float('inf')] * (m + 1) for _ in range(n + 1)]
-    costs[0] = [0.] * (m + 1)
-    take = [[False] * (m + 1) for _ in range(n + 1)]
-    for i, row in enumerate(boxes, 1):
-        centre = row['bbox'][0] + row['bbox'][2] / 2
-        for j in range(i, m + 1):
-            x, _y, width, _height = reference[j - 1]['bbox']
-            matched = costs[i - 1][j - 1] + abs(centre - x - width / 2) / max(1, width)
-            take[i][j] = matched <= costs[i][j - 1]
-            costs[i][j] = min(matched, costs[i][j - 1])
-    result, i, j = [], n, m
-    while i:
-        if take[i][j]:
-            result.append(j - 1)
-            i -= 1
-        j -= 1
-    return result[::-1]
 
 
 def page_template(structure, rows):
@@ -292,13 +440,34 @@ def reconcile_page_profiles(pages):
 
 
 def complete_from_reference(raw, rows, systems, references):
-    """Recover a missing part on a short page from its other complete systems."""
+    """Recover incomplete page assignments from another visible complete system."""
     if systems is None:
         return None
+    invalid_rows = False
     try:
-        incomplete = parse_structure(raw, len(rows))
+        incomplete = parse_structure(raw, len(rows), modes=[Counter(r['mode'] for r in boxes).most_common(1)[0][0] for boxes in rows])
     except (ValueError, KeyError, TypeError, IndexError):
-        return None
+        # A missing part often makes the model assign two unrelated rows to
+        # one staff. Its readable part names can still identify a unique
+        # compatible template on another page; the invalid assignments must
+        # not prevent that recovery.
+        try:
+            value = json.loads(raw[raw.find('{'):raw.rfind('}') + 1])
+            used = sorted({r[1] for r in value['rows']
+                           if isinstance(r, list) and len(r) == 3 and type(r[1]) is int
+                           and 0 <= r[1] < len(value['parts'])})
+            # Invalid row indices are discarded only for extracting readable
+            # profiles. Recovery still requires one complete reference page
+            # with the same visible staff modes and all observed identities.
+            if not used:
+                return None
+            profiles = [value['parts'][i] for i in used]
+            incomplete = parse_structure(json.dumps({
+                'parts': profiles, 'rows': [[i, i, 0] for i in range(len(profiles))],
+            }), len(profiles))
+            invalid_rows = True
+        except (ValueError, KeyError, TypeError, IndexError):
+            return None
     groups = defaultdict(list)
     for system, boxes in zip(systems, rows, strict=True):
         groups[system].append(Counter(r['mode'] for r in boxes).most_common(1)[0][0])
@@ -317,7 +486,8 @@ def complete_from_reference(raw, rows, systems, references):
         if template is None or tuple(r[2] for r in template) != mode:
             continue
         profiles = [structure['parts'][i] for i in order]
-        if len(profiles) <= len(incomplete['parts']) or not observed.issubset({identity(p) for p in profiles}):
+        if ((len(profiles) <= len(incomplete['parts']) and not invalid_rows)
+                or not observed.issubset({identity(p) for p in profiles})):
             continue
         key = (tuple(identity(p) for p in profiles), template)
         candidates[key] = {'parts': deepcopy(profiles), 'rows': [
@@ -325,6 +495,33 @@ def complete_from_reference(raw, rows, systems, references):
     if len(candidates) == 1:
         return next(iter(candidates.values()))
     return None
+
+
+def read_row_profiles(rows, systems, output, backend):
+    """Enlarge visible row labels when full-page structure retries fail."""
+    from document_info.prompts import STAFF_PROMPT, STAFF_SCHEMA
+    from document_info.image_ocr import parse_info_response
+    from document_info.staff_image import focus_staff
+
+    indices = [i for i in range(len(rows)) if systems is None or systems[i] == systems[0]][:16]
+    requests, paths = [], []
+    for index in indices:
+        boxes = rows[index]
+        top = min(r['bbox'][1] for r in boxes)
+        bottom = max(r['bbox'][1] + r['bbox'][3] for r in boxes)
+        path = Path(output) / f'row-{index + 1}.png'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with Image.open(boxes[0]['source_page']) as page:
+            focus_staff(page.crop((0, max(0, int(top) - 12), page.width,
+                                  min(page.height, int(bottom) + 13)))).save(path)
+        paths.append(path)
+        requests.append([{'role': 'user', 'content': [
+            {'type': 'image', 'url': str(path.resolve())}, {'type': 'text', 'text': STAFF_PROMPT}]}])
+    options = {'json_schema': STAFF_SCHEMA} if getattr(backend, 'supports_json_schema', False) else {}
+    results = (backend.generate_batch(requests, 256, **options) if hasattr(backend, 'generate_batch') else
+               [backend.generate(message, 256, **options) for message in requests])
+    return [{'row': f'R{index + 1}', **parse_info_response(raw, 'staff', path)}
+            for index, path, (raw, _tokens) in zip(indices, paths, results, strict=True)]
 
 
 def read_structure(source, output, backend, cancelled=None, *, compact=False):
@@ -335,11 +532,14 @@ def read_structure(source, output, backend, cancelled=None, *, compact=False):
     for row in staff_rows(source['records']):
         grouped[row[0]['page']].append(row)
     requests = []
+    geometry, row_modes = {}, {}
     for page_number, rows in sorted(grouped.items()):
         path = structure_image(rows[0][0]['source_page'], rows, Path(output) / f'structure-{page_number}.png')
+        geometry[page_number] = marked_systems(path, len(rows))
+        row_modes[page_number] = [Counter(r['mode'] for r in row).most_common(1)[0][0] for row in rows]
         messages = [{'role': 'user', 'content': [
             {'type': 'image', 'url': structure_model_image(path) if compact else path},
-            {'type': 'text', 'text': STRUCTURE_PROMPT + f'There are {len(rows)} marked rows.'}]}]
+            {'type': 'text', 'text': structure_prompt(len(rows), row_modes[page_number], geometry[page_number])}]}]
         requests.append((page_number, path, messages))
     initial = {}
     for offset in range(0, len(requests), 4):
@@ -347,11 +547,10 @@ def read_structure(source, output, backend, cancelled=None, *, compact=False):
             raise Cancelled('已取消总谱结构识别')
         batch = requests[offset:offset + 4]
         messages = [r[2] for r in batch]
-        generation = {'json_schema': [structure_schema(len(grouped[r[0]])) for r in batch]} if structured else {}
+        generation = {'json_schema': [structure_schema(len(grouped[r[0]]), geometry[r[0]]) for r in batch]} if structured else {}
         outputs = backend.generate_batch(messages, 2048, **generation) if hasattr(backend, 'generate_batch') else [backend.generate(m, 2048, **generation) for m in messages]
         for request, (raw, _tokens) in zip(batch, outputs, strict=True):
             initial[request[0]] = (*request[1:], raw)
-    geometry = {page: marked_systems(initial[page][0], len(rows)) for page, rows in grouped.items()}
     parsed, resolved_inputs = {}, {}
     for page_number, rows in sorted(grouped.items()):
         if cancelled and cancelled():
@@ -360,21 +559,27 @@ def read_structure(source, output, backend, cancelled=None, *, compact=False):
         systems_from_image = geometry[page_number]
         error = None
         attempts = []
-        generation = {'json_schema': structure_schema(len(rows))} if structured else {}
-        for _attempt in range(3 if compact else 2):
+        generation = {'json_schema': structure_schema(len(rows), systems_from_image)} if structured else {}
+        for _attempt in range(3):
             if _attempt == 2:
-                # Restore full-page context when the compact margins could
-                # not resolve a valid staff/part assignment.
+                # Re-read labels at staff scale and restore full-page context.
+                # The same OCR model supplies visual evidence for omitted
+                # parts; geometry still determines their system and staff.
                 hint = (f' Visible barlines give system indices {systems_from_image} for these rows.'
                         if systems_from_image is not None else '')
+                profiles = read_row_profiles(rows, systems_from_image,
+                                             Path(output) / f'structure-{page_number}-labels', backend)
+                hint += (' Enlarged row-label readings: ' + json.dumps(profiles, ensure_ascii=False)
+                         + '. Recheck these identities against the page. Include every visible part; '
+                         'a left-hand staff belongs to its piano, not to the preceding instrument.')
                 messages = [{'role': 'user', 'content': [
                     {'type': 'image', 'url': path},
-                    {'type': 'text', 'text': STRUCTURE_PROMPT + f'There are {len(rows)} marked rows.' + hint},
+                    {'type': 'text', 'text': structure_prompt(len(rows), row_modes[page_number], systems_from_image) + hint},
                 ]}]
             if _attempt:
                 raw, _ = backend.generate(messages, 2048, **generation)
             try:
-                structure = parse_structure(raw, len(rows), systems_from_image)
+                structure = parse_structure(raw, len(rows), systems_from_image, row_modes[page_number])
                 break
             except (ValueError, KeyError, TypeError) as exc:
                 error = str(exc)
@@ -384,7 +589,7 @@ def read_structure(source, output, backend, cancelled=None, *, compact=False):
                     if other == page_number:
                         continue
                     try:
-                        reference = parsed.get(other) or parse_structure(initial[other][2], len(reference_rows), geometry[other])
+                        reference = parsed.get(other) or parse_structure(initial[other][2], len(reference_rows), geometry[other], row_modes[other])
                     except (ValueError, KeyError, TypeError, IndexError):
                         continue
                     references.append((other, reference, reference_rows))
@@ -401,6 +606,7 @@ def read_structure(source, output, backend, cancelled=None, *, compact=False):
         resolved_inputs[page_number] = (path, raw, systems_from_image, _attempt + 1)
     reconcile_page_profiles([(parsed[page], rows) for page, rows in sorted(grouped.items())])
     predictions, parts, by_name, identities = [], [], {}, {}
+    resolved_records = []
     bar_offset = 0
     for page_number, rows in sorted(grouped.items()):
         structure = parsed[page_number]
@@ -435,17 +641,23 @@ def read_structure(source, output, backend, cancelled=None, *, compact=False):
         for boxes, (system, part, staff) in zip(rows, structure['rows'], strict=True):
             systems[system].append((boxes, mapping[part], staff))
         for system, members in sorted(systems.items()):
-            reference = max((boxes for boxes, _, _ in members), key=len)
-            for boxes, part, staff in members:
+            from layout.score_grid import align_system, fuse_paired_staves
+            aligned, column_count = align_system(members, output, page_number, system)
+            aligned = fuse_paired_staves(aligned, output, page_number, system)
+            for boxes, part, staff in aligned:
                 profile = parts[part]
-                for row, column in zip(boxes, aligned_columns(boxes, reference), strict=True):
+                for row, column in boxes:
                     row.update(part_id=profile['id'], staff_id=f'staff-{staff + 1}',
                                part_name=profile['name'], instrument=profile['instrument'],
                                midi_program=int(profile['program']), string_count=profile.get('strings'),
                                row_index=row.get('row_index', row['system_index']),
                                system_index=system, bar_index=bar_offset + column)
-            bar_offset += len(reference)
+                    resolved_records.append(row)
+            bar_offset += column_count
         predictions.append({'page': page_number, 'image': path, 'raw': raw,
                             'systems_from_image': systems_from_image, 'parsed': structure,
                             'attempts': attempts})
+    for number, row in enumerate(resolved_records, 1):
+        row['measure_number'] = number
+    source['records'] = resolved_records
     return parts, predictions

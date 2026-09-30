@@ -9,6 +9,7 @@ from pathlib import Path
 from datagen.native.annotations import printed_text
 from datagen.training_samples import dataset_entry
 from document_info.prompts import STAFF_PROMPT
+from document_info.staff_image import focus_staff
 from shared.pdf import open_pdf
 
 
@@ -75,9 +76,10 @@ def sample(job):
         instrument = visible_instrument(visible_name, mode, percussion)
         destination = output / "images" / f"{row['source_id']}-{mode}.png"
         destination.parent.mkdir(parents=True, exist_ok=True)
-        image.crop((0, top, image.width, bottom)).convert("RGB").save(destination)
+        focus_staff(image.crop((0, top, image.width, bottom))).save(destination)
     target = {
         "instrument": instrument,
+        "name": visible_name,
         "string_count": label["track"]["string_count"]
         if mode in {"tab", "both"}
         else None,
@@ -93,6 +95,7 @@ def sample(job):
             "mode": mode,
             "kind": "staff",
             "visible_name": visible_name,
+            "focused_staff": True,
         },
     }
 

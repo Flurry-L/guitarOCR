@@ -4,10 +4,11 @@ import os
 from pathlib import Path
 from shared.paths import PROJECT_ROOT
 
-MODEL = PROJECT_ROOT / Path("tools/models/GLM-OCR")
 WEIGHTS_ROOT = Path(os.environ.get("GUITAROCR_WEIGHTS_ROOT", PROJECT_ROOT / "weights"))
-MEASURE_ADAPTER = WEIGHTS_ROOT / "measure_ocr"
-INFO_ADAPTER = WEIGHTS_ROOT / "document_info"
+SCORE_ADAPTER = WEIGHTS_ROOT / "score_ocr"
+MODEL = SCORE_ADAPTER / 'merged'
+MEASURE_ADAPTER = SCORE_ADAPTER
+INFO_ADAPTER = SCORE_ADAPTER
 LAYOUT_MODEL = WEIGHTS_ROOT / "layout"
 
 

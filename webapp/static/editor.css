@@ -940,3 +940,38 @@ body[data-inference="disabled"]
     padding: 4px 7px;
   }
 }
+.chord-library {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: start;
+  gap: 8px;
+  margin: 12px 0;
+  max-height: 240px;
+  overflow: auto;
+}
+.chord-card {
+  width: 100px;
+  padding: 3px;
+  color: inherit;
+  background: transparent;
+}
+.chord-symbol {
+  min-width: 58px;
+  padding: 6px 10px;
+}
+.chord-card svg,
+.chord-preview svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.chord-preview {
+  max-width: 130px;
+  margin: 8px auto;
+}
+.chord-settings label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 10px 0;
+}

@@ -1,5 +1,14 @@
 LIBRARY "GPCore.dll"
 EXPORTS
+    ?setSection@MasterBar@core@gp@@QEAAXAEBUSection@123@@Z
+    ?setTempoLabel@MasterTrack@core@gp@@QEAAXAEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
+    ?setText@LyricsElement@core@gp@@QEAAXAEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
+    ?setFreeText@Beat@core@gp@@QEAAXAEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
+    ?setName@TrackBase@core@gp@@QEAAXAEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
+    ?setShortName@TrackBase@core@gp@@QEAAXAEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
+    ?setName@Chord@chord@core@gp@@QEAAXAEBVQString@@@Z
+    ?chord@ChordEntry@0core@gp@@QEBAPEBVChord@023@XZ
+    ?chord@DiagramEntry@0core@gp@@QEBAPEBVChord@023@XZ
     ?isPercussionKit@InstrumentSet@core@gp@@SA_NW4Type@123@@Z
     ?setProperty@Score@core@gp@@QEAAXW4ScoreProperty@23@AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
     ?masterTrack@Score@core@gp@@QEBA?AV?$shared_ptr@VMasterTrack@core@gp@@@std@@XZ

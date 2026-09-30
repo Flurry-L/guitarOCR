@@ -25,7 +25,7 @@ def selected_manifest(engine):
     manifest = json.loads((ROOT / 'weights/manifest.json').read_text(encoding='utf-8'))
     models = []
     for entry in manifest['models']:
-        if entry['stage'] not in ('measure_ocr', 'document_info'):
+        if entry['stage'] != 'score_ocr':
             continue
         files = [item for item in entry['files'] if 'state_reader/' not in item['name']
                  and (engine != 'llamacpp' or not item['name'].endswith('.safetensors'))]
@@ -46,8 +46,9 @@ def acquire(engine):
     for item in items:
         path = root / item['path']
         missing = verify_files(path.parent, [{**item, 'name': path.name}], hashes=False)
-        if missing and item['path'].startswith('auxiliary/'):
-            missing = not reuse(ROOT / 'weights' / item['path'], path, item)
+        if missing:
+            local = ROOT / ('weights/' + item['path'] if item['path'].startswith('auxiliary/') else item['path'])
+            missing = not reuse(local, path, item)
         if missing:
             url = f"https://github.com/{release['repository']}/releases/download/{release['release']}/{item['asset']}"
             download_verified(url, path, item, on_progress=lambda received, _: progress(

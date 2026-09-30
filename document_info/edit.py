@@ -67,6 +67,8 @@ def _edited_single(layout, previous, values):
         title=str(values.get("title", "Untitled"))[:500],
         artist=str(values.get("artist", ""))[:500],
         tuning_used=tuning,
+        tuning_source='manual',
+        tuning_candidates=[tuning],
         capo=capo,
         instrument=instrument,
         midi_program=program,
@@ -77,6 +79,8 @@ def _edited_single(layout, previous, values):
 
 def edited_information(layout, previous, values):
     from copy import deepcopy
+    if previous.get('resolved_records'):
+        layout = {**layout, 'records': previous['resolved_records']}
 
     if not previous.get('parts'):
         return _edited_single(layout, previous, values)
@@ -97,6 +101,7 @@ def edited_information(layout, previous, values):
     for profile in profiles.values():
         profile.update(instrument=edited['instrument'], tuning=edited['tuning_used'], capo=edited['capo'],
                        midi_program=edited['midi_program'], tuning_explicit=True,
+                       tuning_source='manual',
                        fingering_tunings=[edited['tuning_used']], part_name=part['name'])
     result['measure_pitch_contexts'] = [r for p in result['parts'] for r in p.get('measure_pitch_contexts', [])]
     result.update(title=edited['title'], artist=edited['artist'])

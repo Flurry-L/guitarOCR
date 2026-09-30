@@ -57,12 +57,16 @@ def build(output):
         raise ValueError('Cannot package incomplete models: ' + '; '.join(errors))
     assets = output / 'models'
     assets.mkdir(exist_ok=True)
-    auxiliary = {f"weights/auxiliary/{Path(item['path']).name}": item['asset']
-                 for item in json.loads((ROOT / 'weights/distribution.json').read_text())['files']['auxiliary']}
-    for name, asset in {**release['model_assets'], **auxiliary}.items():
+    catalog = json.loads((ROOT / 'weights/distribution.json').read_text())
+    converted = {item['path'] if item['path'].startswith('weights/') else 'weights/' + item['path']: item
+                 for group in catalog['files'].values() for item in group}
+    extra_assets = {name: item['asset'] for name, item in converted.items()}
+    for name, asset in {**release['model_assets'], **extra_assets}.items():
         source, target = ROOT / name, assets / asset
-        if name in auxiliary and not source.is_file():
+        if name in converted and not source.is_file():
             continue  # The conversion workflow publishes these assets separately.
+        if name in converted and source.stat().st_size != converted[name]['bytes']:
+            raise ValueError(f'{name} does not match the distribution manifest')
         if source.stat().st_size >= 2**31:
             raise ValueError(f'{name} exceeds the GitHub asset limit; shard the model first')
         target.unlink(missing_ok=True)

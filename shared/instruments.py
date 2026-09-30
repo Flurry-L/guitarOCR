@@ -31,6 +31,14 @@ def program_from_visible_name(text: str | None) -> int | None:
     if not text:
         return None
     text = " ".join(re.findall(r"[a-z]+", text.lower()))
+    abbreviations = {'pno': 0, 'el pno': 4, 'hpsi': 6, 'clav': 7, 'org': 16,
+                     'acc': 21, 'harm': 22, 'chr': 52, 'syn chr': 54,
+                     'vln': 40, 'vla': 41, 'vlc': 42,
+                     'fl': 73, 'picc': 72, 'ob': 68, 'clar': 71, 'bn': 70,
+                     'tpt': 56, 'tbn': 57, 'tba': 58, 'fhn': 60, 'hp': 46,
+                     'sax': 65, 'saxophone': 65, 'vib': 11, 'rec': 74, 'whis': 78}
+    if text in abbreviations:
+        return abbreviations[text]
     names = (
         (r"\bpiano\b", 0),
         (r"\bviolin\b", 40),

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
 from typing import Any
 
 from measure_ocr.prompts import recognition_prompt
@@ -22,10 +23,13 @@ def _retry_error_text(errors, *, compact=False):
 def _repair_truncated_optional_text(target: str) -> tuple[str, list[str]]:
     """Drop only an unterminated optional text effect and close open voices."""
 
-    text_start = target.rfind("<text:")
+    matches = list(re.finditer(r"[<,]text:", target))
+    text_start = matches[-1].start() if matches else -1
     if text_start < 0 or target.find(">", text_start) >= 0:
         return target, []
     repaired = target[:text_start].rstrip()
+    if target[text_start] == ',':
+        repaired += '>'
     missing_voice_closers = max(0, repaired.count("{") - repaired.count("}"))
     repaired += "}" * missing_voice_closers
     return repaired, ["drop_unterminated_text"]
@@ -230,8 +234,6 @@ def recognize_crops(
                 if (
                     not constraint_errors
                     and deterministic_repairs
-                    and hit_token_limit
-                    and attempt < maximum_attempts
                 ):
                     constraint_errors = [
                         "generation reached max_new_tokens inside optional text"
@@ -266,8 +268,8 @@ def recognize_crops(
                     ]:
                         correction = (
                             "The optional text annotation exhausted the output limit. Ignore all "
-                            "text, section, and chord-name annotations. Return the same musical "
-                            "events as one complete M2 fragment without any text effect."
+                            "repeated text. Re-read every musical event and chord name from the image "
+                            "and return one complete M2 fragment. Keep free text brief."
                         )
                     else:
                         correction = (

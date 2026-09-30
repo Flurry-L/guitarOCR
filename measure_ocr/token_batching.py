@@ -98,6 +98,22 @@ class RankBatchSampler:
                 yield batch
 
 
+def evaluation_batches(lengths, budget, maximum, seed, rank=0, world=1, chunks=None):
+    """Balance validation work without padding the dataset with duplicate rows.
+
+    Evaluation does not synchronize each forward pass, so ranks may have
+    different batch counts. Every example contributes exactly once.
+    """
+    batches = TokenBatchSampler(lengths, 1, budget, maximum, seed, chunks)
+    ranked, loads = [[] for _ in range(world)], [0] * world
+    costs = [(max(lengths[i] for i in batch) * len(batch), batch) for batch in batches]
+    for cost, batch in sorted(costs, key=lambda item: item[0], reverse=True):
+        target = min(range(world), key=lambda index: (loads[index], len(ranked[index]), index))
+        ranked[target].append(batch)
+        loads[target] += cost
+    return ranked[rank]
+
+
 def install_token_batching(budget, maximum=128, context_chunk_size=1):
     from torch.utils.data import DataLoader
     from transformers import Trainer

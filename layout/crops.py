@@ -63,7 +63,8 @@ def _document_region_crops(
                 left, top, right, bottom = (float(value) for value in region["coordinate"])
                 if right <= left or bottom <= top:
                     continue
-                kind = {"clef_region": "clef", "transposition_region": "transposition"}.get(region.get("label"), "tempo")
+                kind = {"clef_region": "clef", "transposition_region": "annotation",
+                        "annotation_region": "annotation"}.get(region.get("label"), "tempo")
                 path = crop_root / f"{kind}_p{page_number:03d}_{index:03d}.png"
                 image.crop((
                     max(0, int(left) - 6), max(0, int(top) - 6),

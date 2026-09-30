@@ -106,6 +106,15 @@ def targets_to_song(
         raise ValueError("At least one measure is required")
     if pitched or virtual_tuning:
         tuning_values = storage_tuning(measures, instrument == "drums")
+        from shared.chords import event_chord
+
+        diagram_strings = max((len(diagram['frets']) for measure in measures
+            for voice in measure['voices'] for event in voice['events']
+            for _name, diagram in [event_chord(event)] if diagram), default=0)
+        # GP5 ties chord frames to the track's string slots even for piano.
+        # Reserve unused slots so a guitar diagram on a lead sheet survives.
+        if diagram_strings <= 7:
+            tuning_values.extend([tuning_values[-1]] * max(0, diagram_strings - len(tuning_values)))
     if not 1 <= len(tuning_values) <= 7:
         raise ValueError("GP5 supports at most seven strings; the complete notes remain in score.json")
     if any(not 0 <= value <= 127 for value in tuning_values):
@@ -352,6 +361,7 @@ def write_targets_gp5(
                     beat.text = cp936_text(beat.text, f"{field} text")
                 if beat.effect.chord is not None:
                     chord = beat.effect.chord
+                    chord.name = chord.name.replace('♭', 'b').replace('♯', '#')
                     chord.name = cp936_text(chord.name, f"{field} chord")
 
     temporary: Path | None = None

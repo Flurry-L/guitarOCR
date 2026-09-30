@@ -4,9 +4,10 @@
 
 ## 训练环境
 
-先按[安装说明](setup.md#手动安装模型推理)安装推理依赖，再安装 LLaMA-Factory `0.9.6.dev0` 的固定源码提交：
+训练使用独立的 `.venv`，不修改桌面安装器管理的运行环境。先安装训练依赖，再安装 LLaMA-Factory `0.9.6.dev0` 的固定源码提交：
 
 ```bash
+uv sync --locked --python 3.11 --extra glm-ocr --extra training --extra dev
 git clone https://github.com/hiyouga/LLaMA-Factory.git tools/LLaMA-Factory
 git -C tools/LLaMA-Factory checkout 97b32d3133b501432141a82949d5c7bc4d94f23a
 uv pip install --python .venv/bin/python -e tools/LLaMA-Factory
@@ -16,9 +17,14 @@ uv pip install --python .venv/bin/python -e tools/LLaMA-Factory
 
 ### Paddle 训练组件
 
-先安装[独立 Paddle 环境](setup.md#独立-paddle-环境)，再安装 PP-DocLayoutV3 使用的 PaddleDetection 训练组件：
+只有训练或重新导出版面模型时需要 Paddle；部署使用 ONNX。建立独立环境，并安装 PP-DocLayoutV3 使用的 PaddleDetection 训练组件：
 
 ```bash
+uv venv --python 3.11 tools/paddlex-venv
+uv pip install --python tools/paddlex-venv/bin/python paddlepaddle-gpu==3.2.0 \
+  --index-url https://www.paddlepaddle.org.cn/packages/stable/cu126/
+uv pip install --python tools/paddlex-venv/bin/python 'paddlex[ocr]==3.7.2' \
+  -c layout/constraints.txt
 PIP_CONSTRAINT="$PWD/layout/constraints.txt" \
 SKLEARN_ALLOW_DEPRECATED_SKLEARN_PACKAGE_INSTALL=True \
 tools/paddlex-venv/bin/paddlex --install PaddleDetection
@@ -28,51 +34,58 @@ tools/paddlex-venv/bin/paddlex --install PaddleDetection
 
 ## 训练配置
 
-每项任务使用一份 `configs/train.yaml`。GLM-OCR 配置以仓库中对应的 `merged/` 模型为起点，训练新的 LoRA；导出时必须使用同一合并模型作为基座。版面配置需要兼容的六类训练检查点，放在 `tools/models/layout-checkpoint.pdparams`。仓库中的 `inference.pdiparams` 是推理权重，不能替代训练检查点。
+OCR 共用 `measure_ocr/configs/train.yaml`，以 `weights/score_ocr/merged` 为起点，同时训练小节、声部分组、页眉、谱号及标注任务。导出 LoRA 时必须使用本次训练的同一基座。版面配置单独位于 `layout/configs/train.yaml`，需要兼容的六类训练检查点，放在 `tools/models/layout-checkpoint.pdparams`。仓库中的 `inference.pdiparams` 是推理权重，不能替代训练检查点。
 
 下面使用[数据生产](data.md#混合后继续训练)中的混合数据目录。更换语料时同时修改数据、缓存和输出路径，并保留已有乐器、排版、谱号和移调任务的样本。训练结果写入 `output/`，评测后再更新 `weights/`。已发布权重的实际训练参数记录在各模型目录的 `training.json` 中。
 
 ## 训练 GLM-OCR
 
-两个入口使用 LLaMA-Factory，接受 `--config` 和 `key=value` 覆盖参数。每卡批量与梯度累积见配置文件；全局批量随 GPU 数量变化。整页分轨任务使用更高的图像分辨率，训练 MTP 时也应传入相同的 `--image-max-pixels`。
+训练入口使用 LLaMA-Factory，接受 `--config` 和 `key=value` 覆盖参数。每卡批量与梯度累积见配置文件；全局批量随 GPU 数量变化。整页分轨任务使用更高的图像分辨率，训练 MTP 时也应传入相同的 `--image-max-pixels 2016000`。
 
 先生成缓存。修改标签、提示词或前文规则后必须换用新的缓存目录，`tokenized_path` 本身不是预处理后退出的开关。
 
 ```bash
+uv run --no-sync python -m datagen.unified_data --assemble-training \
+  --inputs database/unified_score --output database/unified_score_visible \
+  --staff-data database/instrument_training/datasets/staff_visible
 CUDA_VISIBLE_DEVICES=0 OMP_NUM_THREADS=1 uv run --no-sync python -m shared.tokenize_training \
   --config measure_ocr/configs/train.yaml \
-  --output database/score_quality_profiles/vocabulary_final
-CUDA_VISIBLE_DEVICES=0 OMP_NUM_THREADS=1 uv run --no-sync python -m shared.tokenize_training \
-  --config document_info/configs/train.yaml \
-  --output database/score_support/info_crop_rehearsal/balanced
+  --output database/unified_score_visible/tokenized
 ```
 
-依次训练两个任务：
+混合输入保留完整小节语料，增加指法图、五线谱／TAB 配对与页眉的训练比例；验证及测试集不重复采样。`--assemble-training` 组合已生成的 `ocr_*`、`extra_*`、`refinement_*`、`paired_complete_*` 和 `headers_*` 数据。其中扩展标注由 `datagen.unified_data --refinement` 生成，页眉由 `datagen.header_rehearsal` 生成。和弦图使用实际印出的点、指法和横按标注，不能从和弦名推导指法。
+
+迁移已有数据时，可传 `--inputs 原任务目录 --output 新目录 --text-sources 文字来源映射.json`，在组装时仅替换已确认有差异的文字字段。输出目录中已有的 `text_sources.json` 会自动使用。映射按图片路径保存 `[源标签路径, 排版模式, 原始小节索引]`。文字来自实际排版模型；和弦名称另与 PDF 中真正印出的文字对应，例如内部的 `C7M` 可能印成 `Cmaj7`。对应时要求小节内和弦数量和根音一致，节拍位置仍来自原始事件。训练的 `dataset_dir` 与 `tokenized_path` 必须同时指向新数据，不能沿用修改前的缓存。
+
+训练共享 OCR：
 
 ```bash
 PATH="$PWD/.venv/bin:$PATH" FORCE_TORCHRUN=1 NPROC_PER_NODE=8 OMP_NUM_THREADS=1 \
   uv run --no-sync python -m measure_ocr.train --config measure_ocr/configs/train.yaml
-PATH="$PWD/.venv/bin:$PATH" FORCE_TORCHRUN=1 NPROC_PER_NODE=8 OMP_NUM_THREADS=1 \
-  uv run --no-sync python -m document_info.train --config document_info/configs/train.yaml
 ```
 
 已发布模型使用 Torch 2.14.0+cu130、Transformers 5.8.0、BF16 和 FlashAttention 2.8.3.post1。其他环境可传 `flash_attn=sdpa`；减少 GPU 数量时需重新计算全局批量。并行运行多个分布式任务时，分配不同 GPU 和 `MASTER_PORT`。
 
 小节训练按每卡 token 预算组批，相邻样本共享图像编码；训练和推理从模型的 `score_image_policy.json` 读取相同的等比缩放及白边填充规则。音乐词表的嵌入和输出层使用独立学习率，压缩字段按原 token 长度加权，避免一个音高或节奏字段压缩后在损失中权重过低。词表扩展由 `measure_ocr.music_vocab --structured` 完成，只从训练标签补充高频字段；新增词元先进行音乐事件序列化预热，再参与图像训练。
 
-主模型导出后，可用 `measure_ocr.train_mtp --model 合并模型 --tokenized 训练缓存 --output 输出目录 --epochs 1 --token-budget 131072 --eval-every 400 --early-stopping-patience 2` 蒸馏原生 MTP 层。训练使用与部署一致的图像位置编码，验证覆盖完整验证集。`validation_agreement` 是草稿与主模型的 token 一致率，实际接受率和速度需另用完整曲谱推理测量。
+主模型导出后，可用 `measure_ocr.train_mtp --model 合并模型 --tokenized 训练缓存 --output 输出目录 --epochs 1 --token-budget 131072 --image-max-pixels 2016000 --eval-every 400 --early-stopping-patience 2` 蒸馏原生 MTP 层。训练使用与部署一致的图像位置编码，验证覆盖完整验证集。`validation_agreement` 是草稿与主模型的 token 一致率，实际接受率和速度需另用完整曲谱推理测量。
 
 H100 的 FA2 从源码针对 SM90 编译，使用 CUDA 13.0、C++20，以及 `MAX_JOBS=32 NVCC_THREADS=2 FLASH_ATTN_CUDA_ARCHS=90 FLASH_ATTENTION_FORCE_BUILD=TRUE`。安装后应检查真实样本的前向、反向和最长输入显存占用。
 
 ## 训练版面模型
 
+完成基础语料及和弦数据生成后，合并原生和组合总谱的版面标注：
+
 ```bash
+uv run --no-sync python -m datagen.unified_layout --output database/unified_layout
+uv run --no-sync python -m datagen.unified_layout --base database/unified_layout \
+  --chords database/chord_training/layout --output database/unified_layout_complete
 tools/paddlex-venv/bin/python -m layout.train -c layout/configs/train.yaml
 ```
 
 用 `-o Train.pretrain_weight_path=/path/to/checkpoint.pdparams` 指定其他训练检查点。使用 Paddle 保存的 `best_model.pdparams`；`.pdema` 是恢复训练的原始参数。
 
-若从官方预训练模型开始，可将该路径设为官方 `PP-DocLayoutV3_pretrained.pdparams`，类别数保持为 6，并按验证结果调整学习率和轮数。训练数据需包含谱号和移调框，构建方法见[数据生产](data.md#谱号与移调)。
+若从官方预训练模型开始，可将该路径设为官方 `PP-DocLayoutV3_pretrained.pdparams`，类别数保持为 6，并按验证结果调整学习率和轮数。训练数据需包含谱号和一般标注框，后者覆盖和弦、奏法及移调指令，构建方法见[数据生产](data.md#谱号与移调)。
 
 训练入口按验证集 bbox AP 选择检查点，并保留 `gt_read_order` 字段。训练进程正常退出后再复制导出的最佳模型，确保文件写入完成。
 
@@ -83,7 +96,7 @@ tools/paddlex-venv/bin/python -m layout.train -c layout/configs/train.yaml
 ```bash
 tools/paddlex-venv/bin/python -m layout.evaluate \
   --model-dir weights/layout \
-  --dataset-dir database/scores/datasets/layout \
+  --dataset-dir database/unified_layout_complete \
   --split test --postprocess --threshold 0.25 \
   --output output/evaluation/layout.json
 ```
@@ -93,9 +106,10 @@ tools/paddlex-venv/bin/python -m layout.evaluate \
 谱面信息按字段完全匹配评测：
 
 ```bash
-uv run --no-sync python -m document_info.evaluate \
-  --dataset database/headers/datasets/info_mixed/document_info_test.json \
-  --output output/evaluation/info.jsonl
+uv run --no-sync python -m document_info.evaluate_parallel \
+  --dataset database/unified_score/headers_test.jsonl \
+  --adapter weights/score_ocr --gpus 0,1,2,3 \
+  --output output/evaluation/headers
 ```
 
 ## 评测小节识别
@@ -104,13 +118,13 @@ uv run --no-sync python -m document_info.evaluate \
 
 ```bash
 uv run --no-sync python -m measure_ocr.evaluate_scores \
-  --manifest database/parallel_score_corrected/manifest_test.jsonl \
-  --adapter weights/measure_ocr --gpus 0,1,2,3,4,5,6,7 \
-  --max-scores 0 --batch-size 32 \
+  --manifest database/score_support_rehearsal/manifest_test.jsonl \
+  --adapter weights/score_ocr --gpus 0,1,2,3,4,5,6,7 \
+  --max-scores 0 --batch-size 64 \
   --output output/evaluation/measure-scores
 ```
 
-vLLM 模型路径从适配器的 `inference.json` 读取；也可用 `--model` 指定合并模型。`--speculative-tokens 4` 使用本次选定的 MTP 长度。完整曲谱按小节数分配给各张 GPU，单首曲谱内批量解码小节。`--legacy` 保留旧模型串行前文方案的对照入口。
+vLLM 模型路径从适配器的 `inference.json` 读取；也可用 `--model` 指定合并模型。`--speculative-tokens` 控制 MTP 草稿长度，设为 `0` 可禁用；应在相同完整曲谱上比较速度及输出质量后选择。完整曲谱按小节数分配给各张 GPU，单首曲谱内批量解码小节。`--legacy` 保留旧模型串行前文方案的对照入口。
 
 比较模型时保持样本、解码参数、重试次数和 batch size 一致。BF16 批量运算可能改变边缘 token 的选择，不能混用逐条与批量结果。扫描退化集应单独报告，它衡量模拟退化下的表现。
 
@@ -151,8 +165,8 @@ uv run --no-sync python -m pipeline.evaluate \
 
 先按验证集选择权重，再运行独立测试。更新 `weights/manifest.json` 中的文件路径和大小、训练参数及实际评测记录，再执行 `uv run --no-sync guitarocr-check`。标签或运行逻辑改变后需重新检查续跑签名，旧预测不能直接作为新运行的结果。
 
-谱面信息适配器完成首行乐器识别训练和评测后，在模型目录加入 `capabilities.json`，内容为 `{"staff_profile":true}`，运行时才会请求这项结果。旧适配器继续使用原有谱头与速度任务。服务端任务保留提交时的模型路径，更新权重后应检查新任务和已有任务的续跑。
+共享 OCR 的 `capabilities.json` 声明已训练的任务和状态读取器。导出时保留这些配置；新增任务须完成训练及评测后再声明支持。服务端任务保留提交时的模型路径，更新权重后应检查新任务和已有任务的续跑。
 
-移调训练还需在谱面信息和小节适配器中声明 `"pitch_context":true`。小节适配器同时学习 `ottava` 事件标记。声明 `"written_pitch":true` 的适配器对带音高前文的旋律五线谱输出记谱音高，运行时根据移调量和事件八度标记换算，再交给校对和导出。训练数据用 `datagen.written_pitch_data` 构建，不能只给旧适配器增加声明。继续训练时保留三种排版和已有乐器的样本，分别验证原有小节识别、移调量、谱号、八度范围以及 GP5 导出后的实际音高。
+音高上下文使用 `"pitch_context":true`，并学习 `ottava` 事件标记。声明 `"written_pitch":true` 的模型输出记谱音高，运行时根据明确的移调量和事件八度标记换算，再交给校对和导出。训练数据用 `datagen.written_pitch_data` 构建。继续训练时保留三种排版和已有乐器的样本，分别验证小节识别、移调量、谱号、八度范围以及 GP5 导出后的实际音高。
 
-版面类别按顺序为 `measure_tab`、`measure_notation`、`measure_both`、`tempo_region`、`clef_region`、`transposition_region`。从四类权重继续训练时，先用 `python -m layout.extend_classes --source 原权重.pdparams --output 扩展权重.pdparams --classes 6` 保留已有分类参数，再把训练配置的 `num_classes` 设为 6。旧版面测试集没有新类别标注，新增类别须在带谱号和移调标注的测试集上单独报告。
+版面类别按顺序为 `measure_tab`、`measure_notation`、`measure_both`、`tempo_region`、`clef_region`、`annotation_region`。最后一类包含和弦、指法图、奏法文字及真正的移调说明，由共享 OCR 分类后决定用途。历史 `transposition_region` 输入仍可读取。从四类权重继续训练时，先用 `python -m layout.extend_classes --source 原权重.pdparams --output 扩展权重.pdparams --classes 6` 保留已有分类参数，再把训练配置的 `num_classes` 设为 6。旧版面测试集没有新类别标注，新增类别须在带谱号和移调标注的测试集上单独报告。

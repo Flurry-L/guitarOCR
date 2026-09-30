@@ -2,8 +2,8 @@
 
 MODES = ("tab", "notation", "both")
 MEASURE_LABELS = {f"measure_{mode}": mode for mode in MODES}
-PITCH_REGION_LABELS = ("clef_region", "transposition_region")
-TYPED_CATEGORIES = (*MEASURE_LABELS, "tempo_region", *PITCH_REGION_LABELS)
+PITCH_REGION_LABELS = ("clef_region", "annotation_region", "transposition_region")
+TYPED_CATEGORIES = (*MEASURE_LABELS, "tempo_region", "clef_region", "annotation_region")
 
 
 def measure_mode(label: str) -> str | None:
@@ -44,6 +44,8 @@ def typed_annotations(payload: dict) -> dict:
     annotations = []
     for row in payload["annotations"]:
         label = original[row["category_id"]]
+        if label == 'transposition_region':
+            label = 'annotation_region'
         if is_measure(label):
             expected = f"measure_{modes[row['image_id']]}"
             if label != "measure" and label != expected:

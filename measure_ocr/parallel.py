@@ -189,6 +189,7 @@ def recognize_independent(
             batch = [r for _, r in pending[offset:offset + batch_size]]
             messages = [measure_messages(row) for row in batch]
             budgets = [max_new_tokens] * len(batch)
+            annotation_only = {}
             unresolved = list(range(len(batch)))
             for attempt in range(1, maximum_attempts + 1):
                 _check(cancelled)
@@ -197,7 +198,12 @@ def recognize_independent(
                 if constrained or (retry_constrained and attempt > 1):
                     from shared.m2_grammar import measure_grammar
 
-                    grammars = [measure_grammar(batch[i]['mode'], len(batch[i]['tuning']) or 12) for i in unresolved]
+                    grammars = []
+                    for i in unresolved:
+                        row = batch[i]
+                        numerator, denominator = map(int, row['score_state']['time'].split('/'))
+                        ticks = None if row.get('state_needs_review') else numerator * 3840 // denominator
+                        grammars.append(measure_grammar(row['mode'], len(row['tuning']) or 12, ticks))
                 outputs = _batch(backend, [messages[i] for i in unresolved], token_budget, grammars)
                 next_unresolved = []
                 for i, (raw, tokens) in zip(unresolved, outputs, strict=True):
@@ -207,6 +213,16 @@ def recognize_independent(
                     text = raw.strip()
                     text = text[text.find('M2'):] if 'M2' in text else text
                     text, repairs = _repair_truncated_optional_text(text)
+                    annotation_error = None
+                    if i in annotation_only:
+                        from shared.chords import merge_chord_review
+
+                        try:
+                            text = merge_chord_review(annotation_only[i], text, row['mode'])
+                        except (ValueError, KeyError, TypeError) as error:
+                            text = annotation_only[i]
+                            annotation_error = 'Annotation review failed: ' + str(error)[:160]
+                        repairs.append('preserve_music_during_chord_review')
                     try:
                         text, repaired = resolve_measure_state(text, row)
                         if repaired:
@@ -241,8 +257,19 @@ def recognize_independent(
                         if all(failures):
                             errors += ['Check written pitches after transposition: ' + e for e in min(failures, key=len)]
                     hit_limit = tokens >= token_budget
-                    if hit_limit and repairs and attempt < maximum_attempts:
-                        errors.append('Optional text reached the output limit')
+                    if 'drop_unterminated_text' in repairs:
+                        errors.append('Text annotation was cut off. Re-read ALL musical events and chord names from the image; keep free text brief and do not repeat encoded spaces')
+                    elif hit_limit:
+                        errors.append('Generation reached the output limit; return the complete measure')
+                    if not errors:
+                        from shared.chords import chord_recognition_errors
+
+                        chord_errors = chord_recognition_errors(parsed)
+                        if chord_errors:
+                            annotation_only.setdefault(i, text)
+                            errors += chord_errors
+                    if annotation_error:
+                        errors.append(annotation_error)
                     value = {
                         'measure_number': row['measure_number'], 'mode': row['mode'], 'image': row['image'],
                         'attempt': attempt, 'raw': raw, 'target': target, 'accepted': not errors,
@@ -263,10 +290,18 @@ def recognize_independent(
                             {'role': 'assistant', 'content': [{'type': 'text', 'text': text}]},
                             {'role': 'user', 'content': [{'type': 'text', 'text': 'Correct the FIRST measure only. ' + _retry_error_text(errors, compact=attempt > 1) + '. Return one complete M2 fragment.'}]},
                         ])
-                        if hit_limit:
+                        if hit_limit and 'drop_unterminated_text' not in repairs:
                             budgets[i] = min(max_new_tokens_ceiling, budgets[i] * 2)
                         next_unresolved.append(i)
                         continue
+                    if errors and not structural_errors:
+                        from shared.chords import retain_uncertain_chords_as_text
+
+                        target, uncertain = retain_uncertain_chords_as_text(target, row['mode'])
+                        if uncertain:
+                            text, _ = retain_uncertain_chords_as_text(text, row['mode'])
+                            value.update(target=target, written_target=text)
+                            repairs.append('retain_unconfirmed_chord_as_review_text')
                     if structural_errors:
                         numerator, denominator = map(int, row['score_state']['time'].split('/'))
                         target = full_measure_rest_target((numerator, denominator))

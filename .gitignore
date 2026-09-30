@@ -41,3 +41,4 @@ datagen/native-bin/*.pdb
 
 # Built deployment models are published as release assets.
 weights/auxiliary/*.onnx
+weights/*/gguf/*.gguf

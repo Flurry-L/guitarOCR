@@ -1,9 +1,0 @@
-{
-  "model": "merged",
-  "options": {
-    "kv_cache_memory_bytes": 4294967296,
-    "max_num_seqs": 64,
-    "max_model_len": 16384,
-    "speculative_tokens": 4
-  }
-}

@@ -25,7 +25,7 @@ uv run --no-sync python -m unittest discover -s tests -v
 | 音乐文本语法、音高含义、节奏和奏法约束 | `shared/m2.py`、`shared/pitch_context.py`、`shared/constraints.py`、`shared/techniques.py` |
 | 指法分配及 Guitar Pro 文件表示 | `gp5_export/` |
 
-小节记录保存各自的谱面类型，OCR 按该类型选择提示词。模型池分别加载两项 OCR 的完整合并模型，CUDA 优先使用 vLLM。发布安装使用 ONNX 辅助模型；Paddle 用于训练和原始模型对照。训练与推理的小节裁图留白共用 `shared/crops.py`。
+小节记录保存各自的谱面类型，OCR 按该类型选择提示词。谱面信息、分轨和小节任务共用 `weights/score_ocr`，模型池只加载一次，CUDA 优先使用 vLLM。发布安装使用 ONNX 辅助模型；Paddle 用于训练和导出。训练与推理的小节裁图留白共用 `shared/crops.py`，图像缩放共用 `shared/score_image.py`。
 
 网页编辑从 `pipeline/workspace.py` 的 `Workspace` 进入同一组阶段。它管理项目目录、当前阶段、待续跑任务和 revision。修改成功后先写出新的阶段结果，再原子替换 `session.json`；失败时仍指向上次保存的结果。哪些编辑会使后续结果失效，见[工作台说明](docs/webui.md#保存与重新处理)。
 

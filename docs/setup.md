@@ -37,8 +37,8 @@ bash start.sh --port 7861 --no-browser
 | 使用方式 | 所需模型下载 | 运行环境 |
 | --- | --- | --- |
 | 远程连接 / 仅校对 | 0 | 远程连接无需 Python；仅校对安装基础依赖 |
-| 原生 vLLM / Transformers | 约 5.65 GB | 一套 Python 环境、一份 Torch；无 Paddle |
-| llama.cpp | 约 3.36 GB | 一套轻量 Python 环境及 llama-server；无 Torch、Paddle、Transformers |
+| 原生 vLLM / Transformers | 约 2.9 GB | 一套 Python 环境、一份 Torch；无 Paddle |
+| llama.cpp | 约 1.8 GB | 一套轻量 Python 环境及 llama-server；无 Torch、Paddle、Transformers |
 
 数字是模型文件字节数，不包含运行依赖。llama.cpp 的 Python 环境在 Linux 实测约 478 MiB，llama-server 另计；vLLM 整套 Python 依赖约 7.9 GiB。首次安装还需要下载缓存及临时空间，不能将模型大小当作安装总量。原生 GPU 建议预留 25 GB 磁盘、24 GB 显存及 32 GB 内存。
 
@@ -55,7 +55,7 @@ Windows 对应 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/boot
 
 ## GGUF 可选后端
 
-GGUF 是同一组训练模型的 llama.cpp 格式。语言权重量化为 Q8_0，视觉编码器保留 F16；两个任务分别下载配套文件。未执行的 MTP 层已从 GGUF 中移除，共减少约 466 MB；原生 vLLM 模型仍保留 MTP。此路径只下载 GGUF、ONNX 辅助模型和小型配置，不下载原始 OCR safetensors。
+GGUF 是共享 OCR 模型的 llama.cpp 格式。语言权重量化为 Q8_0，视觉编码器保留 F16；所有 OCR 任务共用这一组文件。未执行的 MTP 层从 GGUF 中移除，原生 vLLM 模型保留 MTP。此路径只下载 GGUF、ONNX 辅助模型和小型配置，不下载原始 OCR safetensors。
 
 使用固定的 [llama.cpp 提交](https://github.com/ggml-org/llama.cpp/tree/8019dc563b1ecbae6b161a70c3a1359f1b206c1e) 构建 `llama-server`，构建依赖见[上游说明](https://github.com/ggml-org/llama.cpp/blob/master/docs/build.md)。Linux CUDA 示例：
 
@@ -64,9 +64,9 @@ bash install.sh --engine llamacpp --device cuda --llama-server /absolute/path/to
 bash start.sh
 ```
 
-Windows 将路径换成 `llama-server.exe`。CPU 构建使用 `--device cpu`。启动器自动管理两个 OCR 服务的端口、模型加载和退出，无需手动开两个终端。自管服务仍可通过 `GUITAROCR_LLAMA_MEASURE_URL` / `GUITAROCR_LLAMA_INFO_URL` 指定地址。GGUF 是脚本安装选项；桌面按钮使用原生后端。
+Windows 将路径换成 `llama-server.exe`。CPU 构建使用 `--device cpu`。启动器自动管理一个共享 OCR 服务的端口、模型加载和退出。自管服务可通过 `GUITAROCR_LLAMA_SCORE_URL` 指定地址。GGUF 是脚本安装选项；桌面按钮使用原生后端。
 
-两条路径都已在 Linux H100 上完成 PDF → 多轨 GP5 和 MusicXML 导出。相同 256 个测试小节的转换对照：原生音符＋起点＋时值 F1 为 98.48%，GGUF 为 97.34%。这与[完整模型评测](model-evaluation.md)的样本范围不同。移除 MTP 后，所有实际参与推理的 GGUF 张量逐项保持不变。
+实际准确率、速度及评测条件见[模型评测](model-evaluation.md)。原生与 GGUF 均使用同一套分轨、音高上下文、和弦编辑及导出程序。
 
 重新导出：
 

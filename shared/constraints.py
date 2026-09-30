@@ -89,7 +89,12 @@ def _valid_beat_effect(effect: str) -> bool:
         return True
     if effect.startswith("ottava:"):
         return effect in {"ottava:12", "ottava:-12", "ottava:24", "ottava:-24"}
-    if effect.startswith(("chord:", "slap:", "text:")):
+    if effect.startswith('diagram:'):
+        from shared.chords import parse_diagram_effect
+        return parse_diagram_effect(effect) is not None
+    if effect.startswith('slap:'):
+        return effect in {'slap:none', 'slap:tapping', 'slap:slapping', 'slap:popping'}
+    if effect.startswith(("chord:", "text:")):
         return bool(effect.partition(":")[2])
     if effect.startswith("tempo:"):
         value = effect.partition(":")[2]

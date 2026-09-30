@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from copy import deepcopy
 from hashlib import sha256
+import json
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -495,6 +496,16 @@ def prepare_single_track_gp5(path: Path, output: Path, mode: str, track_index: i
     )
     output.parent.mkdir(parents=True, exist_ok=True)
     guitarpro.write(song, str(output), version=(5, 1, 0), encoding="utf-8")
+    write_text_encoding(output, 'utf-8')
     payload["source_encoding"] = encoding
     payload["prepared_gp5"] = str(output.resolve())
     return payload
+
+
+def write_text_encoding(path: Path, encoding: str, metadata_source: Path | None = None) -> None:
+    """Declare the bytes' encoding for GP's legacy importer, preserving overrides."""
+    destination = path.with_name(path.name + '.metadata.json')
+    source = metadata_source or destination
+    metadata = json.loads(source.read_text(encoding='utf-8')) if source.is_file() else {}
+    metadata['text_encoding'] = encoding
+    destination.write_text(json.dumps(metadata, ensure_ascii=False) + '\n', encoding='utf-8')

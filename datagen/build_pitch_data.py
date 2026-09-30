@@ -142,7 +142,7 @@ def _source(job):
                         printed = page.text((x * 72 / 25.4, y * 72 / 25.4, (x + w) * 72 / 25.4, (y + h) * 72 / 25.4))
                         shifts = {shift for glyph, shift in OCTAVE_GLYPHS.items() if glyph in printed}
                         shift = next(iter(shifts)) if len(shifts) == 1 else None
-                        add_box("transposition_region", bbox)
+                        add_box("annotation_region", bbox)
                         info("transposition", bbox, {"kind": "ottava", "semitones": shift,
                                                      "capo": None, "text": OCTAVE_NAMES.get(shift)})
                 if page_index == 1:
@@ -153,7 +153,7 @@ def _source(job):
                             raise ValueError(f"Pitch instruction is not visible: {row['source_id']}/{mode}")
                         x0, y0, x1, y1 = [v * 180 / 72 for v in box]
                         bbox = [x0, y0, x1 - x0, y1 - y0]
-                        add_box("transposition_region", bbox)
+                        add_box("annotation_region", bbox)
                         capo_instruction = row.get('instruction_kind') == 'capo'
                         info("transposition", bbox, {"kind": 'capo' if capo_instruction else "instrument",
                                                      "semitones": None if capo_instruction else row["expected_native_transpose"],

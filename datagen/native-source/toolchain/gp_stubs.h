@@ -673,6 +673,7 @@ public:
     bool isExtendedAlternateEndingSet(unsigned int index) const;
     bool hasSection() const;
     const Section& section() const;
+    void setSection(const Section& value);
     TripletFeel tripletFeel() const;
     static QString tripletFeelToQString(TripletFeel value);
 };
@@ -703,6 +704,7 @@ public:
     float tempoValue() const;
     bool tempoVisible() const;
     const std::string& tempoLabel() const;
+    void setTempoLabel(const std::string& value);
     TempoUnit tempoUnit() const;
     std::set<DirectionMark> directionsAtBarIndex(int barIndex) const;
     static QString directionToQString(DirectionMark direction);
@@ -723,6 +725,7 @@ public:
     virtual ~LyricsElement();
     const std::string& text() const;
     std::string displayedText() const;
+    void setText(const std::string& value);
     Continuation extend() const;
     Continuation syllabic() const;
     HAlignment halignment() const;
@@ -790,14 +793,21 @@ public:
     const Fingering* fingering() const;
 };
 
+class Chord {
+public:
+    void setName(const QString& value);
+};
+
 class ChordEntry {
 public:
     QString name() const;
+    const Chord* chord() const;
 };
 
 class DiagramEntry {
 public:
     QString name() const;
+    const Chord* chord() const;
     const Diagram& diagram() const;
 };
 
@@ -915,6 +925,7 @@ public:
     bool isSlashed() const;
     bool hasFreeText() const;
     const std::string& freeText() const;
+    void setFreeText(const std::string& value);
     bool hasChord() const;
     const QString& chord() const;
     bool isBrushed() const;
@@ -990,6 +1001,8 @@ class TrackBase {
 public:
     const std::string& name() const;
     const std::string& shortName() const;
+    void setName(const std::string& value);
+    void setShortName(const std::string& value);
 };
 
 class Track : public TrackBase {

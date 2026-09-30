@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import sys
 import traceback
+from functools import lru_cache
 
 
 def main():
@@ -21,6 +22,14 @@ def main():
     from vllm import LLM, SamplingParams
     from vllm.sampling_params import StructuredOutputsParams
     from shared.score_image import load_policy, normalize_score_image
+
+    @lru_cache(maxsize=128)
+    def bounded_json_grammar(schema):
+        import xgrammar
+
+        # Unlimited JSON whitespace can consume the entire output budget
+        # when a model tries to stop before all required rows are present.
+        return str(xgrammar.Grammar.from_json_schema(schema, max_whitespace_cnt=1))
 
     image_policy = load_policy(args.model)
 
@@ -77,7 +86,7 @@ def main():
                     raise ValueError('Choose either a JSON schema or an M2 grammar')
                 return SamplingParams(temperature=0, max_tokens=request['max_new_tokens'],
                                       skip_special_tokens=request.get('skip_special_tokens', True),
-                                      structured_outputs=StructuredOutputsParams(json=schema) if schema else
+                                      structured_outputs=StructuredOutputsParams(grammar=bounded_json_grammar(json.dumps(schema))) if schema else
                                       StructuredOutputsParams(grammar=grammar) if grammar else None)
 
             schema = request.get('json_schema')

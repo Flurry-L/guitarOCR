@@ -29,6 +29,8 @@ def main() -> None:
                 'batch_token_budget', 'maximum_batch_examples', 'share_context_images', 'context_chunk_size'):
         config.pop(key, None)
     config["tokenized_path"] = str(args.output)
+    # Tokenization loads no model and must work alongside a multi-GPU job.
+    config.update(use_cpu=True, bf16=False, fp16=False)
     model_args, data_args, training_args, finetuning_args, _ = get_train_args(config)
     tokenizer_module = load_tokenizer(model_args)
     template = get_template_and_fix_tokenizer(tokenizer_module["tokenizer"], data_args)

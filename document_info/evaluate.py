@@ -11,7 +11,9 @@ from shared.glm_backend import create_backend
 
 
 def evaluate(dataset: Path, model_path: Path, adapter_path: Path, output: Path, batch_size: int = 8) -> dict:
-    rows = json.loads(dataset.read_text(encoding="utf-8"))
+    rows = ([json.loads(line) for line in dataset.read_text(encoding='utf-8').splitlines() if line.strip()]
+            if dataset.suffix == '.jsonl' else json.loads(dataset.read_text(encoding="utf-8")))
+    rows = [row for row in rows if row['messages'][-1]['content'].lstrip().startswith('{')]
     started = time.perf_counter()
     backend = create_backend(model_path, adapter_path, "cuda")
     loaded = time.perf_counter()
@@ -31,7 +33,8 @@ def evaluate(dataset: Path, model_path: Path, adapter_path: Path, output: Path, 
     def generated():
         for start in range(0, len(rows), batch_size):
             batch = rows[start:start + batch_size]
-            yield from zip(batch, backend.generate_batch([messages(row) for row in batch], 128), strict=True)
+            limit = 2048 if any('score structure' in row['messages'][0]['content'] for row in batch) else 512
+            yield from zip(batch, backend.generate_batch([messages(row) for row in batch], limit), strict=True)
 
     with output.open("w", encoding="utf-8") as handle:
         for row, (raw, _count) in generated():

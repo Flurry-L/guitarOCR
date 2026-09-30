@@ -1,0 +1,10 @@
+{
+  "task": "score_ocr",
+  "source_commit": "ac8bdde62691b90b80fd85f15d54f4725671b7ba",
+  "source_dirty": true,
+  "llama_cpp_commit": "8019dc563b1ecbae6b161a70c3a1359f1b206c1e",
+  "text_quantization": "Q8_0",
+  "vision_dtype": "F16",
+  "mtp_runtime": false,
+  "scope": "OCR only; layout and signature classifier are separate"
+}

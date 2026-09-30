@@ -56,6 +56,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
+#include <QTextCodec>
 
 
 // ── Simple JSON helper ───────────────────────────────────────────
@@ -2898,6 +2899,73 @@ static bool prepareCoreScoreViewForExport(
     return true;
 }
 
+static std::string decodeLegacyText(const std::string& value, QTextCodec* codec) {
+    const QString imported = QString::fromUtf8(value.c_str());
+    QByteArray bytes;
+    for (const QChar ch : imported) {
+        // Leave already-decoded Unicode intact. GP's legacy reader expands
+        // source bytes as Latin-1, which can be reversed without guessing.
+        if (ch.unicode() > 255) return value;
+        bytes.append(static_cast<char>(ch.unicode()));
+    }
+    QTextCodec::ConverterState state;
+    const QString decoded = codec->toUnicode(bytes.constData(), bytes.size(), &state);
+    return state.invalidChars ? value : decoded.toUtf8().toStdString();
+}
+
+static void decodeScoreText(gp::core::Score& score, QTextCodec* codec) {
+    auto master = score.masterTrack();
+    master->setTempoLabel(decodeLegacyText(master->tempoLabel(), codec));
+    for (unsigned int i = 0; i < master->masterBarCount(); ++i) {
+        auto bar = master->masterBar(i);
+        if (bar->hasSection()) {
+            auto section = bar->section();
+            section.letter = decodeLegacyText(section.letter, codec);
+            section.text = decodeLegacyText(section.text, codec);
+            bar->setSection(section);
+        }
+    }
+    std::set<const gp::core::chord::Chord*> chords;
+    const auto decodeChord = [&](const auto& entry) {
+        auto chord = entry.chord();
+        if (chord && chords.insert(chord).second) {
+            const auto name = decodeLegacyText(entry.name().toUtf8().toStdString(), codec);
+            // The imported score owns mutable chords; collections expose
+            // const lookup views. Edit before creating engraving views.
+            const_cast<gp::core::chord::Chord*>(chord)->setName(QString::fromUtf8(name.c_str()));
+        }
+    };
+    for (unsigned int t = 0; t < score.trackCount(); ++t) {
+        auto track = score.track(t);
+        track->setName(decodeLegacyText(track->name(), codec));
+        track->setShortName(decodeLegacyText(track->shortName(), codec));
+        for (unsigned int s = 0; s < track->staffCount(); ++s) {
+            auto staff = track->staff(s);
+            for (auto item : staff->diagramCollection().items()) decodeChord(item->entry());
+            for (unsigned int b = 0; b < staff->barCount(); ++b) {
+                auto bar = staff->bar(b);
+                for (unsigned int v = 0; v < bar->voiceCount(); ++v) {
+                    auto voice = bar->voice(v);
+                    for (unsigned int k = 0; k < voice->beatCount(); ++k) {
+                        auto beat = voice->beat(k);
+                        if (beat->hasFreeText()) beat->setFreeText(decodeLegacyText(beat->freeText(), codec));
+                        for (const auto& lyric : beat->lyrics()) {
+                            if (!lyric.text().empty()) {
+                                const auto text = decodeLegacyText(lyric.text(), codec);
+                                const_cast<gp::core::LyricsElement&>(lyric).setText(text);
+                            }
+                        }
+                        if (beat->hasChord()) {
+                            auto item = staff->chordCollection().find(beat->chord());
+                            if (item) decodeChord(item->entry());
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 static bool initializeCoreTemplate(const QFileInfo& inputInfo,
                                    std::shared_ptr<gp::core::Score>& score,
                                    std::string& errOut) {
@@ -2995,7 +3063,7 @@ static std::shared_ptr<gp::core::Score> loadCoreScoreWithoutAppDocument(
             return nullptr;
         }
         // GP3/4/5 text uses an implicit legacy code page. Explicit UTF-8
-        // metadata keeps generated Unicode headers intact in the native score.
+        // metadata keeps headers and in-score Unicode text aligned with labels.
         QFile metadataFile(qInput + QStringLiteral(".metadata.json"));
         if (metadataFile.exists()) {
             errorCodeOut = "metadata_override_invalid";
@@ -3016,7 +3084,21 @@ static std::shared_ptr<gp::core::Score> loadCoreScoreWithoutAppDocument(
                 {"instructions", "INSTRUCTIONS"}, {"notice", "NOTICE"},
             };
             const auto object = metadata.object();
+            const auto encoding = object.value(QStringLiteral("text_encoding"));
+            if (!encoding.isUndefined()) {
+                auto codec = encoding.isString() ? QTextCodec::codecForName(encoding.toString().toLatin1()) : nullptr;
+                if (!codec) {
+                    errOut = "metadata sidecar has an unsupported text_encoding";
+                    return nullptr;
+                }
+                decodeScoreText(*score, codec);
+                for (const auto& property : properties) {
+                    const auto key = gp::core::stringToScoreProperty(property.second);
+                    score->setProperty(key, decodeLegacyText(score->property(key), codec));
+                }
+            }
             for (auto iterator = object.begin(); iterator != object.end(); ++iterator) {
+                if (iterator.key() == QStringLiteral("text_encoding")) continue;
                 const auto property = properties.find(iterator.key().toStdString());
                 if (property == properties.end() || !iterator.value().isString()) {
                     errOut = "metadata sidecar has an unsupported field or non-string value";

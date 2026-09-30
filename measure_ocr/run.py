@@ -45,7 +45,7 @@ def run(
     information = read_result(info, "document_info")
     if Path(information["layout"]).resolve() != layout.resolve():
         raise ValueError("Document information belongs to a different layout result")
-    records = source["records"]
+    records = information.get('resolved_records', source["records"])
     contexts = {row["measure_number"]: row for row in information.get("measure_pitch_contexts", [])}
     profiles = {row['measure_number']: row for row in information.get('measure_profiles', [])}
     capabilities_path = (adapter or model) / 'capabilities.json'
@@ -53,6 +53,8 @@ def run(
     for row in records:
         row.update(profiles.get(row['measure_number'], {}))
         row.update(contexts.get(row["measure_number"], {}))
+        row.setdefault('tuning_source', information.get('tuning_source', 'default'))
+        row.setdefault('tuning_explicit', row['tuning_source'] in {'manual', 'printed'})
         row['fingering_tunings'] = row.get('fingering_tunings') or information.get('tuning_candidates') or [information['tuning_used']]
         if row.get("pitch_context"):
             row["pitch_context"] = {**row["pitch_context"], "capo": row.get('capo', information.get("capo", 0))}
@@ -144,6 +146,11 @@ def run(
         row["timing_errors"] = gp5_timing_errors(target)
         if row["timing_errors"]:
             row["needs_review"] = True
+    from shared.chords import attach_chord_annotations
+    annotations = [{**p, 'part_id': part.get('id', 'part-1')}
+                   for part in information.get('parts') or [information]
+                   for p in part.get('document_metadata', {}).get('score_annotations', [])]
+    attach_chord_annotations(records, annotations)
     from collections import defaultdict
     from gp5_export.fingering import notation_fingering_errors
 
@@ -175,8 +182,18 @@ def run(
         rows = by_part.get(part['id'])
         if rows:
             part['tuning_used'] = rows[0]['tuning']
+            part['tuning_source'] = rows[0].get('tuning_source', part.get('tuning_source'))
+            if part['tuning_source'] == 'notation_tab_consensus':
+                details = part['document_metadata']
+                details['tuning_midi_high_to_low'] = rows[0]['tuning']
+                details['warnings'] = [warning for warning in details.get('warnings', [])
+                                       if not warning.startswith('无法确定这件乐器的')]
     if records and records[0].get('tuning') is not None:
         information['tuning_used'] = records[0]['tuning']
+        if records[0].get('tuning_source') == 'notation_tab_consensus':
+            metadata['tuning_midi_high_to_low'] = records[0]['tuning']
+            metadata['warnings'] = [warning for warning in metadata.get('warnings', [])
+                                    if not warning.startswith('无法确定这件乐器的')]
     return save_recognition(output, dict(
         layout=str(layout.resolve()),
         info=str(info.resolve()),

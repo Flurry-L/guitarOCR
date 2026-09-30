@@ -38,7 +38,9 @@ def compose(job):
         name = {'guitar': 'Guitar', 'bass': 'Bass', 'drums': 'Drums', 'pitched': 'Piano'}[instrument]
         if instrument == 'pitched' and not piano:
             name, program = rng.choice([('Piano', 0), ('Violin', 40), ('Viola', 41), ('Cello', 42), ('Flute', 73), ('Oboe', 68)])
-        name = name + (' II' if any(p['name'] == name for p in parts) else '')
+        ordinal = 1 + sum(p['instrument'] == instrument for p in parts)
+        if ordinal > 1:
+            name += ' ' + ({2: 'II', 3: 'III', 4: 'IV'}.get(ordinal, str(ordinal)))
         parts.append({'name': name, 'instrument': instrument,
                       'strings': len(row.get('tuning') or []) if row['mode'] in {'tab', 'both'} else None,
                       'program': program})
@@ -101,6 +103,7 @@ def compose(job):
                 crop_path.parent.mkdir(exist_ok=True)
                 im.save(crop_path)
                 row = {**deepcopy(original), 'id': f'{split}-{index}-{number}', 'source_id': f'ensemble-{split}-{index}',
+                       'source_measure_index': original['measure_index'],
                        'source_family': original['family'], 'family': f'ensemble-{split}-{index}',
                        'measure_number': number, 'measure_index': system * 4 + column,
                        'bar_index': system * 4 + column, 'page': page_number,
@@ -179,6 +182,8 @@ def build(output, train=2400, validation=240, test=240, workers=12):
                 ('bass', rng.choice(['tab', 'both', 'notation'])), ('drums', 'notation')]
             if index % 3 == 0:
                 plan.append(('pitched', 'notation'))
+            if index % 5 == 0 and any(instrument == 'guitar' for instrument, _ in plan):
+                plan.insert(1, ('guitar', rng.choice(['tab', 'both', 'notation'])))
             selected = [rng.choice(pools[key]) for key in plan if pools[key]]
             jobs.append((index, split, selected, str(output)))
         bars, page_count = 0, 0

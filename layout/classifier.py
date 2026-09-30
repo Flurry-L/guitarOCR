@@ -3,12 +3,81 @@ from __future__ import annotations
 from collections import Counter
 
 from PIL import Image
+import numpy as np
 
 from layout.tab_geometry import detect_tab_geometry
 from layout.score_geometry import detect_score_tab_geometry
 
 
 LAYOUTS = ("score_tab", "tab_only", "score_only")
+
+
+def part_tab_strings(records: list[dict]) -> int | None:
+    """Use several complete measures so short/faint grids cannot drop strings."""
+    rows = [r for r in records if r.get('mode') in {'tab', 'both'} and r.get('image')]
+    if not rows:
+        return None
+    indices = np.unique(np.linspace(0, len(rows) - 1, min(12, len(rows)), dtype=int))
+    votes = Counter()
+    for index in indices:
+        row = rows[index]
+        with Image.open(row['image']) as image:
+            count = visible_tab_strings(image, row['mode'])
+        if count is not None:
+            votes[count] += 1
+    if not votes:
+        return None
+    count, support = votes.most_common(1)[0]
+    return count if support >= min(3, len(rows)) and support / votes.total() >= .75 else None
+
+
+def visible_tab_strings(image: Image.Image, mode: str) -> int | None:
+    """Count complete, strongly supported TAB lines in one full staff crop."""
+    if mode not in {'tab', 'both'}:
+        return None
+    gray = np.asarray(image.convert('L'))
+    if gray.shape[1] < 100:
+        return None
+    interior = gray[:, round(gray.shape[1] * .13):round(gray.shape[1] * .9)]
+    ink = (interior < 210).mean(1)
+    faint = (interior < min(253, float(np.percentile(interior, 95)) - 2)).mean(1)
+    hits = np.flatnonzero(ink > max(.35, float(ink.max()) * .55))
+    groups = [g for g in np.split(hits, np.flatnonzero(np.diff(hits) > 1) + 1) if len(g)]
+    ys = [float(np.average(g, weights=ink[g])) for g in groups]
+    strengths = [float(ink[g].max()) for g in groups]
+    candidates = []
+    i = 0
+    while i + 3 < len(ys):
+        gap = ys[i + 1] - ys[i]
+        if not 5 <= gap <= 45:
+            i += 1
+            continue
+        j, count, missing = i + 1, 2, 0
+        while j + 1 < len(ys):
+            distance = ys[j + 1] - ys[j]
+            steps = round(distance / gap)
+            if (steps not in {1, 2} or missing + steps - 1 > 1
+                    or abs(distance - steps * gap) >= max(1.6, gap * .12) * steps):
+                break
+            if steps == 2:
+                expected = round(ys[j] + gap)
+                if faint[max(0, expected - 2):expected + 3].max(initial=0) <= .6:
+                    break
+            count += steps
+            missing += steps - 1
+            j += 1
+        if 4 <= count <= 8 and j - i + 1 >= 4 and min(strengths[i:j + 1]) > .45:
+            candidates.append((count, gap))
+            i = j + 1
+        else:
+            i += 1
+    if mode == 'both':
+        # A combined crop must expose the tighter notation grid as well.
+        # A single grid is insufficient evidence for choosing the TAB lines.
+        minimum = min((gap for _, gap in candidates), default=0)
+        candidates = [(count, gap) for count, gap in candidates if gap > minimum * 1.15]
+    counts = {count for count, _ in candidates}
+    return counts.pop() if len(counts) == 1 else None
 
 
 def _classify_fixed_scale(page: Image.Image) -> dict:

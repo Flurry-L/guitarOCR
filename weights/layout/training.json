@@ -1,92 +1,27 @@
 {
-  "date": "2026-09-28",
-  "base_release": "parallel-score-2026-09-28",
-  "initial_config": {
-    "Global": {
-      "model": "PP-DocLayoutV3",
-      "mode": "train",
-      "dataset_dir": "database/score_support/layout",
-      "device": "gpu:7",
-      "output": "output/score-support/layout"
-    },
-    "CheckDataset": {
-      "convert": {
-        "enable": false,
-        "src_dataset_type": null
-      },
-      "split": {
-        "enable": false,
-        "train_percent": null,
-        "val_percent": null
-      }
-    },
-    "Train": {
-      "num_classes": 6,
-      "epochs_iters": 3,
-      "batch_size": 3,
-      "learning_rate": 1.2e-05,
-      "pretrain_weight_path": "output/parallel-score/layout/best_model/best_model.pdparams",
-      "warmup_steps": 50,
-      "resume_path": null,
-      "log_interval": 10,
-      "eval_interval": 1,
-      "num_workers": 4
-    },
-    "Evaluate": {
-      "weight_path": "output/score-support/layout/best_model/best_model.pdparams",
-      "log_interval": 10
-    },
-    "Export": {
-      "weight_path": "output/score-support/layout/best_model/best_model.pdparams"
-    },
-    "Predict": {
-      "batch_size": 1,
-      "model_dir": "output/score-support/layout/best_model/inference"
-    }
+  "date": "2026-09-30",
+  "model": "PP-DocLayoutV3",
+  "dataset": "database/unified_layout_complete",
+  "train_pages": 27182,
+  "validation_pages": 2945,
+  "test_pages": 2886,
+  "boxes": {
+    "train": 842007,
+    "validation": 90510,
+    "test": 89832
   },
-  "final_config": {
-    "Global": {
-      "model": "PP-DocLayoutV3",
-      "mode": "train",
-      "dataset_dir": "database/score_support/layout_combined",
-      "device": "gpu:7",
-      "output": "output/score-support/layout_combined"
-    },
-    "CheckDataset": {
-      "convert": {
-        "enable": false,
-        "src_dataset_type": null
-      },
-      "split": {
-        "enable": false,
-        "train_percent": null,
-        "val_percent": null
-      }
-    },
-    "Train": {
-      "num_classes": 6,
-      "epochs_iters": 2,
-      "batch_size": 3,
-      "learning_rate": 8e-06,
-      "pretrain_weight_path": "output/score-support/layout/best_model/best_model.pdparams",
-      "warmup_steps": 50,
-      "resume_path": null,
-      "log_interval": 10,
-      "eval_interval": 1,
-      "num_workers": 4
-    },
-    "Evaluate": {
-      "weight_path": "output/score-support/layout_combined/best_model/best_model.pdparams",
-      "log_interval": 10
-    },
-    "Export": {
-      "weight_path": "output/score-support/layout_combined/best_model/best_model.pdparams"
-    },
-    "Predict": {
-      "batch_size": 1,
-      "model_dir": "output/score-support/layout_combined/best_model/inference"
-    }
-  },
-  "selected_epoch": 2,
-  "selected_validation_raw_ap_50_95": 0.9079281743214169
+  "epochs": 4,
+  "batch_size": 4,
+  "learning_rate": 1.2e-05,
+  "initial_weights": "output/unified-score/layout/best_model/best_model.pdparams",
+  "best_validation_ap": 0.905939839341529,
+  "classes": [
+    "measure_tab",
+    "measure_notation",
+    "measure_both",
+    "tempo_region",
+    "clef_region",
+    "annotation_region"
+  ],
+  "supervision": "Renderer boxes and transformed source boxes; printed annotation overlays have known geometry. No detector pseudo-labels."
 }

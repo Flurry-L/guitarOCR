@@ -197,6 +197,9 @@ def evaluate(
             boxes = deduplicate_pitch_boxes([box for box in boxes if box["score"] >= threshold])
             with Image.open(image_path) as opened:
                 measures = refine_measure_boxes(opened, raw_measures)
+                from layout.detector import refine_small_regions
+
+                boxes = refine_small_regions(opened, boxes, model, threshold)
             boxes = [
                 box
                 for box in boxes
@@ -284,6 +287,10 @@ def evaluate(
         },
         "split": split,
         "postprocess": postprocess,
+        "small_region_refinement": ({"views": 4, "tile_fraction": .55,
+                                     "minimum_page_width": 2401, "minimum_page_height": 3401,
+                                     "supplements": ["clef_region", "annotation_region", "tempo_region"]}
+                                    if postprocess else None),
         "localization_categories": localization_labels,
         "model_provides_notation_type": bool(typed_detections) or any(row["predicted_mode"] for row in counts),
         "threshold": threshold,

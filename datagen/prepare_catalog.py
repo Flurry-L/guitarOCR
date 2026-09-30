@@ -9,7 +9,7 @@ from pathlib import Path
 import shutil
 
 from shared.artifacts import write_json
-from datagen.gp_sources import analyze_source, parse_song, prepare_single_track_gp5
+from datagen.gp_sources import analyze_source, parse_song, prepare_single_track_gp5, write_text_encoding
 from datagen.catalog import source_catalog
 from shared.instruments import instrument_modes
 
@@ -17,7 +17,7 @@ from shared.instruments import instrument_modes
 def _prepare(arguments):
     row, output, modes = arguments
     source = Path(row["source_path"])
-    song, _ = parse_song(source)
+    song, source_encoding = parse_song(source)
     label = analyze_source(source, row.get("track_index"))
     modes = [mode for mode in modes if mode in instrument_modes(label["track"]["instrument"])]
     for mode in modes:
@@ -32,8 +32,8 @@ def _prepare(arguments):
         destination = temporary.with_name(f"{label['source_id']}.gp5")
         temporary.replace(destination)
         metadata = source.with_name(source.name + ".metadata.json")
-        if metadata.is_file():
-            shutil.copy2(metadata, destination.with_name(destination.name + ".metadata.json"))
+        encoding = source_encoding if len(song.tracks) == 1 and source.suffix.lower() == '.gp5' else 'utf-8'
+        write_text_encoding(destination, encoding, metadata if metadata.is_file() else None)
         label["prepared_gp5"] = str(destination.resolve())
     label["family"] = row["family"]
     label["modes"] = modes

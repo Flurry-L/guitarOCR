@@ -18,14 +18,18 @@ def strip_source_paths(message):
                 strip_source_paths(child)
 
 
-def export(output, paddle_python):
+def export(output, paddle_python, layout_model=None, score_model=None):
     import torch
     from safetensors.torch import load_file
     from measure_ocr.state_network import SignatureNetwork
+    from shared.defaults import LAYOUT_MODEL, MEASURE_ADAPTER
+
+    layout_model = layout_model or LAYOUT_MODEL
+    score_model = score_model or MEASURE_ADAPTER / 'merged'
 
     output.mkdir(parents=True, exist_ok=True)
     subprocess.run([str(paddle_python.parent / ('paddle2onnx.exe' if sys.platform == 'win32' else 'paddle2onnx')),
-                    '--model_dir', str(ROOT / 'weights/layout'), '--model_filename', 'inference.json',
+                    '--model_dir', str(layout_model), '--model_filename', 'inference.json',
                     '--params_filename', 'inference.pdiparams', '--save_file', str(output / 'layout.onnx'),
                     '--opset_version', '17', '--optimize_tool', 'None'], check=True)
     # The product consumes rectangular boxes; discard unused segmentation outputs.
@@ -33,7 +37,7 @@ def export(output, paddle_python):
     path = output / 'layout.onnx'
     onnx.utils.extract_model(str(path), str(path), ['im_shape', 'image', 'scale_factor'], ['fetch_name_0'])
     model = SignatureNetwork().eval()
-    model.load_state_dict(load_file(str(ROOT / 'weights/measure_ocr/merged/state_reader/state.safetensors')))
+    model.load_state_dict(load_file(str(score_model / 'state_reader/state.safetensors')))
     # At the fixed 192 x 512 input, the feature map is exactly 6 x 16.
     model.features[-1] = torch.nn.AvgPool2d((6, 4))
     torch.set_num_threads(4)
@@ -56,5 +60,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, default=ROOT / 'output/distribution/auxiliary')
     parser.add_argument('--paddle-python', type=Path, required=True)
+    parser.add_argument('--layout-model', type=Path)
+    parser.add_argument('--score-model', type=Path)
     args = parser.parse_args()
-    export(args.output.resolve(), args.paddle_python.absolute())
+    export(args.output.resolve(), args.paddle_python.absolute(), args.layout_model, args.score_model)

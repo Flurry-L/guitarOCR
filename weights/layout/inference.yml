@@ -31,7 +31,7 @@ label_list:
 - measure_both
 - tempo_region
 - clef_region
-- transposition_region
+- annotation_region
 Hpi:
   backend_configs:
     paddle_infer:

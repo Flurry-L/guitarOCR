@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "notation_spacing": 12,
+  "tab_spacing": 18,
+  "max_pixels": 589824,
+  "max_upscale": 2.5,
+  "patch_multiple": 28,
+  "page_max_pixels": 2016000,
+  "small_crop_min_side": 256,
+  "small_crop_max_dimension": 512,
+  "small_crop_max_aspect": 2,
+  "small_crop_max_upscale": 3
+}

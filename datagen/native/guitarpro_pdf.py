@@ -7,8 +7,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from shared.pdf import open_pdf
-
 from .score_official_score import OFFICIAL_SCORE_SCHEMA
 from .native_session import NativeExportSession
 
@@ -359,17 +357,21 @@ def _validate_export_measure_coverage(
 def validate_pdf_layout(pdf_path: str | Path, layout: Mapping[str, Any]) -> None:
     """Require the PDF and native page table to describe the same pages."""
 
+    # The native worker only reads page boxes; loading PDFium's renderer here
+    # unnecessarily initializes another native runtime inside Wine.
+    import pdfplumber
+
     validate_render_layout(layout)
     source = Path(pdf_path).expanduser().resolve()
     if not source.is_file():
         raise FileNotFoundError(source)
     pages = layout["pages"]
     mm_to_points = 72.0 / 25.4
-    with open_pdf(source) as document:
-        if len(document) != len(pages):
+    with pdfplumber.open(source) as document:
+        if len(document.pages) != len(pages):
             raise ValueError("PDF page count does not match the native layout")
         for page_index, (pdf_page, layout_page) in enumerate(
-            zip(document, pages, strict=True), start=1
+            zip(document.pages, pages, strict=True), start=1
         ):
             layout_bbox = _bbox(
                 layout_page["bbox_mm"],

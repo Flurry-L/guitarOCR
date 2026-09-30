@@ -8,6 +8,16 @@ from shared.m2 import parse_measure_target
 from shared.score_text import display_error, display_score_text
 
 
+def public_annotations(annotations):
+    return [{k: a[k] for k in ('kind', 'candidate_kind', 'parsed', 'page', 'bbox', 'part_id') if k in a}
+            for a in annotations]
+
+
+def public_metadata(metadata):
+    return {key: public_annotations(value) if key in {'pitch_instructions', 'score_annotations'} else value
+            for key, value in metadata.items()}
+
+
 def project_view(workspace, sid):
     saved = workspace.load(sid)
     state = {
@@ -62,19 +72,9 @@ def project_view(workspace, sid):
             )
             if k in info
         }
-        metadata = dict(state["metadata"]["document_metadata"])
-        if "pitch_instructions" in metadata:
-            metadata["pitch_instructions"] = [
-                {
-                    k: instruction[k]
-                    for k in ("kind", "parsed", "page", "bbox")
-                    if k in instruction
-                }
-                for instruction in metadata["pitch_instructions"]
-            ]
-        state["metadata"]["document_metadata"] = metadata
+        state["metadata"]["document_metadata"] = public_metadata(state["metadata"]["document_metadata"])
         if info.get('parts'):
-            state['metadata']['parts'] = [{k: p[k] for k in (
+            state['metadata']['parts'] = [{k: public_metadata(p[k]) if k == 'document_metadata' else p[k] for k in (
                 'id', 'name', 'instrument', 'midi_program', 'tuning_used', 'capo', 'transpose', 'document_metadata'
             ) if k in p} for p in info['parts']]
     state["measures"], state["review_measures"] = [], []
@@ -82,6 +82,7 @@ def project_view(workspace, sid):
         data = read_result(Path(saved["recognition"]), "measure_ocr")
         if state['metadata'] is not None:
             state['metadata']['tuning_used'] = data['tuning_used']
+            state['metadata']['document_metadata'] = public_metadata(data['document_metadata'])
         state["review_measures"] = data.get("review_measures", [])
         state["score_text_url"] = f"/api/sessions/{sid}/score.txt"
         state['score_document_url'] = asset(data['score_document'])
@@ -89,10 +90,20 @@ def project_view(workspace, sid):
             state['musicxml_url'] = asset(data['musicxml'])
         if (state.get('metadata') or {}).get('parts'):
             for part in state['metadata']['parts']:
+                resolved = next((p for p in data.get('parts', []) if p['id'] == part['id']), None)
+                if resolved is not None:
+                    part['document_metadata'] = public_metadata(resolved['document_metadata'])
                 row = next((r for r in data['records'] if r.get('part_id') == part['id']), None)
                 if row is not None:
                     part['tuning_used'] = row.get('tuning', part['tuning_used'])
         for row in data["records"]:
+            reasons = row.get('fallback_reason') or []
+            annotation_review = bool(reasons) and all(
+                reason.startswith(('Uncertain chord symbol', 'Annotation review failed'))
+                for reason in reasons
+            ) and not any(row.get(key) for key in (
+                'timing_errors', 'fingering_errors', 'export_errors', 'pitch_needs_review', 'state_needs_review',
+            ))
             state["measures"].append(
                 {
                     **{
@@ -106,10 +117,12 @@ def project_view(workspace, sid):
                     ),
                     "fallback_reason": [
                         display_error(reason)
-                        for reason in (row.get("fallback_reason") or [])
+                        for reason in reasons
                     ],
+                    "annotation_review": annotation_review,
                     "url": asset(row["image"]),
                     "parsed": parse_measure_target(row["target"]),
+                    "chord_annotations": public_annotations(row.get('chord_annotations', [])),
                 }
             )
     if saved["export"]:

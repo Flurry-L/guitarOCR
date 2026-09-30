@@ -2,6 +2,7 @@
 
 from fractions import Fraction
 from pathlib import Path
+import re
 from urllib.parse import unquote
 import xml.etree.ElementTree as ET
 
@@ -38,6 +39,61 @@ def octave_direction(measure, semitones, voice, staff, *, stop=False):
             size=8 if abs(semitones) == 12 else 15, number=(voice - 1) % 16 + 1)
     element(direction, 'voice', voice)
     element(direction, 'staff', staff)
+
+
+def chord_harmony(measure, name, diagram, staff):
+    """Keep chord spelling, slash bass and actual fingering in MusicXML."""
+    from shared.chords import chord_key
+
+    match = re.fullmatch(r'([A-Ga-g])((?:##|bb|#|b|x)?)(.*?)(?:/([A-Ga-g])((?:##|bb|#|b|x)?))?', chord_key(name))
+    harmony = element(measure, 'harmony')
+    alterations = {'#': 1, 'b': -1, '##': 2, 'bb': -2, 'x': 2}
+    if match:
+        step, accidental, suffix, bass, bass_accidental = match.groups()
+        root = element(harmony, 'root')
+        element(root, 'root-step', step.upper())
+        if accidental:
+            element(root, 'root-alter', alterations[accidental])
+    else:
+        # MusicXML's textual function keeps custom/numbered chord labels and
+        # anonymous frames without inventing a root pitch or dropping a frame.
+        element(harmony, 'function', name or '')
+        suffix, bass, bass_accidental = '', None, None
+    kinds = {'': 'major', 'm': 'minor', 'min': 'minor', '7': 'dominant',
+             'maj7': 'major-seventh', 'M7': 'major-seventh', 'm7': 'minor-seventh',
+             'dim': 'diminished', 'dim7': 'diminished-seventh', 'aug': 'augmented',
+             '+': 'augmented', 'sus4': 'suspended-fourth', 'sus2': 'suspended-second',
+             '6': 'major-sixth', 'm6': 'minor-sixth', '9': 'dominant-ninth',
+             'maj9': 'major-ninth', 'm9': 'minor-ninth', '11': 'dominant-11th',
+             '13': 'dominant-13th', 'm7b5': 'half-diminished', '5': 'power'}
+    kind = element(harmony, 'kind', kinds.get(suffix, 'other') if match else 'other')
+    kind.set('text', suffix)
+    if bass:
+        node = element(harmony, 'bass')
+        element(node, 'bass-step', bass.upper())
+        if bass_accidental:
+            element(node, 'bass-alter', alterations[bass_accidental])
+    if diagram:
+        frame = element(harmony, 'frame')
+        count = len(diagram['frets'])
+        element(frame, 'frame-strings', count)
+        maximum = max((f for f in diagram['frets'] if type(f) is int), default=0)
+        element(frame, 'frame-frets', max(4, maximum - diagram['base_fret'] + 1))
+        element(frame, 'first-fret', diagram['base_fret'])
+        positions = {(i, f): diagram['fingers'][i] for i, f in enumerate(diagram['frets']) if type(f) is int}
+        for f, low, high in diagram['barres']:
+            positions.setdefault((low, f), None)
+            positions.setdefault((high, f), None)
+        for (i, fret), finger in sorted(positions.items()):
+            note = element(frame, 'frame-note')
+            element(note, 'string', count - i)
+            element(note, 'fret', fret)
+            if finger is not None:
+                element(note, 'fingering', finger)
+            for f, low, high in diagram['barres']:
+                if f == fret and i in {low, high}:
+                    element(note, 'barre', type='start' if i == low else 'stop')
+    element(harmony, 'staff', staff)
 
 
 def score_musicxml(score):
@@ -165,8 +221,12 @@ def score_musicxml(score):
                             if ottava:
                                 octave_direction(measure, ottava, voice_number, si + 1)
                             current_ottava = ottava
+                        from shared.chords import event_chord
+                        chord_name, chord_diagram = event_chord(event)
+                        if chord_name or chord_diagram:
+                            chord_harmony(measure, chord_name, chord_diagram, si + 1)
                         for effect in event.get('effects', []):
-                            if effect.startswith(('text:', 'chord:')):
+                            if effect.startswith('text:'):
                                 direction = element(measure, 'direction', placement='above')
                                 element(element(direction, 'direction-type'), 'words', unquote(effect.partition(':')[2]))
                                 element(direction, 'staff', si + 1)

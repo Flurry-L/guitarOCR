@@ -164,7 +164,7 @@ class InstallerTest(unittest.TestCase):
                         self.assertEqual(bool(gpu_dependencies), device == "cuda")
 
     def test_windows_checkout_preserves_model_config_checksum(self):
-        config = Path("weights/measure_ocr/adapter_config.json")
+        config = Path("weights/score_ocr/inference.json")
         original = (launcher.ROOT / config).read_bytes()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

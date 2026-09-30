@@ -201,9 +201,12 @@ class Supervisor:
             ("info_adapter", "weights/document_info"),
             ("measure_adapter", "weights/measure_ocr"),
         ]:
-            original = Path(self.config.source) / relative
-            if Path(values[key]) == original:
-                values[key] = str(source / relative)
+            old_defaults = {Path(self.config.source) / relative}
+            if key != 'layout_model':
+                old_defaults.add(Path(self.config.source) / 'weights/score_ocr')
+            if Path(values[key]) in old_defaults:
+                target = 'weights/score_ocr' if key != 'layout_model' and (source / 'weights/score_ocr/inference.json').is_file() else relative
+                values[key] = str(source / target)
         path = self.config.data / ("runtime-" + source.name + ".json")
         path.write_text(json.dumps(values, indent=2))
         path.chmod(0o600)

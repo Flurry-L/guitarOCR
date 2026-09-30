@@ -187,7 +187,7 @@
                 <option value="header">＋ 谱头框</option>
                 <option value="tempo">＋ 速度框</option>
                 <option value="clef">＋ 谱号框</option>
-                <option value="transposition">＋ 移调标记框</option>
+                <option value="annotation">＋ 谱面标记框</option>
               </select></label
             ><button id="deleteBox" class="quiet">删除选中框</button
             ><button id="undoBox">撤销</button
@@ -888,6 +888,49 @@
                   class="rhythm-status"
                   role="status"
                 ></div>
+                <details class="measure-settings chord-settings">
+                  <summary>当前拍的和弦标记</summary>
+                  <div
+                    id="chordLibrary"
+                    class="chord-library"
+                    aria-label="当前音轨的谱面指法库"
+                    hidden
+                  ></div>
+                  <label
+                    >和弦名称<input
+                      id="chordName"
+                      placeholder="例如 B♭maj7、D/F♯"
+                      maxlength="100"
+                  /></label>
+                  <label
+                    >指法（低音弦 → 高音弦）<input
+                      id="chordFrets"
+                      placeholder="例如 x 3 2 0 1 0"
+                  /></label>
+                  <label
+                    >图示起始品<input
+                      id="chordBase"
+                      type="number"
+                      min="1"
+                      max="36"
+                      value="1"
+                  /></label>
+                  <label
+                    >手指数字（- 表示无标注）<input
+                      id="chordFingers"
+                      placeholder="例如 - 3 2 - 1 -"
+                  /></label>
+                  <label
+                    >横按（品位:弦号-弦号）<input
+                      id="chordBarres"
+                      placeholder="例如 1:6-1；1 弦为最高音弦"
+                  /></label>
+                  <div id="chordPreview" class="chord-preview"></div>
+                  <div class="tool-group">
+                    <button id="applyChord">应用和弦</button
+                    ><button id="removeChord" class="quiet">移除</button>
+                  </div>
+                </details>
                 <details class="measure-settings">
                   <summary>拍号、速度与起点</summary>
                   <div class="score-toolbar">

@@ -59,17 +59,25 @@ def main():
     parser.add_argument('--speculative-tokens', type=int, default=0)
     parser.add_argument('--resume', action='store_true')
     args = parser.parse_args()
-    capability_path = args.model.parent / 'capabilities.json'
+    capability_path = args.model / 'capabilities.json'
+    if not capability_path.is_file():
+        capability_path = args.model.parent / 'capabilities.json'
     capabilities = json.loads(capability_path.read_text()) if capability_path.exists() else {}
     tasks = []
     for path in args.dataset:
         rows = json.loads(path.read_text()) if path.suffix == '.json' else (json.loads(line) for line in path.open())
         for index, row in enumerate(rows):
             prompt = row['messages'][0]['content'].replace('<image>', '')
-            kind = 'structure' if prompt.startswith(STRUCTURE_PROMPT) else next(
-                key for key in ('header', 'tempo', 'staff', 'clef', 'transposition') if prompt == getattr(prompts, key.upper() + '_PROMPT'))
+            if prompt.startswith(STRUCTURE_PROMPT):
+                kind = 'structure'
+            elif prompt.startswith('Read the first staff and its instrument label.'):
+                kind = 'staff'
+            else:
+                kind = next(key for key in ('header', 'tempo', 'clef', 'transposition')
+                            if prompt == getattr(prompts, key.upper() + '_PROMPT'))
             tasks.append({'id': str(path) + ':' + str(index), 'corpus': str(path.parent), 'kind': kind,
                           'image': row.get('geometry_image', row['images'][0]), 'prompt': prompt,
+                          'row_modes': row.get('row_modes'),
                           'expected': json.loads(row['messages'][-1]['content'])})
     args.output.mkdir(parents=True, exist_ok=True)
     destination = args.output / 'predictions.jsonl'
@@ -99,22 +107,25 @@ def main():
                 subset = [row for row in pending if row['kind'] == kind]
                 for offset in range(0, len(subset), args.batch_size):
                     batch = subset[offset:offset + args.batch_size]
+                    systems_by_row = ([marked_systems(row['image'], len(row['expected']['rows'])) for row in batch]
+                                      if kind == 'structure' else [None] * len(batch))
                     messages = [[{'role': 'user', 'content': [{'type': 'image', 'url': structure_model_image(row['image'])
                                  if kind == 'structure' and capabilities.get('compact_structure') else row['image']},
                                  {'type': 'text', 'text': row['prompt']}]}] for row in batch]
-                    generation = {'json_schema': [structure_schema(len(r['expected']['rows'])) for r in batch]} if kind == 'structure' else {}
-                    for batch_index, (row, (raw, tokens)) in enumerate(zip(batch, engine.generate_batch(messages, 2048 if kind == 'structure' else 128, **generation), strict=True)):
+                    generation = {'json_schema': [structure_schema(len(r['expected']['rows']), systems)
+                                  for r, systems in zip(batch, systems_by_row, strict=True)]} if kind == 'structure' else {}
+                    for batch_index, (row, (raw, tokens)) in enumerate(zip(batch, engine.generate_batch(messages, 2048 if kind == 'structure' else 512, **generation), strict=True)):
                         error = None
                         extra = {}
                         if kind == 'structure':
-                            systems = marked_systems(row['image'], len(row['expected']['rows']))
+                            systems = systems_by_row[batch_index]
                             try:
-                                model_predicted = parse_structure(raw, len(row['expected']['rows']))
+                                model_predicted = parse_structure(raw, len(row['expected']['rows']), modes=row['row_modes'])
                             except (ValueError, KeyError, TypeError, IndexError):
                                 model_predicted = {}
                             extra = {'systems_from_image': systems, 'model_predicted': model_predicted}
                         try:
-                            predicted = parse_structure(raw, len(row['expected']['rows']), systems) if kind == 'structure' else parse_info_response(raw, kind)
+                            predicted = parse_structure(raw, len(row['expected']['rows']), systems, row['row_modes']) if kind == 'structure' else parse_info_response(raw, kind)
                         except (ValueError, KeyError, TypeError, IndexError) as exc:
                             predicted, error = {}, str(exc)
                             if kind == 'structure':
@@ -124,10 +135,10 @@ def main():
                                 correction = [*messages[batch_index],
                                               {'role': 'assistant', 'content': [{'type': 'text', 'text': raw}]},
                                               {'role': 'user', 'content': [{'type': 'text', 'text': error + '. Return the complete corrected JSON.'}]}]
-                                raw, count = engine.generate(correction, 2048, json_schema=structure_schema(len(row['expected']['rows'])))
+                                raw, count = engine.generate(correction, 2048, json_schema=structure_schema(len(row['expected']['rows']), systems))
                                 tokens += count
                                 try:
-                                    predicted = parse_structure(raw, len(row['expected']['rows']), systems)
+                                    predicted = parse_structure(raw, len(row['expected']['rows']), systems, row['row_modes'])
                                     error = None
                                 except (ValueError, KeyError, TypeError, IndexError) as exc:
                                     error = str(exc)

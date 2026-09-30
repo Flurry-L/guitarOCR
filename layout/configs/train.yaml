@@ -1,7 +1,7 @@
 Global:
   model: PP-DocLayoutV3
   mode: train
-  dataset_dir: database/score_support/layout_combined
+  dataset_dir: database/unified_layout_complete
   device: gpu:0
   output: output/layout
 CheckDataset:

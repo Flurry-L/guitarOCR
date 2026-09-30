@@ -31,6 +31,7 @@ def save_layout(pages: list[dict], boxes: list[dict], output: Path, mode: str) -
             "tempo",
             "clef",
             "transposition",
+            "annotation",
         }:
             raise ValueError("无效的页码或区域类型")
         bbox = [float(v) for v in box["bbox"]]
