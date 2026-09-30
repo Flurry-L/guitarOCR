@@ -3,6 +3,7 @@
 *.md text eol=lf
 *.toml text eol=lf
 *.json text eol=lf
+*.jinja text eol=lf
 *.txt text eol=lf
 *.sh text eol=lf
 *.bat text eol=crlf
