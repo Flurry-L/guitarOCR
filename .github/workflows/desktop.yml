@@ -27,7 +27,7 @@ jobs:
       fail-fast: false
       matrix:
         platform: ${{ fromJSON(inputs.platform == 'all' && '["linux-x64","windows-x64","macos-arm64","macos-x64"]' || format('["{0}"]', inputs.platform)) }}
-    runs-on: ${{ fromJSON('{"linux-x64":"ubuntu-22.04","windows-x64":"windows-latest","macos-arm64":"macos-15","macos-x64":"macos-15-intel"}')[matrix.platform] }}
+    runs-on: ${{ fromJSON('{"linux-x64":"ubuntu-22.04","windows-x64":"windows-2022","macos-arm64":"macos-15","macos-x64":"macos-15-intel"}')[matrix.platform] }}
     env:
       LDAI_COMP: zstd
     steps:
