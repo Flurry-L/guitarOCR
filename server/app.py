@@ -9,6 +9,7 @@ import sqlite3
 import time
 from typing import Literal
 from uuid import uuid4
+from zipfile import BadZipFile, ZipFile
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
@@ -28,7 +29,7 @@ from webapp.contracts import (
     Recognition,
     check_revision,
 )
-from pipeline.archive import export_project
+from pipeline.archive import MAX_BYTES, export_project, import_project
 
 
 class Credentials(BaseModel):
@@ -458,6 +459,65 @@ def create_app(config: Config, workflow=None):
             for file in files:
                 await file.close()
         return {"id": sid, "job": store.public_job(job)}
+
+    @app.post("/api/projects/import")
+    def restore_project(request: Request, file: UploadFile):
+        """Restore a private project without requiring a running GPU worker."""
+        rate(request, "upload", 30, 3600)
+        sid, uid = uuid4().hex, request.state.user["id"]
+        with project_lock(config, sid):
+            path = workflow.root / f"import-{sid}.zip"
+            reserved = False
+            try:
+                total = 0
+                with path.open("wb") as output:
+                    while block := file.file.read(1024**2):
+                        total += len(block)
+                        if total > config.max_upload_mb * 1024**2:
+                            raise HTTPException(413, f"项目 ZIP 最大 {config.max_upload_mb} MB")
+                        output.write(block)
+                try:
+                    with ZipFile(path) as archive:
+                        unpacked = sum(item.file_size for item in archive.infolist())
+                except BadZipFile as error:
+                    raise ValueError("请选择 GuitarOCR 导出的项目 ZIP") from error
+                if unpacked > MAX_BYTES:
+                    raise HTTPException(413, "项目包解压内容最大 2 GB")
+                with store.connect(True) as db:
+                    count, used = db.execute(
+                        "SELECT count(*),coalesce(sum(bytes),0) FROM projects WHERE user_id=?", (uid,),
+                    ).fetchone()
+                    if count >= config.max_projects or used + unpacked > config.storage_mb * 1024**2:
+                        raise HTTPException(409, "项目或存储空间已达上限，请先删除不需要的项目")
+                    db.execute(
+                        "INSERT INTO projects(id,user_id,title,engine,created,bytes) VALUES (?,?,?,?,?,?)",
+                        (sid, uid, "正在恢复项目", "gpu", time.time(), unpacked),
+                    )
+                    reserved = True
+                import_project(workflow, path, sid=sid, max_pages=config.max_pages,
+                               max_bytes=min(MAX_BYTES, config.storage_mb * 1024**2))
+                view = project_view(workflow, sid)
+                size = sum(p.stat().st_size for p in workflow.directory(sid).rglob("*") if p.is_file())
+                # Rewritten absolute paths can enlarge JSON; account for the actual
+                # result atomically alongside other in-progress import reservations.
+                with store.connect(True) as db:
+                    used = db.execute(
+                        "SELECT coalesce(sum(bytes),0) FROM projects WHERE user_id=? AND id<>?", (uid, sid),
+                    ).fetchone()[0]
+                    if used + size > config.storage_mb * 1024**2:
+                        raise HTTPException(409, "恢复后的项目超过存储空间上限")
+                    db.execute("UPDATE projects SET title=?,pages=?,bytes=? WHERE id=?",
+                               ((view.get("metadata") or {}).get("title") or "恢复的项目",
+                                len(view["pages"]), size, sid))
+                return {**view, "engine": "gpu", "job": None}
+            except BaseException:
+                if reserved:
+                    store.execute("DELETE FROM projects WHERE id=?", (sid,))
+                    shutil.rmtree(workflow.directory(sid), ignore_errors=True)
+                raise
+            finally:
+                file.file.close()
+                path.unlink(missing_ok=True)
 
     @app.get("/api/sessions/{sid}")
     def project(sid: str, request: Request):

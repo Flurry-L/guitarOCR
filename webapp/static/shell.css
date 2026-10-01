@@ -118,6 +118,40 @@
   font-size: 12px;
   text-decoration: none;
 }
+/* Project-specific additions to the shared application frame. */
+.project-bar {
+  height: auto;
+  min-height: 68px;
+  padding-block: 9px;
+}
+.project-bar > .project-identity {
+  min-width: 0;
+}
+.project-bar > .project-navigation,
+.project-bar > .project-actions {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+.project-identity:has(#currentDocument:not([hidden])) > :is(h1, p),
+body:has([data-screen="workbench"][hidden]) .project-bar :is(.project-navigation, #currentDocument) {
+  display: none;
+}
+body:has([data-screen="workbench"][hidden]) .project-identity > h1 {
+  display: block;
+}
+.project-bar + .app-main {
+  padding-top: 16px;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 .app-main {
   margin-left: 192px;
   padding: 28px 30px 12px;
@@ -263,6 +297,9 @@
   font-size: 12px;
 }
 @media (max-width: 1100px) {
+  .project-bar #keyboardHelp {
+    display: none;
+  }
   .app-sidebar {
     width: 156px;
     padding: 22px 10px;
@@ -289,6 +326,28 @@
   }
 }
 @media (max-width: 760px) {
+  .project-bar {
+    flex-wrap: wrap;
+    gap: 6px 12px;
+  }
+  .project-bar > .project-identity {
+    flex: 1 1 calc(100% - 125px);
+  }
+  .project-bar > .project-actions {
+    order: 1;
+    margin-left: auto;
+  }
+  .project-bar > .project-navigation {
+    order: 2;
+    flex-basis: 100%;
+  }
+  .project-bar #newProject {
+    padding: 6px 8px;
+    font-size: 11px;
+  }
+  .project-bar #scoreCredits {
+    display: none;
+  }
   .app-sidebar {
     width: 68px;
     padding: 16px 6px;

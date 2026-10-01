@@ -498,7 +498,7 @@ def main() -> None:
     parser.add_argument("--sparse-train-pages", type=int, default=1500)
     parser.add_argument("--sparse-validation-pages", type=int, default=150)
     parser.add_argument("--include-test", action="store_true", help="Write a held-out instance_test.json; never used by training")
-    parser.add_argument("--typed-measures", action="store_true", help="Label measures by native display mode (four detection classes)")
+    parser.add_argument("--typed-measures", action="store_true", help="Label measures by native display mode using the shared layout categories")
     args = parser.parse_args()
     print(
         json.dumps(

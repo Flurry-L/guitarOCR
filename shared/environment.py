@@ -67,9 +67,15 @@ def inspect(
             check('所选模型', check_models(engine, Path(auxiliary).parent), '重新运行安装脚本')
             if engine == 'llamacpp':
                 import shutil
-                executable = os.environ.get('GUITAROCR_LLAMA_SERVER', 'llama-server')
-                check('llama-server', [] if shutil.which(executable) else ['找不到 llama-server'],
-                      '使用 --llama-server 指定可执行文件')
+                from scripts.llamacpp_runtime import probe
+                executable = shutil.which(os.environ.get('GUITAROCR_LLAMA_SERVER', 'llama-server'))
+                try:
+                    if not executable:
+                        raise ValueError('找不到 llama-server')
+                    probe(executable)
+                    check('llama-server 固定版本', [])
+                except ValueError as error:
+                    check('llama-server 固定版本', [str(error)], '安装官方预编译 runtime 或指定固定版本可执行文件')
             from shared.onnx_runtime import cpu_session
             for name in ('layout', 'signature'):
                 try:

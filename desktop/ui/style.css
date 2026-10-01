@@ -4,6 +4,12 @@
 .connection-card {
   margin: 18px 0;
 }
+.local-card {
+  border-color: var(--accent);
+}
+.local-actions {
+  flex-wrap: wrap;
+}
 .card-heading {
   display: flex;
   align-items: center;
@@ -86,30 +92,12 @@ details {
   font-size: 12px;
   color: var(--muted);
 }
-#installProgress {
+#startupProgress {
   padding: 20px;
   background: var(--paper);
   border: 1px solid var(--line);
   border-radius: 10px;
   margin-top: 18px;
-}
-#installStages {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px 18px;
-  margin: 0 0 14px;
-  padding: 0;
-  list-style: none;
-  font-size: 12px;
-  color: var(--muted);
-}
-#installStages li.active {
-  color: var(--accent);
-  font-weight: 650;
-}
-#installStages li.done::before {
-  content: "✓ ";
-  color: var(--muted);
 }
 #progressLabel {
   margin: 0 0 8px;
@@ -122,17 +110,6 @@ details {
 }
 #progressDetail {
   margin: 8px 0 0;
-}
-#downloadList {
-  font-size: 12px;
-  color: var(--muted);
-  max-height: 120px;
-  overflow: auto;
-  margin: 8px 0 0;
-  padding-left: 20px;
-}
-#downloadList:empty {
-  display: none;
 }
 @media (max-width: 550px) {
   .connection-card {

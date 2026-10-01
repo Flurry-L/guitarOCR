@@ -163,9 +163,6 @@ canvas {
   #pageList {
     max-height: 400px;
   }
-  .document-summary .muted {
-    display: none;
-  }
   .page-navigation {
     width: 100%;
   }
@@ -194,6 +191,10 @@ canvas {
 }
 .editor-navigation .row {
   gap: 6px;
+  margin: 0;
+}
+.editor-navigation .review-actions {
+  margin-left: auto;
 }
 .editor-navigation :is(button, select) {
   padding: 5px 8px;
@@ -222,8 +223,8 @@ canvas {
   align-items: center;
   gap: 8px;
   padding: 7px 12px;
-  overflow-x: auto;
-  scrollbar-width: thin;
+  flex-wrap: wrap;
+  overflow: visible;
 }
 .command-toolbar > * {
   flex-shrink: 0;
@@ -258,6 +259,65 @@ canvas {
   background: var(--surface);
   border-color: var(--line);
 }
+/* Secondary commands use a native, keyboard-accessible disclosure. */
+.more-commands {
+  position: relative;
+  margin: 0 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.more-commands > summary {
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  line-height: 20px;
+}
+.more-commands[open] > summary {
+  color: var(--accent);
+  background: var(--soft);
+}
+.command-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 7px);
+  z-index: 25;
+  width: min(330px, calc(100vw - 108px));
+  max-height: 60dvh;
+  overflow-y: auto;
+  padding: 10px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px #18181b1a;
+}
+.command-menu-group {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.command-menu-title {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 11px;
+}
+.command-toolbar .command-menu button {
+  justify-content: flex-start;
+  width: 100%;
+  height: auto;
+  min-height: 32px;
+  padding: 5px;
+  font-size: 11px;
+  white-space: normal;
+  text-align: left;
+}
+.command-menu .voice-control {
+  justify-content: space-between;
+  font-size: 12px;
+}
 .icon-button {
   font-size: 20px;
   line-height: 1;
@@ -283,7 +343,7 @@ button[aria-pressed="true"],
   background: var(--inset);
 }
 .score-viewport {
-  height: clamp(380px, calc(100dvh - 530px), 900px);
+  height: clamp(380px, calc(100dvh - 345px), 900px);
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
@@ -295,18 +355,8 @@ button[aria-pressed="true"],
   color: var(--score-ink);
   min-height: 100%;
   min-width: 600px;
-  padding: 24px 0 12px;
+  padding: 12px 0;
   box-shadow: 0 1px 5px #18181b10;
-}
-.score-paper > h2,
-.score-paper > p {
-  text-align: center;
-  padding: 0 16px;
-}
-.score-paper > h2 {
-  font-family: Georgia, "Noto Serif CJK SC", serif;
-  font-size: 23px;
-  letter-spacing: 0.02em;
 }
 .score-paper > p {
   margin: 4px 0 8px;
@@ -393,7 +443,7 @@ button[aria-pressed="true"],
   padding: 14px;
   border-left: 1px solid var(--line);
   background: var(--paper);
-  max-height: clamp(380px, calc(100dvh - 530px), 900px);
+  max-height: clamp(380px, calc(100dvh - 345px), 900px);
   overflow-y: auto;
   scrollbar-width: thin;
 }
@@ -406,7 +456,7 @@ button[aria-pressed="true"],
   gap: 8px;
 }
 .inspector-heading {
-  margin-bottom: 18px;
+  margin-bottom: 10px;
 }
 .inspector-heading h3 {
   font-size: 13px;
@@ -449,12 +499,14 @@ button[aria-pressed="true"],
   font-size: 11px;
   line-height: 1.7;
 }
-.note-properties {
+.note-properties,
+.track-properties {
   margin-top: 16px;
   padding-top: 12px;
   border-top: 1px solid var(--line);
 }
-.inspector-section-title {
+.inspector-section-title,
+.track-properties h3 {
   font-size: 12px;
   font-weight: 600;
 }
@@ -463,9 +515,11 @@ button[aria-pressed="true"],
   font-size: 15px;
   font-variant-numeric: tabular-nums;
 }
-#noteDescription {
+#noteDescription,
+#trackPropertiesText {
   margin: 5px 0 10px;
   font-size: 11px;
+  white-space: pre-line;
 }
 .score-toolbar {
   display: flex;
@@ -474,7 +528,8 @@ button[aria-pressed="true"],
   flex-wrap: wrap;
   margin: 8px 0;
 }
-.score-toolbar :is(button, select, input) {
+.score-toolbar :is(button, select, input),
+.track-properties button {
   padding: 4px 6px;
   font-size: 11px;
 }
@@ -560,19 +615,25 @@ button[aria-pressed="true"],
   color: var(--warning);
 }
 .track-browser {
+  margin: 0;
+  border: 0;
   border-top: 1px solid var(--line);
+  border-radius: 0;
   background: var(--paper);
-  padding: 8px 12px 10px;
+  padding: 8px 12px;
+}
+.track-browser > summary {
+  color: var(--muted);
+  font-size: 11px;
+}
+.track-browser[open] > summary {
+  margin-bottom: 10px;
 }
 .track-controls {
   display: flex;
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
-}
-.timeline-label {
-  font-size: 11px;
-  font-weight: 600;
 }
 .track-controls label {
   display: flex;
@@ -581,13 +642,9 @@ button[aria-pressed="true"],
   font-size: 11px;
   color: var(--muted);
 }
-.track-controls select,
-.track-controls button {
+.track-controls select {
   font-size: 11px;
   padding: 3px 6px;
-}
-.track-controls #confirmNext {
-  margin-left: auto;
 }
 .measure-map {
   overflow: auto;
@@ -787,7 +844,21 @@ body[data-inference="disabled"]
   display: none;
 }
 [data-panel="3"] > .section-head {
+  justify-content: flex-end;
   margin-bottom: 12px;
+}
+.review-options {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.review-options summary {
+  color: var(--muted);
+  font-size: 11px;
+}
+.review-options[open] .row {
+  margin-top: 8px;
 }
 @media (max-width: 1100px) {
   .score-workspace {
@@ -836,6 +907,9 @@ body[data-inference="disabled"]
   .editor-navigation .row {
     gap: 4px;
   }
+  .editor-navigation .review-actions {
+    margin-left: 0;
+  }
   .editor-navigation #saveStatus {
     display: none;
   }
@@ -847,6 +921,21 @@ body[data-inference="disabled"]
   }
   .command-toolbar {
     padding: 6px 8px;
+  }
+  .command-toolbar > .tool-group[aria-label="节奏"] {
+    order: 2;
+    flex-basis: 100%;
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: auto;
+    border: 0;
+    padding-right: 0;
+  }
+  .command-toolbar > .tool-group[aria-label="节奏"] > * {
+    flex-shrink: 0;
+  }
+  .more-commands {
+    order: 1;
   }
   .score-workspace {
     grid-template-columns: minmax(0, 1fr);
@@ -864,9 +953,6 @@ body[data-inference="disabled"]
   .score-paper {
     padding-top: 18px;
   }
-  .score-paper > h2 {
-    font-size: 19px;
-  }
   .track-browser {
     padding: 8px;
   }
@@ -875,9 +961,6 @@ body[data-inference="disabled"]
   }
   #trackSummary {
     display: none;
-  }
-  .track-controls #confirmNext {
-    margin-left: 0;
   }
   .map-track-label {
     width: 60px;

@@ -7,6 +7,8 @@ import tempfile
 import threading
 import unittest
 from unittest.mock import patch
+from urllib.parse import urlsplit
+from urllib.request import ProxyHandler, build_opener
 
 from scripts.downloads import acquire_base_model, download_verified
 from scripts import launcher
@@ -53,6 +55,16 @@ class DownloadTest(unittest.TestCase):
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.url = f"http://127.0.0.1:{self.server.server_port}"
+        # Exercise real HTTP against this test's server only. An ambient proxy
+        # or a broken fallback must never turn a unit test into a model download.
+        opener = build_opener(ProxyHandler({}))
+
+        def local_open(request, **kwargs):
+            if urlsplit(request.full_url).netloc != urlsplit(self.url).netloc:
+                raise AssertionError(f"Unexpected external download in test: {request.full_url}")
+            return opener.open(request, **kwargs)
+
+        self.enterContext(patch('scripts.downloads.urlopen', side_effect=local_open))
 
     def tearDown(self):
         self.server.shutdown()

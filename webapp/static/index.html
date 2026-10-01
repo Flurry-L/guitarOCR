@@ -42,23 +42,39 @@
           <span class="status-dot"></span
           ><span id="environmentLabel">连接工作台…</span>
         </div>
-        <label
-          >外观<select data-theme-picker="" aria-label="外观主题">
-            <option value="system">跟随系统</option>
-            <option value="light">浅色</option>
-            <option value="dark">深色</option>
-          </select></label
-        >
       </div>
     </aside>
-    <header class="app-header">
-      <div>
+    <header class="app-header project-bar">
+      <div class="project-identity">
         <h1 id="screenTitle">工作台</h1>
         <p id="headerSubtitle">从纸上乐谱，到可编辑的音乐</p>
+        <div id="currentDocument" class="document-summary" hidden="">
+          <div class="project-title-line">
+            <h2 id="scoreTitle"></h2>
+            <span id="scoreCredits"></span>
+          </div>
+          <div class="project-source-line">
+            <strong id="documentName"></strong><span id="documentPages"></span>
+          </div>
+        </div>
       </div>
-      <button id="keyboardHelp" class="quiet" aria-label="键盘快捷键">
-        快捷键</button
-      ><button id="newProject">＋ 新建项目</button>
+      <div class="project-navigation">
+        <nav id="steps" aria-label="项目导航">
+          <button data-step="3">校对</button>
+          <button data-step="4">导出</button>
+          <details class="project-advanced">
+            <summary>高级</summary>
+            <div class="project-advanced-menu" role="group" aria-label="高级项目操作">
+              <button data-step="1">区域修正</button>
+              <button data-step="2">谱面信息</button>
+            </div>
+          </details>
+        </nav>
+      </div>
+      <div class="project-actions">
+        <button id="keyboardHelp" class="quiet" aria-label="键盘快捷键">快捷键</button>
+        <button id="newProject">＋ 新建项目</button>
+      </div>
     </header>
     <main class="app-main">
       <div id="notice" role="status" aria-live="polite" hidden=""></div>
@@ -77,18 +93,6 @@
           <span class="eyebrow">SCORE WORKSPACE</span>
           <h1>让乐谱继续创作</h1>
           <p>导入乐谱，识别并校对，带到你熟悉的音乐软件。</p>
-        </div>
-        <nav id="steps" aria-label="处理步骤">
-          <button data-step="0" class="active">01 <span>导入乐谱</span></button
-          ><button data-step="1">02 <span>调整区域</span></button
-          ><button data-step="2">03 <span>谱面信息</span></button
-          ><button data-step="3">04 <span>校对乐谱</span></button
-          ><button data-step="4">05 <span>导出乐谱</span></button>
-        </nav>
-        <div id="currentDocument" class="document-summary" hidden="">
-          <span
-            ><strong id="documentName"></strong><span id="documentPages"></span
-          ></span>
         </div>
         <section data-panel="0" class="panel active">
           <div class="import-grid">
@@ -119,6 +123,13 @@
               <p class="supported-types">
                 支持 TAB、五线谱、五线谱 + TAB，以及多乐器总谱。
               </p>
+              <div class="sample-project">
+                <div>
+                  <strong>先试试原创示例</strong>
+                  <p id="sampleDescription">Harbor Light · 吉他 + 贝斯 · 8 小节<br />CC0 预设乐谱，非 OCR 结果，无需模型。</p>
+                </div>
+                <button id="openSample" type="button" aria-describedby="sampleDescription">打开示例</button>
+              </div>
               <label class="project-import"
                 >恢复项目备份<input
                   id="importProject"
@@ -352,19 +363,19 @@
           </div>
         </section>
         <section data-panel="3" class="panel">
-          <div class="section-head">
-            <div>
-              <h2>校对乐谱</h2>
-              <p>在谱面上点选音符，用工具栏或键盘修改，随时对照原谱。</p>
-            </div>
-            <div class="row">
-              <button id="resumeOcr" hidden="">继续识别</button>
-              <button id="retryIssues" hidden="">重试待检查小节</button>
-              <button id="recognize" class="primary">识别乐谱</button>
-            </div>
+          <div class="section-head review-heading">
+            <h2 class="visually-hidden">校对乐谱</h2>
+            <details class="review-options">
+              <summary>识别选项</summary>
+              <div class="row">
+                <button id="resumeOcr" hidden="">继续识别</button>
+                <button id="retryIssues" hidden="">重试待检查小节</button>
+                <button id="recognize" class="primary">识别乐谱</button>
+              </div>
+            </details>
           </div>
           <div id="ocrEmpty" class="empty">
-            点击「识别乐谱」，读取音符和节奏。
+            在「识别选项」中选择「识别乐谱」，读取音符和节奏。
           </div>
           <div id="reviewEditor" hidden="" class="editor-studio">
             <div class="editor-tools" role="toolbar" aria-label="乐谱编辑工具">
@@ -374,6 +385,10 @@
                   <button id="prevMeasure" aria-label="上一小节">‹</button
                   ><select id="measureSelect" aria-label="选择小节"></select
                   ><button id="nextMeasure" aria-label="下一小节">›</button>
+                </div>
+                <div class="row review-actions" role="group" aria-label="小节校对">
+                  <button id="confirmNext" class="primary">确认并继续</button>
+                  <button id="nextIssue" class="quiet">跳过，检查下一个</button>
                 </div>
                 <div class="row">
                   <label class="zoom-control"
@@ -386,7 +401,7 @@
                   >
                   <button id="showSource" class="mobile-source">原谱</button
                   ><span id="saveStatus" class="muted small"></span
-                  ><button id="saveMeasure" class="primary">确认小节</button>
+                  ><button id="saveMeasure">保存</button>
                   <button
                     id="toggleInspector"
                     class="icon-button"
@@ -420,29 +435,6 @@
                     aria-label="重做（Ctrl / ⌘ Shift Z）"
                     class="icon-button"
                     data-icon="redo"
-                  ></button>
-                </div>
-                <div class="tool-group" role="group" aria-label="复制与粘贴">
-                  <button
-                    id="copyBeat"
-                    class="icon-button"
-                    title="复制当前拍（Ctrl / ⌘ C）"
-                    aria-label="复制当前拍"
-                    data-icon="copy"
-                  ></button
-                  ><button
-                    id="pasteBeat"
-                    class="icon-button"
-                    title="粘贴到当前拍（Ctrl / ⌘ V）"
-                    aria-label="粘贴到当前拍"
-                    data-icon="paste"
-                  ></button
-                  ><button
-                    id="duplicateBeat"
-                    class="icon-button"
-                    title="复制到下一拍（Ctrl / ⌘ D）"
-                    aria-label="复制到下一拍"
-                    data-icon="duplicate"
                   ></button>
                 </div>
                 <div class="tool-group" role="group" aria-label="节奏">
@@ -733,56 +725,30 @@
                     data-icon="rest"
                   ></button>
                 </div>
-                <div class="tool-group" role="group" aria-label="音高与音符">
-                  <button
-                    id="lowerNote"
-                    title="降低半音（Shift ↓）"
-                    aria-label="降低半音（Shift ↓）"
-                    class="icon-button"
-                  >
-                    ♭</button
-                  ><button
-                    id="raiseNote"
-                    title="升高半音（Shift ↑）"
-                    aria-label="升高半音（Shift ↑）"
-                    class="icon-button"
-                  >
-                    ♯</button
-                  ><button
-                    id="addChordNote"
-                    title="加入和弦音"
-                    aria-label="加入和弦音"
-                    class="icon-button"
-                    data-icon="addNote"
-                  ></button
-                  ><button
-                    id="deleteNote"
-                    title="删除音符（Delete）"
-                    aria-label="删除音符（Delete）"
-                    class="icon-button"
-                    data-icon="deleteNote"
-                  ></button
-                  ><button
-                    id="addEvent"
-                    title="插入空拍（Insert）"
-                    aria-label="插入空拍（Insert）"
-                    class="icon-button"
-                    data-icon="addBeat"
-                  ></button
-                  ><button
-                    id="deleteEvent"
-                    title="删除当前拍（Shift Delete）"
-                    aria-label="删除当前拍（Shift Delete）"
-                    class="icon-button"
-                    data-icon="deleteBeat"
-                  ></button>
-                </div>
-                <label
-                  ><select id="editorVoice" aria-label="声部">
-                    <option value="0">1</option>
-                    <option value="1">2</option>
-                  </select></label
-                >
+                <details class="more-commands">
+                  <summary aria-label="更多编辑工具">更多</summary>
+                  <div class="command-menu">
+                    <div class="command-menu-group" role="group" aria-label="复制与粘贴">
+                      <span class="command-menu-title">复制与粘贴</span>
+                      <button id="copyBeat" title="复制当前拍（Ctrl / ⌘ C）"><span data-icon="copy" aria-hidden="true"></span>复制当前拍</button>
+                      <button id="pasteBeat" title="粘贴到当前拍（Ctrl / ⌘ V）"><span data-icon="paste" aria-hidden="true"></span>粘贴当前拍</button>
+                      <button id="duplicateBeat" title="复制到下一拍（Ctrl / ⌘ D）"><span data-icon="duplicate" aria-hidden="true"></span>复制到下一拍</button>
+                    </div>
+                    <div class="command-menu-group" role="group" aria-label="音高与音符">
+                      <span class="command-menu-title">音高与音符</span>
+                      <button id="lowerNote" title="降低半音（Shift ↓）"><span aria-hidden="true">♭</span>降低半音</button>
+                      <button id="raiseNote" title="升高半音（Shift ↑）"><span aria-hidden="true">♯</span>升高半音</button>
+                      <button id="addChordNote"><span data-icon="addNote" aria-hidden="true"></span>加入和弦音</button>
+                      <button id="deleteNote" title="删除音符（Delete）"><span data-icon="deleteNote" aria-hidden="true"></span>删除音符</button>
+                      <button id="addEvent" title="插入空拍（Insert）"><span data-icon="addBeat" aria-hidden="true"></span>插入空拍</button>
+                      <button id="deleteEvent" title="删除当前拍（Shift Delete）"><span data-icon="deleteBeat" aria-hidden="true"></span>删除当前拍</button>
+                    </div>
+                    <label class="voice-control">声部<select id="editorVoice" aria-label="声部">
+                      <option value="0">1</option>
+                      <option value="1">2</option>
+                    </select></label>
+                  </div>
+                </details>
               </div>
 
               <div
@@ -797,8 +763,6 @@
               <div class="score-document">
                 <div class="score-viewport">
                   <div class="score-paper">
-                    <h2 id="scoreTitle"></h2>
-                    <p id="scoreCredits"></p>
                     <div
                       id="scoreCanvas"
                       tabindex="0"
@@ -811,7 +775,7 @@
               </div>
               <aside class="score-reference" id="scoreInspector">
                 <div class="inspector-heading">
-                  <h3>检查器</h3>
+                  <h3>原谱对照</h3>
                   <span id="reviewStatus" class="pill"></span>
                 </div>
                 <div class="reference-heading">
@@ -823,9 +787,14 @@
                 </button>
                 <div id="fallback" class="hint warning" hidden=""></div>
                 <p id="editHint" class="muted small"></p>
-                <section class="note-properties">
+                <section id="trackProperties" class="track-properties" aria-labelledby="trackPropertiesTitle" hidden>
+                  <h3 id="trackPropertiesTitle">音轨属性</h3>
+                  <p id="trackPropertiesText"></p>
+                  <button data-step="2">编辑音轨信息…</button>
+                </section>
+                <section class="note-properties" data-inspector-section="note" aria-labelledby="inspectorScopeTitle">
                   <div class="inspector-section-title">
-                    选中音符<span id="noteValue" class="note-value">—</span>
+                    <span id="inspectorScopeTitle">选中音符</span><span id="noteValue" class="note-value">—</span>
                   </div>
                   <p id="noteDescription" class="small muted"></p>
                   <div class="score-toolbar effect-tools" aria-label="奏法">
@@ -888,7 +857,7 @@
                   class="rhythm-status"
                   role="status"
                 ></div>
-                <details class="measure-settings chord-settings">
+                <details class="measure-settings chord-settings" data-inspector-section="beat">
                   <summary>当前拍的和弦标记</summary>
                   <div
                     id="chordLibrary"
@@ -932,7 +901,7 @@
                   </div>
                 </details>
                 <details class="measure-settings">
-                  <summary>拍号、速度与起点</summary>
+                  <summary>小节与节拍设置</summary>
                   <div class="score-toolbar">
                     <label
                       >拍号
@@ -961,7 +930,7 @@
                   </div>
                 </details>
                 <details class="measure-settings">
-                  <summary>小节文本</summary>
+                  <summary>高级：小节文本</summary>
                   <label
                     >编辑方式
                     <select id="editMode">
@@ -980,27 +949,18 @@
                 </details>
               </aside>
             </div>
-            <div class="track-browser">
+            <details id="measureMapPanel" class="track-browser">
+              <summary>音轨 / 小节总览</summary>
               <div class="track-controls">
-                <span class="timeline-label">音轨 / 小节</span>
-                <label
-                  >显示<select id="reviewFilter">
-                    <option value="all">全部小节</option>
-                    <option value="review">待检查</option>
-                    <option value="confirmed">已确认</option>
-                  </select></label
-                ><span id="trackSummary" class="muted small"></span
-                ><button id="confirmNext" class="quiet">
-                  确认并检查下一个
-                </button>
-                <button id="nextIssue">下一个待检查小节</button>
+                <label>显示<select id="reviewFilter">
+                  <option value="all">全部小节</option>
+                  <option value="review">待检查</option>
+                  <option value="confirmed">已确认</option>
+                </select></label>
+                <span id="trackSummary" class="muted small"></span>
               </div>
-              <div
-                id="measureMap"
-                class="measure-map"
-                aria-label="小节导航"
-              ></div>
-            </div>
+              <div id="measureMap" class="measure-map" aria-label="小节导航"></div>
+            </details>
             <div class="editor-statusbar">
               <div class="editor-cursor">
                 <span id="selectedNote" class="muted small"></span
@@ -1027,22 +987,38 @@
           <div class="section-head">
             <div>
               <h2>导出乐谱</h2>
-              <p>下载 GP5、MusicXML 或项目备份，继续编曲与制作。</p>
+              <p>选择文件格式，继续编曲或保存项目。</p>
             </div>
+            <button id="backToReview" data-step="3" class="quiet">← 返回校对</button>
           </div>
           <div id="exportSummary" class="export-summary"></div>
-          <div class="footer">
-            <button id="export" class="primary">生成 GP5</button>
-            <a id="downloadGP5" class="button primary" hidden="">下载 GP5</a>
-          </div>
           <div id="exportWarning" class="hint" hidden=""></div>
           <button id="reviewBeforeExport" hidden="">检查待处理小节</button>
-          <div class="export-extras">
-            <a id="downloadProject" hidden="">下载项目备份（ZIP）</a>
-            <a id="downloadScoreText" hidden="">下载小节文本</a>
-            <a id="downloadScoreDocument" hidden="">下载结构化乐谱</a>
-            <a id="downloadMusicXML" hidden="">下载 MusicXML</a>
+          <div class="export-formats" aria-label="主要导出格式">
+            <section class="export-format">
+              <h3>Guitar Pro</h3>
+              <p>GP5 · 在 Guitar Pro 中继续编辑</p>
+              <button id="export" class="primary">生成 GP5</button>
+              <a id="downloadGP5" class="button primary" hidden="">下载 GP5</a>
+            </section>
+            <section class="export-format">
+              <h3>MusicXML</h3>
+              <p>在其他打谱软件中打开</p>
+              <a id="downloadMusicXML" class="button" hidden="">下载 MusicXML</a>
+            </section>
+            <section class="export-format">
+              <h3>项目备份</h3>
+              <p>ZIP · 保留原谱、识别结果与校对内容</p>
+              <a id="downloadProject" class="button" hidden="">下载项目 ZIP</a>
+            </section>
           </div>
+          <details class="export-more">
+            <summary>更多格式</summary>
+            <div class="export-extras">
+              <a id="downloadScoreText" class="button" hidden="">下载小节文本（TXT）</a>
+              <a id="downloadScoreDocument" class="button" hidden="">下载结构化乐谱（JSON）</a>
+            </div>
+          </details>
         </section>
       </div>
       <section data-screen="library" hidden="">

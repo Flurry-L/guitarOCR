@@ -5,12 +5,6 @@ from collections import Counter
 import json
 from pathlib import Path
 
-import torch
-from torch.utils.data import DataLoader
-
-from measure_ocr.state_reader import StateReader
-from measure_ocr.train_state import Signatures
-
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -20,6 +14,12 @@ def main():
     parser.add_argument('--split', choices=['validation', 'test'], default='test')
     parser.add_argument('--batch-size', type=int, default=64)
     args = parser.parse_args()
+
+    import torch
+    from torch.utils.data import DataLoader
+    from datagen.signature_data import Signatures
+    from measure_ocr.state_reader import StateReader
+
     torch.set_num_threads(1)
     dataset = Signatures(args.data, args.split)
     loader = DataLoader(dataset, batch_size=args.batch_size, num_workers=8, pin_memory=True)

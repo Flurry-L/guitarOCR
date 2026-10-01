@@ -19,13 +19,13 @@
           href="#connections"
           class="active"
           aria-current="page"
-          title="连接工作台"
+          title="打开工作台"
           ><span
             class="nav-symbol"
             aria-hidden="true"
             data-icon="workbench"
           ></span
-          ><span class="nav-label">连接工作台</span></a
+          ><span class="nav-label">打开工作台</span></a
         >
       </nav>
       <div class="sidebar-bottom">
@@ -43,7 +43,7 @@
     </aside>
     <header class="app-header">
       <div>
-        <h1>连接工作台</h1>
+        <h1>打开工作台</h1>
         <p>从纸上乐谱，到可编辑的音乐</p>
       </div>
     </header>
@@ -53,32 +53,7 @@
         <p class="">选择识别的运行位置，导入乐谱，校对后继续创作。</p>
       </div>
 
-      <section class="connection-card surface-card">
-        <div class="card-heading">
-          <span
-            class="connection-icon"
-            aria-hidden="true"
-            data-icon="remote"
-          ></span>
-          <div>
-            <h2>连接 GPU 服务</h2>
-          </div>
-          <span class="pill">所有电脑</span>
-        </div>
-        <p>适合所有电脑。识别在服务器运行，关闭桌面窗口后仍会继续。</p>
-        <form id="remote">
-          <label for="serverUrl">服务地址</label>
-          <div class="row">
-            <input
-              id="serverUrl"
-              type="url"
-              placeholder="https://ocr.example.com"
-              required=""
-            /><button type="submit" class="primary">连接工作台</button>
-          </div>
-        </form>
-      </section>
-      <section class="connection-card surface-card">
+      <section class="connection-card surface-card local-card">
         <div class="card-heading">
           <span
             class="connection-icon"
@@ -88,30 +63,54 @@
           <div>
             <h2>在这台电脑上使用</h2>
           </div>
-          <span class="pill">本机项目</span>
+          <span class="pill">推荐 · 本机项目</span>
         </div>
         <p id="localHint">
-          本机识别只安装所选引擎；仅校对与导出无需下载模型。
+          原生客户端开发版：项目与处理结果保存在本机，不安装或下载 Python。
         </p>
-        <div class="row">
-          <button class="primary" id="localGpu">使用本机 GPU</button
-          ><button id="localCpu" class="secondary">使用 CPU（较慢）</button><button id="localEdit" class="secondary">仅校对与导出</button>
+        <div class="row local-actions">
+          <button id="localEdit" class="primary">打开本机工作台</button>
         </div>
-        <p id="gpuHint" class="small">
-          首次原生识别下载约 5.7 GB 模型，只装一套 Python 运行环境。
-          更新应用会复用模型和依赖；GPU 识别建议 24 GB 显存、32 GB 内存。
+        <p id="modelHint" class="small">
+          可先恢复项目备份、打开示例并校对导出。完整原生组件准备后可本机识别；首次会单独确认约1.8GB模型下载，不会安装Python。
+        </p>
+        <p id="runtimeHint" class="small">
+          此入口明确运行原生应用服务；缺少原生组件会停止并显示原因，不会回退到 Python。
         </p>
       </section>
+      <section class="connection-card surface-card">
+        <div class="card-heading">
+          <span
+            class="connection-icon"
+            aria-hidden="true"
+            data-icon="remote"
+          ></span>
+          <div>
+            <h2>连接远程服务</h2>
+          </div>
+          <span class="pill">可选</span>
+        </div>
+        <p>已有服务地址时可使用。识别在服务器运行，关闭桌面窗口后仍会继续。</p>
+        <form id="remote">
+          <label for="serverUrl">服务地址</label>
+          <div class="row">
+            <input
+              id="serverUrl"
+              type="url"
+              placeholder="https://ocr.example.com"
+              required=""
+            /><button type="submit" class="secondary">连接远程工作台</button>
+          </div>
+        </form>
+      </section>
       <div id="status" role="status" aria-live="polite" hidden=""></div>
-      <section id="installProgress" aria-label="安装进度" hidden="">
-        <ol id="installStages"></ol>
+      <section id="startupProgress" aria-label="启动进度" hidden="">
         <p id="progressLabel" role="status" aria-live="polite"></p>
         <progress id="progressBar" aria-label="当前步骤进度"></progress>
         <p id="progressDetail" class="small"></p>
-        <ul id="downloadList"></ul>
       </section>
       <details id="logPanel" hidden="">
-        <summary>安装与运行日志</summary>
+        <summary>运行日志</summary>
         <pre id="logs"></pre>
       </details>
       <div class="row footer">

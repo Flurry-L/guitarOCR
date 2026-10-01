@@ -1,12 +1,12 @@
 """Optional MusicXML projection of the independent score IR."""
 
-from fractions import Fraction
 from pathlib import Path
 import re
 from urllib.parse import unquote
 import xml.etree.ElementTree as ET
 
 from shared.instruments import pitch_reference
+from shared.m2 import duration_ticks as exact_duration_ticks
 from shared.pitch_context import transpose_key
 from shared.score_state import key_fifths
 
@@ -19,8 +19,8 @@ def element(parent, tag, text=None, **attributes):
 
 
 def duration_ticks(duration):
-    value = Fraction(3840 * duration.get('tuplet_times', 1), duration['value'] * duration.get('tuplet_enters', 1))
-    return int(value * (Fraction(7, 4) if duration.get('double_dotted') else Fraction(3, 2) if duration.get('dotted') else 1))
+    """Project an exact M2 duration to MusicXML's integer tick representation."""
+    return int(exact_duration_ticks(duration))
 
 
 def pitch_name(pitch, flats=False):

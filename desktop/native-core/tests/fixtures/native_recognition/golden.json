@@ -1,0 +1,459 @@
+{
+  "notation": {
+    "size": [
+      560,
+      196
+    ],
+    "staff_scale": [
+      9.0,
+      5
+    ],
+    "pixels_sha256": "f47e7a1e6ece1cd7a151d18c73c2466089c4f0b535cb6911576ff3942511ffef"
+  },
+  "tab": {
+    "size": [
+      1008,
+      280
+    ],
+    "staff_scale": [
+      14.0,
+      6
+    ],
+    "pixels_sha256": "06fa0fc62cd521cbea39edffb4fad59b6171017ce5b0ead3ca8a1942f1f7dab2"
+  },
+  "tiny": {
+    "size": [
+      168,
+      112
+    ],
+    "staff_scale": null,
+    "pixels_sha256": "9d8eb6cac56d647c58ee3d005834f3e23dc52e8798c100b150e95d90dacca923"
+  },
+  "page": {
+    "size": [
+      1176,
+      1708
+    ],
+    "staff_scale": [
+      11.0,
+      5
+    ],
+    "pixels_sha256": "df5368e5808b3bd1c9e812b4c4d90b14552f404a08e7cc6a65e09791ecf25a6b"
+  },
+  "policy": {
+    "version": 1,
+    "notation_spacing": 12,
+    "tab_spacing": 18,
+    "max_pixels": 589824,
+    "max_upscale": 2.5,
+    "patch_multiple": 28,
+    "page_max_pixels": 2016000,
+    "small_crop_min_side": 256,
+    "small_crop_max_dimension": 512,
+    "small_crop_max_aspect": 2,
+    "small_crop_max_upscale": 3
+  },
+  "conversions": [
+    {
+      "target": "M2 key=GMajor | V0{@0:q:p72(grace:p71:32) @960:q:p74<ottava:12>}",
+      "context": {
+        "instrument_transpose": -2,
+        "clef_octave": -12,
+        "capo": 2
+      },
+      "mode": "notation",
+      "expected": "M2 key=FMajor | V0{@0:q:p56(grace:p55:32) @960:q:p70<ottava:12>}"
+    },
+    {
+      "target": "M2 time=3/4 key=AMinor | V0{@0:h.:s1f0p76}",
+      "context": {
+        "instrument_transpose": -12
+      },
+      "mode": "both",
+      "expected": "M2 time=3/4 key=AMinor | V0{@0:h.:s1f0p64}"
+    }
+  ],
+  "rests": [
+    {
+      "time": "4/4",
+      "expected": "M2 | V0{@0:w:r}"
+    },
+    {
+      "time": "3/4",
+      "expected": "M2 | V0{@0:h.:r}"
+    },
+    {
+      "time": "7/8",
+      "expected": "M2 | V0{@0:h.:r @2880:e:r}"
+    },
+    {
+      "time": "1/64",
+      "expected": "M2 | V0{@0:f:r}"
+    },
+    {
+      "time": "11/16",
+      "expected": "M2 | V0{@0:h:r @1920:e.:r}"
+    }
+  ],
+  "parses": [
+    {
+      "kind": "staff",
+      "raw": "{\"instrument\": \"guitar\", \"string_count\": true, \"name\": \"   \"}",
+      "expected": {
+        "instrument": "guitar",
+        "string_count": null,
+        "name": null
+      }
+    },
+    {
+      "kind": "tempo",
+      "raw": "{\"tempo_quarter\": true}",
+      "expected": {}
+    },
+    {
+      "kind": "annotation",
+      "raw": "{\"kind\": \"ottava\", \"text\": \"8va\", \"semitones\": 99}",
+      "expected": {
+        "kind": "ottava",
+        "semitones": 12,
+        "capo": null,
+        "text": "8va"
+      }
+    },
+    {
+      "kind": "annotation",
+      "raw": "{\"kind\": \"capo\", \"text\": \"Capo III\", \"capo\": 9}",
+      "expected": {
+        "kind": "capo",
+        "semitones": null,
+        "capo": 3,
+        "text": "Capo III"
+      }
+    },
+    {
+      "kind": "annotation",
+      "raw": "{\"kind\": \"instrument\", \"text\": \"Bb clarinet\", \"semitones\": 0}",
+      "expected": {
+        "kind": "instrument",
+        "semitones": -2,
+        "capo": null,
+        "text": "Bb clarinet"
+      }
+    },
+    {
+      "kind": "annotation",
+      "raw": "{\"kind\": \"chord\", \"text\": \" Bb \", \"semitones\": -2, \"capo\": 4}",
+      "expected": {
+        "kind": "chord",
+        "semitones": null,
+        "capo": null,
+        "text": "Bb"
+      }
+    },
+    {
+      "kind": "clef",
+      "raw": "{\"clef\": \"G2\", \"clef_octave\": -12}",
+      "expected": {
+        "clef": "G2",
+        "clef_octave": -12
+      }
+    }
+  ],
+  "keys": [
+    {
+      "name": "FMajorFlat",
+      "fifths": -8,
+      "minor": false
+    },
+    {
+      "name": "CMajorFlat",
+      "fifths": -7,
+      "minor": false
+    },
+    {
+      "name": "GMajorFlat",
+      "fifths": -6,
+      "minor": false
+    },
+    {
+      "name": "DMajorFlat",
+      "fifths": -5,
+      "minor": false
+    },
+    {
+      "name": "AMajorFlat",
+      "fifths": -4,
+      "minor": false
+    },
+    {
+      "name": "EMajorFlat",
+      "fifths": -3,
+      "minor": false
+    },
+    {
+      "name": "BMajorFlat",
+      "fifths": -2,
+      "minor": false
+    },
+    {
+      "name": "FMajor",
+      "fifths": -1,
+      "minor": false
+    },
+    {
+      "name": "CMajor",
+      "fifths": 0,
+      "minor": false
+    },
+    {
+      "name": "GMajor",
+      "fifths": 1,
+      "minor": false
+    },
+    {
+      "name": "DMajor",
+      "fifths": 2,
+      "minor": false
+    },
+    {
+      "name": "AMajor",
+      "fifths": 3,
+      "minor": false
+    },
+    {
+      "name": "EMajor",
+      "fifths": 4,
+      "minor": false
+    },
+    {
+      "name": "BMajor",
+      "fifths": 5,
+      "minor": false
+    },
+    {
+      "name": "FMajorSharp",
+      "fifths": 6,
+      "minor": false
+    },
+    {
+      "name": "CMajorSharp",
+      "fifths": 7,
+      "minor": false
+    },
+    {
+      "name": "GMajorSharp",
+      "fifths": 8,
+      "minor": false
+    },
+    {
+      "name": "DMinorFlat",
+      "fifths": -8,
+      "minor": true
+    },
+    {
+      "name": "AMinorFlat",
+      "fifths": -7,
+      "minor": true
+    },
+    {
+      "name": "EMinorFlat",
+      "fifths": -6,
+      "minor": true
+    },
+    {
+      "name": "BMinorFlat",
+      "fifths": -5,
+      "minor": true
+    },
+    {
+      "name": "FMinor",
+      "fifths": -4,
+      "minor": true
+    },
+    {
+      "name": "CMinor",
+      "fifths": -3,
+      "minor": true
+    },
+    {
+      "name": "GMinor",
+      "fifths": -2,
+      "minor": true
+    },
+    {
+      "name": "DMinor",
+      "fifths": -1,
+      "minor": true
+    },
+    {
+      "name": "AMinor",
+      "fifths": 0,
+      "minor": true
+    },
+    {
+      "name": "EMinor",
+      "fifths": 1,
+      "minor": true
+    },
+    {
+      "name": "BMinor",
+      "fifths": 2,
+      "minor": true
+    },
+    {
+      "name": "FMinorSharp",
+      "fifths": 3,
+      "minor": true
+    },
+    {
+      "name": "CMinorSharp",
+      "fifths": 4,
+      "minor": true
+    },
+    {
+      "name": "GMinorSharp",
+      "fifths": 5,
+      "minor": true
+    },
+    {
+      "name": "DMinorSharp",
+      "fifths": 6,
+      "minor": true
+    },
+    {
+      "name": "AMinorSharp",
+      "fifths": 7,
+      "minor": true
+    },
+    {
+      "name": "EMinorSharp",
+      "fifths": 8,
+      "minor": true
+    }
+  ],
+  "prompts": [
+    {
+      "row": {
+        "mode": "tab",
+        "instrument": "guitar",
+        "visual_pitch": false,
+        "bar_index": 0,
+        "score_state": {
+          "time": "3/4",
+          "key": -2,
+          "tuning": [
+            64,
+            59,
+            55,
+            50,
+            45,
+            40
+          ]
+        },
+        "pitch_context": {
+          "clef": "G2",
+          "clef_octave": 0,
+          "instrument_transpose": -12,
+          "octave_spans": [
+            {
+              "semitones": 12,
+              "start": 0.25,
+              "end": 1.0
+            }
+          ]
+        },
+        "tuning": [
+          64,
+          59,
+          55,
+          50,
+          45,
+          40
+        ]
+      },
+      "expected": "Independent guitar tab measure recognition. The first image is the target measure. The second and third images show the previous and next measures for visual context only. Return exactly one M2 fragment for the FIRST image. Preserve every voice, event start, duration, string, fret, rest, tie and visible technique. Use neighbouring images to resolve cross-bar ties and voice continuity; do not transcribe them. This is the first measure of the score. Effective printed state: {\"time\":\"3/4\",\"key\":0,\"tuning\":[64,59,55,50,45,40]}. Print time/key metadata only at score start or a printed change; use the effective state to read notes."
+    },
+    {
+      "row": {
+        "mode": "notation",
+        "instrument": "pitched",
+        "visual_pitch": true,
+        "bar_index": 1,
+        "score_state": {
+          "time": "3/4",
+          "key": -2,
+          "tuning": [
+            64,
+            59,
+            55,
+            50,
+            45,
+            40
+          ]
+        },
+        "pitch_context": {
+          "clef": "G2",
+          "clef_octave": 0,
+          "instrument_transpose": -12,
+          "octave_spans": [
+            {
+              "semitones": 12,
+              "start": 0.25,
+              "end": 1.0
+            }
+          ]
+        },
+        "tuning": [
+          64,
+          59,
+          55,
+          50,
+          45,
+          40
+        ]
+      },
+      "expected": "Independent pitched notation measure recognition. The first image is the target measure. The second and third images show the previous and next measures for visual context only. Return exactly one M2 fragment for the FIRST image. Preserve every voice, event start, duration, written MIDI pitch, rest, tie and visible technique. Use neighbouring images to resolve cross-bar ties and voice continuity; do not transcribe them. Effective printed state: {\"time\":\"3/4\",\"key\":-2}. Return written pitches, before instrument transposition, clef octave and ottava. Pitch context: {\"clef\":\"G2\",\"clef_octave\":0,\"instrument_transpose\":-12,\"octave_spans\":[{\"semitones\":12,\"start\":0.25,\"end\":1.0}]}. Preserve ottava:12, ottava:-12, ottava:24 or ottava:-24 on each affected event. Print time/key metadata only at score start or a printed change; use the effective state to read notes."
+    },
+    {
+      "row": {
+        "mode": "both",
+        "instrument": "guitar",
+        "visual_pitch": true,
+        "bar_index": 1,
+        "score_state": {
+          "time": "3/4",
+          "key": -2,
+          "tuning": [
+            64,
+            59,
+            55,
+            50,
+            45,
+            40
+          ]
+        },
+        "pitch_context": {
+          "clef": "G2",
+          "clef_octave": 0,
+          "instrument_transpose": -12,
+          "octave_spans": [
+            {
+              "semitones": 12,
+              "start": 0.25,
+              "end": 1.0
+            }
+          ]
+        },
+        "tuning": [
+          64,
+          59,
+          55,
+          50,
+          45,
+          40
+        ]
+      },
+      "expected": "Independent guitar both measure recognition. The first image is the target measure. The second and third images show the previous and next measures for visual context only. Return exactly one M2 fragment for the FIRST image. Preserve every voice, event start, duration, string, fret, written MIDI pitch, rest, tie and visible technique. Use neighbouring images to resolve cross-bar ties and voice continuity; do not transcribe them. Effective printed state: {\"time\":\"3/4\",\"key\":-2}. Return written pitches, before instrument transposition, clef octave and ottava. Read pitches from the notation and string/fret from TAB independently. Do not assume a tuning. Pitch context: {\"clef\":\"G2\",\"clef_octave\":0,\"instrument_transpose\":-12,\"octave_spans\":[{\"semitones\":12,\"start\":0.25,\"end\":1.0}]}. Preserve ottava:12, ottava:-12, ottava:24 or ottava:-24 on each affected event. Print time/key metadata only at score start or a printed change; use the effective state to read notes."
+    }
+  ]
+}

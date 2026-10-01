@@ -10,7 +10,7 @@ import re
 
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
-from datagen.training_samples import dataset_entry
+from datagen.training_samples import annotation_sample, dataset_entry
 from document_info.prompts import ANNOTATION_PROMPT
 from shared.pitch_context import explicit_transposition
 from datagen.chord_annotations import sample_diagram, draw_diagram
@@ -33,12 +33,6 @@ FONTS = ['/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
          '/usr/share/fonts/truetype/dejavu/DejaVuSerif-Italic.ttf',
          '/usr/share/fonts/truetype/liberation2/LiberationSerif-Regular.ttf',
          '/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf']
-
-
-def chat(image, value):
-    return {'messages': [{'role': 'user', 'content': '<image>' + ANNOTATION_PROMPT},
-                         {'role': 'assistant', 'content': json.dumps(value, ensure_ascii=False, separators=(',', ':'))}],
-            'images': [str(Path(image).resolve())]}
 
 
 def annotation(kind, text, semitones=None, capo=None):
@@ -107,7 +101,7 @@ def render_annotation(job):
     value = annotation(kind, text, shift, capo)
     if diagram is not None:
         value['diagram'] = diagram
-    return chat(path, value)
+    return annotation_sample(path, value)
 
 
 def native_annotations(job):
@@ -160,7 +154,7 @@ def native_annotations(job):
                 path = Path(output) / row['split'] / f'{source}-{page_number}-{k}.png'
                 path.parent.mkdir(parents=True, exist_ok=True)
                 crop.save(path)
-                result.append(chat(path, annotation(kind, text)))
+                result.append(annotation_sample(path, annotation(kind, text)))
     return result
 
 

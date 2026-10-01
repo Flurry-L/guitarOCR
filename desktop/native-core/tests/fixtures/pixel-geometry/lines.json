@@ -1,0 +1,45 @@
+[
+  {
+    "name": "bare",
+    "image": "bare.png",
+    "expected": {
+      "y": 15.5,
+      "left": 4,
+      "right": 235,
+      "hook": false,
+      "bare": true
+    }
+  },
+  {
+    "name": "hook",
+    "image": "hook.png",
+    "expected": {
+      "y": 15.5,
+      "left": 4,
+      "right": 236,
+      "hook": true,
+      "bare": true
+    }
+  },
+  {
+    "name": "text",
+    "image": "text.png",
+    "expected": {
+      "y": 15.5,
+      "left": 4,
+      "right": 235,
+      "hook": false,
+      "bare": false
+    }
+  },
+  {
+    "name": "too-short",
+    "image": "too-short.png",
+    "expected": null
+  },
+  {
+    "name": "too-tall",
+    "image": "too-tall.png",
+    "expected": null
+  }
+]

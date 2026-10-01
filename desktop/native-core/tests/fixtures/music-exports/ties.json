@@ -1,0 +1,127 @@
+{
+  "schema": "guitarocr.score/2",
+  "ticks_per_quarter": 960,
+  "title": "原创 🎸",
+  "artist": "测试",
+  "timeline": [
+    {
+      "index": 0,
+      "time_signature": "4/4"
+    }
+  ],
+  "parts": [
+    {
+      "id": "part-1",
+      "name": "guitar",
+      "instrument": "guitar",
+      "pitch_reference": "before_capo",
+      "midi_program": 25,
+      "tuning": [
+        64,
+        59,
+        55,
+        50,
+        45,
+        40
+      ],
+      "capo": 0,
+      "staves": [
+        {
+          "id": "staff-1",
+          "measures": [
+            {
+              "time_signature": "4/4",
+              "print_time_signature": true,
+              "tempo_quarter": null,
+              "key_signature": null,
+              "print_key_signature": false,
+              "triplet_feel": null,
+              "bars": [],
+              "repeat_count": null,
+              "alternate_endings": null,
+              "section": null,
+              "direction": null,
+              "from_direction": null,
+              "voices": [
+                {
+                  "voice": 0,
+                  "events": [
+                    {
+                      "start": 0,
+                      "duration": {
+                        "value": 4,
+                        "dotted": false,
+                        "double_dotted": false,
+                        "tuplet_enters": 1,
+                        "tuplet_times": 1
+                      },
+                      "status": "normal",
+                      "notes": [
+                        {
+                          "effects": [],
+                          "velocity": 95,
+                          "swap_accidentals": false,
+                          "pitch": 64
+                        }
+                      ],
+                      "effects": []
+                    },
+                    {
+                      "start": 960,
+                      "duration": {
+                        "value": 4,
+                        "dotted": false,
+                        "double_dotted": false,
+                        "tuplet_enters": 1,
+                        "tuplet_times": 1
+                      },
+                      "status": "normal",
+                      "notes": [
+                        {
+                          "effects": [],
+                          "velocity": 95,
+                          "swap_accidentals": false,
+                          "pitch": 67
+                        }
+                      ],
+                      "effects": []
+                    },
+                    {
+                      "start": 1920,
+                      "duration": {
+                        "value": 2,
+                        "dotted": false,
+                        "double_dotted": false,
+                        "tuplet_enters": 1,
+                        "tuplet_times": 1
+                      },
+                      "status": "normal",
+                      "notes": [
+                        {
+                          "effects": [
+                            "tie"
+                          ],
+                          "velocity": 95,
+                          "swap_accidentals": false,
+                          "pitch": 64
+                        }
+                      ],
+                      "effects": []
+                    }
+                  ]
+                }
+              ],
+              "index": 0,
+              "source_record": 1,
+              "mode": "notation",
+              "needs_review": false,
+              "chord_annotations": [],
+              "pitch_reference": "before_capo"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "annotations": []
+}

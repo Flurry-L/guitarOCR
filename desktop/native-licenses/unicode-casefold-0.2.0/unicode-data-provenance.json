@@ -1,0 +1,5 @@
+{
+  "source": "https://www.unicode.org/license.txt",
+  "sha256": "e7a93b009565cfce55919a381437ac4db883e9da2126fa28b91d12732bc53d96",
+  "basis": "crate source tables.rs declares Unicode 9.0.0; original unmodified Unicode data license provided in addition to crate Apache-2.0 declaration"
+}

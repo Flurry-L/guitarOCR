@@ -1,0 +1,7 @@
+{
+  "generation": 1,
+  "source": "https://github.com/ggml-org/llama.cpp",
+  "commit": "8019dc563b1ecbae6b161a70c3a1359f1b206c1e",
+  "license": "MIT",
+  "artifacts": {}
+}

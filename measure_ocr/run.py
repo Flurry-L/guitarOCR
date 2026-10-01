@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import argparse
 import json
+from hashlib import sha256
 from pathlib import Path
 from measure_ocr.result import save_recognition
-from shared.constraints import gp5_timing_errors
+from gp5_export.timing import gp5_timing_errors
 
 from shared.defaults import MODEL, MEASURE_ADAPTER
 
@@ -65,14 +66,20 @@ def run(
     output.mkdir(parents=True, exist_ok=True)
     log = output / "recognition.jsonl"
     # Reusing accepted measures requires the same crops, metadata, models and options.
-    def identity(path):
+    def identity(path, *, content=False):
         path = Path(path).resolve()
         stat = path.stat()
+        if content:
+            return {"path": str(path), "bytes": stat.st_size,
+                    "sha256": sha256(path.read_bytes()).hexdigest()}
         return [str(path), stat.st_size, stat.st_mtime_ns]
 
     context = {
-        'layout': identity(layout), 'info': identity(info),
-        'images': [identity(row['image']) for row in records],
+        # The CLI regenerates upstream artifacts on resume. Identical inputs
+        # must remain reusable despite atomic replacements changing mtimes.
+        'input_identity': 'sha256',
+        'layout': identity(layout, content=True), 'info': identity(info, content=True),
+        'images': [identity(row['image'], content=True) for row in records],
         'models': [], 'options': [device, max_new_tokens, max_new_tokens_ceiling, maximum_attempts],
         'initial': initial_records, 'retry': retry_measures,
     }
@@ -108,7 +115,14 @@ def run(
             if signature_path.is_file()
             else {}
         )
-        if previous != context:
+        comparable = context
+        if 'input_identity' not in previous:
+            # Existing workspaces retain the original, strict stat-based check
+            # once before upgrading their checkpoint to content identities.
+            comparable = {key: value for key, value in context.items() if key != 'input_identity'}
+            comparable.update(layout=identity(layout), info=identity(info),
+                              images=[identity(row['image']) for row in records])
+        if previous != comparable:
             raise ValueError(
                 "Recognition inputs or options changed; use a new output or omit --resume"
             )

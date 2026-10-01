@@ -106,11 +106,19 @@ class DataPipelineTest(unittest.TestCase):
                     },
                 },
                 "tempo": {"visible": True, "unit_name": "Quarter", "value": 120},
+                "master_measures": [{"master_measure_index": i} for i in range(3)],
             },
             "tracks": [
                 {
                     "staves": [
-                        {"tuning_displayed_label": "", "tuning_label_visible": False}
+                        {
+                            "tuning_displayed_label": "", "tuning_label_visible": False,
+                            "measures": [{"measure_index": i, "voices": [{
+                                "voice_index": 0,
+                                "events": [{"offset": [0, 1], "grace": False,
+                                            "placeholder": False, "rest": True}],
+                            }]} for i in range(3)],
+                        }
                     ]
                 }
             ],
@@ -215,7 +223,7 @@ class DataPipelineTest(unittest.TestCase):
             data = json.loads((typed_destination / "annotations" / f"instance_{split}.json").read_text())
             labels = {row["id"]: row["name"] for row in data["categories"]}
             modes = {row["id"]: row["mode"] for row in data["images"]}
-            self.assertEqual(set(labels.values()), {"measure_tab", "measure_notation", "measure_both", "tempo_region", "clef_region", "transposition_region"})
+            self.assertEqual(set(labels.values()), {"measure_tab", "measure_notation", "measure_both", "tempo_region", "clef_region", "annotation_region"})
             for row in data["annotations"]:
                 if labels[row["category_id"]] != "tempo_region":
                     self.assertEqual(labels[row["category_id"]], f"measure_{modes[row['image_id']]}")

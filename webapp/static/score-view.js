@@ -311,7 +311,20 @@ function engravedSection(
     }
     markSelection();
   }
-  api.postRenderFinished.on(decorate);
+  let viewportPosition = null;
+  const viewport = host.closest(".score-viewport");
+  function rememberViewport() {
+    if (viewport && !viewportPosition)
+      viewportPosition = { top: viewport.scrollTop, left: viewport.scrollLeft };
+  }
+  api.postRenderFinished.on(() => {
+    if (viewportPosition && viewport) {
+      viewport.scrollTop = viewportPosition.top;
+      viewport.scrollLeft = viewportPosition.left;
+      viewportPosition = null;
+    }
+    decorate();
+  });
   let width = 0;
   const resize = new ResizeObserver(([entry]) => {
     const next = Math.round(entry.contentRect.width);
@@ -395,6 +408,7 @@ function engravedSection(
       if (key === signature) return;
       signature = key;
       try {
+        rememberViewport();
         rendered = engrave(state, api.settings, changed, range.mode);
         if (host.clientWidth > 0)
           api.renderScore(rendered.score, visibleTracks());
@@ -403,12 +417,15 @@ function engravedSection(
         onError(error.message);
       }
     },
+    restoreViewport(position) { viewportPosition = position; },
     select(hit, scroll = false) {
       selected = hit;
       scrollToSelection = scroll;
+      if (scroll && viewportPosition) return;
       markSelection();
     },
     zoom(scale) {
+      rememberViewport();
       api.settings.display.scale = scale;
       api.updateSettings();
       api.render();
@@ -463,6 +480,9 @@ export function scoreView(host, callbacks) {
         });
       }
       sections.forEach((s) => s.view.render(state, edited, part));
+    },
+    restoreViewport(position) {
+      sections.forEach((s) => s.view.restoreViewport(position));
     },
     select(hit, scroll = false) {
       sections.forEach((s) =>

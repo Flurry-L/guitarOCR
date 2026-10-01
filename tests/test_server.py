@@ -2,6 +2,7 @@
 
 from concurrent.futures import ThreadPoolExecutor
 import io
+from hashlib import sha256
 import json
 from pathlib import Path
 import tempfile
@@ -10,6 +11,7 @@ from threading import Event
 import time
 import unittest
 from unittest.mock import patch
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from fastapi.testclient import TestClient
 from PIL import Image
@@ -54,6 +56,116 @@ class ServiceTest(unittest.TestCase):
         self.assertTrue(
             run_once(self.config, self.store, self.workflow, Event())
         )
+
+    def demo_archive(self):
+        from scripts.create_demo import create_demo
+
+        _, archive = create_demo(self.root / "sample")
+        return archive.read_bytes()
+
+    def test_project_restore_is_private_and_works_without_gpu(self):
+        self.config.gpus = ""
+        archive = self.demo_archive()
+        response = self.client.post("/api/projects/import", files={"file": ("sample.zip", archive)})
+        self.assertEqual(response.status_code, 200, response.text)
+        project = response.json()
+        self.assertEqual(len(project["measures"]), 16)
+        self.assertIsNone(project["job"])
+        sid = project["id"]
+        self.assertIsNone(self.store.job(sid))
+        row = self.store.one("SELECT * FROM projects WHERE id=?", (sid,))
+        self.assertEqual(row["bytes"], sum(p.stat().st_size for p in self.workflow.directory(sid).rglob("*") if p.is_file()))
+        other = self.enterContext(TestClient(self.app))
+        login = other.post("/api/auth/register", json={"username": "bob", "password": "a long password"}).json()
+        other.headers["X-CSRF-Token"] = login["csrf"]
+        self.assertEqual(other.get(f"/api/sessions/{sid}").status_code, 404)
+        self.assertEqual(other.get(project["pages"][0]["url"]).status_code, 404)
+        self.assertEqual(self.client.post("/api/projects/import", files={"file": ("sample.zip", archive)},
+                                         headers={"X-CSRF-Token": "wrong"}).status_code, 403)
+        self.assertEqual(self.client.post(f"/api/sessions/{sid}/export", json={},
+                                         headers={"If-Match": str(project["revision"])}).status_code, 400)
+        for measure in project["measures"]:
+            saved = self.client.put(f"/api/sessions/{sid}/measures/{measure['measure_number']}",
+                                    json={"reviewed": True}, headers={"If-Match": str(project["revision"])})
+            self.assertEqual(saved.status_code, 200, saved.text)
+            project = saved.json()
+        exported = self.client.post(f"/api/sessions/{sid}/export", json={},
+                                    headers={"If-Match": str(project["revision"])})
+        self.assertEqual(exported.status_code, 200, exported.text)
+        self.assertTrue(exported.json()["export"])
+
+    def test_project_restore_quota_failure_leaves_no_reservation(self):
+        archive = self.demo_archive()
+        self.config.max_projects = 1
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            requests = [pool.submit(self.client.post, "/api/projects/import",
+                                    files={"file": ("sample.zip", archive)}) for _ in range(2)]
+            self.assertEqual(sorted(job.result().status_code for job in requests), [200, 409])
+        self.assertEqual(len(self.store.all("SELECT * FROM projects")), 1)
+        self.assertEqual(len(list(self.workflow.root.glob("*/session.json"))), 1)
+        self.assertFalse(list(self.workflow.root.glob("import-*.zip")))
+
+    def test_project_restore_rejects_page_limit_and_malformed_zip_atomically(self):
+        source, contents = io.BytesIO(self.demo_archive()), io.BytesIO()
+        with ZipFile(source) as old, ZipFile(contents, "w") as new:
+            for name in old.namelist():
+                data = old.read(name)
+                if name == "project.json":
+                    project = json.loads(data)
+                    project["session"]["pages"] *= 2
+                    data = json.dumps(project).encode()
+                new.writestr(name, data)
+        self.config.max_pages = 1
+        for archive in (contents.getvalue(), b"broken zip"):
+            response = self.client.post("/api/projects/import", files={"file": ("sample.zip", archive)})
+            self.assertEqual(response.status_code, 400, response.text)
+            self.assertFalse(self.store.all("SELECT * FROM projects"))
+            self.assertFalse(list(self.workflow.root.glob("*/session.json")))
+            self.assertFalse(list(self.workflow.root.glob("import-*.zip")))
+
+    def test_project_restore_limits_expanded_zip_and_rejects_traversal(self):
+        self.config.storage_mb = 1
+        bomb, traversal = io.BytesIO(), io.BytesIO()
+        with ZipFile(bomb, "w", ZIP_DEFLATED) as archive:
+            archive.writestr("large.dat", b"0" * (2 * 1024**2))
+        with ZipFile(traversal, "w") as archive:
+            archive.writestr("../outside.txt", "escape")
+        for contents, status in ((bomb.getvalue(), 409), (traversal.getvalue(), 400)):
+            response = self.client.post("/api/projects/import", files={"file": ("sample.zip", contents)})
+            self.assertEqual(response.status_code, status, response.text)
+            self.assertFalse(self.store.all("SELECT * FROM projects"))
+            self.assertFalse(list(self.workflow.root.glob("*/session.json")))
+            self.assertFalse(list(self.workflow.root.glob("import-*.zip")))
+        self.assertFalse((self.workflow.root / "outside.txt").exists())
+
+    def test_project_restore_checks_manifest_content_and_numeric_page_references(self):
+        source = self.demo_archive()
+        for suffix, field, value in ((".txt", "source_page", "/private.png"),
+                                      (".JSON", "source_page", "/private.png"),
+                                      (".json", "page", "x/../../../victim/page")):
+            with self.subTest(suffix=suffix, field=field):
+                contents = io.BytesIO()
+                with ZipFile(io.BytesIO(source)) as old, ZipFile(contents, "w") as new:
+                    package = json.loads(old.read("project.json"))
+                    old_name = package["session"]["layout"].removeprefix("project://")
+                    name = str(Path(old_name).with_suffix(suffix))
+                    layout = json.loads(old.read(old_name))
+                    layout["records"][0][field] = value
+                    data = json.dumps(layout).encode()
+                    package["session"]["layout"] = "project://" + name
+                    for entry in package["files"]:
+                        if entry["path"] == old_name:
+                            entry.update(path=name, sha256=sha256(data).hexdigest())
+                    for member in old.namelist():
+                        if member not in {old_name, "project.json"}:
+                            new.writestr(member, old.read(member))
+                    new.writestr(name, data)
+                    new.writestr("project.json", json.dumps(package))
+                response = self.client.post("/api/projects/import", files={"file": ("sample.zip", contents.getvalue())})
+                self.assertEqual(response.status_code, 400, response.text)
+                self.assertFalse(self.store.all("SELECT * FROM projects"))
+                self.assertFalse(list(self.workflow.root.glob("*/session.json")))
+                self.assertFalse(list(self.workflow.root.glob("import-*.zip")))
 
     def test_worker_model_snapshot_does_not_leak_to_the_next_job(self):
         first = self.upload()["id"]
@@ -125,6 +237,43 @@ class ServiceTest(unittest.TestCase):
         self.client.post(f"/api/sessions/{second['id']}/cancel")
         self.assertIsNone(self.store.claim())
         self.assertEqual(self.store.job(second["id"])["status"], "cancelled")
+
+    def test_full_job_resumes_replacement_even_when_saved_result_exists(self):
+        from shared.glm_backend import BackendPool
+
+        sid = self.upload()["id"]
+        self.work()
+        self.config.model = str(self.root / "model")
+        self.config.info_adapter = str(self.root / "info-adapter")
+        self.config.measure_adapter = str(self.root / "measure-adapter")
+        for key in ("model", "info_adapter", "measure_adapter"):
+            setattr(self.workflow, key, Path(getattr(self.config, key)))
+        self.workflow.pool = BackendPool(self.workflow.model, "cpu")
+        self.workflow.boxes(sid, [
+            {"page": 1, "kind": "measure", "bbox": [20, 80, 130, 60]},
+            {"page": 1, "kind": "measure", "bbox": [160, 80, 120, 60]},
+        ], "tab")
+        self.workflow.metadata(sid, {"title": "Resume", "tempo_quarter": 92})
+        target = "M2 time=4/4 | V0{@0:w:s1f0}"
+        with patch("shared.glm_backend.GlmBackend") as backend:
+            backend.return_value.generate.return_value = (target, 20)
+            self.workflow.recognize(sid)
+            saved = self.workflow.load(sid)["recognition"]
+            backend.return_value.generate.side_effect = [(target, 20), Cancelled("stopped")]
+            with self.assertRaises(Cancelled):
+                self.workflow.recognize(sid)
+            self.assertEqual(self.workflow.load(sid)["recognition"], saved)
+            backend.return_value.generate.side_effect = None
+            backend.return_value.generate.reset_mock()
+            project = self.store.one("SELECT * FROM projects WHERE id=?", (sid,))
+            self.store.enqueue(project, "full", {"resume": True, "model_paths": self.config.model_paths()})
+            self.work()
+            self.assertEqual(self.store.job(sid)["status"], "complete")
+            backend.return_value.generate.assert_called_once()
+            resumed = self.workflow.load(sid)
+            self.assertNotIn("ocr_task", resumed)
+            self.assertNotEqual(resumed["recognition"], saved)
+            self.assertTrue(resumed["export"])
 
     def test_claim_fairness_recovery_and_stale_completion(self):
         first = self.upload()

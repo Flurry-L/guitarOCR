@@ -37,6 +37,18 @@ PATH_FIELDS = {
 MAX_BYTES = 2 * 1024**3
 
 
+def validate_page_references(value, count):
+    """Page IDs enter crop filenames later; imported metadata must remain numeric."""
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if key == "page" and (type(child) is not int or not 1 <= child <= count):
+                raise ValueError("项目包含无效的页码引用")
+            validate_page_references(child, count)
+    elif isinstance(value, list):
+        for child in value:
+            validate_page_references(child, count)
+
+
 def transform(value, convert, key=""):
     if isinstance(value, dict):
         return {k: transform(v, convert, k) for k, v in value.items()}
@@ -61,19 +73,25 @@ def safe_relative(name):
     return path
 
 
-def transform_file(contents, suffix, convert):
-    """Apply the same path conversion to JSON and JSONL in both directions."""
+def transform_file(contents, suffix, convert, *, recover_partial=False):
+    """Convert paths, optionally dropping an interrupted journal's final write."""
+    suffix = suffix.casefold()
     if suffix not in {".json", ".jsonl"}:
         return contents
-    records = (
-        [contents]
-        if suffix == ".json"
-        else [line for line in contents.decode("utf-8").splitlines() if line]
-    )
-    return "".join(
-        json.dumps(transform(json.loads(record), convert), ensure_ascii=False) + "\n"
-        for record in records
-    ).encode("utf-8")
+    records = [contents] if suffix == ".json" else contents.splitlines(keepends=True)
+    converted = []
+    for index, record in enumerate(records):
+        if suffix == ".jsonl" and not record.strip():
+            continue
+        try:
+            value = json.loads(record)
+        except (ValueError, UnicodeDecodeError):
+            if (recover_partial and suffix == ".jsonl" and index == len(records) - 1
+                    and not record.endswith(b"\n")):
+                break
+            raise
+        converted.append(json.dumps(transform(value, convert), ensure_ascii=False) + "\n")
+    return "".join(converted).encode("utf-8")
 
 
 def export_project(workflow, sid, destination):
@@ -103,7 +121,7 @@ def export_project(workflow, sid, destination):
                 continue
             if "tmp" in path.relative_to(root).parts or path.suffix in {".tmp", ".zip"}:
                 continue
-            contents = transform_file(path.read_bytes(), path.suffix, encode)
+            contents = transform_file(path.read_bytes(), path.suffix, encode, recover_partial=True)
             archive.writestr(relative, contents)
             files.append({"path": relative, "sha256": sha256(contents).hexdigest()})
         archive.writestr(
@@ -121,9 +139,12 @@ def export_project(workflow, sid, destination):
     return destination
 
 
-def import_project(workflow, source):
-    sid = uuid4().hex
+def import_project(workflow, source, *, sid=None, max_bytes=MAX_BYTES, max_pages=100):
+    """Restore into a new project, bounded by the caller's storage/page policy."""
+    sid = sid or uuid4().hex
     root = workflow.directory(sid)
+    if root.exists():
+        raise ValueError("项目目录已存在，不能覆盖")
 
     def decode(value, key):
         if value.startswith("project://"):
@@ -136,8 +157,8 @@ def import_project(workflow, source):
     try:
         with ZipFile(source) as archive:
             members = archive.infolist()
-            if len(members) > 25000 or sum(m.file_size for m in members) > MAX_BYTES:
-                raise ValueError("项目包过大：最多 2 GB 解压内容、25000 个文件")
+            if len(members) > 25000 or sum(m.file_size for m in members) > min(max_bytes, MAX_BYTES):
+                raise ValueError("项目包解压内容超过大小或文件数量限制")
             names = [m.filename for m in members]
             if len(names) != len({name.casefold() for name in names}):
                 raise ValueError("项目包包含重复文件")
@@ -160,6 +181,12 @@ def import_project(workflow, source):
                 package.get("session"), dict
             ):
                 raise ValueError("项目包缺少有效的文件清单或会话信息")
+            # Stage consumers parse JSON regardless of filename. Require a JSON
+            # suffix so their nested file references cannot bypass path rewriting.
+            for key in ("layout", "info", "recognition", "export"):
+                reference = package["session"].get(key)
+                if reference and (not isinstance(reference, str) or Path(reference).suffix.casefold() != ".json"):
+                    raise ValueError("项目阶段清单必须使用 JSON 文件")
             listed = [r["path"] for r in package["files"]]
             if len(listed) != len(set(listed)) or set(names) != {
                 "project.json",
@@ -177,8 +204,9 @@ def import_project(workflow, source):
             state = transform(package["session"], decode)
             state.update(id=sid, revision=0)
             state.pop("ocr_task", None)
-            if not 1 <= len(state["pages"]) <= 100:
-                raise ValueError("项目必须包含 1–100 页")
+            if not 1 <= len(state["pages"]) <= min(max_pages, 100):
+                raise ValueError(f"项目必须包含 1–{min(max_pages, 100)} 页")
+            validate_page_references(state, len(state["pages"]))
             # Validate saved references without depending on an HTTP presentation.
             for page in state["pages"]:
                 if not Path(page["image"]).is_file():
@@ -191,6 +219,7 @@ def import_project(workflow, source):
             ):
                 if state.get(key):
                     result = read_result(Path(state[key]), stage)
+                    validate_page_references(result, len(state["pages"]))
                     if key == "recognition":
                         for row in result["records"]:
                             parse_measure_target(row["target"])

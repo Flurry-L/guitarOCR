@@ -19,8 +19,8 @@
     "active": true,
     "targets": "all",
     "resources": {
-      "resources/backend/": "backend/",
-      "resources/uv/": "uv/",
+      "resources/webapp/static/": "webapp/static/",
+      "resources/native/": "native/",
       "resources/licenses/": "licenses/"
     },
     "icon": [
@@ -46,7 +46,7 @@
       }
     },
     "macOS": {
-      "minimumSystemVersion": "12.3"
+      "minimumSystemVersion": "13.4"
     },
     "linux": {
       "deb": {

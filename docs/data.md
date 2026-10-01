@@ -2,6 +2,17 @@
 
 `database/` 保存生成数据，由 Git 忽略。页面使用 Guitar Pro 原生渲染，导出环境的安装步骤见[下文](#安装导出环境)。
 
+## 选入口，不重复搭流水线
+
+- 已有 GP 曲库：`datagen.run` 负责选源 → 原生渲染 → 小节裁图 → 任务数据集，按下面的 `--phase` 续做
+- 已有人工确定的来源划分：先用 `datagen.prepare_catalog`，随后使用同一个 render / crop / datasets 流程
+- 原创多乐器、双谱表与复调数据：`datagen.engraved_scores` 生成谱面及标签，再由任务构建器消费；不依赖 GP 原生导出
+- 已有多组任务样本：`datagen.unified_data` 汇集共享 OCR 训练输入，`datagen.unified_layout` 汇集版面数据；训练从[训练说明](training.md)进入
+
+数据层的交付是清单、图像、标签和 `dataset_info.json`，不启动优化器、不安装推理 runtime，也不改变用户项目。`datagen/catalog.py` 负责来源／family 划分；`datagen/training_samples.py` 负责训练消息序列化；各 builder 负责自己的可见标签。提示词与图像规范直接复用对应推理模块，避免训练和推理偷偷使用不同输入。
+
+曲源标签、训练样本和项目 `score.json` 是不同用途的文件；乐谱语义共用[IR 约定](score-text.md#表示与职责边界)，不能把模型训练消息当成可编辑项目备份。Guitar Pro / Wine 只用于下述原生数据生产，用户识别已有 PDF 不需要这些工具。
+
 ## 生成三种排版
 
 ```bash
@@ -13,7 +24,7 @@ uv run --no-sync python -m datagen.run \
   --wine-python /path/to/wine-python/python.exe --workers 4
 ```
 
-`all` 依次选源、渲染、生成小节数据，再生成版面和谱面信息数据。支持 GP3 / GP4 / GP5 / GTP，默认导出 TAB、五线谱和混合谱三种排版。可重复指定 `--mode tab|notation|both` 筛选。
+`all` 依次选源、渲染、生成小节数据，再生成版面和谱面信息数据。 `all` / `render` 在写输出前检查必需的渲染参数；独立阶段只导入自己需要的构建器。支持 GP3 / GP4 / GP5 / GTP，默认导出 TAB、五线谱和混合谱三种排版。可重复指定 `--mode tab|notation|both` 筛选。
 
 默认选取 8 至 128 小节、至少 16 个音符的曲谱。可用 `--minimum-measures`、`--maximum-measures` 和 `--source-count` 调整选源范围。
 

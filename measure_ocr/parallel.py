@@ -7,7 +7,9 @@ import time
 
 from PIL import Image
 
-from shared.constraints import gp5_timing_errors, validate_measure_target
+from gp5_export.timing import gp5_timing_errors
+from measure_ocr.review import ocr_rhythm_warnings
+from shared.constraints import validate_measure_target
 from shared.glm_backend import create_backend
 from shared.m2 import full_measure_rest_target
 from shared.pitch_context import convert_pitch_target
@@ -168,6 +170,10 @@ def recognize_independent(
             row['needs_review'] = (bool(saved.get('needs_review')) if saved.get('manually_edited') else
                                    bool(row.get('needs_review') or saved.get('fallback_reason') or
                                         row.get('pitch_needs_review') or row.get('state_needs_review')))
+            if not saved.get('manually_edited'):
+                warnings = ocr_rhythm_warnings(target, row['score_state']['time'])
+                row['fallback_reason'] = list(dict.fromkeys([*(row.get('fallback_reason') or []), *warnings]))
+                row['needs_review'] = bool(row['needs_review'] or warnings)
             completed += 1
         else:
             with Image.open(row['image']) as image:
@@ -270,7 +276,9 @@ def recognize_independent(
                             errors += chord_errors
                     if annotation_error:
                         errors.append(annotation_error)
+                    rhythm_warnings = ocr_rhythm_warnings(target, row['score_state']['time']) if not structural_errors else []
                     value = {
+                        'needs_review': bool(rhythm_warnings), 'fallback_reason': rhythm_warnings,
                         'measure_number': row['measure_number'], 'mode': row['mode'], 'image': row['image'],
                         'attempt': attempt, 'raw': raw, 'target': target, 'accepted': not errors,
                         'generated_token_count': tokens, 'token_budget': token_budget,
@@ -308,9 +316,10 @@ def recognize_independent(
                         save({**value, 'target': target, 'accepted': True, 'fallback_reason': errors,
                               'attempt': attempt + 1, 'deterministic_repairs': ['fallback_full_measure_rest']})
                     elif errors:
-                        save({**value, 'accepted': True, 'needs_review': True, 'fallback_reason': errors})
-                    row.update(target=target, written_target=text, recognition_attempts=attempt, fallback_reason=errors,
-                               needs_review=bool(errors or row.get('pitch_needs_review') or row.get('state_needs_review')))
+                        save({**value, 'accepted': True, 'needs_review': True, 'fallback_reason': [*errors, *rhythm_warnings]})
+                    rhythm_warnings = ocr_rhythm_warnings(target, row['score_state']['time'])
+                    row.update(target=target, written_target=text, recognition_attempts=attempt, fallback_reason=[*errors, *rhythm_warnings],
+                               needs_review=bool(errors or rhythm_warnings or row.get('pitch_needs_review') or row.get('state_needs_review')))
                     completed += 1
                     if progress:
                         progress(completed, len(records))

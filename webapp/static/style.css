@@ -2,33 +2,70 @@
 @import url("./shell.css");
 @import url("./editor.css");
 /* Project library, task setup and workflow panels. The frame lives in shell.css. */
+/* Primary project navigation lives alongside the project title. */
 #steps {
   display: flex;
+  align-items: center;
   gap: 4px;
-  border-bottom: 1px solid var(--line);
-  margin: 0 0 20px;
+  margin: 0;
 }
-#steps button {
-  flex: 1;
-  justify-content: flex-start;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  border-radius: 0;
+#steps > button {
+  border-color: transparent;
   background: transparent;
-  font-size: 11px;
   color: var(--muted);
-  padding: 13px 10px;
-}
-#steps button span {
+  padding: 6px 14px;
   font-size: 13px;
-  margin-left: 5px;
 }
-#steps button.active {
+#steps > button.active {
   color: var(--accent);
-  border-bottom-color: var(--accent);
+  background: var(--soft);
+  font-weight: 600;
 }
-#steps button.done:not(.active) {
+#steps > button.done:not(.active) {
   color: var(--ink);
+}
+.project-advanced {
+  position: relative;
+  border: 0;
+  border-radius: 6px;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+}
+.project-advanced > summary {
+  padding: 6px 10px;
+  color: var(--muted);
+}
+.project-advanced[open] > summary,
+.project-advanced:has(button.active) > summary {
+  color: var(--accent);
+  background: var(--soft);
+  border-radius: 6px;
+}
+.project-advanced-menu {
+  position: absolute;
+  z-index: 25;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 160px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  box-shadow: 0 8px 24px #18181b1a;
+}
+.project-advanced-menu button {
+  display: flex;
+  justify-content: flex-start;
+  width: 100%;
+  border-color: transparent;
+  background: transparent;
+  font-size: 12px;
+}
+.project-advanced-menu button:hover,
+.project-advanced-menu button.active {
+  color: var(--accent);
+  background: var(--soft);
 }
 .panel {
   display: none;
@@ -86,25 +123,74 @@
   max-width: 240px;
   font-size: 12px;
 }
+.sample-project {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 16px;
+  margin-top: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--soft);
+  font-size: 13px;
+}
+.sample-project p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.sample-project button {
+  flex-shrink: 0;
+}
 .import-limits {
   font-size: 11px;
   color: var(--muted);
 }
-.document-summary {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 16px;
-  font-size: 12px;
+.project-bar .document-summary {
+  min-width: 0;
+  font-size: 11px;
   color: var(--muted);
 }
-#documentName {
-  font-weight: 600;
-  color: var(--ink);
-  overflow-wrap: anywhere;
+.project-title-line,
+.project-source-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
 }
-.document-summary .pill {
-  margin-left: auto;
+.project-title-line:has(#scoreTitle:empty) {
+  display: none;
+}
+.project-bar #scoreTitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  line-height: 1.5;
+}
+#scoreCredits {
+  flex-shrink: 0;
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#documentName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 400;
+}
+.project-title-line:has(#scoreTitle:empty) + .project-source-line #documentName {
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 600;
+}
+#documentPages {
+  flex-shrink: 0;
 }
 #notice {
   padding: 11px 15px;
@@ -321,14 +407,56 @@
   font-size: 12px;
   color: var(--muted);
 }
+.export-formats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 22px;
+}
+.export-format {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--paper);
+}
+.export-format p {
+  flex: 1;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.export-format :is(button, .button) {
+  font-size: 12px;
+}
+.export-more {
+  padding: 14px 0 0;
+  margin-top: 20px;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+}
+.export-more summary {
+  color: var(--muted);
+}
 .export-extras {
   display: flex;
-  gap: 20px;
   flex-wrap: wrap;
-  border-top: 1px solid var(--line);
-  margin-top: 22px;
-  padding-top: 20px;
-  font-size: 13px;
+  gap: 10px;
+  padding-top: 12px;
+  font-size: 12px;
+}
+@media (max-width: 900px) {
+  .export-formats {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .export-format {
+    padding: 16px;
+  }
 }
 .page-footer {
   display: flex;
@@ -385,14 +513,9 @@
   .panel {
     padding: 16px;
   }
-  #steps button {
-    justify-content: center;
-    padding: 10px 3px;
-    font-size: 0;
-  }
-  #steps button span {
-    font-size: 11px;
-    margin: 0;
+  #steps > button {
+    padding: 6px 14px;
+    font-size: 12px;
   }
   .section-head,
   .footer {

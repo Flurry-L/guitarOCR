@@ -48,12 +48,14 @@ jobs:
         run: |
           import json, os, shutil, subprocess
           from pathlib import Path
+          from shared.model_files import verify_files
           catalog = json.loads(Path('weights/distribution.json').read_text())
           folder = Path('output/model-assets')
           folder.mkdir(parents=True, exist_ok=True)
           for item in catalog['files']['auxiliary']:
               source = Path('output/distribution') / item['path']
-              assert source.stat().st_size == item['bytes'], f'Unexpected conversion size: {source}: {source.stat().st_size}'
+              errors = verify_files(source.parent, [{**item, 'name': source.name}])
+              assert not errors, '; '.join(errors)
               target = folder / item['asset']
               shutil.move(source, target)
               subprocess.run(['gh', 'release', 'upload', os.environ['RELEASE_TAG'], str(target), '--clobber'], check=True)

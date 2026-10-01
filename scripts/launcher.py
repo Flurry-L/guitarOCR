@@ -92,6 +92,7 @@ def run_uv(uv, arguments, *, capture=False):
         "UV_NATIVE_TLS",
         "UV_SYSTEM_CERTS",
         "UV_PYTHON_INSTALL_DIR",
+        "UV_MANAGED_PYTHON",
         "UV_PYTHON_CACHE_DIR",
     }
     environment = {
@@ -115,6 +116,7 @@ def installation_current(state, tools, profile=None):
             and state.get('engine_generation') == manifest['engines'][state['engine']]['generation']
             and (profile is None or profile == state.get('profile'))
             and Path(state.get('python', '')).is_file()
+            and (state['engine'] != 'llamacpp' or Path(state.get('llama_server') or '').is_file())
             and Path(state.get('models', '')).is_dir()
             and Path(state['models']).name == catalog()['generation'])
 
@@ -182,21 +184,21 @@ def acquire_weights(manifest, root=None):
         for entry, item in missing:
             path = Path(entry["path"]) / item["name"]
             asset = assets.get(path.as_posix())
-            progress('models', '正在下载识别模型', completed=completed, total=total, detail=path.as_posix())
+            progress('正在下载识别模型', completed=completed, total=total, detail=path.as_posix())
             if tag and asset:
                 if not re.fullmatch(r'[\w.\-]+', asset):
                     raise ValueError('安装包的模型文件名无效。')
                 url = f'https://github.com/{repository}/releases/download/{tag}/{asset}'
                 download_verified(url, root / path, item,
                                   on_progress=lambda received, size: progress(
-                                      'models', '正在下载识别模型', completed=completed + received,
+                                      '正在下载识别模型', completed=completed + received,
                                       total=total, detail=path.as_posix()))
                 completed += item['bytes']
                 continue
             host = "media.githubusercontent.com/media" if path.suffix in {".safetensors", ".pdiparams"} else "raw.githubusercontent.com"
             download(f"https://{host}/{repository}/{commit}/{path.as_posix()}", root / path, item)
             completed += item['bytes']
-        progress('models', '识别模型已就绪', completed=total, total=total)
+        progress('识别模型已就绪', completed=total, total=total)
         return
     # Git checkouts fetch the revision they actually checked out.
     try:
@@ -229,6 +231,8 @@ def acquire_weights(manifest, root=None):
 def choose_device(requested):
     if requested != "auto":
         return requested
+    if platform.system() == "Darwin" and platform.machine().lower() in {"arm64", "aarch64"}:
+        return "metal"
     try:
         result = subprocess.run(
             ["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader"],
@@ -341,7 +345,11 @@ def resolve_profile(args):
     device = choose_device(args.device)
     engine = getattr(args, 'engine', 'auto')
     if engine == 'auto':
-        engine = 'vllm' if device == 'cuda' and platform.system() == 'Linux' else 'transformers'
+        engine = 'llamacpp'
+    if device == 'metal' and engine != 'llamacpp':
+        raise ValueError('Metal 仅支持 GGUF / llama.cpp 本机引擎。')
+    if device == 'metal' and platform.system() != 'Darwin':
+        raise ValueError('Metal 仅适用于 macOS。')
     if engine == 'vllm' and (device != 'cuda' or platform.system() != 'Linux'):
         raise ValueError('vLLM 需要 Linux 和 NVIDIA GPU；此平台请选择 transformers。')
     if engine != 'llamacpp' and (platform.system() not in {'Windows', 'Linux'}
@@ -356,13 +364,24 @@ def install(args, uv, tools):
     engine, device, profile = resolve_profile(args)
     llama = getattr(args, 'llama_server', None) or os.environ.get('GUITAROCR_LLAMA_SERVER')
     if engine == 'llamacpp':
-        llama = shutil.which(str(llama or 'llama-server'))
+        from scripts.llamacpp_runtime import acquire as acquire_runtime, select_device
         if not llama:
-            raise ValueError('请用 --llama-server 指定 llama-server 可执行文件，详见 docs/setup.md。')
+            device = select_device(device, allow_fallback=args.device == 'auto')
+            profile = f'{engine}-{device}'
+        # Resolve/probe the binary before downloading 1.775 GB of models.
+        llama = acquire_runtime(tools, device, llama)
+    from scripts.distribution import model_root, download_size
+    pending = download_size(engine)
+    cache = model_root()
+    cache.mkdir(parents=True, exist_ok=True)
+    required = pending + 2 * 1024**3  # dependency installation and temporary files
+    progress('本机安装计划', detail=f'{engine} / {device}；模型待下载 {pending / 1e9:.3f} GB；缓存 {cache}；运行环境 {tools}；建议预留至少 {required / 1e9:.1f} GB。')
+    if shutil.disk_usage(cache).free < required:
+        raise ValueError(f'模型缓存空间不足，至少需 {required / 1e9:.1f} GB 可用磁盘空间。')
     root = acquire(engine)
     python = environment_python(tools / 'runtimes' / profile).absolute()
     manifest = runtime_manifest()
-    progress('ocr', '正在准备所选运行环境', detail=f'{engine} / {device}；仅安装这一种 OCR 引擎。')
+    progress('正在准备所选运行环境', detail=f'{engine} / {device}；仅安装这一种 OCR 引擎。')
     if not python.is_file():
         run_uv(uv, ['venv', '--python', manifest['python'], python.parent.parent])
     requirements = ((ROOT / 'scripts/runtime-vllm.txt').read_text() if engine == 'vllm'
@@ -378,7 +397,7 @@ def install(args, uv, tools):
                  model=str(root / selected_manifest(engine)['models'][0]['path'] / 'merged'), layout_python=str(python),
                  generation=manifest['generation'], engine_generation=manifest['engines'][engine]['generation'],
                  llama_server=llama)
-    progress('check', '正在检查识别环境')
+    progress('正在检查识别环境')
     run([python, '-m', 'shared.environment', '--device', device], env=environment(state))
     path = tools / 'install-state.json'
     temporary = path.with_suffix('.tmp')
@@ -443,7 +462,7 @@ def launch(args, tools, state):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('command', choices=('install', 'start', 'check', 'status', 'clean', 'run'))
-    parser.add_argument('--device', choices=('auto', 'cpu', 'cuda'), default='auto')
+    parser.add_argument('--device', choices=('auto', 'cpu', 'cuda', 'metal'), default='auto')
     parser.add_argument('--engine', choices=('auto', 'transformers', 'vllm', 'llamacpp'), default='auto')
     parser.add_argument('--llama-server')
     parser.add_argument('--port', type=int, default=7860)

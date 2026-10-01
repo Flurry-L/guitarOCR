@@ -1,0 +1,85 @@
+{
+  "schema": "guitarocr.score/2",
+  "ticks_per_quarter": 960,
+  "title": "原创 🎸",
+  "artist": "测试",
+  "timeline": [
+    {
+      "index": 0,
+      "time_signature": "4/4"
+    }
+  ],
+  "parts": [
+    {
+      "id": "part-1",
+      "name": "pitched",
+      "instrument": "pitched",
+      "pitch_reference": "sounding",
+      "midi_program": 0,
+      "tuning": [],
+      "capo": 0,
+      "staves": [
+        {
+          "id": "staff-1",
+          "measures": [
+            {
+              "time_signature": "4/4",
+              "print_time_signature": true,
+              "tempo_quarter": null,
+              "key_signature": "BMajorFlat",
+              "print_key_signature": true,
+              "triplet_feel": null,
+              "bars": [],
+              "repeat_count": null,
+              "alternate_endings": null,
+              "section": null,
+              "direction": null,
+              "from_direction": null,
+              "voices": [
+                {
+                  "voice": 0,
+                  "events": [
+                    {
+                      "start": 0,
+                      "duration": {
+                        "value": 1,
+                        "dotted": false,
+                        "double_dotted": false,
+                        "tuplet_enters": 1,
+                        "tuplet_times": 1
+                      },
+                      "status": "normal",
+                      "notes": [
+                        {
+                          "effects": [],
+                          "velocity": 95,
+                          "swap_accidentals": false,
+                          "pitch": 60
+                        }
+                      ],
+                      "effects": [
+                        "ottava:12"
+                      ]
+                    }
+                  ]
+                }
+              ],
+              "index": 0,
+              "source_record": 1,
+              "mode": "notation",
+              "needs_review": false,
+              "chord_annotations": [],
+              "pitch_reference": "sounding",
+              "pitch_context": {
+                "clef": "G2",
+                "instrument_transpose": -2,
+                "clef_octave": 0
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "annotations": []
+}

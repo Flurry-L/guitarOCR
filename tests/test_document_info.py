@@ -47,13 +47,17 @@ class DocumentInfoTest(unittest.TestCase):
 
     def test_parallel_metrics_weight_modes_by_samples_and_count_missing_fields(self):
         rows = [
-            {"expected": {"title": "A"}, "predicted": {"title": "A"}, "provenance": {"mode": "tab"}},
-            {"expected": {"title": "B"}, "predicted": {}, "provenance": {"mode": "notation"}},
-            {"expected": {"title": "C"}, "predicted": {"title": "C"}, "provenance": {"mode": "notation"}},
+            {"image": "/native/a.png", "expected": {"title": "A"}, "predicted": {"title": "A"}, "provenance": {"mode": "tab"}},
+            {"image": "/header_images/b.png", "expected": {"title": "曲"}, "predicted": {}, "provenance": {"mode": "notation"}},
+            {"image": "/header_images/c.png", "expected": {"title": "C"}, "predicted": {"title": "C"}, "provenance": {"mode": "notation"}},
         ]
         result = score(rows)
         self.assertEqual(result["overall"]["title"], {"correct": 2, "total": 3, "accuracy": 2 / 3})
         self.assertEqual(result["notation"]["title"]["accuracy"], 0.5)
+        self.assertEqual(result["header/native"]["title"]["total"], 1)
+        self.assertEqual(result["header/rendered"]["title"]["accuracy"], 0.5)
+        self.assertEqual(result["language/zh"]["title"]["accuracy"], 0)
+        self.assertEqual(result["text_metrics"]["overall/title"]["character_error_rate"], 1 / 3)
         missing = score([{"expected": {"artist": None}, "predicted": {}}])
         self.assertEqual(missing["overall"]["artist"]["accuracy"], 0)
 

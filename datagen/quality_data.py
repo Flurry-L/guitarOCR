@@ -11,22 +11,10 @@ import random
 
 from PIL import Image, ImageDraw
 
-from datagen.training_samples import dataset_entry
+from datagen.training_samples import dataset_entry, visual_measure_sample
 from datagen.source_profile import apply_composed_profile
 from shared.m2 import parse_measure_target, format_measure_target
-from shared.score_state import state_prompt, attach_neighbours
-
-
-def sample(row):
-    state = dict(row['score_state'])
-    if row['mode'] != 'tab':
-        state.pop('tuning', None)
-    return {'messages': [
-        {'role': 'user', 'content': '<image><image><image>' + state_prompt(
-            row['mode'], row['instrument'], state, row.get('pitch_context'),
-            first=row.get('bar_index', row['measure_index']) == 0, visual_pitch=True)},
-        {'role': 'assistant', 'content': row['target']}],
-        'images': [row['image'], row.get('previous_image', row['image']), row.get('next_image', row['image'])]}
+from shared.score_state import attach_neighbours
 
 
 def ensemble(path):
@@ -195,7 +183,7 @@ def build(output, workers=24, anchor_repeats=4):
                         for row in rows:
                             row['id'] = corpus + '-' + row['id']
                             row['source_id'] = corpus + '-' + row['source_id']
-                            dest.write(json.dumps(sample(row), ensure_ascii=False) + '\n')
+                            dest.write(json.dumps(visual_measure_sample(row), ensure_ascii=False) + '\n')
                             manifest.write(json.dumps(row, ensure_ascii=False) + '\n')
                             counts[corpus] += 1
             if split == 'train':

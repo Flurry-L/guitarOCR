@@ -1,0 +1,14 @@
+[
+  {
+    "file": "LICENSE-MIT",
+    "source": "crates.io libappindicator 0.9.0 (same upstream commit as sys crate)",
+    "commit": "eafd1e3682a1247f595410266091e9684021cb6f",
+    "sha256": "eb227437252b2a7a9c1fc342c93ade1f3d7ce38cc6dd754f613db07d53ceff0b"
+  },
+  {
+    "file": "LICENSE-APACHE",
+    "source": "crates.io libappindicator 0.9.0 (same upstream commit as sys crate)",
+    "commit": "eafd1e3682a1247f595410266091e9684021cb6f",
+    "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+  }
+]

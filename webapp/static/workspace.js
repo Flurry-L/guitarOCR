@@ -26,11 +26,13 @@ const dateLabel = (timestamp) =>
       })
     : "";
 
-export function initWorkspace({ open, resume }) {
+export function initWorkspace({ open, resume, refreshConfig }) {
   let projects = [],
     screen = "workbench",
+    navigation = 0,
     refreshing = false;
   function show(name) {
+    if (name !== screen) navigation += 1;
     screen = name;
     $("deleteProject").hidden = name !== "workbench" || !ui.state?.pages;
     document.querySelectorAll("[data-screen]").forEach((node) => {
@@ -49,6 +51,7 @@ export function initWorkspace({ open, resume }) {
       settings: "设置",
     }[name];
     if (["library", "tasks"].includes(name)) refresh();
+    if (name === "settings" && refreshConfig) refreshConfig().catch(error => notice(error.message, true));
     window.dispatchEvent(new Event("resize"));
   }
   document.querySelectorAll("[data-screen-link]").forEach((node) => {
@@ -64,9 +67,9 @@ export function initWorkspace({ open, resume }) {
 
   function openButton(project, label = "打开项目") {
     const button = el("button", label);
-    button.disabled = ui.busy;
+    button.disabled = ui.busy && !active(ui.state?.job);
     button.onclick = action(async () => {
-      if (await open(project.id)) show("workbench");
+      await open(project.id);
     });
     return button;
   }
@@ -191,8 +194,7 @@ export function initWorkspace({ open, resume }) {
           const retry = el("button", "继续识别");
           retry.disabled = ui.busy;
           retry.onclick = action(async () => {
-            if (await open(project.id)) {
-              show("workbench");
+            if (await open(project.id) && ui.sid === project.id && screen === "workbench") {
               await resume();
             }
           });
@@ -253,22 +255,32 @@ export function initWorkspace({ open, resume }) {
     $("settingConnection").textContent = remote ? "远程服务" : "本机服务";
     $("settingDevice").textContent = editOnly
       ? "校对与导出"
-      : config.device || (config.gpu_available ? "服务器 GPU" : "未启用 GPU");
-    $("settingModel").textContent = config.model_ready ? "已安装" : "未安装";
-    $("settingLayout").textContent = config.layout_ready ? "已安装" : "未安装";
+      : config.device === "auto" ? "自动选择（首次识别时检测）"
+        : config.device || (config.gpu_available ? "服务器 GPU" : "未启用 GPU");
+    $("settingModel").textContent = config.model_ready ? "已就绪" : config.model_cached ? "已缓存，待校验" : "未准备";
+    $("settingLayout").textContent = config.layout_ready ? "已就绪" : config.layout_cached ? "已缓存，待校验" : "未准备";
     $("settingLimits").textContent =
       `${config.max_pages} 页 / ${config.max_upload_mb} MB`;
     $("uploadLimits").textContent =
       `每个项目最多 ${config.max_pages} 页 · ${config.max_upload_mb} MB`;
-    if (editOnly) {
-      $("importAction").value = "import";
-      $("importAction").querySelector('[value="full"]').disabled = true;
-      $("taskHint").textContent =
-        "校对模式：导入并手动框选，或恢复项目备份后继续编辑与导出。";
-    }
-    if (!config.model_ready && !editOnly)
-      $("settingHint").textContent =
-        "识别模型未就绪，请通过桌面启动页安装本机环境，或连接已部署的 GPU 服务。";
+    $("importAction").querySelector('[value="full"]').disabled = editOnly;
+    if (editOnly) $("importAction").value = "import";
+    $("taskHint").textContent = editOnly
+      ? "校对模式：导入并手动框选，或恢复项目备份后继续编辑与导出。"
+      : config.native
+        ? "识别在本机后台运行。退出桌面应用会停止任务，已保存结果可继续处理。"
+        : "识别在后台运行，关闭网页后可回来继续校对。";
+    $("settingHint").textContent = config.native
+      ? editOnly
+        ? "当前安装包缺少可用的识别组件。可继续校对与导出；本机识别需要完整原生安装包。"
+        : config.model_ready
+          ? "模型已校验。项目与模型保存在本机，更新应用后可继续使用。"
+          : "开始识别时会校验模型缓存，缺失或损坏时经确认后下载；中断后重试可续传。"
+      : !config.model_ready && !editOnly
+        ? remote
+          ? "服务端识别模型尚未就绪，请联系服务管理员。"
+          : "识别模型未就绪，请通过研究脚本准备环境，或连接已部署的服务。"
+        : "项目保存在运行服务的设备上；下载项目 ZIP 可迁移并继续编辑。";
   }
-  return { show, refresh, renderJob, configure };
+  return { show, refresh, renderJob, configure, screen: () => screen, navigation: () => navigation };
 }

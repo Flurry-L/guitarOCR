@@ -2,6 +2,14 @@
   "name": "guitarocr-desktop",
   "private": true,
   "version": "0.1.0",
-  "scripts": { "dev": "tauri dev", "build": "tauri build", "resources": "python3 ../scripts/prepare_desktop.py" },
-  "devDependencies": { "@tauri-apps/cli": "2.12.0" }
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "resources": "node ../scripts/prepare_native_desktop.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "native:build": "cargo build --locked --release --manifest-path native-service/Cargo.toml"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.0"
+  }
 }

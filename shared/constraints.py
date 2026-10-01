@@ -1,7 +1,8 @@
+"""Hard invariants of the M2 score representation, independent of export or OCR."""
+
 from __future__ import annotations
 
 import re
-from fractions import Fraction
 from typing import Any
 
 from shared.m2 import parse_measure_target
@@ -39,22 +40,6 @@ _BEAT_EFFECTS = {
     "stroke_up",
 }
 _DURATION_VALUES = {1, 2, 4, 8, 16, 32, 64}
-
-
-def gp5_timing_errors(target: str) -> list[str]:
-    """Find events that GP5's sequential beat storage cannot preserve."""
-    measure = parse_measure_target(target)
-    errors = []
-    for voice in measure["voices"]:
-        end = 0
-        for index, event in enumerate(voice["events"]):
-            if event["start"] < end:
-                errors.append(f"声部 {voice['voice'] + 1} 的第 {index + 1} 个事件与前一个重叠")
-            duration = event["duration"]
-            ticks = Fraction(3840 * duration["tuplet_times"], duration["value"] * duration["tuplet_enters"])
-            ticks *= Fraction(7, 4) if duration["double_dotted"] else Fraction(3, 2) if duration["dotted"] else 1
-            end = event["start"] + int(ticks)
-    return errors
 
 
 def _valid_note_effect(effect: str) -> bool:

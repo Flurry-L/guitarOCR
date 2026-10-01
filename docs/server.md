@@ -6,7 +6,7 @@
 
 ## 安装与启动
 
-先安装一套 GPU 环境，服务端与本机工作台共用安装器和模型缓存：
+先安装一套 Python GPU 环境。服务端与 Python 本机工作台共用 `Workspace`、安装器和模型缓存；原生桌面使用独立 Rust 服务与运行组件：
 
 ```bash
 bash install.sh --engine vllm --device cuda

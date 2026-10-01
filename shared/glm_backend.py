@@ -24,7 +24,10 @@ def create_backend(model_path, adapter_path, device):
         task = 'MEASURE' if (resolved / 'music_vocabulary.json').is_file() else 'INFO'
         variable = f'GUITAROCR_LLAMA_{task}_URL'
         endpoint = os.environ.get('GUITAROCR_LLAMA_SCORE_URL') or os.environ.get(variable)
-        return LlamaCppBackend(resolved, endpoint, device=device, options=settings.get('options'))
+        # The top-level options describe vLLM's server profile, not laptop memory.
+        return LlamaCppBackend(resolved, endpoint, device=device, options=settings.get('llamacpp_options'))
+    if device == 'metal':
+        raise ValueError('Metal 识别需要 llama.cpp 与 ONNX 运行环境，请使用 --engine llamacpp --device metal 安装。')
     if device.startswith('cuda') and merged and merged.is_dir() and os.environ.get('GUITAROCR_BACKEND', 'auto') != 'transformers':
         from shared.vllm_backend import VllmBackend, engine_python
 

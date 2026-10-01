@@ -34,8 +34,8 @@ class InstrumentTest(unittest.TestCase):
             Image.new("RGB", (100, 100), "white").save(page)
             layout = write_result(root / "layout", "layout", info_source="image", inputs=[str(page)],
                                   mode="tab", regions=[], records=[dict(measure_number=1, page=1,
-                                  mode="tab", bbox=[0, 0, 100, 100], source_page=str(page))])
-            info = read_result(read_information(layout, root / "info", backend=Backend()), "document_info")
+                                  mode="tab", system_index=0, bbox=[0, 0, 100, 100], source_page=str(page))])
+            info = read_result(read_information(layout, root / "info", adapter=root / "info-adapter", backend=Backend()), "document_info")
             self.assertEqual(info["instrument"], "guitar")
             self.assertEqual(info["tuning_used"], standard_tuning("guitar", 6))
             self.assertTrue(info["document_metadata"]["warnings"])
@@ -152,13 +152,13 @@ class InstrumentTest(unittest.TestCase):
         self.assertEqual(visible_instrument("David", "notation", True), "drums")
         self.assertEqual(
             parse_info_response('{"instrument":"drums","string_count":null}', "staff"),
-            {"instrument": "drums", "string_count": None},
+            {"instrument": "drums", "string_count": None, "name": None},
         )
         self.assertEqual(
             parse_info_response(
                 '{"instrument":"unknown","string_count":true}', "staff"
             ),
-            {"instrument": None, "string_count": None},
+            {"instrument": None, "string_count": None, "name": None},
         )
         self.assertEqual(
             validate_measure_target("M2 time=42/8 | V0{@0:w:r}", "notation")[1], []

@@ -83,7 +83,7 @@ class PitchContextTest(unittest.TestCase):
     def test_capo_is_separate_from_stored_note_pitch(self):
         target = "M2 | V0{@0:w:p64}"
         document = score_document({"mode": "notation", "instrument": "guitar", "capo": 3,
-                                   "records": [{"target": target}]})
+                                   "records": [{"measure_number": 1, "target": target}]})
         part = document["parts"][0]
         self.assertEqual((part["pitch_reference"], part["capo"]), ("before_capo", 3))
         label = {"track": {"instrument": "guitar", "capo": 3},
@@ -115,7 +115,7 @@ class PitchContextTest(unittest.TestCase):
             layout = write_result(root / "layout", "layout", info_source="image", inputs=["score.png"],
                                   records=[dict(measure_number=1, page=1, bbox=[0, 40, 120, 40])],
                                   regions=[dict(kind="transposition", page=1, bbox=[0, 10, 120, 20], image="label.png")])
-            info = read_result(read_information(layout, root / "info", backend=Backend()), "document_info")
+            info = read_result(read_information(layout, root / "info", adapter=root / "info-adapter", backend=Backend()), "document_info")
             self.assertEqual(info["instrument"], "pitched")
             self.assertEqual(info["midi_program"], 56)
             self.assertEqual(info["measure_pitch_contexts"][0]["pitch_context"]["instrument_transpose"], -2)
@@ -191,7 +191,16 @@ class PitchContextTest(unittest.TestCase):
         self.assertIsNone(parsed["semitones"])
         result = apply_pitch_regions([dict(measure_number=1, page=1, bbox=[0, 30, 100, 50])],
                                      [dict(kind="transposition", page=1, bbox=[0, 15, 60, 10], parsed=parsed)])
-        self.assertTrue(result[0]["pitch_needs_review"])
+        # Unsubstantiated model numbers are rejected as non-pitch annotations.
+        self.assertIsNone(parsed["kind"])
+        self.assertFalse(result[0].get("pitch_needs_review"))
+        self.assertFalse(result[0]["pitch_context"].get("octave_spans"))
+        # A located, identified octave span with unreadable magnitude still
+        # requires review and must never invent a numeric shift.
+        uncertain = apply_pitch_regions([dict(measure_number=1, page=1, bbox=[0, 30, 100, 50])],
+            [dict(kind="transposition", page=1, bbox=[0, 15, 60, 10],
+                  parsed={"kind": "ottava", "semitones": None})])
+        self.assertTrue(uncertain[0]["pitch_needs_review"])
 
     def test_unreadable_static_transpose_requires_review_until_resolved(self):
         records = [dict(measure_number=i + 1, page=1, system_index=i, bbox=[0, 50 + i * 100, 100, 40])

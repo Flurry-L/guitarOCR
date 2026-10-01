@@ -1,3 +1,6 @@
+from fractions import Fraction
+from copy import deepcopy
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -6,11 +9,68 @@ import guitarpro
 
 from datagen.gp_sources import analyze_source
 from gp5_export.writer import write_targets_gp5, targets_to_song
-from shared.constraints import validate_measure_target, gp5_timing_errors
-from shared.m2 import parse_measure_target, format_measure_target
+from gp5_export.timing import gp5_timing_errors
+from shared.constraints import validate_measure_target
+from shared.m2 import duration_ticks, parse_duration_token, parse_measure_target, format_measure_target
+from shared.musicxml import duration_ticks as musicxml_duration_ticks
+from shared.score_document import score_document
 
 
 class M2SemanticsTest(unittest.TestCase):
+    def test_python_and_native_share_the_same_ir_goldens(self):
+        # Both runtimes consume these files; neither may silently redefine the
+        # expected semantics by updating only its own implementation or tests.
+        fixtures = Path(__file__).resolve().parents[1] / 'desktop/native-core/tests/fixtures'
+        golden = json.loads((fixtures / 'score-golden.json').read_text(encoding='utf-8'))
+        for case in golden['cases']:
+            with self.subTest(target=case['target']):
+                parsed, errors = validate_measure_target(case['target'], case['mode'],
+                                                         tuning=case['tuning'], string_count=case['string_count'])
+                self.assertEqual(parsed, case['parsed'])
+                self.assertEqual(errors, case['errors'])
+                for output in case['formats']:
+                    self.assertEqual(format_measure_target(parsed, output['mode'],
+                                                           preserve_playback=output['preserve_playback']), output['target'])
+        for target in golden['invalid']:
+            with self.subTest(invalid=target), self.assertRaises(ValueError):
+                parse_measure_target(target)
+        for case in golden['durations']:
+            self.assertEqual(duration_ticks(parse_duration_token(case['token'])),
+                             Fraction(case['numerator'], case['denominator']))
+        for case in json.loads((fixtures / 'score-document-golden.json').read_text(encoding='utf-8')):
+            source = deepcopy(case['result'])
+            self.assertEqual(score_document(source), case['score'])
+            self.assertEqual(source, case['result'])
+
+    def test_duration_math_stays_exact_until_export_projection(self):
+        for token, expected in (
+            ("q", Fraction(960)),
+            ("q.", Fraction(1440)),
+            ("h..", Fraction(3360)),
+            ("q[3:2]", Fraction(640)),
+            ("q[7:4]", Fraction(3840, 7)),
+            ("f..[7:4]", Fraction(60)),
+        ):
+            with self.subTest(duration=token):
+                duration = parse_duration_token(token)
+                self.assertEqual(duration_ticks(duration), expected)
+                self.assertIsInstance(duration_ticks(duration), Fraction)
+                self.assertEqual(musicxml_duration_ticks(duration), int(expected))
+                self.assertIsInstance(musicxml_duration_ticks(duration), int)
+        self.assertEqual(duration_ticks({"value": 4}), Fraction(960))
+
+    def test_overfull_legacy_measure_remains_legal_and_exportable(self):
+        target = "M2 time=4/4 | V0{@0:w:s1f0 @3840:w:s1f3}"
+        self.assertEqual(validate_measure_target(target, "tab")[1], [])
+        self.assertEqual(gp5_timing_errors(target), [])
+        with tempfile.TemporaryDirectory() as directory:
+            path = write_targets_gp5([target], Path(directory) / "overfull.gp5", mode="tab")
+            song = guitarpro.parse(str(path), encoding="cp936")
+            measure = song.tracks[0].measures[0]
+            beats = measure.voices[0].beats
+            self.assertEqual([beat.start - measure.header.start for beat in beats], [0, 3840])
+            self.assertEqual([beat.notes[0].value for beat in beats], [0, 3])
+
     def test_mixed_note_without_pitch_reports_error_with_tuning(self):
         _, errors = validate_measure_target(
             "M2 | V0{@0:w:s1f3}", "both", tuning=[64, 59, 55, 50, 45, 40],
@@ -18,7 +78,9 @@ class M2SemanticsTest(unittest.TestCase):
         self.assertEqual(errors, ["both_note_fields:V0:E0:N0"])
 
     def test_gp5_preserves_explicit_gaps_and_rejects_overlapping_events(self):
-        self.assertTrue(gp5_timing_errors("M2 | V0{@0:h:s1f3 @960:q:s1f5}"))
+        overlap = "M2 | V0{@0:h:s1f3 @960:q:s1f5}"
+        self.assertEqual(validate_measure_target(overlap, "tab")[1], [])
+        self.assertTrue(gp5_timing_errors(overlap))
         self.assertEqual(gp5_timing_errors("M2 | V0{@960:q:s1f3 @2880:q:s1f5}"), [])
         self.assertEqual(gp5_timing_errors("M2 | V0{@0:w:p60} || V1{@0:w:p64}"), [])
         with tempfile.TemporaryDirectory() as directory:
@@ -36,10 +98,25 @@ class M2SemanticsTest(unittest.TestCase):
         for target in ("M20 | V0{@0:w:r}", "M2 title=x | V0{@0:w:r}", "M2 time=4/4 time=3/4 | V0{@0:w:r}"):
             with self.assertRaises(ValueError):
                 parse_measure_target(target)
-        target = "M2 | V2{@0:w:r}"
-        self.assertIn("unsupported_gp5_voice:V2", validate_measure_target(target, "tab")[1])
-        with self.assertRaisesRegex(ValueError, "only V0 and V1"):
-            targets_to_song([target])
+
+    def test_score_ir_voices_are_separate_from_single_track_gp5_limits(self):
+        # The score IR keeps V0..V15; the single-track writer must not discard
+        # voices that need the whole-score export's synchronized track groups.
+        for voice_id in range(16):
+            with self.subTest(voice=voice_id):
+                target = f"M2 | V{voice_id}" + "{@0:w:s1f3}"
+                measure, errors = validate_measure_target(target, "tab")
+                self.assertEqual(errors, [])
+                self.assertEqual(measure["voices"][0]["voice"], voice_id)
+                self.assertEqual(format_measure_target(measure, "tab"), target)
+                if voice_id > 1:
+                    with self.assertRaisesRegex(ValueError, "only V0 and V1"):
+                        targets_to_song([target], mode="tab")
+        for voice_id in (16, 99):
+            with self.subTest(invalid_voice=voice_id):
+                target = f"M2 | V{voice_id}" + "{@0:w:s1f3}"
+                self.assertEqual(validate_measure_target(target, "tab")[1],
+                                 [f"invalid_voice:V{voice_id}"])
 
     def test_ornaments_survive_gp5_and_notation_hides_frets(self):
         target = "M2 time=4/4 | V0{@0:q:s1f7p71(grace:f5p69:32:hammer:0:0) @960:q:s1f7p71(trill:f9p73:32) @1920:h:s1f7p71(trem:32)}"

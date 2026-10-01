@@ -8,7 +8,6 @@ import threading
 import time
 import unittest
 from unittest.mock import MagicMock, patch
-from types import SimpleNamespace
 
 import guitarpro
 from reportlab.pdfgen.canvas import Canvas
@@ -47,22 +46,40 @@ class VersionedClient(TestClient):
 
 
 class WebWorkflowTest(unittest.TestCase):
+    def test_editor_mode_serves_score_assets_and_refuses_model_jobs(self):
+        with TestClient(create_app(Workspace(self.root / 'edit-only'), inference_enabled=False),
+                        base_url='http://127.0.0.1') as client:
+            self.assertFalse(client.get('/api/config').json()['inference_enabled'])
+            for asset in ('alphaTab.mjs', 'alphaTab.core.mjs', 'font/Bravura.woff2'):
+                self.assertEqual(client.get(f'/static/vendor/{asset}').status_code, 200)
+            for action in ('detect', 'information', 'recognize'):
+                result = client.post(f'/api/sessions/unused/{action}', json={})
+                self.assertEqual(result.status_code, 409, result.text)
+                self.assertIn('校对模式', result.text)
+
     def setUp(self):
         self.temp = self.enterContext(tempfile.TemporaryDirectory())
         self.root = Path(self.temp)
         self.page = self.root / "input.png"
         Image.new("RGB", (300, 200), "white").save(self.page)
-        self.workflow = Workspace(self.root / "sessions", device="cpu")
+        self.enterContext(patch.object(Workspace, "warmup"))
+        self.workflow = Workspace(
+            self.root / "sessions", device="cpu", model=self.root / "model",
+            info_adapter=self.root / "info-adapter", measure_adapter=self.root / "measure-adapter",
+        )
         self.client = self.enterContext(VersionedClient(create_app(self.workflow)))
         self.backend = self.enterContext(patch("shared.glm_backend.GlmBackend"))
         self.backend.return_value.generate.return_value = (TARGET, 30)
         self.enterContext(contextlib.redirect_stdout(io.StringIO()))
 
-    def wait(self, sid):
+    def wait(self, sid, *, expected="complete"):
         for _ in range(150):
             state = self.client.get(f"/api/sessions/{sid}").json()
             if state.get("job", {}).get("status") not in {"queued", "running"}:
-                self.assertNotEqual(state.get("job", {}).get("status"), "failed", state)
+                if expected == "failed":
+                    self.assertEqual(state.get("job", {}).get("status"), expected, state)
+                else:
+                    self.assertNotEqual(state.get("job", {}).get("status"), "failed", state)
                 return state
             time.sleep(0.01)
         self.fail("Background task did not complete")
@@ -238,7 +255,7 @@ class WebWorkflowTest(unittest.TestCase):
             self.assertTrue(call.args[0][0]["content"][1]["text"].startswith(expected))
         first = state["measures"][0]["parsed"]
         first["voices"][0]["events"][0]["notes"][0]["pitch"] = 65
-        self.assertEqual(self.client.put(prefix + "/measures/1", json={"measure": first}).status_code, 200)
+        self.assertEqual(self.client.put(prefix + "/measures/1", json={"measure": first, "reviewed": True}).status_code, 200)
         self.assertEqual(self.client.put(prefix + "/metadata", json={"tempo_quarter": 104}).status_code, 200)
         state = self.client.get(prefix).json()
         self.assertEqual(state["measures"][0]["parsed"]["voices"][0]["events"][0]["notes"][0]["pitch"], 65)
@@ -284,6 +301,26 @@ class WebWorkflowTest(unittest.TestCase):
             )
             self.assertEqual(response.status_code, 200)
         self.assertEqual(self.client.post(prefix + "/export").status_code, 200)
+
+    def test_saving_changed_measure_requires_explicit_review_again(self):
+        sid, _ = self.prepare()
+        prefix = f"/api/sessions/{sid}"
+        confirmed = self.client.put(prefix + "/measures/1", json={"reviewed": True})
+        self.assertEqual(confirmed.status_code, 200, confirmed.text)
+        self.assertNotIn(1, confirmed.json()["review_measures"])
+        saved = self.client.put(prefix + "/measures/1", json={
+            "target": TARGET.replace("s1f0", "s1f7"), "reviewed": False,
+        })
+        self.assertEqual(saved.status_code, 200, saved.text)
+        state = saved.json()
+        self.assertIn(1, state["review_measures"])
+        self.assertFalse(state["measures"][0]["reviewed"])
+        restored = self.client.get(prefix).json()
+        self.assertIn(1, restored["review_measures"])
+        confirmed = self.client.put(prefix + "/measures/1", json={"reviewed": True})
+        self.assertEqual(confirmed.status_code, 200, confirmed.text)
+        self.assertNotIn(1, confirmed.json()["review_measures"])
+        self.assertIn("s1f7", confirmed.json()["measures"][0]["target"])
 
     def test_review_without_edit_preserves_result_and_survives_reload(self):
         self.backend.return_value.generate.return_value = ("broken", 5)
@@ -605,9 +642,11 @@ class WebWorkflowTest(unittest.TestCase):
         self.assertTrue(state["measures"][0]["manually_edited"])
         self.assertIn("s1f9", state["measures"][1]["target"])
 
-    def test_cancel_and_resume_skips_completed_measure(self):
+    def test_process_resumes_cancelled_replacement_and_keeps_saved_result(self):
         sid, _ = self.prepare()
         prefix = f"/api/sessions/{sid}"
+        self.client.post(prefix + "/export")
+        saved = self.workflow.load(sid)
         entered, release = threading.Event(), threading.Event()
 
         def generate(*args):
@@ -623,15 +662,132 @@ class WebWorkflowTest(unittest.TestCase):
             state = self.wait(sid)
         self.assertEqual(state["job"]["status"], "cancelled")
         self.assertTrue(state["ocr_task"])
+        interrupted = self.workflow.load(sid)
+        self.assertEqual(interrupted["recognition"], saved["recognition"])
+        self.assertEqual(interrupted["export"], saved["export"])
         log = Path(self.workflow.load(sid)["ocr_task"]["output"]) / "recognition.jsonl"
         with log.open("ab") as handle:
             handle.write(b'{"measure_number": 2, "raw": "partial')
         self.backend.return_value.generate.reset_mock()
-        self.client.post(prefix + "/recognize", json={"resume": True})
+        self.client.post(prefix + "/process")
         state = self.wait(sid)
         self.backend.return_value.generate.assert_called_once()
         self.assertEqual(len(state["measures"]), 2)
         self.assertNotIn("ocr_task", state)
+
+    def test_cancel_during_final_measure_does_not_replace_saved_result(self):
+        from shared.tasks import Cancelled
+
+        sid, _ = self.prepare()
+        self.client.post(f"/api/sessions/{sid}/export")
+        saved = self.workflow.load(sid)
+        cancelled = threading.Event()
+        calls = 0
+
+        def generate(*args):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                cancelled.set()
+            return TARGET, 20
+
+        self.backend.return_value.generate.side_effect = generate
+        with self.assertRaises(Cancelled):
+            self.workflow.recognize(sid, cancelled=cancelled.is_set)
+        state = self.workflow.load(sid)
+        self.assertEqual(state["recognition"], saved["recognition"])
+        self.assertEqual(state["export"], saved["export"])
+        self.assertTrue(state["ocr_task"])
+        self.backend.return_value.generate.reset_mock()
+        self.workflow.recognize(sid, resume=True)
+        self.backend.return_value.generate.assert_not_called()
+        self.assertNotIn("ocr_task", self.workflow.load(sid))
+
+    def test_failed_replacement_preserves_result_and_explicit_resume(self):
+        sid, _ = self.prepare()
+        prefix = f"/api/sessions/{sid}"
+        self.client.post(prefix + "/export")
+        saved = self.workflow.load(sid)
+        self.backend.return_value.generate.side_effect = [(TARGET, 20), RuntimeError("offline")]
+        self.client.post(prefix + "/recognize")
+        self.wait(sid, expected="failed")
+        failed = self.workflow.load(sid)
+        self.assertEqual(failed["recognition"], saved["recognition"])
+        self.assertEqual(failed["export"], saved["export"])
+        self.assertTrue(failed["ocr_task"])
+        self.backend.return_value.generate.side_effect = None
+        self.backend.return_value.generate.reset_mock()
+        self.client.post(prefix + "/recognize", json={"resume": True})
+        self.wait(sid)
+        self.backend.return_value.generate.assert_called_once()
+        self.assertNotIn("ocr_task", self.workflow.load(sid))
+
+    def test_cancel_queued_job_is_immediate_and_cannot_overwrite_retry(self):
+        first, _ = self.prepare()
+        second, _ = self.prepare()
+        saved = self.workflow.load(second)
+        entered, release = threading.Event(), threading.Event()
+
+        def information(*args, **kwargs):
+            entered.set()
+            if not release.wait(5):
+                raise RuntimeError("test did not release blocker")
+
+        with patch.object(self.workflow, "information", side_effect=information):
+            try:
+                self.client.post(f"/api/sessions/{first}/information")
+                self.assertTrue(entered.wait(2))
+                queued = self.client.post(f"/api/sessions/{second}/recognize").json()
+                self.assertEqual(queued["id"], second)
+                self.assertEqual(queued["job"]["status"], "queued")
+                response = self.client.post(f"/api/sessions/{second}/cancel")
+                self.assertEqual(response.status_code, 200, response.text)
+                self.assertEqual(self.client.get(f"/api/sessions/{second}").json()["job"]["status"], "cancelled")
+                self.assertEqual(response.json()["id"], second)
+                self.assertEqual(response.json()["job"]["status"], "cancelled")
+                self.assertEqual(self.workflow.load(second), saved)
+                self.assertEqual(self.client.get(f"/api/sessions/{first}").json()["job"]["status"], "running")
+                retry = self.client.post(f"/api/sessions/{second}/recognize")
+                self.assertEqual(retry.status_code, 200, retry.text)
+                self.assertEqual(retry.json()["job"]["status"], "queued")
+                self.backend.return_value.generate.reset_mock()
+            finally:
+                release.set()
+            self.wait(first)
+            self.wait(second)
+        self.assertEqual(self.backend.return_value.generate.call_count, 2)
+        persisted = json.loads((self.workflow.directory(second) / "job.json").read_text())
+        self.assertEqual(persisted["status"], "complete")
+
+    def test_archive_recovers_only_final_partial_journal_without_mutating_source(self):
+        from pipeline.archive import export_project, import_project, transform_file
+        from zipfile import ZipFile
+
+        sid, _ = self.prepare()
+        log = self.workflow.directory(sid) / "interrupted" / "recognition.jsonl"
+        log.parent.mkdir()
+        image = str(self.workflow.directory(sid) / "pages" / "page.png")
+        complete = json.dumps({"image": image, "accepted": True}).encode() + b"\n"
+        for tail in (b'{"raw": "partial', b'{"raw": "\xe4\xb8'):
+            with self.subTest(tail=tail):
+                log.write_bytes(complete + tail)
+                archive = export_project(self.workflow, sid, self.root / "backup.zip")
+                self.assertEqual(log.read_bytes(), complete + tail)
+                with ZipFile(archive) as package:
+                    recovered = package.read("interrupted/recognition.jsonl")
+                    self.assertEqual(len(recovered.splitlines()), 1)
+                    self.assertTrue(json.loads(recovered)["image"].startswith("project://"))
+                other = Workspace(self.root / "restored")
+                restored = import_project(other, archive)
+                self.assertTrue(project_view(other, restored)["recognition"])
+                other.close()
+        for damaged in (b'{"raw": "bad\n', b'bad\n{}\n'):
+            with self.subTest(damaged=damaged), self.assertRaises(ValueError):
+                log.write_bytes(damaged)
+                export_project(self.workflow, sid, self.root / "damaged.zip")
+        # Imports remain strict, including incomplete trailing records.
+        with self.assertRaises(ValueError):
+            transform_file(b'{"raw": "partial', ".jsonl", lambda value, key: value)
 
     def test_project_archive_moves_between_roots(self):
         sid, state = self.prepare()
@@ -780,44 +936,42 @@ class InputPagesTest(unittest.TestCase):
             self.assertEqual([r["page"] for r in records], [1, 1, 2])
             self.assertEqual([r["bbox"][0] for r in records], [20, 10, 10])
 
-    def test_pool_loads_one_base_and_restores_adapters(self):
-        with patch("shared.glm_backend.GlmBackend") as backend:
+    def test_pool_reuses_two_task_engines_and_closes_them(self):
+        with patch("shared.glm_backend.create_backend", side_effect=[MagicMock(), MagicMock()]) as create:
             pool = BackendPool(Path("model"), "cpu")
             a, b = pool.adapter(Path("a")), pool.adapter(Path("b"))
-            backend.assert_not_called()
+            create.assert_not_called()
             for handle in (a, b, a, b):
                 handle.generate([], 1)
-            backend.assert_called_once()
-            model = backend.return_value.model
-            model.load_adapter.assert_called_once_with(
-                Path("b").resolve(), adapter_name="adapter_1"
-            )
-            self.assertEqual(
-                [c.args[0] for c in model.set_adapter.call_args_list],
-                ["default", "adapter_1", "default", "adapter_1"],
-            )
+            self.assertEqual(create.call_count, 2)
+            self.assertEqual([call.args for call in create.call_args_list], [
+                (Path("model").resolve(), Path("a").resolve(), "cpu"),
+                (Path("model").resolve(), Path("b").resolve(), "cpu"),
+            ])
+            engines = list(pool.backends.values())
+            for engine in engines:
+                self.assertEqual(engine.generate.call_count, 2)
+            pool.close()
+            for engine in engines:
+                engine.close.assert_called_once()
 
-    def test_pool_can_use_base_before_and_after_loading_an_adapter(self):
-        peft_model = MagicMock()
-        wrapped = peft_model.from_pretrained.return_value.eval.return_value
-        with (
-            patch("shared.glm_backend.GlmBackend") as backend,
-            patch.dict("sys.modules", {"peft": SimpleNamespace(PeftModel=peft_model)}),
-        ):
+    def test_pool_keeps_base_distinct_and_evicts_least_recent_engine(self):
+        engines = [MagicMock() for _ in range(4)]
+        with patch("shared.glm_backend.create_backend", side_effect=engines) as create:
             pool = BackendPool(Path("model"), "cpu")
-            base, adapter = pool.adapter(None), pool.adapter(Path("adapter"))
-            original_model = backend.return_value.model
+            base, a, b = pool.adapter(None), pool.adapter(Path("a")), pool.adapter(Path("b"))
+            for handle in (base, a, base, b):
+                handle.generate([], 1)
+            self.assertEqual(create.call_count, 3)
+            engines[1].close.assert_called_once()
+            engines[0].close.assert_not_called()
             base.generate([], 1)
-            adapter.generate([], 1)
-            base.generate([], 1)
-            adapter.generate([], 1)
-            backend.assert_called_once_with(Path("model").resolve(), None, "cpu")
-            peft_model.from_pretrained.assert_called_once_with(
-                original_model, Path("adapter").resolve(), adapter_name="adapter_0"
-            )
-            wrapped.disable_adapter.assert_called_once()
-            wrapped.disable_adapter.return_value.__enter__.assert_called_once()
-            self.assertEqual(wrapped.set_adapter.call_count, 2)
+            self.assertEqual(engines[0].generate.call_count, 3)
+            a.generate([], 1)
+            self.assertEqual(create.call_count, 4)
+            engines[2].close.assert_called_once()
+            self.assertEqual(len(pool.backends), 2)
+            pool.close()
 
 
 if __name__ == "__main__":

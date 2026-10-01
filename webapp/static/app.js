@@ -13,6 +13,7 @@ import { initMetadata } from "./metadata-editor.js";
 import { initPages } from "./pages.js";
 import { initBoxes } from "./boxes.js";
 import { initMeasures } from "./measure-editor.js";
+import { createProjectImporter, readSample } from "./project-import.js";
 const { renderPages, updatePageNavigation } = initPages(() => loadPage());
 const { loadPage, renderBoxList, updateBoxControls } = initBoxes({
   start,
@@ -36,6 +37,7 @@ openProject(
 
 const workspace = initWorkspace({
   open: openExisting,
+  refreshConfig,
   resume: () =>
     start(
       location.pathname === "/workbench" ? "/retry" : "/process",
@@ -44,12 +46,41 @@ const workspace = initWorkspace({
     ),
 });
 let uploadConfig = { max_upload_mb: 200, max_pages: 100 };
+let nativeDownloadAllowed = false;
+async function refreshConfig() {
+  const config = await api("/api/config");
+  uploadConfig = config;
+  workspace.configure(config);
+  document.body.dataset.inference = config.inference_enabled === false ? "disabled" : "enabled";
+  renderFiles();
+  return config;
+}
+function nativeModelOptions(body) {
+  if (!uploadConfig.native) return body;
+  if (uploadConfig.native_runtime_error) throw new Error(`本机识别组件未通过校验：${uploadConfig.native_runtime_error}。已保存项目仍可校对与导出。`);
+  if (uploadConfig.requires_model_confirmation && !nativeDownloadAllowed) {
+    const gb = ((uploadConfig.model_download_bytes || 0) / 1e9).toFixed(2);
+    if (!confirm(`本机识别会先校验缓存，缺失或损坏时最多下载约 ${gb} GB 的 GGUF 和 ONNX 模型，建议预留 5 GB 磁盘空间。完整缓存不重复下载，也不会安装 Python。继续准备？`))
+      throw new Error("已取消模型准备，当前项目保留。");
+    nativeDownloadAllowed = true;
+  }
+  return { ...(body || {}), allow_download: nativeDownloadAllowed };
+}
+
 
 async function openExisting(id) {
-  if (ui.busy) return false;
+  if (ui.busy && !["queued", "running"].includes(ui.state?.job?.status)) return false;
   if (hasDrafts() && !confirm("放弃当前未保存的修改，打开这个项目？"))
     return false;
-  openProject(id);
+  window.dispatchEvent(new Event("guitarocr:leave-project"));
+  openProject(id, { discardDrafts: hasDrafts() });
+  ui.step = 0;
+  document.querySelectorAll("[data-panel]").forEach((panel) =>
+    panel.classList.toggle("active", panel.dataset.panel === "0"));
+  $("currentDocument").hidden = true;
+  $("steps").hidden = true;
+  $("reviewEditor").hidden = true;
+  workspace.show("workbench");
   renderFiles();
   await watch(() =>
     go(ui.state.recognition || ui.state.info ? 3 : ui.state.layout ? 2 : 1),
@@ -72,10 +103,10 @@ function setBusy(value) {
   updateBoxControls();
   renderExport();
   document.querySelectorAll(".project-card").forEach((node) => {
-    node.disabled = value;
+    node.disabled = value && !["queued", "running"].includes(ui.state?.job?.status);
   });
 }
-function go(next) {
+function go(next, reveal = true) {
   if (next > 0 && ui.files.length)
     return notice("请先处理已选择的文件，再切换到编辑步骤。", true);
   if (next > 0 && !ui.state?.pages) return notice("请先导入乐谱。", true);
@@ -93,7 +124,7 @@ function go(next) {
   }
   if (!ui.busy) notice("");
   ui.step = next;
-  workspace.show("workbench");
+  if (reveal) workspace.show("workbench");
   document
     .querySelectorAll("[data-panel]")
     .forEach((p) => p.classList.toggle("active", +p.dataset.panel === ui.step));
@@ -103,10 +134,13 @@ function go(next) {
   if (ui.step === 1) loadPage();
   if (ui.step === 4) renderExport();
 }
-$("steps").onclick = (e) => {
+document.addEventListener("click", (e) => {
   const button = e.target.closest("[data-step]");
-  if (button) go(+button.dataset.step);
-};
+  if (button) {
+    go(+button.dataset.step);
+    button.closest("details")?.removeAttribute("open");
+  }
+});
 function renderFiles() {
   $("upload").disabled = ui.busy || !ui.files.length;
   $("upload").textContent =
@@ -156,6 +190,8 @@ function renderFiles() {
 function chooseFiles(incoming) {
   if (!incoming.length || ui.busy) return;
   if (hasDrafts() && !confirm("当前编辑尚未保存，仍要导入新乐谱？")) return;
+  if (uploadConfig.native && uploadConfig.pdf_enabled === false && incoming.some(file => /\.pdf$/i.test(file.name)))
+    return notice("当前安装包缺少 PDF 组件。请使用完整原生安装包，或先导入乐谱图片、恢复项目 ZIP。", true);
   const invalid = incoming.find(
     (file) => !/\.(pdf|png|jpe?g|bmp|tiff?)$/i.test(file.name),
   );
@@ -172,6 +208,7 @@ function chooseFiles(incoming) {
       `总上传大小不能超过 ${uploadConfig.max_upload_mb} MB。`,
       true,
     );
+  sessionStorage.removeItem(`guitarocr-draft:${ui.sid}`);
   clearDrafts();
   ui.files.push(...incoming);
   renderFiles();
@@ -192,14 +229,21 @@ for (const event of ["dragover", "dragleave", "drop"])
     if (event === "drop") chooseFiles([...e.dataTransfer.files]);
   });
 async function watch(after) {
+  const sid = ui.sid;
+  const generation = ui.openGeneration;
+  const screen = workspace.screen();
   setBusy(true);
   try {
     for (;;) {
-      const current = await api(endpoint(""));
+      const current = await api(`/api/sessions/${sid}`);
+      if (ui.sid !== sid || ui.openGeneration !== generation) return;
       const job = current.job;
       workspace.renderJob(job);
       if (job && ["queued", "running"].includes(job.status)) {
-        if (current.pages) ui.state = current;
+        if (current.pages) {
+          if (!ui.state) ui.state = current;
+          else ui.state = { ...ui.state, job, revision: current.revision };
+        }
         $("cancelJob").hidden = !job.cancellable;
         notice("");
         await new Promise((resolve) => setTimeout(resolve, 1200));
@@ -209,13 +253,16 @@ async function watch(after) {
         throw new Error(job?.error || "页面导入未完成，请重新上传乐谱。");
       }
       if (current.pages) {
-        receiveProject(current);
+        const failed = ["failed", "cancelled", "interrupted"].includes(job?.status);
+        receiveProject(current, { preserveDrafts: failed });
         render();
       }
-      if (after && current.pages) {
+      if (after && current.pages && workspace.screen() === screen) {
         if (["failed", "cancelled", "interrupted"].includes(job?.status))
           go(current.recognition || current.info ? 3 : current.layout ? 2 : 1);
         else after();
+      } else if (after && current.pages) {
+        go(current.recognition || current.info ? 3 : current.layout ? 2 : 1, false);
       }
       notice(
         job?.status === "failed"
@@ -225,26 +272,36 @@ async function watch(after) {
             : "已完成并保存。",
         job?.status === "failed",
       );
+      // Model preparation/device selection can finish even when a later OCR step fails.
+      if (uploadConfig.native) await refreshConfig().catch(() => {});
       break;
     }
   } finally {
-    setBusy(false);
+    if (ui.sid === sid && ui.openGeneration === generation) setBusy(false);
     workspace.refresh();
   }
 }
 $("cancelJob").onclick = action(async () => {
-  await api(endpoint("/cancel"), "POST", undefined, ui.state?.revision);
+  const sid = ui.sid;
+  const result = await api(endpoint("/cancel"), "POST", undefined, ui.state?.revision);
+  const status = result.job || (await api(`/api/sessions/${sid}`)).job;
+  if (ui.sid !== sid) return;
   window.dispatchEvent(new Event("guitarocr:cancel"));
-  notice("正在停止，当前小节处理结束后生效。已完成部分会保留。");
+  notice(status?.status === "cancelled"
+    ? "已停止排队。原有结果与人工修改已保留。"
+    : "正在停止，当前小节处理结束后生效。原有结果与人工修改会保留。");
 });
 async function start(path, body, after) {
   if (ui.busy) return;
+  body = nativeModelOptions(body);
+  const sid = ui.sid;
+  const generation = ui.openGeneration;
   setBusy(true);
   try {
-    await api(endpoint(path), "POST", body, ui.state.revision);
-    await watch(after);
+    await api(`/api/sessions/${sid}${path}`, "POST", body, ui.state.revision);
+    if (ui.sid === sid && ui.openGeneration === generation) await watch(after);
   } finally {
-    setBusy(false);
+    if (ui.sid === sid && ui.openGeneration === generation) setBusy(false);
   }
 }
 $("upload").onclick = action(async () => {
@@ -252,6 +309,10 @@ $("upload").onclick = action(async () => {
   const form = new FormData();
   ui.files.forEach((f) => form.append("files", f));
   const automatic = $("importAction").value === "full";
+  if (automatic && uploadConfig.native) {
+    const options = nativeModelOptions({});
+    form.append("allow_download", String(options.allow_download));
+  }
   form.append("action", automatic ? "full" : "import");
   form.append("mode", $("importMode").value);
   setBusy(true);
@@ -266,27 +327,44 @@ $("upload").onclick = action(async () => {
     setBusy(false);
   }
 });
-$("importProject").onchange = action(async (event) => {
-  const file = event.target.files[0];
-  if (!file) return;
-  if (hasDrafts() && !confirm("放弃未保存的编辑，恢复项目？")) return;
-  const form = new FormData();
-  form.append("file", file);
-  setBusy(true);
-  try {
-    receiveProject(await api("/api/projects/import", "POST", form));
+const importProject = createProjectImporter({
+  ui, hasDrafts, confirm, setBusy, notice,
+  navigation: () => workspace.navigation(),
+  importArchive: (file) => {
+    const form = new FormData();
+    form.append("file", file);
+    return api("/api/projects/import", "POST", form);
+  },
+  accept: (saved) => {
+    window.dispatchEvent(new Event("guitarocr:leave-project"));
+    openProject(saved.id, { discardDrafts: true });
+    receiveProject(saved);
     renderFiles();
     render();
     go(ui.state.recognition ? 3 : 1);
-    notice("项目已恢复。");
-    workspace.refresh();
-  } finally {
-    setBusy(false);
-    event.target.value = "";
-  }
+  },
+  refresh: () => workspace.refresh(),
+});
+$("importProject").onchange = async (event) => {
+  const file = event.target.files[0];
+  event.target.value = "";
+  if (!file) return;
+  await importProject(() => file, {
+    prompt: "恢复项目后将替换当前未保存的编辑和已选文件，继续？",
+    loading: "正在恢复项目…",
+    opened: "项目已恢复。",
+    background: "项目已恢复到项目库，可稍后打开。当前编辑与已选文件已保留。",
+  });
+};
+$("openSample").onclick = () => importProject(readSample, {
+  prompt: "打开示例后将替换当前未保存的编辑和已选文件，继续？",
+  loading: "正在打开原创示例…",
+  opened: "已打开原创预设示例（非 OCR 结果）。可编辑音符、试听，检查后导出。",
+  background: "原创示例已加入项目库，可稍后打开。当前编辑与已选文件已保留。",
 });
 $("newProject").onclick = () => {
   if (hasDrafts() && !confirm("当前有未保存的编辑，仍然新建项目？")) return;
+  sessionStorage.removeItem(`guitarocr-draft:${ui.sid}`);
   localStorage.removeItem("guitarocr-session");
   location.href = "/";
 };
@@ -294,6 +372,7 @@ $("deleteProject").onclick = action(async () => {
   if (!confirm("删除当前项目的上传文件、识别结果和 GP5？此操作无法撤销。"))
     return;
   await api(endpoint(""), "DELETE", undefined, ui.state.revision);
+  sessionStorage.removeItem(`guitarocr-draft:${ui.sid}`);
   localStorage.removeItem("guitarocr-session");
   location.href = "/";
 });
@@ -308,6 +387,7 @@ function render() {
   history.replaceState(null, "", `?project=${ui.sid}`);
   $("currentDocument").hidden = false;
   $("documentName").textContent = documentName();
+  $("currentDocument").title = documentName();
   $("documentPages").textContent = `，共 ${ui.state.pages.length} 页`;
   $("intro").hidden = true;
   $("steps").hidden = false;
@@ -329,7 +409,7 @@ function render() {
   $("mode").value = ui.state.mode_setting || ui.state.mode;
   $("deleteProject").hidden = false;
   renderPages();
-  renderMetadata();
+  if (!ui.metadataDirty) renderMetadata();
   renderMeasures();
   renderExport();
   if (ui.step === 1) loadPage();
@@ -418,15 +498,13 @@ window.addEventListener("beforeunload", (e) => {
   }
 });
 (async () => {
+  const initialGeneration = ui.openGeneration;
   try {
     renderFiles();
     $("steps").hidden = !ui.sid;
-    const config = await api("/api/config");
-    uploadConfig = config;
-    workspace.configure(config);
-    renderFiles();
+    const config = await refreshConfig();
     await workspace.refresh();
-    if (ui.sid) {
+    if (ui.sid && ui.openGeneration === initialGeneration && !ui.busy) {
       await watch(() => {
         go(ui.state.recognition ? 3 : ui.state.info ? 3 : 1);
       });
@@ -437,14 +515,20 @@ window.addEventListener("beforeunload", (e) => {
     }
     if (config.inference_enabled === false) {
       document.body.dataset.inference = "disabled";
-      if (!ui.state?.pages)
-        notice("当前为校对模式。可恢复项目备份、编辑并导出乐谱。");
-    } else if (!config.model_ready)
+      if (!ui.state?.pages && !ui.busy)
+        notice(config.native_runtime_error
+          ? `本机识别组件未通过校验：${config.native_runtime_error}。可继续校对与导出项目。`
+          : "当前为校对模式。可打开原创示例或恢复项目备份，编辑并导出乐谱。");
+    } else if (!config.model_ready && !ui.state?.pages && !ui.busy)
       notice(
-        "识别环境尚未就绪，请运行 install.bat（Windows）或 bash install.sh（Linux）完成自动安装。",
+        config.server
+          ? "服务端识别模型尚未就绪。可先打开原创示例体验校对与导出。"
+          : config.native
+            ? "识别模型尚未准备。可先打开示例；开始本机识别时会先确认模型下载，不安装 Python。"
+            : "识别模型尚未安装。可先打开原创示例体验校对与导出；需要 OCR 时再通过启动页安装识别环境。",
       );
   } catch (e) {
-    setBusy(false);
-    notice(e.message, true);
+    if (ui.openGeneration === initialGeneration && !ui.busy)
+      notice(e.message, true);
   }
 })();

@@ -1,10 +1,11 @@
 import contextlib
 import io
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import guitarpro
 from PIL import Image, ImageDraw
@@ -43,6 +44,9 @@ class StagedPipelineTest(unittest.TestCase):
         image.save(self.page)
         self.backend = self.enterContext(patch("measure_ocr.recognizer.GlmBackend"))
         self.enterContext(patch("shared.glm_backend.GlmBackend", self.backend))
+        self.backend.return_value = Mock(spec=["generate"], supports_pitch_context=False,
+                                         supports_staff_profile=False, supports_json_schema=False,
+                                         supports_ragged_batch=False)
         self.backend.return_value.generate.return_value = (TARGET, 30)
         self.enterContext(contextlib.redirect_stdout(io.StringIO()))
 
@@ -52,7 +56,9 @@ class StagedPipelineTest(unittest.TestCase):
         return parse_args([
             str(self.page), "--output", str(output), "--mode", "tab",
             "--title", "流程测试", "--artist", "Test", "--device", "cpu", "--layout-source", "geometry",
-            "--instrument", "guitar",
+            "--instrument", "guitar", "--model", str(self.root / "model"),
+            "--adapter", str(self.root / "measure-adapter"),
+            "--info-adapter", str(self.root / "info-adapter"),
         ])
 
     def test_pipeline_and_standalone_stages_produce_same_gp5(self):
@@ -68,8 +74,8 @@ class StagedPipelineTest(unittest.TestCase):
             self.assertTrue(Path(entry["manifest"]).is_file())
 
         layout = layout_stage.run([self.page], self.root / "layout", mode="tab", layout_source="geometry")
-        info = info_stage.run(layout, self.root / "info", title="流程测试", artist="Test", instrument="guitar")
-        recognition = measure_stage.run(layout, info, self.root / "ocr", device="cpu")
+        info = info_stage.run(layout, self.root / "info", adapter=self.root / "info-adapter", title="流程测试", artist="Test", instrument="guitar")
+        recognition = measure_stage.run(layout, info, self.root / "ocr", device="cpu", model=self.root / "model", adapter=self.root / "measure-adapter")
         exported = export_stage.run(recognition, self.root / "gp5")
         gp5 = Path(read_result(exported, "gp5_export")["gp5"])
         self.assertEqual(gp5.read_bytes(), Path(combined["gp5"]).read_bytes())
@@ -106,7 +112,7 @@ class StagedPipelineTest(unittest.TestCase):
         self.backend.reset_mock()
         args.resume = True
         repeated = run_pipeline(args)
-        self.backend.assert_not_called()
+        self.backend.return_value.generate.assert_not_called()
         self.assertEqual(Path(repeated["gp5"]).read_bytes(), gp5)
         args.tuning = [64, 59, 55, 50, 45, 38]
         with self.assertRaisesRegex(ValueError, "inputs or options changed"):
@@ -115,6 +121,36 @@ class StagedPipelineTest(unittest.TestCase):
         self.assertEqual(failed["status"], "failed")
         self.assertEqual(failed["stages"]["measure_ocr"]["status"], "failed")
         self.assertNotIn("gp5_export", failed["stages"])
+
+    def test_resume_upgrades_legacy_signature_and_detects_same_stat_image_change(self):
+        result = run_pipeline(self.arguments(self.root / "legacy"))
+        layout = Path(result["stages"]["layout"]["manifest"])
+        info = Path(result["stages"]["document_info"]["manifest"])
+        output = Path(result["recognition_log"]).parent
+        signature = output / "recognition_context.json"
+        context = json.loads(signature.read_text())
+        context.pop("input_identity")
+        def legacy(item):
+            return [item["path"], item["bytes"], Path(item["path"]).stat().st_mtime_ns]
+
+        context["layout"] = legacy(context["layout"])
+        context["info"] = legacy(context["info"])
+        context["images"] = [legacy(item) for item in context["images"]]
+        signature.write_text(json.dumps(context))
+        options = dict(model=self.root / "model", adapter=self.root / "measure-adapter", device="cpu", resume=True)
+        self.backend.return_value.generate.reset_mock()
+        measure_stage.run(layout, info, output, **options)
+        self.backend.return_value.generate.assert_not_called()
+        self.assertEqual(json.loads(signature.read_text())["input_identity"], "sha256")
+        image = Path(context["images"][0][0])
+        stat = image.stat()
+        data = bytearray(image.read_bytes())
+        data[-1] ^= 1
+        image.write_bytes(data)
+        os.utime(image, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+        with self.assertRaisesRegex(ValueError, "inputs or options changed"):
+            measure_stage.run(layout, info, output, **options)
+        self.backend.return_value.generate.assert_not_called()
 
     def test_invalid_model_output_requires_review_before_export(self):
         self.backend.return_value.generate.return_value = ("invalid", 5)
@@ -144,8 +180,8 @@ class StagedPipelineTest(unittest.TestCase):
             "title": "Image title", "tempo_quarter": 88,
             "tuning_midi_high_to_low": [64, 59, 55, 50, 45, 38],
         }, [])):
-            info = info_stage.run(layout, self.root / "info")
-        recognition = measure_stage.run(layout, info, self.root / "ocr", device="cpu")
+            info = info_stage.run(layout, self.root / "info", adapter=self.root / "info-adapter")
+        recognition = measure_stage.run(layout, info, self.root / "ocr", device="cpu", model=self.root / "model", adapter=self.root / "measure-adapter")
         result = read_result(recognition, "measure_ocr")
         first = Path(result["m2"]).read_text().splitlines()[0]
         self.assertEqual(parse_measure_target(first)["tempo_quarter"], 88)
@@ -156,7 +192,8 @@ class StagedPipelineTest(unittest.TestCase):
         self.assertEqual(song.tracks[0].strings[-1].value, 38)
 
     def test_document_info_backend_reads_header_and_tempo(self):
-        with patch("document_info.image_ocr.GlmBackend") as backend:
+        with patch("document_info.image_ocr.create_backend") as backend:
+            backend.return_value = Mock(spec=["generate"], supports_json_schema=False, supports_ragged_batch=False)
             backend.return_value.generate.side_effect = [
                 ('{"title":"Image title","artist":null,"tuning_name":"Drop D"}', 12),
                 ('{"tempo_quarter":88}', 6),

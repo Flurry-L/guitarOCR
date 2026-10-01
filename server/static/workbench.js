@@ -9,5 +9,4 @@ else {
   document
     .querySelector('[data-screen="settings"] .surface-card')
     .append(account);
-  document.querySelector(".project-import").hidden = true;
 }

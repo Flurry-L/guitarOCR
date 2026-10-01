@@ -2,6 +2,17 @@
 
 先完成[数据生产](data.md)和[训练环境安装](#训练环境)。训练数据、缓存与检查点不随仓库提供，需要先生成。实测结果见[评测报告](model-evaluation.md)。
 
+## 入口与产物
+
+- 共享视觉语言模型：`measure_ocr.train` 是主入口，`document_info.train` 保留为同一训练任务的兼容入口，不存在第二套独立谱面信息训练配置
+- 版面检测：`layout.train` 使用独立 Paddle 配置和环境
+- 拍号／调号辅助分类器：`measure_ocr.train_state`；`measure_ocr.train_mtp` 是主模型后的可选蒸馏步骤，不属于普通应用启动
+- 数据预处理：`shared.tokenize_training` 只建 token 缓存；数据生产与来源划分见[数据说明](data.md)，不在训练器内重做
+
+入口负责参数与任务选择，`shared/training.py` 负责 LLaMA-Factory 启动和配置边界，`measure_ocr/train_worker.py` 负责模型专用训练策略。项目自定义选项由训练 worker 消费，不透传给 LLaMA-Factory；关闭对应特性仍可保留配置中的参数。 拍号数据读取统一在 `datagen/signature_data.py`，训练和评测不再互相导入；MTP 层结构与检查点映射在 `measure_ocr/train_mtp_network.py`，蒸馏循环留在 `train_mtp.py`。OCR 训练、拍号训练／评测、MTP 和 token 缓存入口的 `--help` 不加载训练框架；版面训练仍使用 PaddleX 自己的命令行。
+
+检查点先写 `output/`，评测后再使用 `shared.export_glm`、`scripts/export_auxiliary.py` 或 `scripts/export_gguf.py` 转为部署格式，最后更新 `weights/` 的模型与分发清单。训练依赖不进入桌面应用资源，部署模型也不等于可继续训练的检查点。这里只列训练／评测契约，设备支持和首次下载见[安装说明](setup.md)。
+
 ## 训练环境
 
 训练使用独立的 `.venv`，不修改桌面安装器管理的运行环境。先安装训练依赖，再安装 LLaMA-Factory `0.9.6.dev0` 的固定源码提交：
@@ -113,6 +124,8 @@ uv run --no-sync python -m document_info.evaluate_parallel \
 ```
 
 ## 评测小节识别
+
+按输入选择入口，报告不能混用：`measure_ocr.evaluate` / `evaluate_parallel` 对固定裁图样本评测（默认标注前文，适合旧模型对照）；`measure_ocr.evaluate_scores` 对完整小节序列使用预测前文；`pipeline.evaluate_scores` 从同一曲源清单找到完整 PDF，额外评测检测和谱面信息；`pipeline.evaluate_ensembles` 消费组合总谱目录；`pipeline.evaluate` 消费手工案例清单。并行入口只是分片与汇总，不是另一套模型。
 
 新模型先批量读取印刷拍号和调号，再使用当前及相邻小节图像独立解码，最后统一连接延音线。评测保留每首曲谱的完整序列，使用模型预测的拍号与调号，不提供标注前文。裁图、乐器、调弦与移调上下文来自标注；完全自动流程另用完整 PDF 评测。
 

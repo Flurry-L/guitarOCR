@@ -298,7 +298,8 @@ class InstallerTest(unittest.TestCase):
 
     @unittest.skipIf(os.name == "nt", "POSIX socket reuse semantics")
     def test_restart_after_connections_close_still_rejects_active_server(self):
-        state = {"device": "cpu", "model": "model", "layout_python": "python"}
+        state = {"device": "cpu", "model": "model", "layout_python": "python",
+                 "python": "python", "models": "models", "engine": "llamacpp"}
         with socket.socket() as server:
             server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             server.bind(("127.0.0.1", 0))

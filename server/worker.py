@@ -82,25 +82,20 @@ def execute(config, store, workflow, job, stop):
         inputs = [workflow.directory(sid) / name for name in params["inputs"]]
         validate_inputs(inputs, config.max_pages)
         workflow.create(sid, inputs, params["names"])
-    if action == "detect" or (action == "full" and not workflow.load(sid)["layout"]):
+    if action == "full":
+        workflow.process(sid, mode=params.get("mode", "auto"), source=params.get("source", "auto"),
+                         progress=progress, cancelled=cancelled, on_stage=stage,
+                         measures=params.get("measures"))
+    elif action == "detect":
         stage("正在检测小节和谱面类型")
         workflow.detect(sid, params.get("mode", "auto"), params.get("source", "auto"))
-    if action == "information" or (action == "full" and not workflow.load(sid)["info"]):
+    elif action == "information":
         stage("正在识别谱面信息")
         workflow.information(sid, cancelled=cancelled)
-    if action == "recognize" or (
-        action == "full" and not workflow.load(sid)["recognition"]
-    ):
+    elif action == "recognize":
         stage("正在识别小节")
-        state = workflow.load(sid)
-        resume = bool(state.get("ocr_task"))
-        workflow.recognize(
-            sid,
-            progress,
-            resume=resume,
-            measures=params.get("measures"),
-            cancelled=cancelled,
-        )
+        workflow.recognize(sid, progress, resume=bool(workflow.load(sid).get("ocr_task")),
+                           measures=params.get("measures"), cancelled=cancelled)
     check()
     if action == "full":
         state = workflow.load(sid)

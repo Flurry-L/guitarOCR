@@ -42,3 +42,7 @@ datagen/native-bin/*.pdb
 # Built deployment models are published as release assets.
 weights/auxiliary/*.onnx
 weights/*/gguf/*.gguf
+
+# Native client build outputs (keep source fixtures and Cargo.lock files).
+/desktop/native-core/target/
+/desktop/native-service/target/

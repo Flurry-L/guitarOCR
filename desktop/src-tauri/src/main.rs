@@ -84,6 +84,13 @@ fn server_url(address: &str) -> Result<Url, String> {
     }
     Ok(url)
 }
+fn native_ready_url(address: &str) -> Result<Url, String> {
+    let url = server_url(address)?;
+    if url.scheme() != "http" || url.host_str() != Some("127.0.0.1") || url.port().is_none() {
+        return Err("原生服务返回了无效的本机地址".into());
+    }
+    Ok(url)
+}
 static DOWNLOADS: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
 
 fn workspace(app: &tauri::AppHandle, label: &str, url: Url) -> Result<(), String> {
@@ -172,17 +179,14 @@ fn workspace(app: &tauri::AppHandle, label: &str, url: Url) -> Result<(), String
 #[derive(Serialize)]
 struct Settings {
     server: String,
-    local_gpu: bool,
+    native_available: bool,
 }
 #[tauri::command]
 fn settings(app: tauri::AppHandle, window: WebviewWindow) -> Result<Settings, String> {
     authorize(&window)?;
     Ok(Settings {
         server: fs::read_to_string(data(&app)?.join("server.txt")).unwrap_or_default(),
-        local_gpu: cfg!(all(
-            any(target_os = "linux", target_os = "windows"),
-            target_arch = "x86_64"
-        )),
+        native_available: true,
     })
 }
 #[tauri::command]
@@ -199,25 +203,7 @@ fn connect_server(
     workspace(&app, "remote", url.clone())?;
     fs::write(data(&app)?.join("server.txt"), url.as_str()).map_err(|e| e.to_string())
 }
-fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
-    fs::create_dir_all(to)?;
-    for entry in fs::read_dir(from)? {
-        let entry = entry?;
-        if entry.file_type()?.is_dir() {
-            copy_tree(&entry.path(), &to.join(entry.file_name()))?;
-        } else {
-            fs::copy(entry.path(), to.join(entry.file_name()))?;
-        }
-    }
-    Ok(())
-}
 fn log(app: &tauri::AppHandle, line: &str) {
-    if let Some(message) = line.strip_prefix("GUITAROCR_PROGRESS ") {
-        if let Ok(value) = serde_json::from_str::<serde_json::Value>(message) {
-            let _ = app.emit_to("main", "runtime-progress", value);
-            return;
-        }
-    }
     let _ = app.emit_to("main", "runtime-log", line);
     if let Ok(dir) = data(app) {
         if let Ok(mut f) = fs::OpenOptions::new()
@@ -286,10 +272,33 @@ fn owned_process(child: Child, mode: &str) -> Result<Process, String> {
     })
 }
 
-fn start(app: &tauri::AppHandle, mode: &str) -> Result<Url, String> {
-    if !matches!(mode, "gpu" | "cpu" | "edit") {
-        return Err("未知运行方式".into());
+// Local operation is always the packaged native service; never a Python fallback.
+fn validate_local_mode(mode: &str) -> Result<(), String> {
+    if mode != "native" {
+        return Err("请选择本机工作台；旧Python客户端启动方式已移除。".into());
     }
+    Ok(())
+}
+fn confirm_setup(_app: &tauri::AppHandle, mode: &str) -> Result<bool, String> {
+    validate_local_mode(mode)?;
+    // Starting the workbench downloads nothing. Its first model preparation has
+    // an explicit UI confirmation, separate from opening an editor.
+    Ok(true)
+}
+#[tauri::command]
+async fn confirm_local_setup(
+    app: tauri::AppHandle,
+    window: WebviewWindow,
+    mode: String,
+) -> Result<bool, String> {
+    authorize(&window)?;
+    tauri::async_runtime::spawn_blocking(move || confirm_setup(&app, &mode))
+        .await
+        .map_err(|e| e.to_string())?
+}
+fn start(app: &tauri::AppHandle, mode: &str) -> Result<Url, String> {
+    validate_local_mode(mode)?;
+    let root = data(app)?;
     let runtime = app.state::<Runtime>();
     let mut slot = runtime.0.lock().unwrap();
     if let Some(process) = slot.as_ref() {
@@ -303,48 +312,29 @@ fn start(app: &tauri::AppHandle, mode: &str) -> Result<Url, String> {
             .clone()
             .ok_or_else(|| "本机环境正在准备，请稍候。".into());
     }
-    let root = data(app)?;
     let resource = app.path().resource_dir().map_err(|e| e.to_string())?;
-    let backend = root.join("backend");
-    copy_tree(&resource.join("backend"), &backend).map_err(|e| e.to_string())?;
-    let uv = resource
-        .join("uv")
-        .join(if cfg!(windows) { "uv.exe" } else { "uv" });
+    let native = resource.join("native");
+    let executable = native.join(if cfg!(windows) {
+        "guitarocr-native-service.exe"
+    } else {
+        "guitarocr-native-service"
+    });
+    let assets = resource.join("webapp/static");
+    if !executable.is_file() || !assets.is_dir() {
+        return Err("此安装包缺少原生服务或工作台资源，请重新安装原生预览构建。".into());
+    }
     let _ = fs::write(root.join("runtime.log"), "");
-    let mut cmd = command(&uv);
-    cmd.args([
-        "run",
-        "--no-project",
-        "--python",
-        "3.11",
-        "--config-file",
-        "scripts/bootstrap-uv.toml",
-        "scripts/desktop_runtime.py",
-        "--mode",
-        mode,
-        "--output",
-    ])
-    .arg(root.join("projects"))
-    .current_dir(&backend)
-    .env("GUITAROCR_UV", &uv)
-    .env("GUITAROCR_DESKTOP", "1")
-    .env("HF_HUB_OFFLINE", "1")
-    .env("TRANSFORMERS_OFFLINE", "1")
-    .env("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "1")
-    .env("UV_NO_PROGRESS", "false")
-    .env("UV_COLOR", "never")
-    .env("PYTHONUTF8", "1")
-    .env("PYTHONUNBUFFERED", "1")
-    .env("UV_PYTHON_INSTALL_DIR", root.join("python"))
-    .env(
-        "UV_PYTHON_INSTALL_MIRROR",
-        std::env::var("UV_PYTHON_INSTALL_MIRROR").unwrap_or_else(|_| {
-            "https://mirrors.nju.edu.cn/github-release/astral-sh/python-build-standalone".into()
-        }),
-    )
-    .stdout(Stdio::piped())
-    .stderr(Stdio::piped())
-    .stdin(Stdio::null());
+    let mut cmd = command(&executable);
+    cmd.arg("--projects")
+        .arg(root.join("projects"))
+        .arg("--assets")
+        .arg(&assets)
+        .args(["--port", "0"])
+        .current_dir(&root)
+        .env("GUITAROCR_NATIVE_RESOURCES", &native)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .stdin(Stdio::null());
     let mut child = cmd.spawn().map_err(|e| e.to_string())?;
     let stdout = child.stdout.take().unwrap();
     let stderr = child.stderr.take().unwrap();
@@ -396,10 +386,20 @@ fn start(app: &tauri::AppHandle, mode: &str) -> Result<Url, String> {
             );
         }
     });
-    let url = rx
-        .recv()
-        .map_err(|_| "本机服务未能启动，详情见运行日志。可重试或连接 GPU 服务。")?;
-    let url = server_url(&url)?;
+    let url = match rx.recv_timeout(Duration::from_secs(30)) {
+        Ok(url) => url,
+        Err(_) => {
+            ready_process.stop();
+            return Err("原生服务未能在 30 秒内启动，详情见运行日志。".into());
+        }
+    };
+    let url = match native_ready_url(&url) {
+        Ok(url) => url,
+        Err(error) => {
+            ready_process.stop();
+            return Err(error);
+        }
+    };
     if ready_process.stopped.load(Ordering::SeqCst) {
         return Err("本机服务已停止。".into());
     }
@@ -475,6 +475,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             settings,
             connect_server,
+            confirm_local_setup,
             start_local,
             stop_local,
             open_data
@@ -517,6 +518,16 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn native_client_never_silently_starts_legacy_modes() {
+        assert!(validate_local_mode("native").is_ok());
+        for mode in ["auto", "cpu", "cuda", "metal", "gpu", "edit", "invalid"] {
+            assert!(validate_local_mode(mode).is_err());
+        }
+        assert!(native_ready_url("http://127.0.0.1:8080/").is_ok());
+        assert!(native_ready_url("https://example.com/").is_err());
+        assert!(native_ready_url("http://127.0.0.1/").is_err());
+    }
     #[test]
     fn server_addresses_restrict_schemes_and_credentials() {
         for address in [

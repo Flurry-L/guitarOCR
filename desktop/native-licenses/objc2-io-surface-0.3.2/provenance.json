@@ -1,0 +1,33 @@
+{
+  "package": "objc2-io-surface",
+  "version": "0.3.2",
+  "crateLicense": "Zlib OR Apache-2.0 OR MIT",
+  "crateSource": "https://crates.io/crates/objc2-io-surface/0.3.2",
+  "crateArchiveSha256": "180788110936d59bab6bd83b6060ffdfffb3b922ba1396b312ae795e1de9d81d",
+  "upstreamCommit": "7b1abfd750a2cacaea71d6a56ecfb83cb7de560b",
+  "cratePathInVcs": "framework-crates/objc2-io-surface",
+  "verification": "Published crate archive matches Cargo.lock SHA-256; its VCS and README identify this exact upstream root license; original bytes match the Git tree blob",
+  "noticeScope": "Original upstream license declaration and linked terms, including its Apple SDK caveat. No invented copyright attribution or replacement license text. This file inventory is not legal clearance.",
+  "files": [
+    {
+      "file": "LICENSE-UPSTREAM.md",
+      "source": "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+      "gitBlobSha1": "540ae4c81adb5f64a9f61e222b688880da24300e",
+      "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
+    }
+  ],
+  "publishedMetadata": {
+    "name": "objc2-io-surface",
+    "version": "0.3.2",
+    "license": "Zlib OR Apache-2.0 OR MIT",
+    "repository": "https://github.com/madsmtm/objc2"
+  },
+  "publishedMetadataSource": {
+    "archiveMember": "objc2-io-surface-0.3.2/Cargo.toml",
+    "sha256": "b42e1ba685611320fbd2f04586d2c1bda70807f93d127d241c0c5c716b76ec40"
+  },
+  "publishedVcsSource": {
+    "archiveMember": "objc2-io-surface-0.3.2/.cargo_vcs_info.json",
+    "sha256": "a68dbb39ef7cfef6062e3d2e49c59539c7a34d70d13c5bdf4a443d2475280011"
+  }
+}

@@ -1,0 +1,1961 @@
+[
+  {
+    "name": "within-and-cross-page",
+    "records": [
+      {
+        "page": 1,
+        "system_index": 0,
+        "part_id": "part-1",
+        "staff_id": "staff-1",
+        "mode": "notation",
+        "bbox": [
+          10,
+          100,
+          300,
+          80
+        ]
+      },
+      {
+        "page": 2,
+        "system_index": 0,
+        "part_id": "part-1",
+        "staff_id": "staff-1",
+        "mode": "notation",
+        "bbox": [
+          10,
+          100,
+          300,
+          80
+        ]
+      }
+    ],
+    "predictions": [
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          10,
+          70,
+          140,
+          20
+        ],
+        "image": "text.png",
+        "parsed": {
+          "kind": "ottava",
+          "semitones": 12,
+          "capo": null,
+          "text": "8va"
+        }
+      },
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          155,
+          70,
+          155,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        }
+      },
+      {
+        "kind": "annotation",
+        "page": 2,
+        "bbox": [
+          10,
+          70,
+          300,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        }
+      }
+    ],
+    "expected": [
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          10,
+          70,
+          140,
+          20
+        ],
+        "image": "text.png",
+        "parsed": {
+          "kind": "ottava",
+          "semitones": 12,
+          "capo": null,
+          "text": "8va"
+        }
+      },
+      {
+        "kind": "transposition",
+        "page": 1,
+        "bbox": [
+          155,
+          70,
+          155,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "ottava",
+          "semitones": 12,
+          "capo": null,
+          "text": null
+        },
+        "model_parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        },
+        "octave_continuation": {
+          "page": 1,
+          "bbox": [
+            10,
+            70,
+            140,
+            20
+          ]
+        }
+      },
+      {
+        "kind": "transposition",
+        "page": 2,
+        "bbox": [
+          10,
+          70,
+          300,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "ottava",
+          "semitones": 12,
+          "capo": null,
+          "text": null
+        },
+        "model_parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        },
+        "octave_continuation": {
+          "page": 1,
+          "bbox": [
+            155,
+            70,
+            155,
+            20
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "hook-terminates",
+    "records": [
+      {
+        "page": 1,
+        "system_index": 0,
+        "part_id": "part-1",
+        "staff_id": "staff-1",
+        "mode": "notation",
+        "bbox": [
+          10,
+          100,
+          300,
+          80
+        ]
+      },
+      {
+        "page": 2,
+        "system_index": 0,
+        "part_id": "part-1",
+        "staff_id": "staff-1",
+        "mode": "notation",
+        "bbox": [
+          10,
+          100,
+          300,
+          80
+        ]
+      }
+    ],
+    "predictions": [
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          10,
+          70,
+          140,
+          20
+        ],
+        "image": "text.png",
+        "parsed": {
+          "kind": "ottava",
+          "semitones": 12,
+          "capo": null,
+          "text": "8va"
+        }
+      },
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          155,
+          70,
+          155,
+          20
+        ],
+        "image": "hook.png",
+        "parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        }
+      },
+      {
+        "kind": "annotation",
+        "page": 2,
+        "bbox": [
+          10,
+          70,
+          300,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        }
+      }
+    ],
+    "expected": [
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          10,
+          70,
+          140,
+          20
+        ],
+        "image": "text.png",
+        "parsed": {
+          "kind": "ottava",
+          "semitones": 12,
+          "capo": null,
+          "text": "8va"
+        }
+      },
+      {
+        "kind": "transposition",
+        "page": 1,
+        "bbox": [
+          155,
+          70,
+          155,
+          20
+        ],
+        "image": "hook.png",
+        "parsed": {
+          "kind": "ottava",
+          "semitones": 12,
+          "capo": null,
+          "text": null
+        },
+        "model_parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        },
+        "octave_continuation": {
+          "page": 1,
+          "bbox": [
+            10,
+            70,
+            140,
+            20
+          ]
+        }
+      },
+      {
+        "kind": "annotation",
+        "page": 2,
+        "bbox": [
+          10,
+          70,
+          300,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        }
+      }
+    ]
+  },
+  {
+    "name": "staff-change",
+    "records": [
+      {
+        "page": 1,
+        "system_index": 0,
+        "part_id": "part-1",
+        "staff_id": "staff-1",
+        "mode": "notation",
+        "bbox": [
+          10,
+          100,
+          300,
+          80
+        ]
+      },
+      {
+        "page": 2,
+        "system_index": 0,
+        "part_id": "part-1",
+        "staff_id": "staff-2",
+        "mode": "notation",
+        "bbox": [
+          10,
+          100,
+          300,
+          80
+        ]
+      }
+    ],
+    "predictions": [
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          10,
+          70,
+          140,
+          20
+        ],
+        "image": "text.png",
+        "parsed": {
+          "kind": "ottava",
+          "semitones": 12,
+          "capo": null,
+          "text": "8va"
+        }
+      },
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          155,
+          70,
+          155,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        }
+      },
+      {
+        "kind": "annotation",
+        "page": 2,
+        "bbox": [
+          10,
+          70,
+          300,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        }
+      }
+    ],
+    "expected": [
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          10,
+          70,
+          140,
+          20
+        ],
+        "image": "text.png",
+        "parsed": {
+          "kind": "ottava",
+          "semitones": 12,
+          "capo": null,
+          "text": "8va"
+        }
+      },
+      {
+        "kind": "transposition",
+        "page": 1,
+        "bbox": [
+          155,
+          70,
+          155,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "ottava",
+          "semitones": 12,
+          "capo": null,
+          "text": null
+        },
+        "model_parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        },
+        "octave_continuation": {
+          "page": 1,
+          "bbox": [
+            10,
+            70,
+            140,
+            20
+          ]
+        }
+      },
+      {
+        "kind": "annotation",
+        "page": 2,
+        "bbox": [
+          10,
+          70,
+          300,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        }
+      }
+    ]
+  },
+  {
+    "name": "tab-excluded",
+    "records": [
+      {
+        "page": 1,
+        "system_index": 0,
+        "part_id": "part-1",
+        "staff_id": "staff-1",
+        "mode": "notation",
+        "bbox": [
+          10,
+          100,
+          300,
+          80
+        ]
+      },
+      {
+        "page": 2,
+        "system_index": 0,
+        "part_id": "part-1",
+        "staff_id": "staff-1",
+        "mode": "tab",
+        "bbox": [
+          10,
+          100,
+          300,
+          80
+        ]
+      }
+    ],
+    "predictions": [
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          10,
+          70,
+          140,
+          20
+        ],
+        "image": "text.png",
+        "parsed": {
+          "kind": "ottava",
+          "semitones": 12,
+          "capo": null,
+          "text": "8va"
+        }
+      },
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          155,
+          70,
+          155,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        }
+      },
+      {
+        "kind": "annotation",
+        "page": 2,
+        "bbox": [
+          10,
+          70,
+          300,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        }
+      }
+    ],
+    "expected": [
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          10,
+          70,
+          140,
+          20
+        ],
+        "image": "text.png",
+        "parsed": {
+          "kind": "ottava",
+          "semitones": 12,
+          "capo": null,
+          "text": "8va"
+        }
+      },
+      {
+        "kind": "transposition",
+        "page": 1,
+        "bbox": [
+          155,
+          70,
+          155,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "ottava",
+          "semitones": 12,
+          "capo": null,
+          "text": null
+        },
+        "model_parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        },
+        "octave_continuation": {
+          "page": 1,
+          "bbox": [
+            10,
+            70,
+            140,
+            20
+          ]
+        }
+      },
+      {
+        "kind": "annotation",
+        "page": 2,
+        "bbox": [
+          10,
+          70,
+          300,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        }
+      }
+    ]
+  },
+  {
+    "name": "must-start-at-margin",
+    "records": [
+      {
+        "page": 1,
+        "system_index": 0,
+        "part_id": "part-1",
+        "staff_id": "staff-1",
+        "mode": "notation",
+        "bbox": [
+          10,
+          100,
+          300,
+          80
+        ]
+      },
+      {
+        "page": 2,
+        "system_index": 0,
+        "part_id": "part-1",
+        "staff_id": "staff-1",
+        "mode": "notation",
+        "bbox": [
+          10,
+          100,
+          300,
+          80
+        ]
+      }
+    ],
+    "predictions": [
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          10,
+          70,
+          140,
+          20
+        ],
+        "image": "text.png",
+        "parsed": {
+          "kind": "ottava",
+          "semitones": 12,
+          "capo": null,
+          "text": "8va"
+        }
+      },
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          155,
+          70,
+          155,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        }
+      },
+      {
+        "kind": "annotation",
+        "page": 2,
+        "bbox": [
+          70,
+          70,
+          300,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        }
+      }
+    ],
+    "expected": [
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          10,
+          70,
+          140,
+          20
+        ],
+        "image": "text.png",
+        "parsed": {
+          "kind": "ottava",
+          "semitones": 12,
+          "capo": null,
+          "text": "8va"
+        }
+      },
+      {
+        "kind": "transposition",
+        "page": 1,
+        "bbox": [
+          155,
+          70,
+          155,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "ottava",
+          "semitones": 12,
+          "capo": null,
+          "text": null
+        },
+        "model_parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        },
+        "octave_continuation": {
+          "page": 1,
+          "bbox": [
+            10,
+            70,
+            140,
+            20
+          ]
+        }
+      },
+      {
+        "kind": "annotation",
+        "page": 2,
+        "bbox": [
+          70,
+          70,
+          300,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        }
+      }
+    ]
+  },
+  {
+    "name": "side-of-staff-must-match",
+    "records": [
+      {
+        "page": 1,
+        "system_index": 0,
+        "part_id": "part-1",
+        "staff_id": "staff-1",
+        "mode": "notation",
+        "bbox": [
+          10,
+          100,
+          300,
+          80
+        ]
+      },
+      {
+        "page": 2,
+        "system_index": 0,
+        "part_id": "part-1",
+        "staff_id": "staff-1",
+        "mode": "notation",
+        "bbox": [
+          10,
+          100,
+          300,
+          80
+        ]
+      }
+    ],
+    "predictions": [
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          10,
+          70,
+          140,
+          20
+        ],
+        "image": "text.png",
+        "parsed": {
+          "kind": "ottava",
+          "semitones": 12,
+          "capo": null,
+          "text": "8va"
+        }
+      },
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          155,
+          70,
+          155,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        }
+      },
+      {
+        "kind": "annotation",
+        "page": 2,
+        "bbox": [
+          10,
+          190,
+          300,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        }
+      }
+    ],
+    "expected": [
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          10,
+          70,
+          140,
+          20
+        ],
+        "image": "text.png",
+        "parsed": {
+          "kind": "ottava",
+          "semitones": 12,
+          "capo": null,
+          "text": "8va"
+        }
+      },
+      {
+        "kind": "transposition",
+        "page": 1,
+        "bbox": [
+          155,
+          70,
+          155,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "ottava",
+          "semitones": 12,
+          "capo": null,
+          "text": null
+        },
+        "model_parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        },
+        "octave_continuation": {
+          "page": 1,
+          "bbox": [
+            10,
+            70,
+            140,
+            20
+          ]
+        }
+      },
+      {
+        "kind": "annotation",
+        "page": 2,
+        "bbox": [
+          10,
+          190,
+          300,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        }
+      }
+    ]
+  },
+  {
+    "name": "horizontal-gap-stops",
+    "records": [
+      {
+        "page": 1,
+        "system_index": 0,
+        "part_id": "part-1",
+        "staff_id": "staff-1",
+        "mode": "notation",
+        "bbox": [
+          10,
+          100,
+          300,
+          80
+        ]
+      },
+      {
+        "page": 2,
+        "system_index": 0,
+        "part_id": "part-1",
+        "staff_id": "staff-1",
+        "mode": "notation",
+        "bbox": [
+          10,
+          100,
+          300,
+          80
+        ]
+      }
+    ],
+    "predictions": [
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          10,
+          70,
+          140,
+          20
+        ],
+        "image": "text.png",
+        "parsed": {
+          "kind": "ottava",
+          "semitones": 12,
+          "capo": null,
+          "text": "8va"
+        }
+      },
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          210,
+          70,
+          155,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        }
+      },
+      {
+        "kind": "annotation",
+        "page": 2,
+        "bbox": [
+          10,
+          70,
+          300,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        }
+      }
+    ],
+    "expected": [
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          10,
+          70,
+          140,
+          20
+        ],
+        "image": "text.png",
+        "parsed": {
+          "kind": "ottava",
+          "semitones": 12,
+          "capo": null,
+          "text": "8va"
+        }
+      },
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          210,
+          70,
+          155,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        }
+      },
+      {
+        "kind": "annotation",
+        "page": 2,
+        "bbox": [
+          10,
+          70,
+          300,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        }
+      }
+    ]
+  },
+  {
+    "name": "new-text-stops",
+    "records": [
+      {
+        "page": 1,
+        "system_index": 0,
+        "part_id": "part-1",
+        "staff_id": "staff-1",
+        "mode": "notation",
+        "bbox": [
+          10,
+          100,
+          300,
+          80
+        ]
+      },
+      {
+        "page": 2,
+        "system_index": 0,
+        "part_id": "part-1",
+        "staff_id": "staff-1",
+        "mode": "notation",
+        "bbox": [
+          10,
+          100,
+          300,
+          80
+        ]
+      }
+    ],
+    "predictions": [
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          10,
+          70,
+          140,
+          20
+        ],
+        "image": "text.png",
+        "parsed": {
+          "kind": "ottava",
+          "semitones": 12,
+          "capo": null,
+          "text": "8va"
+        }
+      },
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          155,
+          70,
+          155,
+          20
+        ],
+        "image": "text.png",
+        "parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        }
+      },
+      {
+        "kind": "annotation",
+        "page": 2,
+        "bbox": [
+          10,
+          70,
+          300,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        }
+      }
+    ],
+    "expected": [
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          10,
+          70,
+          140,
+          20
+        ],
+        "image": "text.png",
+        "parsed": {
+          "kind": "ottava",
+          "semitones": 12,
+          "capo": null,
+          "text": "8va"
+        }
+      },
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          155,
+          70,
+          155,
+          20
+        ],
+        "image": "text.png",
+        "parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        }
+      },
+      {
+        "kind": "annotation",
+        "page": 2,
+        "bbox": [
+          10,
+          70,
+          300,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        }
+      }
+    ]
+  },
+  {
+    "name": "explicit-needs-visible-dashes",
+    "records": [
+      {
+        "page": 1,
+        "system_index": 0,
+        "part_id": "part-1",
+        "staff_id": "staff-1",
+        "mode": "notation",
+        "bbox": [
+          10,
+          100,
+          300,
+          80
+        ]
+      },
+      {
+        "page": 2,
+        "system_index": 0,
+        "part_id": "part-1",
+        "staff_id": "staff-1",
+        "mode": "notation",
+        "bbox": [
+          10,
+          100,
+          300,
+          80
+        ]
+      }
+    ],
+    "predictions": [
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          10,
+          70,
+          140,
+          20
+        ],
+        "image": "too-short.png",
+        "parsed": {
+          "kind": "ottava",
+          "semitones": 12,
+          "capo": null,
+          "text": "8va"
+        }
+      },
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          155,
+          70,
+          155,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        }
+      },
+      {
+        "kind": "annotation",
+        "page": 2,
+        "bbox": [
+          10,
+          70,
+          300,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        }
+      }
+    ],
+    "expected": [
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          10,
+          70,
+          140,
+          20
+        ],
+        "image": "too-short.png",
+        "parsed": {
+          "kind": "ottava",
+          "semitones": 12,
+          "capo": null,
+          "text": "8va"
+        }
+      },
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          155,
+          70,
+          155,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        }
+      },
+      {
+        "kind": "annotation",
+        "page": 2,
+        "bbox": [
+          10,
+          70,
+          300,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        }
+      }
+    ]
+  },
+  {
+    "name": "upward-label-below-staff-cannot-anchor",
+    "records": [
+      {
+        "page": 1,
+        "system_index": 0,
+        "part_id": "part-1",
+        "staff_id": "staff-1",
+        "mode": "notation",
+        "bbox": [
+          10,
+          100,
+          300,
+          80
+        ]
+      },
+      {
+        "page": 2,
+        "system_index": 0,
+        "part_id": "part-1",
+        "staff_id": "staff-1",
+        "mode": "notation",
+        "bbox": [
+          10,
+          100,
+          300,
+          80
+        ]
+      }
+    ],
+    "predictions": [
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          10,
+          190,
+          140,
+          20
+        ],
+        "image": "text.png",
+        "parsed": {
+          "kind": "ottava",
+          "semitones": 12,
+          "capo": null,
+          "text": "8va"
+        }
+      },
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          155,
+          190,
+          155,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        }
+      },
+      {
+        "kind": "annotation",
+        "page": 2,
+        "bbox": [
+          10,
+          70,
+          300,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        }
+      }
+    ],
+    "expected": [
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          10,
+          190,
+          140,
+          20
+        ],
+        "image": "text.png",
+        "parsed": {
+          "kind": "ottava",
+          "semitones": 12,
+          "capo": null,
+          "text": "8va"
+        }
+      },
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          155,
+          190,
+          155,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        }
+      },
+      {
+        "kind": "annotation",
+        "page": 2,
+        "bbox": [
+          10,
+          70,
+          300,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        }
+      }
+    ]
+  },
+  {
+    "name": "downward-chain-below-staff",
+    "records": [
+      {
+        "page": 1,
+        "system_index": 0,
+        "part_id": "part-1",
+        "staff_id": "staff-1",
+        "mode": "notation",
+        "bbox": [
+          10,
+          100,
+          300,
+          80
+        ]
+      },
+      {
+        "page": 2,
+        "system_index": 0,
+        "part_id": "part-1",
+        "staff_id": "staff-1",
+        "mode": "notation",
+        "bbox": [
+          10,
+          100,
+          300,
+          80
+        ]
+      }
+    ],
+    "predictions": [
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          10,
+          190,
+          140,
+          20
+        ],
+        "image": "text.png",
+        "parsed": {
+          "kind": "ottava",
+          "semitones": -12,
+          "capo": null,
+          "text": "8vb"
+        }
+      },
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          155,
+          190,
+          155,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        }
+      },
+      {
+        "kind": "annotation",
+        "page": 2,
+        "bbox": [
+          10,
+          190,
+          300,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        }
+      }
+    ],
+    "expected": [
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          10,
+          190,
+          140,
+          20
+        ],
+        "image": "text.png",
+        "parsed": {
+          "kind": "ottava",
+          "semitones": -12,
+          "capo": null,
+          "text": "8vb"
+        }
+      },
+      {
+        "kind": "transposition",
+        "page": 1,
+        "bbox": [
+          155,
+          190,
+          155,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "ottava",
+          "semitones": -12,
+          "capo": null,
+          "text": null
+        },
+        "model_parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        },
+        "octave_continuation": {
+          "page": 1,
+          "bbox": [
+            10,
+            190,
+            140,
+            20
+          ]
+        }
+      },
+      {
+        "kind": "transposition",
+        "page": 2,
+        "bbox": [
+          10,
+          190,
+          300,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "ottava",
+          "semitones": -12,
+          "capo": null,
+          "text": null
+        },
+        "model_parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        },
+        "octave_continuation": {
+          "page": 1,
+          "bbox": [
+            155,
+            190,
+            155,
+            20
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "intervening-row-breaks-carry",
+    "records": [
+      {
+        "page": 1,
+        "system_index": 0,
+        "part_id": "part-1",
+        "staff_id": "staff-1",
+        "mode": "notation",
+        "bbox": [
+          10,
+          100,
+          300,
+          80
+        ]
+      },
+      {
+        "page": 1,
+        "system_index": 1,
+        "part_id": "part-1",
+        "staff_id": "staff-1",
+        "mode": "notation",
+        "bbox": [
+          10,
+          300,
+          300,
+          80
+        ]
+      },
+      {
+        "page": 2,
+        "system_index": 0,
+        "part_id": "part-1",
+        "staff_id": "staff-1",
+        "mode": "notation",
+        "bbox": [
+          10,
+          100,
+          300,
+          80
+        ]
+      }
+    ],
+    "predictions": [
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          10,
+          70,
+          300,
+          20
+        ],
+        "image": "text.png",
+        "parsed": {
+          "kind": "ottava",
+          "semitones": 12,
+          "capo": null,
+          "text": "8va"
+        }
+      },
+      {
+        "kind": "annotation",
+        "page": 2,
+        "bbox": [
+          10,
+          70,
+          300,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        }
+      }
+    ],
+    "expected": [
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          10,
+          70,
+          300,
+          20
+        ],
+        "image": "text.png",
+        "parsed": {
+          "kind": "ottava",
+          "semitones": 12,
+          "capo": null,
+          "text": "8va"
+        }
+      },
+      {
+        "kind": "annotation",
+        "page": 2,
+        "bbox": [
+          10,
+          70,
+          300,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        }
+      }
+    ]
+  },
+  {
+    "name": "new-explicit-label-replaces-shift",
+    "records": [
+      {
+        "page": 1,
+        "system_index": 0,
+        "part_id": "part-1",
+        "staff_id": "staff-1",
+        "mode": "notation",
+        "bbox": [
+          10,
+          100,
+          300,
+          80
+        ]
+      },
+      {
+        "page": 2,
+        "system_index": 0,
+        "part_id": "part-1",
+        "staff_id": "staff-1",
+        "mode": "notation",
+        "bbox": [
+          10,
+          100,
+          300,
+          80
+        ]
+      }
+    ],
+    "predictions": [
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          10,
+          70,
+          100,
+          20
+        ],
+        "image": "text.png",
+        "parsed": {
+          "kind": "ottava",
+          "semitones": 12,
+          "capo": null,
+          "text": "8va"
+        }
+      },
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          115,
+          70,
+          100,
+          20
+        ],
+        "image": "text.png",
+        "parsed": {
+          "kind": "ottava",
+          "semitones": -12,
+          "capo": null,
+          "text": "8vb"
+        }
+      },
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          225,
+          70,
+          85,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        }
+      },
+      {
+        "kind": "annotation",
+        "page": 2,
+        "bbox": [
+          10,
+          70,
+          300,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        }
+      }
+    ],
+    "expected": [
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          10,
+          70,
+          100,
+          20
+        ],
+        "image": "text.png",
+        "parsed": {
+          "kind": "ottava",
+          "semitones": 12,
+          "capo": null,
+          "text": "8va"
+        }
+      },
+      {
+        "kind": "annotation",
+        "page": 1,
+        "bbox": [
+          115,
+          70,
+          100,
+          20
+        ],
+        "image": "text.png",
+        "parsed": {
+          "kind": "ottava",
+          "semitones": -12,
+          "capo": null,
+          "text": "8vb"
+        }
+      },
+      {
+        "kind": "transposition",
+        "page": 1,
+        "bbox": [
+          225,
+          70,
+          85,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "ottava",
+          "semitones": -12,
+          "capo": null,
+          "text": null
+        },
+        "model_parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        },
+        "octave_continuation": {
+          "page": 1,
+          "bbox": [
+            115,
+            70,
+            100,
+            20
+          ]
+        }
+      },
+      {
+        "kind": "transposition",
+        "page": 2,
+        "bbox": [
+          10,
+          70,
+          300,
+          20
+        ],
+        "image": "bare.png",
+        "parsed": {
+          "kind": "ottava",
+          "semitones": -12,
+          "capo": null,
+          "text": null
+        },
+        "model_parsed": {
+          "kind": "technique",
+          "semitones": null,
+          "capo": null,
+          "text": null
+        },
+        "octave_continuation": {
+          "page": 1,
+          "bbox": [
+            225,
+            70,
+            85,
+            20
+          ]
+        }
+      }
+    ]
+  }
+]

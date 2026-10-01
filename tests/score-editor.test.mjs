@@ -97,3 +97,157 @@ test('engraving handles percussion, non-six-string TAB and sparse voice numbers'
   assert.equal(note.string,1);
   assert.equal(note.realValue,25);
 });
+
+test('same-project snapshots preserve selection and failed-job drafts', () => {
+  receiveProject({id:'recovery',revision:1,pages:[{},{}],boxes:[{page:1,bbox:[0,0,50,50]}]});
+  ui.selected=0;
+  ui.pageIndex=1;
+  ui.measureIndex=7;
+  ui.boxes[0].bbox[0]=12;
+  ui.boxDirty=ui.measureDirty=ui.metadataDirty=true;
+  receiveProject({id:'recovery',revision:2,pages:[{},{}],boxes:[{page:1,bbox:[0,0,50,50]}]}, {preserveDrafts:true});
+  assert.equal(ui.state.revision,2);
+  assert.equal(ui.selected,0);
+  assert.equal(ui.pageIndex,1);
+  assert.equal(ui.measureIndex,7);
+  assert.equal(ui.boxes[0].bbox[0],12);
+  assert.equal(ui.measureDirty,true);
+  assert.equal(ui.metadataDirty,true);
+  receiveProject({id:'recovery',revision:3,pages:[{}],boxes:[{page:1,bbox:[12,0,50,50]}]});
+  assert.equal(hasDrafts(),false);
+  assert.equal(ui.selected,0);
+  assert.equal(ui.pageIndex,0);
+  assert.equal(ui.measureIndex,7);
+});
+
+test('switching projects never carries previous selection or dirty flags', () => {
+  ui.selected=0;
+  ui.measureDirty=true;
+  receiveProject({id:'another-project',revision:1,pages:[{}],boxes:[]}, {preserveDrafts:true});
+  assert.equal(ui.selected,-1);
+  assert.equal(ui.measureIndex,0);
+  assert.equal(hasDrafts(),false);
+  assert.deepEqual(ui.boxes,[]);
+});
+
+import { commitMeasureDraft } from '../webapp/static/state.js';
+test('saving an old draft sends its original revision and keeps it on conflict', async () => {
+  receiveProject({id:'conflict',revision:3,pages:[{}],boxes:[]});
+  const draft={voices:[{voice:0,events:[eventWith([{string:1,fret:7,effects:[]}])]}]};
+  const request={sid:'conflict',index:2,revision:3,body:{measure:draft,reviewed:false}};
+  ui.measureDirty=true;
+  receiveProject({id:'conflict',revision:4,pages:[{}],boxes:[]}, {preserveDrafts:true});
+  await assert.rejects(commitMeasureDraft(request, async (url, method, body, revision) => {
+    assert.equal(url,'/api/sessions/conflict/measures/3');
+    assert.equal(method,'PUT');
+    assert.equal(revision,3);
+    assert.equal(body.measure,draft);
+    assert.equal(body.reviewed,false);
+    throw new Error('版本冲突');
+  }), /版本冲突/);
+  assert.equal(ui.state.revision,4);
+  assert.equal(ui.measureDirty,true);
+  assert.equal(draft.voices[0].events[0].notes[0].fret,7);
+});
+
+test('late save responses cannot switch projects or replace a newer snapshot', async () => {
+  for (const replacement of ['other','saving']) {
+    receiveProject({id:'saving',revision:1,pages:[{}],boxes:[]});
+    ui.measureDirty=true;
+    let finish;
+    const pending=commitMeasureDraft({sid:'saving',index:0,revision:1,body:{reviewed:true}},
+      () => new Promise(resolve => {finish=resolve;}));
+    receiveProject({id:replacement,revision:9,pages:[{}],boxes:[]});
+    ui.measureDirty=true;
+    finish({id:'saving',revision:2,pages:[{}],boxes:[]});
+    assert.equal(await pending,false);
+    assert.equal(ui.sid,replacement);
+    assert.equal(ui.state.revision,9);
+    assert.equal(ui.measureDirty,true);
+  }
+});
+
+test('an accepted save clears dirty state only after the response succeeds', async () => {
+  receiveProject({id:'saving',revision:1,pages:[{}],boxes:[]});
+  ui.measureDirty=true;
+  let finish;
+  const pending=commitMeasureDraft({sid:'saving',index:0,revision:1,body:{reviewed:false}},
+    () => new Promise(resolve => {finish=resolve;}));
+  assert.equal(ui.measureDirty,true);
+  assert.equal(ui.state.revision,1);
+  finish({id:'saving',revision:2,pages:[{}],boxes:[]});
+  assert.equal(await pending,true);
+  assert.equal(ui.state.revision,2);
+  assert.equal(ui.measureDirty,false);
+});
+
+import { resumeCheckpoint } from '../webapp/static/state.js';
+test('resume preserves the checkpoint and dirty draft until recognition succeeds', async () => {
+  receiveProject({id:'resume',revision:1,pages:[{}],boxes:[],ocr_task:{next:2}});
+  ui.measureDirty=true;
+  const calls=[];
+  let finish;
+  const pending=resumeCheckpoint({
+    dirty:ui.measureDirty,
+    confirm:message=>{calls.push('confirm');assert.match(message,/未保存草稿/);return true;},
+    start:(path,body)=>{
+      calls.push('start');
+      assert.equal(path,'/recognize');
+      assert.deepEqual(body,{resume:true});
+      assert.deepEqual(ui.state.ocr_task,{next:2});
+      assert.equal(ui.measureDirty,true);
+      return new Promise(resolve=>{finish=resolve;});
+    },
+  });
+  assert.deepEqual(calls,['confirm','start']);
+  assert.equal(ui.measureDirty,true);
+  finish();
+  assert.equal(await pending,true);
+  // The helper leaves acceptance/clearing to the existing successful-job watcher.
+  assert.equal(ui.measureDirty,true);
+  assert.deepEqual(ui.state.ocr_task,{next:2});
+});
+
+test('declining resume does nothing; clean resume needs no confirmation', async () => {
+  const calls=[];
+  assert.equal(await resumeCheckpoint({dirty:true,confirm:()=>false,start:()=>calls.push('start')}),false);
+  assert.deepEqual(calls,[]);
+  assert.equal(await resumeCheckpoint({dirty:false,confirm:()=>{throw new Error('unexpected confirmation');},
+    start:(path,body)=>calls.push([path,body])}),true);
+  assert.deepEqual(calls,[['/recognize',{resume:true}]]);
+});
+
+test('failed resume leaves checkpoint and dirty state intact', async () => {
+  receiveProject({id:'resume-failed',revision:7,pages:[{}],boxes:[],ocr_task:{next:4}});
+  ui.measureDirty=true;
+  await assert.rejects(resumeCheckpoint({dirty:true,confirm:()=>true,start:async()=>{throw new Error('识别失败');}}),/识别失败/);
+  assert.equal(ui.measureDirty,true);
+  assert.equal(ui.state.revision,7);
+  assert.deepEqual(ui.state.ocr_task,{next:4});
+});
+
+test('explicitly reopening the same project starts a new editor lifetime and discards its cache', () => {
+  receiveProject({id:'same-project',revision:5,pages:[{}],boxes:[]});
+  const generation=ui.openGeneration;
+  ui.measureIndex=8;
+  ui.measureDirty=true;
+  const cached=new Map([['guitarocr-draft:same-project','old ninth-measure draft'],['guitarocr-draft:other','keep']]);
+  const previous=Object.getOwnPropertyDescriptor(globalThis,'sessionStorage');
+  Object.defineProperty(globalThis,'sessionStorage',{configurable:true,value:{removeItem:key=>cached.delete(key)}});
+  try {
+    openProject('same-project',{discardDrafts:true});
+    assert.equal(ui.openGeneration,generation+1);
+    assert.equal(ui.state,null);
+    assert.equal(ui.measureIndex,0);
+    assert.equal(ui.measureDirty,false);
+    assert.equal(cached.has('guitarocr-draft:same-project'),false);
+    assert.equal(cached.get('guitarocr-draft:other'),'keep');
+    receiveProject({id:'same-project',revision:5,pages:[{}],boxes:[]});
+    assert.equal(ui.openGeneration,generation+1);
+    receiveProject({id:'same-project',revision:6,pages:[{}],boxes:[]});
+    assert.equal(ui.openGeneration,generation+1);
+  } finally {
+    if(previous)Object.defineProperty(globalThis,'sessionStorage',previous);
+    else delete globalThis.sessionStorage;
+  }
+});

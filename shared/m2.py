@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from fractions import Fraction
 import re
 from typing import Any
 from urllib.parse import quote, unquote
@@ -25,6 +26,19 @@ _NOTE_PATTERN = re.compile(
     r"^(?:s(?P<string>\d+)f(?P<fret>x|-?\d+))?"
     r"(?:p(?P<pitch>-?\d+))?(?:\((?P<effects>.*)\))?$"
 )
+
+
+def duration_ticks(duration: dict[str, Any]) -> Fraction:
+    """Exact M2 duration at 960 ticks per quarter, before export quantization."""
+    ticks = Fraction(
+        3840 * duration.get("tuplet_times", 1),
+        duration["value"] * duration.get("tuplet_enters", 1),
+    )
+    if duration.get("double_dotted"):
+        ticks *= Fraction(7, 4)
+    elif duration.get("dotted"):
+        ticks *= Fraction(3, 2)
+    return ticks
 
 
 def _duration_token(duration: dict[str, Any]) -> str:

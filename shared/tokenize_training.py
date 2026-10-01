@@ -4,6 +4,8 @@ import argparse
 import os
 from pathlib import Path
 
+from shared.training import load_training_config
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -16,18 +18,14 @@ def main() -> None:
     os.environ.setdefault("OMP_NUM_THREADS", "1")
     os.environ.setdefault("MKL_NUM_THREADS", "1")
     import torch
-    import yaml
     from llamafactory.data import get_dataset, get_template_and_fix_tokenizer
     from llamafactory.hparams import get_train_args
     from llamafactory.model import load_tokenizer
 
     torch.set_num_threads(1)
-    config = yaml.safe_load(args.config.read_text())
+    config, _ = load_training_config(args.config)
     from shared.score_image import install_training_policy
     install_training_policy(config['model_name_or_path'])
-    for key in ('vocab_trainable_from', 'vocab_learning_rate', 'vocab_freeze_original', 'music_field_loss',
-                'batch_token_budget', 'maximum_batch_examples', 'share_context_images', 'context_chunk_size'):
-        config.pop(key, None)
     config["tokenized_path"] = str(args.output)
     # Tokenization loads no model and must work alongside a multi-GPU job.
     config.update(use_cpu=True, bf16=False, fp16=False)

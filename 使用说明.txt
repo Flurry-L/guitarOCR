@@ -1,39 +1,34 @@
-GuitarOCR 使用说明
+GuitarOCR Python 启动 ZIP 使用说明
+
+本文件适用于 start.bat / start.sh 研究、命令行和服务入口。
+当前源码的原生桌面客户端使用 Tauri + Rust，不通过这些脚本启动，也不安装 Python。
+已发布 0.1.0 安装包早于当前原生改动，下载前请看 README.md 和 docs/setup.md。
 
 Windows 10 / 11（64 位）
 
 1. 将 ZIP 完整解压到可写文件夹，例如 D:\GuitarOCR。
-2. 双击文件夹中的 start.bat。
-3. 首次启动会下载约 5.7 GB 模型，并联网安装 Python 和运行依赖。
-   原生 GPU 建议预留 25 GB 磁盘，保留启动窗口并等待浏览器自动打开。
-4. 在网页中导入 PDF 或图片，校对识别结果，下载 GP5。
-
-以后仍双击 start.bat。首次安装中断后可重跑同一个文件。
-使用期间保留启动窗口，关闭窗口会停止服务。
-
-启动器按所选引擎下载与 0.1 配套的模型，支持断点续传，无需安装 Git 或提前安装 Python。
-Python 和依赖优先从国内源下载，失败后尝试官方源。
-ZIP 下载仍需访问 GitHub，uv 和 Windows C++ 运行库仍从官方站点下载。
-NVIDIA 驱动 580 或更新版本可自动使用 GPU，否则使用 CPU，识别会较慢。
+2. 双击 start.bat。脚本安装所选引擎对应的 Python 环境和模型。
+3. 保留启动窗口，等待浏览器打开；在网页中导入 PDF 或图片、校对并导出。
 
 Linux x64
 
-在解压后的文件夹中打开终端，运行 bash start.sh。
-Ubuntu / Debian 如提示缺少系统库，执行：
-sudo apt-get install curl ca-certificates
+在解压后的文件夹中运行 bash start.sh。
+Ubuntu / Debian 如提示缺少基础下载工具，安装 curl 和 ca-certificates。
 
-运行环境与更新
+环境与模型
 
-每种安装只需要一套 Python 环境；更新应用复用已有模型及依赖。
-GGUF 轻量路径约需 3.36 GB 模型，不安装 Torch / Paddle，配置方法见 docs/setup.md。
-停止服务后，可以运行 scripts/bootstrap.sh status / clean 查看并清理旧环境。
+引擎、平台支持、下载容量和磁盘要求以 docs/setup.md 为准。
+默认轻量引擎需要已核验的预编译 llama.cpp 附件；未发布的平台不会自动编译或下载未知程序。
+仅校对已有项目，可在已安装基础依赖的研究环境运行 guitarocr-web --edit-only，不加载模型。
+下载中断后可重跑相同脚本；更新代码复用兼容的模型与依赖。
+Python 依赖优先从国内源下载，失败后尝试官方源；GitHub 附件、uv 和 Windows C++ 运行库使用官方站点。
 
-使用帮助
+运行与备份
 
-网页地址：http://127.0.0.1:7860
-模型主要适用于规则排版的 TAB、五线谱和混合吉他谱，识别后需要校对。
-详细操作见 docs/webui.md，安装问题见 docs/setup.md。
-安装日志在 output/logs，已保存的项目在 output/webui。
-更新版本前，可在网页导出页下载项目备份，更新后恢复。
+网页默认地址：http://127.0.0.1:7860
+使用期间保留启动窗口；关闭窗口会停止 Python 本机服务。
+默认日志在 output/logs，项目在 output/webui。更新前从网页导出项目 ZIP 备份。
+停止服务后，可运行 scripts/bootstrap.sh status / clean 查看和清理旧 Python 环境；不会删除项目或模型缓存。
 
-下载与问题反馈：https://github.com/Flurry-L/guitarOCR
+模型识别后需要校对。操作见 docs/webui.md，安装与故障处理见 docs/setup.md。
+项目与问题反馈：https://github.com/Flurry-L/guitarOCR

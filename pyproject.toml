@@ -50,7 +50,7 @@ layout = ["configs/*.yaml"]
 document_info = ["configs/*.yaml"]
 measure_ocr = ["configs/*.yaml", "configs/*.json"]
 datagen = ["native-bin/*.dll", "native-source/*.cpp", "native-source/*.h", "native-source/*.ps1", "native-source/*.py", "native-source/toolchain/*"]
-webapp = ["static/*.html", "static/*.css", "static/*.js", "static/vendor/*.mjs", "static/vendor/font/*.woff2", "static/vendor/*LICENSE", "static/vendor/README.md"]
+webapp = ["static/*.html", "static/*.css", "static/*.js", "static/examples/*.zip", "static/examples/*.md", "static/vendor/*.mjs", "static/vendor/font/*.woff2", "static/vendor/*LICENSE", "static/vendor/README.md"]
 server = ["static/*.html", "static/*.css", "static/*.js", "deploy/*"]
 
 [tool.ruff]

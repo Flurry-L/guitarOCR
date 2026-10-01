@@ -1,4 +1,1 @@
-/* Project archive restoration is provided by the local workbench. */
-.project-import {
-  display: none !important;
-}
+/* The account workbench uses the shared project import and editor styles. */

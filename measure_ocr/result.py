@@ -7,7 +7,8 @@ from those records here, regardless of whether they came from OCR or an edit.
 from pathlib import Path
 
 from shared.artifacts import write_json, write_result
-from shared.constraints import gp5_timing_errors, validate_measure_target
+from gp5_export.timing import gp5_timing_errors
+from shared.constraints import validate_measure_target
 from shared.m2 import format_measure_target, parse_measure_target
 from shared.score_document import score_document
 from shared.score_text import display_score_text, model_score_text
@@ -93,6 +94,7 @@ def correct_measure(source, number, target=None, measure=None, reviewed=False):
         row["pitch_needs_review"] = False
     elif changed:
         row["reviewed"] = False
+        row["needs_review"] = True
 
 
 def update_information(source, information):

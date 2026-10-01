@@ -1,6 +1,9 @@
 """GLM SFT with fused loss on supervised tokens, without a dense prompt logit tensor."""
 
 from functools import wraps
+from pathlib import Path
+
+from shared.training import load_training_config
 
 
 def stage_adapter_weights_on_cpu():
@@ -126,27 +129,21 @@ def train_music_vocabulary(first_new_token, learning_rate, freeze_original=True)
 def main():
     import os
     import sys
-    import yaml
 
-    config = yaml.safe_load(open(sys.argv[1]))
-    for override in sys.argv[2:]:
-        key, sep, value = override.partition('=')
-        if sep:
-            config[key] = yaml.safe_load(value)
+    config, options = load_training_config(Path(sys.argv[1]), sys.argv[2:])
     from shared.score_image import install_training_policy
     install_training_policy(config['model_name_or_path'])
-    if config.pop('share_context_images', False):
+    if options['share_context_images']:
         from measure_ocr.shared_vision import install_shared_vision
         install_shared_vision()
-    context_chunk_size = int(config.pop('context_chunk_size', 1))
-    if token_budget := config.pop('batch_token_budget', None):
+    context_chunk_size = int(options['context_chunk_size'])
+    if token_budget := options['batch_token_budget']:
         from measure_ocr.token_batching import install_token_batching
-        install_token_batching(int(token_budget), int(config.pop('maximum_batch_examples', 128)), context_chunk_size)
+        install_token_batching(int(token_budget), int(options['maximum_batch_examples']), context_chunk_size)
     needs_logits = any(config.get(key) for key in ('compute_accuracy', 'use_dft_loss', 'use_eaft_loss', 'use_asft_loss'))
     field_weights = None
-    if config.pop('music_field_loss', False):
+    if options['music_field_loss']:
         import json
-        from pathlib import Path
         path = Path(config['model_name_or_path']) / 'music_vocabulary.json'
         field_weights = json.loads(path.read_text()).get('loss_weights')
     if not needs_logits and os.environ.get('GUITAROCR_DENSE_LOSS') != '1':
@@ -154,10 +151,10 @@ def main():
     materialize_sampler_lengths()
     exact_linear_targets()
     stage_adapter_weights_on_cpu()
-    first_new_token = config.pop('vocab_trainable_from', None)
+    first_new_token = options['vocab_trainable_from']
     if first_new_token is not None:
-        train_music_vocabulary(int(first_new_token), float(config.pop('vocab_learning_rate', 5e-4)),
-                               bool(config.pop('vocab_freeze_original', True)))
+        train_music_vocabulary(int(first_new_token), float(options['vocab_learning_rate']),
+                               bool(options['vocab_freeze_original']))
     from llamafactory.train.tuner import run_exp
     from transformers import TrainerCallback
 

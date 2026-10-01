@@ -1,0 +1,68 @@
+name: Build pinned local runtimes
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  runtime:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64-cpu
+            runner: ubuntu-22.04
+          - target: windows-x64-cpu
+            runner: windows-2022
+          - target: macos-x64-cpu
+            runner: macos-15-intel
+          - target: macos-arm64-cpu
+            runner: macos-15
+          - target: macos-arm64-metal
+            runner: macos-15
+    runs-on: ${{ matrix.runner }}
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+      - uses: actions/checkout@v4
+        with:
+          repository: ggml-org/llama.cpp
+          ref: 8019dc563b1ecbae6b161a70c3a1359f1b206c1e
+          path: .runtime-source
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile, version-probe, and checksum runtime
+        run: >-
+          python scripts/build_llamacpp_runtime.py
+          --source .runtime-source
+          --build output/runtime-build
+          --output output/runtime-artifacts
+          --target ${{ matrix.target }}
+      - name: Verify archive integrity
+        shell: python
+        run: |
+          from hashlib import sha256
+          import json
+          from pathlib import Path
+          from zipfile import ZipFile
+          for path in Path('output/runtime-artifacts').glob('*.json'):
+              for key, entry in json.loads(path.read_text()).items():
+                  archive = path.parent / entry['url'].rsplit('/', 1)[1]
+                  assert archive.stat().st_size == entry['bytes']
+                  assert sha256(archive.read_bytes()).hexdigest() == entry['sha256']
+                  with ZipFile(archive) as bundle:
+                      assert bundle.testzip() is None
+                      assert set(bundle.namelist()) == {item['name'] for item in entry['files']}
+                      for item in entry['files']:
+                          data = bundle.read(item['name'])
+                          assert len(data) == item['bytes']
+                          assert sha256(data).hexdigest() == item['sha256']
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GuitarOCR-runtime-${{ matrix.target }}
+          if-no-files-found: error
+          compression-level: 0
+          path: output/runtime-artifacts/*

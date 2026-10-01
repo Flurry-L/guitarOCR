@@ -1,0 +1,36 @@
+{
+  "package": "objc2",
+  "version": "0.6.4",
+  "crateLicense": "MIT",
+  "crateSource": "https://crates.io/crates/objc2/0.6.4",
+  "crateArchiveSha256": "3a12a8ed07aefc768292f076dc3ac8c48f3781c8f2d5851dd3d98950e8c5a89f",
+  "upstreamCommit": "8852b424193ca41602281b3d7540d7c8ed51e49a",
+  "cratePathInVcs": "crates/objc2",
+  "verification": "Published crate archive matches Cargo.lock SHA-256; its VCS and README identify this exact upstream root license; original bytes match the Git tree blob",
+  "noticeScope": "Original upstream license declaration and linked terms, including its Apple SDK caveat. No invented copyright attribution or replacement license text. This file inventory is not legal clearance.",
+  "files": [
+    {
+      "file": "LICENSE-UPSTREAM.md",
+      "source": "https://raw.githubusercontent.com/madsmtm/objc2/8852b424193ca41602281b3d7540d7c8ed51e49a/LICENSE.md",
+      "gitBlobSha1": "540ae4c81adb5f64a9f61e222b688880da24300e",
+      "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
+    }
+  ],
+  "publishedMetadata": {
+    "name": "objc2",
+    "version": "0.6.4",
+    "license": "MIT",
+    "repository": "https://github.com/madsmtm/objc2",
+    "authors": [
+      "Mads Marquart <mads@marquart.dk>"
+    ]
+  },
+  "publishedMetadataSource": {
+    "archiveMember": "objc2-0.6.4/Cargo.toml",
+    "sha256": "74bfa13bee2c7362432f22886f9749743c78d32eed5916e26a06ff56ae84c901"
+  },
+  "publishedVcsSource": {
+    "archiveMember": "objc2-0.6.4/.cargo_vcs_info.json",
+    "sha256": "45343a7cb8cebbb23c2804f99a14f01f6618ce0956dba62f387fb9ffaf00eff7"
+  }
+}

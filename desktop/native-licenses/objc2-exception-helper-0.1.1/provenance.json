@@ -1,0 +1,36 @@
+{
+  "package": "objc2-exception-helper",
+  "version": "0.1.1",
+  "crateLicense": "Zlib OR Apache-2.0 OR MIT",
+  "crateSource": "https://crates.io/crates/objc2-exception-helper/0.1.1",
+  "crateArchiveSha256": "c7a1c5fbb72d7735b076bb47b578523aedc40f3c439bea6dfd595c089d79d98a",
+  "upstreamCommit": "8d214f5477365ffcbcbb7de058c86ed9a518efb7",
+  "cratePathInVcs": "crates/objc2-exception-helper",
+  "verification": "Published crate archive matches Cargo.lock SHA-256; its VCS and README identify this exact upstream root license; original bytes match the Git tree blob",
+  "noticeScope": "Original upstream license declaration and linked terms, including its Apple SDK caveat. No invented copyright attribution or replacement license text. This file inventory is not legal clearance.",
+  "files": [
+    {
+      "file": "LICENSE-UPSTREAM.md",
+      "source": "https://raw.githubusercontent.com/madsmtm/objc2/8d214f5477365ffcbcbb7de058c86ed9a518efb7/LICENSE.md",
+      "gitBlobSha1": "540ae4c81adb5f64a9f61e222b688880da24300e",
+      "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
+    }
+  ],
+  "publishedMetadata": {
+    "name": "objc2-exception-helper",
+    "version": "0.1.1",
+    "license": "Zlib OR Apache-2.0 OR MIT",
+    "repository": "https://github.com/madsmtm/objc2",
+    "authors": [
+      "Mads Marquart <mads@marquart.dk>"
+    ]
+  },
+  "publishedMetadataSource": {
+    "archiveMember": "objc2-exception-helper-0.1.1/Cargo.toml",
+    "sha256": "11418770c4b19efe4ff9dcbc7a2aebfda1fb1f0eb4291e3225b20aed5c38a515"
+  },
+  "publishedVcsSource": {
+    "archiveMember": "objc2-exception-helper-0.1.1/.cargo_vcs_info.json",
+    "sha256": "c7e239421c2f7dc6ec239f8d464ca656be3d325c801c780a341dfa99c79a0949"
+  }
+}

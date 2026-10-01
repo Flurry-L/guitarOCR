@@ -1,4 +1,4 @@
-import { ui, endpoint, receiveProject } from "./state.js";
+import { ui, endpoint, receiveProject, commitMeasureDraft, resumeCheckpoint } from "./state.js";
 import { $, el, action, notice } from "./dom.js";
 import { api } from "./api.js";
 import { editorMenu } from "./editor-menu.js";
@@ -30,10 +30,36 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     digits = "",
     digitTime = 0,
     digitUndoRecorded = false;
-  let projectId,
+  let projectGeneration,
     projectRevision,
+    draftRevision,
     track = "all";
+  let selectionScope = "measure";
   const histories = new Map();
+  const draftKey = () => `guitarocr-draft:${ui.sid}`;
+  function persistDraft() {
+    if (!draft || !ui.sid) return;
+    try {
+      if (ui.measureDirty) sessionStorage.setItem(draftKey(), JSON.stringify({
+        index: ui.measureIndex, revision: draftRevision, draft, selected,
+        mode: ui.editorMode, text: $("measureText").value, track,
+      }));
+      else sessionStorage.removeItem(draftKey());
+    } catch { /* Saving to the server remains available in restricted browsers. */ }
+  }
+
+  function rememberContext() {
+    if (!ui.sid || !draft) return;
+    const viewport = document.querySelector(".score-viewport");
+    try { sessionStorage.setItem(`guitarocr-editor:${ui.sid}`, JSON.stringify({
+      index: ui.measureIndex, selected, track, mode: ui.editorMode,
+      zoom: $("scoreZoom").value, inspector: !studio.classList.contains("hide-inspector"),
+      map: $("measureMapPanel")?.open || false,
+      scroll: { top: viewport.scrollTop, left: viewport.scrollLeft },
+    })); } catch {}
+  }
+  window.addEventListener("beforeunload", rememberContext);
+  window.addEventListener("guitarocr:leave-project", rememberContext);
   let clipboard = null;
   const menu = editorMenu($("scoreContextMenu"), $("scoreCanvas"));
   const studio = $("reviewEditor");
@@ -141,6 +167,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
       digits = "";
       digitTime = 0;
     }
+    selectionScope = "note";
     const before = snapshot();
     try {
       fn();
@@ -164,6 +191,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
       ui.editorMode === "text"
         ? $("measureText").value.trim() !== current()?.score_text?.trim()
         : JSON.stringify(draft) !== JSON.stringify(current()?.parsed);
+    persistDraft();
   }
   function restore(from, to) {
     if (!from.length || ui.busy || saving || ui.editorMode !== "score") return;
@@ -182,21 +210,24 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
   $("recognize").onclick = action(async () => {
     if (
       ui.state.recognition &&
-      !confirm("重新识别会替换当前结果和手工校对内容，继续？")
+      !confirm(`重新识别整份乐谱（${ui.state.measures.length} 个谱表小节）将替换所有人工校对内容${ui.measureDirty ? "和未保存草稿" : ""}。失败或停止会保留原结果。继续？`)
     )
       return;
     await start("/recognize", undefined, () => {
       ui.measureDirty = false;
     });
   });
-  $("resumeOcr").onclick = action(() => start("/recognize", { resume: true }));
+  $("resumeOcr").onclick = action(() => resumeCheckpoint({
+    dirty: ui.measureDirty, confirm: (message) => confirm(message), start,
+  }));
   $("retryIssues").onclick = action(async () => {
-    if (!confirm("重新识别会替换标记小节中的内容，继续？")) return;
-    await start("/recognize", { measures: ui.state.review_measures });
+    const targets = [...ui.state.review_measures];
+    if (!confirm(`重新识别 ${targets.length} 个待检查小节，将替换这些小节的人工修改；其他小节不变。失败或停止会保留原结果。继续？`)) return;
+    if (ui.measureDirty && !targets.includes(ui.measureIndex + 1) && !(await save(false))) return;
+    await start("/recognize", { measures: targets });
   });
   $("retryMeasure").onclick = action(async () => {
-    if (!confirm("重新识别会替换当前小节的编辑，继续？")) return;
-    ui.measureDirty = false;
+    if (!confirm(`重新识别「${measureLabel(current(), ui.measureIndex)}」将替换该小节人工修改${ui.measureDirty ? "和未保存草稿" : ""}，其他小节不变。失败或停止会保留原结果。继续？`)) return;
     await start("/recognize", { measures: [ui.measureIndex + 1] });
   });
   function renderNavigator() {
@@ -285,12 +316,21 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
         (m) => track === "all" || (m.part_id || "part-1") === track,
       );
     if (index >= 0) await selectMeasure(index, undefined, true);
+    selectionScope = "track";
     renderNavigator();
     draw();
   };
   $("reviewFilter").onchange = renderNavigator;
+  $("trackProperties")?.querySelector("button").addEventListener("click", () => {
+    if (ui.measureDirty || ui.metadataDirty) return;
+    const part = $("metadataPart");
+    if ([...part.options].some((option) => option.value === current()?.part_id)) {
+      part.value = current().part_id;
+      part.dispatchEvent(new Event("change"));
+    }
+  });
   $("confirmNext").onclick = async () => {
-    if (!(await save())) return;
+    if (!(await save(true))) return;
     const indexes = ui.state.measures.flatMap((m, i) =>
       m.needs_review && (track === "all" || (m.part_id || "part-1") === track)
         ? [i]
@@ -333,15 +373,34 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     renderNavigator();
   }
   function renderMeasures() {
-    if (projectId !== ui.sid || projectRevision !== ui.state.revision) {
-      histories.clear();
+    const opening = projectGeneration !== ui.openGeneration;
+    let context;
+    if (opening) {
+      try { context = JSON.parse(sessionStorage.getItem(`guitarocr-editor:${ui.sid}`) || "null"); } catch {}
+    }
+    if (opening || (projectRevision !== ui.state.revision && !ui.measureDirty)) {
+      if (!opening && selected)
+        histories.set(ui.measureIndex, { undo, redo, selected });
+      else histories.clear();
       draft = null;
-      if (projectId !== ui.sid) {
+      if (!opening) {
+        try { sessionStorage.removeItem(draftKey()); } catch {}
+      }
+      if (opening) {
         track = "all";
         $("reviewFilter").value = "all";
       }
-      projectId = ui.sid;
+      projectGeneration = ui.openGeneration;
       projectRevision = ui.state.revision;
+    }
+    if (context) {
+      ui.measureIndex = context.index;
+      track = context.track;
+      ui.editorMode = context.mode;
+      $("scoreZoom").value = context.zoom;
+      view.zoom(+context.zoom);
+      inspector(context.inspector);
+      if ($("measureMapPanel")) $("measureMapPanel").open = context.map;
     }
     renderSummary();
     if (!ui.state.measures?.length) {
@@ -350,8 +409,32 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
       return;
     }
     ui.measureIndex = Math.min(ui.measureIndex, ui.state.measures.length - 1);
-    if (!draft) loadMeasure();
+    if (!draft) {
+      loadMeasure();
+      if (context?.selected) selected = context.selected;
+      try {
+        const cached = JSON.parse(sessionStorage.getItem(draftKey()) || "null");
+        if (opening && cached && ui.state.measures[cached.index]) {
+          ui.measureIndex = cached.index;
+          loadMeasure();
+          draft = cached.draft;
+          selected = cached.selected;
+          draftRevision = cached.revision;
+          ui.editorMode = cached.mode;
+          track = cached.track;
+          $("measureText").value = cached.text;
+          ui.measureDirty = true;
+          editorMode();
+          renderSummary();
+          renderReference();
+          feedback(cached.revision === ui.state.revision
+            ? "已恢复未保存草稿。"
+            : "已恢复草稿，但项目已有新版本。请先复制需要的内容，再放弃草稿载入新版本；不会覆盖新版本。", cached.revision !== ui.state.revision);
+        }
+      } catch { /* Ignore incomplete browser storage. */ }
+    }
     draw();
+    if (context?.scroll) view.restoreViewport(context.scroll);
   }
   function firstHit() {
     const vi = 0,
@@ -382,6 +465,8 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
       renderNavigator();
     }
     if (hit) selected = { ...hit };
+    selectionScope = hit?.ni >= 0 ? "note" : "measure";
+    renderReference();
     selected.string =
       event()?.notes[selected.ni]?.string || selected.string || 1;
     digits = "";
@@ -399,7 +484,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
   $("nextMeasure").onclick = () => selectMeasure(neighbour(1), undefined, true);
   function openIssue() {
     const indexes = ui.state.measures.flatMap((m, i) =>
-      m.needs_review ? [i] : [],
+      m.needs_review && (track === "all" || (m.part_id || "part-1") === track) ? [i] : [],
     );
     if (indexes.length)
       selectMeasure(
@@ -412,6 +497,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
   function loadMeasure() {
     profile = measureProfile(current(), ui.state);
     draft = clone(current().parsed);
+    draftRevision = ui.state.revision;
     const history = histories.get(ui.measureIndex);
     undo = history?.undo || [];
     redo = history?.redo || [];
@@ -426,7 +512,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     $("currentMeasureTitle").textContent =
       `原谱 · ${measureLabel(m, ui.measureIndex)}`;
     $("measureSelect").value = ui.measureIndex;
-    $("measureImage").src = m.url;
+    if ($("measureImage").getAttribute("src") !== m.url) $("measureImage").src = m.url;
     $("reviewStatus").textContent = m.needs_review
       ? "待检查"
       : m.reviewed
@@ -454,18 +540,14 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     $("nextMeasure").disabled =
       busy || !count || neighbour(1) === ui.measureIndex;
     $("nextIssue").hidden = !ui.state?.review_measures?.length;
+    $("nextIssue").disabled = busy || !(ui.state?.measures || []).some((m) =>
+      m.needs_review && (track === "all" || (m.part_id || "part-1") === track));
     $("toExport").disabled = busy || !count;
     $("confirmNext").disabled = busy || !count;
     $("trackSelect").disabled = busy || !count;
     $("reviewFilter").disabled = busy || !count;
-    $("saveMeasure").disabled =
-      busy ||
-      (!ui.measureDirty && !current()?.needs_review && !!current()?.reviewed);
-    $("saveMeasure").textContent = ui.measureDirty
-      ? "保存并确认"
-      : current()?.reviewed && !current()?.needs_review
-        ? "已确认"
-        : "确认小节";
+    $("saveMeasure").disabled = busy || !ui.measureDirty;
+    $("saveMeasure").textContent = "保存";
     $("saveStatus").textContent = saving
       ? "正在保存…"
       : ui.measureDirty
@@ -522,6 +604,9 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
   function draw() {
     if (!draft) return;
     selected.mi = ui.measureIndex;
+    selected.vi = Math.max(0, Math.min(selected.vi, draft.voices.length - 1));
+    selected.ei = Math.max(0, Math.min(selected.ei, draft.voices[selected.vi]?.events.length - 1));
+    if (selected.ni >= (event()?.notes.length || 0)) selected.ni = -1;
     $("timeSignature").value = draft.time_signature || "";
     $("measureTempo").value = draft.tempo_quarter || "";
     $("scoreWarning").hidden = true;
@@ -529,6 +614,15 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     view.select(selected);
     const e = event(),
       n = e?.notes[selected?.ni];
+    const scopeTitle = $("inspectorScopeTitle");
+    if (scopeTitle) scopeTitle.textContent = selectionScope === "note" && n ? "音符属性" : "当前拍 / 小节";
+    document.querySelector(".note-properties").hidden = selectionScope === "track";
+    document.querySelector(".effect-tools").hidden = selectionScope !== "note" || !n;
+    const trackProperties = $("trackProperties");
+    if (trackProperties) {
+      trackProperties.hidden = selectionScope !== "track";
+      $("trackPropertiesText").textContent = `${current().part_name || "音轨"} · ${({guitar:"吉他",bass:"贝斯",pitched:"旋律乐器",drums:"打击乐器"})[profile.instrument] || profile.instrument} · ${({tab:"TAB",notation:"五线谱",both:"五线谱 + TAB"})[profile.mode] || profile.mode}${profile.tuning?.length ? ` · ${profile.tuning.length} 弦` : ""}`;
+    }
     chords.render(e);
     chords.library(ui.state, current()?.part_id || "part-1");
     if (e) {
@@ -962,13 +1056,15 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
   };
   $("showSource").onclick = () => $("sourceZoom").click();
   $("closeSource").onclick = () => $("sourceDialog").close();
-  $("reviewEditor").addEventListener("keydown", (e) => {
-    if (ui.busy || saving) return;
+  document.addEventListener("keydown", (e) => {
+    if (ui.step !== 3 || document.querySelector('[data-screen="workbench"]').hidden) return;
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
       e.preventDefault();
-      save();
-      return;
+      if (!ui.busy && !saving) save(false);
     }
+  });
+  $("reviewEditor").addEventListener("keydown", (e) => {
+    if (ui.busy || saving) return;
     if (ui.editorMode !== "score" || e.target.matches("input,textarea,select"))
       return;
     const modifier = e.ctrlKey || e.metaKey;
@@ -1142,8 +1238,13 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
       e.preventDefault();
     }
   };
-  async function save(reviewed = true) {
+  async function save(reviewed = false) {
     if (saving || ui.busy || !draft) return false;
+    if (!reviewed && !ui.measureDirty) {
+      feedback("修改已保存；核对完成后请点「确认并继续」。");
+      return true;
+    }
+    const sid = ui.sid;
     digits = "";
     digitTime = 0;
     saving = true;
@@ -1156,14 +1257,11 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
         : ui.editorMode === "text"
           ? { target: $("measureText").value.trim(), reviewed }
           : { measure: draft, reviewed };
-      receiveProject(
-        await api(
-          endpoint(`/measures/${ui.measureIndex + 1}`),
-          "PUT",
-          body,
-          ui.state.revision,
-        ),
-      );
+      if (!(await commitMeasureDraft({
+        sid, index: ui.measureIndex, revision: draftRevision, body,
+      }, api))) return false;
+      draftRevision = ui.state.revision;
+      persistDraft();
       projectRevision = ui.state.revision;
       draft = clone(current().parsed);
       if (ui.editorMode === "text") {
@@ -1185,23 +1283,28 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
       feedback(reviewed ? "已保存并确认。" : "已保存修改。");
       return true;
     } catch (error) {
-      feedback(error.message, true);
-      notice(error.message, true);
+      if (ui.sid === sid) {
+        feedback(error.message, true);
+        notice(error.message, true);
+      }
       return false;
     } finally {
       saving = false;
-      setBusy(false);
-      updateMeasureControls();
-      if (ui.editorMode === "score")
-        $("scoreCanvas").focus({ preventScroll: true });
+      if (ui.sid === sid) {
+        setBusy(false);
+        updateMeasureControls();
+        if (ui.editorMode === "score")
+          $("scoreCanvas").focus({ preventScroll: true });
+      }
     }
   }
-  $("saveMeasure").onclick = () => save();
+  $("saveMeasure").onclick = () => save(false);
   $("discardMeasure").onclick = action(async () => {
     if (!confirm("放弃当前小节未保存的修改，载入已保存的内容？")) return;
     setBusy(true);
     try {
       receiveProject(await api(endpoint("")));
+      sessionStorage.removeItem(draftKey());
       draft = null;
       histories.clear();
       renderMeasures();

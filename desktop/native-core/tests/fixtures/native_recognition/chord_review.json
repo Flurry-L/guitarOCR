@@ -1,0 +1,1477 @@
+{
+  "merges": [
+    {
+      "name": "changed_music_is_ignored",
+      "original": "M2 time=4/4 tempo=112 key=CMajor feel=eighth section=Verse | V0{@0000:q:s1f0p64(vel:87,grace:f2p66:32:hammer:0:0,trill:f3p67:16,hammer)<chord:Allegro,text:old,dyn:90> @960:q:^ @1920:h:s2f1p60(vib)<chord:G7>} || V1{@0:w:r}",
+      "candidate": "M2 time=3/4 tempo=240 key=DMajor feel=sixteenth section=Bridge | V0{@0:e:s3f8p63(vel:44,dead)<chord:C,text:visible,pick_up> @960:w:r<chord:F,diagram:1:x/3/2/0/1/0:-/3/2/-/1/-:-> @1920:e:s4f0p50<chord:G7> @3000:q:r<text:ignored>} || V1{@0:q:s1f7p71(vel:10)}",
+      "mode": "both",
+      "oracle_parsed": {
+        "time_signature": "4/4",
+        "print_time_signature": true,
+        "tempo_quarter": 112,
+        "key_signature": "CMajor",
+        "print_key_signature": true,
+        "triplet_feel": "eighth",
+        "bars": [],
+        "repeat_count": null,
+        "alternate_endings": null,
+        "section": "Bridge",
+        "direction": null,
+        "from_direction": null,
+        "voices": [
+          {
+            "voice": 0,
+            "events": [
+              {
+                "start": 0,
+                "duration": {
+                  "value": 4,
+                  "dotted": false,
+                  "double_dotted": false,
+                  "tuplet_enters": 1,
+                  "tuplet_times": 1
+                },
+                "status": "normal",
+                "notes": [
+                  {
+                    "effects": [
+                      "grace:f2p66:32:hammer:0:0",
+                      "trill:f3p67:16",
+                      "hammer"
+                    ],
+                    "velocity": 87,
+                    "swap_accidentals": false,
+                    "string": 1,
+                    "fret": 0,
+                    "pitch": 64
+                  }
+                ],
+                "effects": [
+                  "dyn:90",
+                  "chord:C",
+                  "text:visible"
+                ]
+              },
+              {
+                "start": 960,
+                "duration": {
+                  "value": 4,
+                  "dotted": false,
+                  "double_dotted": false,
+                  "tuplet_enters": 1,
+                  "tuplet_times": 1
+                },
+                "status": "normal",
+                "notes": [
+                  {
+                    "effects": [
+                      "grace:f2p66:32:hammer:0:0",
+                      "trill:f3p67:16",
+                      "hammer"
+                    ],
+                    "velocity": 87,
+                    "swap_accidentals": false,
+                    "string": 1,
+                    "fret": 0,
+                    "pitch": 64
+                  }
+                ],
+                "effects": [
+                  "dyn:90",
+                  "chord:F",
+                  "diagram:1:x/3/2/0/1/0:-/3/2/-/1/-:-"
+                ]
+              },
+              {
+                "start": 1920,
+                "duration": {
+                  "value": 2,
+                  "dotted": false,
+                  "double_dotted": false,
+                  "tuplet_enters": 1,
+                  "tuplet_times": 1
+                },
+                "status": "normal",
+                "notes": [
+                  {
+                    "effects": [
+                      "vib"
+                    ],
+                    "velocity": 95,
+                    "swap_accidentals": false,
+                    "string": 2,
+                    "fret": 1,
+                    "pitch": 60
+                  }
+                ],
+                "effects": [
+                  "chord:G7"
+                ]
+              }
+            ]
+          },
+          {
+            "voice": 1,
+            "events": [
+              {
+                "start": 0,
+                "duration": {
+                  "value": 1,
+                  "dotted": false,
+                  "double_dotted": false,
+                  "tuplet_enters": 1,
+                  "tuplet_times": 1
+                },
+                "status": "rest",
+                "notes": [],
+                "effects": []
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "changed_prior_annotation_does_not_leak",
+      "original": "M2 time=4/4 tempo=112 key=CMajor feel=eighth section=Verse | V0{@0000:q:s1f0p64(vel:87,grace:f2p66:32:hammer:0:0,trill:f3p67:16,hammer)<chord:Allegro,text:old,dyn:90> @960:q:^ @1920:h:s2f1p60(vib)<chord:G7>} || V1{@0:w:r}",
+      "candidate": "M2 | V0{@0:q:s2f3p62<chord:C>}",
+      "mode": "both",
+      "oracle_parsed": {
+        "time_signature": "4/4",
+        "print_time_signature": true,
+        "tempo_quarter": 112,
+        "key_signature": "CMajor",
+        "print_key_signature": true,
+        "triplet_feel": "eighth",
+        "bars": [],
+        "repeat_count": null,
+        "alternate_endings": null,
+        "section": "Verse",
+        "direction": null,
+        "from_direction": null,
+        "voices": [
+          {
+            "voice": 0,
+            "events": [
+              {
+                "start": 0,
+                "duration": {
+                  "value": 4,
+                  "dotted": false,
+                  "double_dotted": false,
+                  "tuplet_enters": 1,
+                  "tuplet_times": 1
+                },
+                "status": "normal",
+                "notes": [
+                  {
+                    "effects": [
+                      "grace:f2p66:32:hammer:0:0",
+                      "trill:f3p67:16",
+                      "hammer"
+                    ],
+                    "velocity": 87,
+                    "swap_accidentals": false,
+                    "string": 1,
+                    "fret": 0,
+                    "pitch": 64
+                  }
+                ],
+                "effects": [
+                  "dyn:90",
+                  "chord:C"
+                ]
+              },
+              {
+                "start": 960,
+                "duration": {
+                  "value": 4,
+                  "dotted": false,
+                  "double_dotted": false,
+                  "tuplet_enters": 1,
+                  "tuplet_times": 1
+                },
+                "status": "normal",
+                "notes": [
+                  {
+                    "effects": [
+                      "grace:f2p66:32:hammer:0:0",
+                      "trill:f3p67:16",
+                      "hammer"
+                    ],
+                    "velocity": 87,
+                    "swap_accidentals": false,
+                    "string": 1,
+                    "fret": 0,
+                    "pitch": 64
+                  }
+                ],
+                "effects": [
+                  "chord:Allegro",
+                  "text:old",
+                  "dyn:90"
+                ]
+              },
+              {
+                "start": 1920,
+                "duration": {
+                  "value": 2,
+                  "dotted": false,
+                  "double_dotted": false,
+                  "tuplet_enters": 1,
+                  "tuplet_times": 1
+                },
+                "status": "normal",
+                "notes": [
+                  {
+                    "effects": [
+                      "vib"
+                    ],
+                    "velocity": 95,
+                    "swap_accidentals": false,
+                    "string": 2,
+                    "fret": 1,
+                    "pitch": 60
+                  }
+                ],
+                "effects": [
+                  "chord:G7"
+                ]
+              }
+            ]
+          },
+          {
+            "voice": 1,
+            "events": [
+              {
+                "start": 0,
+                "duration": {
+                  "value": 1,
+                  "dotted": false,
+                  "double_dotted": false,
+                  "tuplet_enters": 1,
+                  "tuplet_times": 1
+                },
+                "status": "rest",
+                "notes": [],
+                "effects": []
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "unchanged_annotations_leave_exact_tokens",
+      "original": "M2 time=4/4 tempo=112 key=CMajor feel=eighth section=Verse | V0{@0000:q:s1f0p64(vel:87,grace:f2p66:32:hammer:0:0,trill:f3p67:16,hammer)<chord:Allegro,text:old,dyn:90> @960:q:^ @1920:h:s2f1p60(vib)<chord:G7>} || V1{@0:w:r}",
+      "candidate": "M2 time=4/4 tempo=112 key=CMajor feel=eighth section=Verse | V0{@0000:q:s1f0p64(vel:87,grace:f2p66:32:hammer:0:0,trill:f3p67:16,hammer)<chord:Allegro,text:old,dyn:90> @960:q:^ @1920:h:s2f1p60(vib)<chord:G7>} || V1{@0:w:r}",
+      "mode": "both",
+      "oracle_parsed": {
+        "time_signature": "4/4",
+        "print_time_signature": true,
+        "tempo_quarter": 112,
+        "key_signature": "CMajor",
+        "print_key_signature": true,
+        "triplet_feel": "eighth",
+        "bars": [],
+        "repeat_count": null,
+        "alternate_endings": null,
+        "section": "Verse",
+        "direction": null,
+        "from_direction": null,
+        "voices": [
+          {
+            "voice": 0,
+            "events": [
+              {
+                "start": 0,
+                "duration": {
+                  "value": 4,
+                  "dotted": false,
+                  "double_dotted": false,
+                  "tuplet_enters": 1,
+                  "tuplet_times": 1
+                },
+                "status": "normal",
+                "notes": [
+                  {
+                    "effects": [
+                      "grace:f2p66:32:hammer:0:0",
+                      "trill:f3p67:16",
+                      "hammer"
+                    ],
+                    "velocity": 87,
+                    "swap_accidentals": false,
+                    "string": 1,
+                    "fret": 0,
+                    "pitch": 64
+                  }
+                ],
+                "effects": [
+                  "dyn:90",
+                  "chord:Allegro",
+                  "text:old"
+                ]
+              },
+              {
+                "start": 960,
+                "duration": {
+                  "value": 4,
+                  "dotted": false,
+                  "double_dotted": false,
+                  "tuplet_enters": 1,
+                  "tuplet_times": 1
+                },
+                "status": "normal",
+                "notes": [
+                  {
+                    "effects": [
+                      "grace:f2p66:32:hammer:0:0",
+                      "trill:f3p67:16",
+                      "hammer"
+                    ],
+                    "velocity": 87,
+                    "swap_accidentals": false,
+                    "string": 1,
+                    "fret": 0,
+                    "pitch": 64
+                  }
+                ],
+                "effects": [
+                  "dyn:90",
+                  "chord:Allegro",
+                  "text:old"
+                ]
+              },
+              {
+                "start": 1920,
+                "duration": {
+                  "value": 2,
+                  "dotted": false,
+                  "double_dotted": false,
+                  "tuplet_enters": 1,
+                  "tuplet_times": 1
+                },
+                "status": "normal",
+                "notes": [
+                  {
+                    "effects": [
+                      "vib"
+                    ],
+                    "velocity": 95,
+                    "swap_accidentals": false,
+                    "string": 2,
+                    "fret": 1,
+                    "pitch": 60
+                  }
+                ],
+                "effects": [
+                  "chord:G7"
+                ]
+              }
+            ]
+          },
+          {
+            "voice": 1,
+            "events": [
+              {
+                "start": 0,
+                "duration": {
+                  "value": 1,
+                  "dotted": false,
+                  "double_dotted": false,
+                  "tuplet_enters": 1,
+                  "tuplet_times": 1
+                },
+                "status": "rest",
+                "notes": [],
+                "effects": []
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "retained": {
+    "original": "M2 time=4/4 tempo=112 key=CMajor feel=eighth section=Verse | V0{@0000:q:s1f0p64(vel:87,grace:f2p66:32:hammer:0:0,trill:f3p67:16,hammer)<chord:Allegro,text:old,dyn:90> @960:q:^ @1920:h:s2f1p60(vib)<chord:G7>} || V1{@0:w:r}",
+    "mode": "both",
+    "oracle_parsed": {
+      "time_signature": "4/4",
+      "print_time_signature": true,
+      "tempo_quarter": 112,
+      "key_signature": "CMajor",
+      "print_key_signature": true,
+      "triplet_feel": "eighth",
+      "bars": [],
+      "repeat_count": null,
+      "alternate_endings": null,
+      "section": "Verse",
+      "direction": null,
+      "from_direction": null,
+      "voices": [
+        {
+          "voice": 0,
+          "events": [
+            {
+              "start": 0,
+              "duration": {
+                "value": 4,
+                "dotted": false,
+                "double_dotted": false,
+                "tuplet_enters": 1,
+                "tuplet_times": 1
+              },
+              "status": "normal",
+              "notes": [
+                {
+                  "effects": [
+                    "grace:f2p66:32:hammer:0:0",
+                    "trill:f3p67:16",
+                    "hammer"
+                  ],
+                  "velocity": 87,
+                  "swap_accidentals": false,
+                  "string": 1,
+                  "fret": 0,
+                  "pitch": 64
+                }
+              ],
+              "effects": [
+                "dyn:90",
+                "text:old%3B%20Allegro"
+              ]
+            },
+            {
+              "start": 960,
+              "duration": {
+                "value": 4,
+                "dotted": false,
+                "double_dotted": false,
+                "tuplet_enters": 1,
+                "tuplet_times": 1
+              },
+              "status": "normal",
+              "notes": [
+                {
+                  "effects": [
+                    "grace:f2p66:32:hammer:0:0",
+                    "trill:f3p67:16",
+                    "hammer"
+                  ],
+                  "velocity": 87,
+                  "swap_accidentals": false,
+                  "string": 1,
+                  "fret": 0,
+                  "pitch": 64
+                }
+              ],
+              "effects": [
+                "dyn:90",
+                "text:old%3B%20Allegro"
+              ]
+            },
+            {
+              "start": 1920,
+              "duration": {
+                "value": 2,
+                "dotted": false,
+                "double_dotted": false,
+                "tuplet_enters": 1,
+                "tuplet_times": 1
+              },
+              "status": "normal",
+              "notes": [
+                {
+                  "effects": [
+                    "vib"
+                  ],
+                  "velocity": 95,
+                  "swap_accidentals": false,
+                  "string": 2,
+                  "fret": 1,
+                  "pitch": 60
+                }
+              ],
+              "effects": [
+                "chord:G7"
+              ]
+            }
+          ]
+        },
+        {
+          "voice": 1,
+          "events": [
+            {
+              "start": 0,
+              "duration": {
+                "value": 1,
+                "dotted": false,
+                "double_dotted": false,
+                "tuplet_enters": 1,
+                "tuplet_times": 1
+              },
+              "status": "rest",
+              "notes": [],
+              "effects": []
+            }
+          ]
+        }
+      ]
+    },
+    "uncertain": [
+      {
+        "voice": 0,
+        "start": 0,
+        "text": "Allegro"
+      },
+      {
+        "voice": 0,
+        "start": 960,
+        "text": "Allegro"
+      }
+    ]
+  },
+  "errors": [
+    {
+      "name": "C",
+      "measure": {
+        "time_signature": null,
+        "print_time_signature": false,
+        "tempo_quarter": null,
+        "key_signature": null,
+        "print_key_signature": false,
+        "triplet_feel": null,
+        "bars": [],
+        "repeat_count": null,
+        "alternate_endings": null,
+        "section": null,
+        "direction": null,
+        "from_direction": null,
+        "voices": [
+          {
+            "voice": 0,
+            "events": [
+              {
+                "start": 0,
+                "duration": {
+                  "value": 4,
+                  "dotted": false,
+                  "double_dotted": false,
+                  "tuplet_enters": 1,
+                  "tuplet_times": 1
+                },
+                "status": "normal",
+                "notes": [
+                  {
+                    "effects": [],
+                    "velocity": 95,
+                    "swap_accidentals": false,
+                    "pitch": 60
+                  }
+                ],
+                "effects": [
+                  "chord:C"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "error_count": 0
+    },
+    {
+      "name": "Bbmaj7/D",
+      "measure": {
+        "time_signature": null,
+        "print_time_signature": false,
+        "tempo_quarter": null,
+        "key_signature": null,
+        "print_key_signature": false,
+        "triplet_feel": null,
+        "bars": [],
+        "repeat_count": null,
+        "alternate_endings": null,
+        "section": null,
+        "direction": null,
+        "from_direction": null,
+        "voices": [
+          {
+            "voice": 0,
+            "events": [
+              {
+                "start": 0,
+                "duration": {
+                  "value": 4,
+                  "dotted": false,
+                  "double_dotted": false,
+                  "tuplet_enters": 1,
+                  "tuplet_times": 1
+                },
+                "status": "normal",
+                "notes": [
+                  {
+                    "effects": [],
+                    "velocity": 95,
+                    "swap_accidentals": false,
+                    "pitch": 60
+                  }
+                ],
+                "effects": [
+                  "chord:Bbmaj7%2FD"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "error_count": 0
+    },
+    {
+      "name": "F#dim7",
+      "measure": {
+        "time_signature": null,
+        "print_time_signature": false,
+        "tempo_quarter": null,
+        "key_signature": null,
+        "print_key_signature": false,
+        "triplet_feel": null,
+        "bars": [],
+        "repeat_count": null,
+        "alternate_endings": null,
+        "section": null,
+        "direction": null,
+        "from_direction": null,
+        "voices": [
+          {
+            "voice": 0,
+            "events": [
+              {
+                "start": 0,
+                "duration": {
+                  "value": 4,
+                  "dotted": false,
+                  "double_dotted": false,
+                  "tuplet_enters": 1,
+                  "tuplet_times": 1
+                },
+                "status": "normal",
+                "notes": [
+                  {
+                    "effects": [],
+                    "velocity": 95,
+                    "swap_accidentals": false,
+                    "pitch": 60
+                  }
+                ],
+                "effects": [
+                  "chord:F%23dim7"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "error_count": 0
+    },
+    {
+      "name": "N.C.",
+      "measure": {
+        "time_signature": null,
+        "print_time_signature": false,
+        "tempo_quarter": null,
+        "key_signature": null,
+        "print_key_signature": false,
+        "triplet_feel": null,
+        "bars": [],
+        "repeat_count": null,
+        "alternate_endings": null,
+        "section": null,
+        "direction": null,
+        "from_direction": null,
+        "voices": [
+          {
+            "voice": 0,
+            "events": [
+              {
+                "start": 0,
+                "duration": {
+                  "value": 4,
+                  "dotted": false,
+                  "double_dotted": false,
+                  "tuplet_enters": 1,
+                  "tuplet_times": 1
+                },
+                "status": "normal",
+                "notes": [
+                  {
+                    "effects": [],
+                    "velocity": 95,
+                    "swap_accidentals": false,
+                    "pitch": 60
+                  }
+                ],
+                "effects": [
+                  "chord:N.C."
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "error_count": 0
+    },
+    {
+      "name": "No Chord",
+      "measure": {
+        "time_signature": null,
+        "print_time_signature": false,
+        "tempo_quarter": null,
+        "key_signature": null,
+        "print_key_signature": false,
+        "triplet_feel": null,
+        "bars": [],
+        "repeat_count": null,
+        "alternate_endings": null,
+        "section": null,
+        "direction": null,
+        "from_direction": null,
+        "voices": [
+          {
+            "voice": 0,
+            "events": [
+              {
+                "start": 0,
+                "duration": {
+                  "value": 4,
+                  "dotted": false,
+                  "double_dotted": false,
+                  "tuplet_enters": 1,
+                  "tuplet_times": 1
+                },
+                "status": "normal",
+                "notes": [
+                  {
+                    "effects": [],
+                    "velocity": 95,
+                    "swap_accidentals": false,
+                    "pitch": 60
+                  }
+                ],
+                "effects": [
+                  "chord:No%20Chord"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "error_count": 0
+    },
+    {
+      "name": "Ｃｍａｊ７",
+      "measure": {
+        "time_signature": null,
+        "print_time_signature": false,
+        "tempo_quarter": null,
+        "key_signature": null,
+        "print_key_signature": false,
+        "triplet_feel": null,
+        "bars": [],
+        "repeat_count": null,
+        "alternate_endings": null,
+        "section": null,
+        "direction": null,
+        "from_direction": null,
+        "voices": [
+          {
+            "voice": 0,
+            "events": [
+              {
+                "start": 0,
+                "duration": {
+                  "value": 4,
+                  "dotted": false,
+                  "double_dotted": false,
+                  "tuplet_enters": 1,
+                  "tuplet_times": 1
+                },
+                "status": "normal",
+                "notes": [
+                  {
+                    "effects": [],
+                    "velocity": 95,
+                    "swap_accidentals": false,
+                    "pitch": 60
+                  }
+                ],
+                "effects": [
+                  "chord:%EF%BC%A3%EF%BD%8D%EF%BD%81%EF%BD%8A%EF%BC%97"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "error_count": 0
+    },
+    {
+      "name": "C⁷",
+      "measure": {
+        "time_signature": null,
+        "print_time_signature": false,
+        "tempo_quarter": null,
+        "key_signature": null,
+        "print_key_signature": false,
+        "triplet_feel": null,
+        "bars": [],
+        "repeat_count": null,
+        "alternate_endings": null,
+        "section": null,
+        "direction": null,
+        "from_direction": null,
+        "voices": [
+          {
+            "voice": 0,
+            "events": [
+              {
+                "start": 0,
+                "duration": {
+                  "value": 4,
+                  "dotted": false,
+                  "double_dotted": false,
+                  "tuplet_enters": 1,
+                  "tuplet_times": 1
+                },
+                "status": "normal",
+                "notes": [
+                  {
+                    "effects": [],
+                    "velocity": 95,
+                    "swap_accidentals": false,
+                    "pitch": 60
+                  }
+                ],
+                "effects": [
+                  "chord:C%E2%81%B7"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "error_count": 0
+    },
+    {
+      "name": "IIm7",
+      "measure": {
+        "time_signature": null,
+        "print_time_signature": false,
+        "tempo_quarter": null,
+        "key_signature": null,
+        "print_key_signature": false,
+        "triplet_feel": null,
+        "bars": [],
+        "repeat_count": null,
+        "alternate_endings": null,
+        "section": null,
+        "direction": null,
+        "from_direction": null,
+        "voices": [
+          {
+            "voice": 0,
+            "events": [
+              {
+                "start": 0,
+                "duration": {
+                  "value": 4,
+                  "dotted": false,
+                  "double_dotted": false,
+                  "tuplet_enters": 1,
+                  "tuplet_times": 1
+                },
+                "status": "normal",
+                "notes": [
+                  {
+                    "effects": [],
+                    "velocity": 95,
+                    "swap_accidentals": false,
+                    "pitch": 60
+                  }
+                ],
+                "effects": [
+                  "chord:IIm7"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "error_count": 0
+    },
+    {
+      "name": "IV",
+      "measure": {
+        "time_signature": null,
+        "print_time_signature": false,
+        "tempo_quarter": null,
+        "key_signature": null,
+        "print_key_signature": false,
+        "triplet_feel": null,
+        "bars": [],
+        "repeat_count": null,
+        "alternate_endings": null,
+        "section": null,
+        "direction": null,
+        "from_direction": null,
+        "voices": [
+          {
+            "voice": 0,
+            "events": [
+              {
+                "start": 0,
+                "duration": {
+                  "value": 4,
+                  "dotted": false,
+                  "double_dotted": false,
+                  "tuplet_enters": 1,
+                  "tuplet_times": 1
+                },
+                "status": "normal",
+                "notes": [
+                  {
+                    "effects": [],
+                    "velocity": 95,
+                    "swap_accidentals": false,
+                    "pitch": 60
+                  }
+                ],
+                "effects": [
+                  "chord:IV"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "error_count": 0
+    },
+    {
+      "name": "7",
+      "measure": {
+        "time_signature": null,
+        "print_time_signature": false,
+        "tempo_quarter": null,
+        "key_signature": null,
+        "print_key_signature": false,
+        "triplet_feel": null,
+        "bars": [],
+        "repeat_count": null,
+        "alternate_endings": null,
+        "section": null,
+        "direction": null,
+        "from_direction": null,
+        "voices": [
+          {
+            "voice": 0,
+            "events": [
+              {
+                "start": 0,
+                "duration": {
+                  "value": 4,
+                  "dotted": false,
+                  "double_dotted": false,
+                  "tuplet_enters": 1,
+                  "tuplet_times": 1
+                },
+                "status": "normal",
+                "notes": [
+                  {
+                    "effects": [],
+                    "velocity": 95,
+                    "swap_accidentals": false,
+                    "pitch": 60
+                  }
+                ],
+                "effects": [
+                  "chord:7"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "error_count": 0
+    },
+    {
+      "name": "Bb7(b9,#11)",
+      "measure": {
+        "time_signature": null,
+        "print_time_signature": false,
+        "tempo_quarter": null,
+        "key_signature": null,
+        "print_key_signature": false,
+        "triplet_feel": null,
+        "bars": [],
+        "repeat_count": null,
+        "alternate_endings": null,
+        "section": null,
+        "direction": null,
+        "from_direction": null,
+        "voices": [
+          {
+            "voice": 0,
+            "events": [
+              {
+                "start": 0,
+                "duration": {
+                  "value": 4,
+                  "dotted": false,
+                  "double_dotted": false,
+                  "tuplet_enters": 1,
+                  "tuplet_times": 1
+                },
+                "status": "normal",
+                "notes": [
+                  {
+                    "effects": [],
+                    "velocity": 95,
+                    "swap_accidentals": false,
+                    "pitch": 60
+                  }
+                ],
+                "effects": [
+                  "chord:Bb7%28b9%2C%2311%29"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "error_count": 0
+    },
+    {
+      "name": "Cmajor7",
+      "measure": {
+        "time_signature": null,
+        "print_time_signature": false,
+        "tempo_quarter": null,
+        "key_signature": null,
+        "print_key_signature": false,
+        "triplet_feel": null,
+        "bars": [],
+        "repeat_count": null,
+        "alternate_endings": null,
+        "section": null,
+        "direction": null,
+        "from_direction": null,
+        "voices": [
+          {
+            "voice": 0,
+            "events": [
+              {
+                "start": 0,
+                "duration": {
+                  "value": 4,
+                  "dotted": false,
+                  "double_dotted": false,
+                  "tuplet_enters": 1,
+                  "tuplet_times": 1
+                },
+                "status": "normal",
+                "notes": [
+                  {
+                    "effects": [],
+                    "velocity": 95,
+                    "swap_accidentals": false,
+                    "pitch": 60
+                  }
+                ],
+                "effects": [
+                  "chord:Cmajor7"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "error_count": 0
+    },
+    {
+      "name": "Dminor7",
+      "measure": {
+        "time_signature": null,
+        "print_time_signature": false,
+        "tempo_quarter": null,
+        "key_signature": null,
+        "print_key_signature": false,
+        "triplet_feel": null,
+        "bars": [],
+        "repeat_count": null,
+        "alternate_endings": null,
+        "section": null,
+        "direction": null,
+        "from_direction": null,
+        "voices": [
+          {
+            "voice": 0,
+            "events": [
+              {
+                "start": 0,
+                "duration": {
+                  "value": 4,
+                  "dotted": false,
+                  "double_dotted": false,
+                  "tuplet_enters": 1,
+                  "tuplet_times": 1
+                },
+                "status": "normal",
+                "notes": [
+                  {
+                    "effects": [],
+                    "velocity": 95,
+                    "swap_accidentals": false,
+                    "pitch": 60
+                  }
+                ],
+                "effects": [
+                  "chord:Dminor7"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "error_count": 0
+    },
+    {
+      "name": "Allegro",
+      "measure": {
+        "time_signature": null,
+        "print_time_signature": false,
+        "tempo_quarter": null,
+        "key_signature": null,
+        "print_key_signature": false,
+        "triplet_feel": null,
+        "bars": [],
+        "repeat_count": null,
+        "alternate_endings": null,
+        "section": null,
+        "direction": null,
+        "from_direction": null,
+        "voices": [
+          {
+            "voice": 0,
+            "events": [
+              {
+                "start": 0,
+                "duration": {
+                  "value": 4,
+                  "dotted": false,
+                  "double_dotted": false,
+                  "tuplet_enters": 1,
+                  "tuplet_times": 1
+                },
+                "status": "normal",
+                "notes": [
+                  {
+                    "effects": [],
+                    "velocity": 95,
+                    "swap_accidentals": false,
+                    "pitch": 60
+                  }
+                ],
+                "effects": [
+                  "chord:Allegro"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "error_count": 1
+    },
+    {
+      "name": "Guitar II",
+      "measure": {
+        "time_signature": null,
+        "print_time_signature": false,
+        "tempo_quarter": null,
+        "key_signature": null,
+        "print_key_signature": false,
+        "triplet_feel": null,
+        "bars": [],
+        "repeat_count": null,
+        "alternate_endings": null,
+        "section": null,
+        "direction": null,
+        "from_direction": null,
+        "voices": [
+          {
+            "voice": 0,
+            "events": [
+              {
+                "start": 0,
+                "duration": {
+                  "value": 4,
+                  "dotted": false,
+                  "double_dotted": false,
+                  "tuplet_enters": 1,
+                  "tuplet_times": 1
+                },
+                "status": "normal",
+                "notes": [
+                  {
+                    "effects": [],
+                    "velocity": 95,
+                    "swap_accidentals": false,
+                    "pitch": 60
+                  }
+                ],
+                "effects": [
+                  "chord:Guitar%20II"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "error_count": 1
+    },
+    {
+      "name": "Cadd9add9",
+      "measure": {
+        "time_signature": null,
+        "print_time_signature": false,
+        "tempo_quarter": null,
+        "key_signature": null,
+        "print_key_signature": false,
+        "triplet_feel": null,
+        "bars": [],
+        "repeat_count": null,
+        "alternate_endings": null,
+        "section": null,
+        "direction": null,
+        "from_direction": null,
+        "voices": [
+          {
+            "voice": 0,
+            "events": [
+              {
+                "start": 0,
+                "duration": {
+                  "value": 4,
+                  "dotted": false,
+                  "double_dotted": false,
+                  "tuplet_enters": 1,
+                  "tuplet_times": 1
+                },
+                "status": "normal",
+                "notes": [
+                  {
+                    "effects": [],
+                    "velocity": 95,
+                    "swap_accidentals": false,
+                    "pitch": 60
+                  }
+                ],
+                "effects": [
+                  "chord:Cadd9add9"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "error_count": 1
+    },
+    {
+      "name": "Bsus4sus4",
+      "measure": {
+        "time_signature": null,
+        "print_time_signature": false,
+        "tempo_quarter": null,
+        "key_signature": null,
+        "print_key_signature": false,
+        "triplet_feel": null,
+        "bars": [],
+        "repeat_count": null,
+        "alternate_endings": null,
+        "section": null,
+        "direction": null,
+        "from_direction": null,
+        "voices": [
+          {
+            "voice": 0,
+            "events": [
+              {
+                "start": 0,
+                "duration": {
+                  "value": 4,
+                  "dotted": false,
+                  "double_dotted": false,
+                  "tuplet_enters": 1,
+                  "tuplet_times": 1
+                },
+                "status": "normal",
+                "notes": [
+                  {
+                    "effects": [],
+                    "velocity": 95,
+                    "swap_accidentals": false,
+                    "pitch": 60
+                  }
+                ],
+                "effects": [
+                  "chord:Bsus4sus4"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "error_count": 1
+    },
+    {
+      "name": "Take the repeat",
+      "measure": {
+        "time_signature": null,
+        "print_time_signature": false,
+        "tempo_quarter": null,
+        "key_signature": null,
+        "print_key_signature": false,
+        "triplet_feel": null,
+        "bars": [],
+        "repeat_count": null,
+        "alternate_endings": null,
+        "section": null,
+        "direction": null,
+        "from_direction": null,
+        "voices": [
+          {
+            "voice": 0,
+            "events": [
+              {
+                "start": 0,
+                "duration": {
+                  "value": 4,
+                  "dotted": false,
+                  "double_dotted": false,
+                  "tuplet_enters": 1,
+                  "tuplet_times": 1
+                },
+                "status": "normal",
+                "notes": [
+                  {
+                    "effects": [],
+                    "velocity": 95,
+                    "swap_accidentals": false,
+                    "pitch": 60
+                  }
+                ],
+                "effects": [
+                  "chord:Take%20the%20repeat"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "error_count": 1
+    },
+    {
+      "name": "Cmaj77",
+      "measure": {
+        "time_signature": null,
+        "print_time_signature": false,
+        "tempo_quarter": null,
+        "key_signature": null,
+        "print_key_signature": false,
+        "triplet_feel": null,
+        "bars": [],
+        "repeat_count": null,
+        "alternate_endings": null,
+        "section": null,
+        "direction": null,
+        "from_direction": null,
+        "voices": [
+          {
+            "voice": 0,
+            "events": [
+              {
+                "start": 0,
+                "duration": {
+                  "value": 4,
+                  "dotted": false,
+                  "double_dotted": false,
+                  "tuplet_enters": 1,
+                  "tuplet_times": 1
+                },
+                "status": "normal",
+                "notes": [
+                  {
+                    "effects": [],
+                    "velocity": 95,
+                    "swap_accidentals": false,
+                    "pitch": 60
+                  }
+                ],
+                "effects": [
+                  "chord:Cmaj77"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "error_count": 1
+    },
+    {
+      "name": "",
+      "measure": {
+        "time_signature": null,
+        "print_time_signature": false,
+        "tempo_quarter": null,
+        "key_signature": null,
+        "print_key_signature": false,
+        "triplet_feel": null,
+        "bars": [],
+        "repeat_count": null,
+        "alternate_endings": null,
+        "section": null,
+        "direction": null,
+        "from_direction": null,
+        "voices": [
+          {
+            "voice": 0,
+            "events": [
+              {
+                "start": 0,
+                "duration": {
+                  "value": 4,
+                  "dotted": false,
+                  "double_dotted": false,
+                  "tuplet_enters": 1,
+                  "tuplet_times": 1
+                },
+                "status": "normal",
+                "notes": [
+                  {
+                    "effects": [],
+                    "velocity": 95,
+                    "swap_accidentals": false,
+                    "pitch": 60
+                  }
+                ],
+                "effects": [
+                  "chord:"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "error_count": 1
+    }
+  ]
+}

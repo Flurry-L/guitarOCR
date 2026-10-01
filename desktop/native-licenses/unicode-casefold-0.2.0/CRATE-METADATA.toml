@@ -1,0 +1,12 @@
+[package]
+
+name = "unicode-casefold"
+version = "0.2.0"
+authors = ["Chris Wong <lambda.fairy@gmail.com>"]
+
+license = "MIT/Apache-2.0"
+documentation = "https://docs.rs/unicode-casefold"
+repository = "https://github.com/lfairy/unicode-casefold"
+description = "Unicode-aware case folding."
+
+[dependencies]

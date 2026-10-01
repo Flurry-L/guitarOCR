@@ -7,35 +7,6 @@ import math
 from pathlib import Path
 import time
 
-import torch
-from torch import nn
-from torch.utils.data import DataLoader, Dataset
-from safetensors.torch import save_file
-
-from measure_ocr.state_reader import DENOMINATORS, signature_views
-from measure_ocr.state_network import SignatureNetwork
-from shared.score_state import parse_signature
-
-
-class Signatures(Dataset):
-    def __init__(self, roots, split, augment=False):
-        self.rows, self.augment = [], augment
-        for root in roots:
-            path = root / f'state_{split}.jsonl'
-            for line in path.open():
-                row = json.loads(line)
-                state = parse_signature(row['messages'][1]['content'])
-                n, d = map(int, state['time'].split('/')) if state['time'] else (0, None)
-                label = [state['key'] + 7 if state['key'] is not None else 15, n, DENOMINATORS.index(d)]
-                self.rows.append((row['images'][0], label))
-
-    def __len__(self):
-        return len(self.rows)
-
-    def __getitem__(self, index):
-        path, label = self.rows[index]
-        return signature_views(path, self.augment), torch.tensor(label)
-
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -47,6 +18,14 @@ def main():
     parser.add_argument('--lr', type=float, default=.0003)
     parser.add_argument('--initial', type=Path)
     args = parser.parse_args()
+
+    import torch
+    from torch import nn
+    from torch.utils.data import DataLoader
+    from safetensors.torch import save_file
+    from datagen.signature_data import Signatures
+    from measure_ocr.state_network import SignatureNetwork
+
     torch.set_num_threads(1)
     torch.manual_seed(20260928)
     model = SignatureNetwork(pretrained=args.initial is None).cuda()

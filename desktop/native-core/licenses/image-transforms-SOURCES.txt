@@ -1,0 +1,51 @@
+Provenance of src/image_transforms.rs
+====================================
+
+This is a source-informed Rust adaptation, not a clean-room derivation.
+The Rust ownership/storage, iteration and cache implementation is new, while
+coefficient formulas, precision choices, boundary behavior and quantization
+were adapted after reading the following upstream implementations.
+
+1. OpenCV 4.13.0, modules/imgproc/src/resize.cpp
+   https://github.com/opencv/opencv/blob/4.13.0/modules/imgproc/src/resize.cpp
+   https://raw.githubusercontent.com/opencv/opencv/4.13.0/modules/imgproc/src/resize.cpp
+   Relevant portions: interpolateCubic, INTER_RESIZE_COEF_BITS,
+   FixedPtCast, HResizeCubic/VResizeCubic, and generic resize coefficient setup.
+   OpenCV's moving 4.x branch was the initial reference; these portions were
+   subsequently checked against the fixed 4.13.0 tag on 2026-09-30.
+
+   OpenCV-4.13.0-resize-NOTICE.txt reproduces the original source-file header,
+   including the Intel, Willow Garage and Itseez copyright notices, source
+   and binary redistribution conditions, endorsement restriction and disclaimer.
+   OpenCV-4.13.0-LICENSE.txt is an unmodified copy of the project root LICENSE:
+   https://raw.githubusercontent.com/opencv/opencv/4.13.0/LICENSE
+   The project license is Apache-2.0; the source file also retains its older
+   BSD-style notice. Both are retained here without replacing either notice.
+
+2. Pillow 12.3.0, src/libImaging/Resample.c
+   https://github.com/python-pillow/Pillow/blob/12.3.0/src/libImaging/Resample.c
+   https://raw.githubusercontent.com/python-pillow/Pillow/12.3.0/src/libImaging/Resample.c
+   Relevant portions: sinc_filter/lanczos_filter, precompute_coeffs,
+   normalize_coeffs_8bpc, 8bpc horizontal/vertical resampling and
+   ImagingResampleInner's two-pass order.
+
+   Pillow-12.3.0-LICENSE.txt is an unmodified copy of the project root LICENSE:
+   https://raw.githubusercontent.com/python-pillow/Pillow/12.3.0/LICENSE
+   It includes the PIL/Pillow copyrights and the MIT-CMU permission notice
+   and disclaimer. Resample.c itself has no additional file-header notice.
+
+Local changes for GuitarOCR, 2026:
+- RGB8-only safe Rust data ownership and iteration
+- A four-row cubic cache and i64 accumulation
+- No OpenCV/Pillow runtime, C/C++ binding, IPP/SIMD dispatch or Python dependency
+- Explicit native image boundaries and small offline numerical goldens
+
+Keep these source notices and license texts with distributions that include
+this adaptation. The files concern the referenced resampling source only;
+wheel-bundled codecs, fonts and other unrelated third-party notices are not
+included. This provenance record is not a legal-compliance determination.
+
+Downloaded upstream content SHA-256 (2026-09-30):
+cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30  OpenCV-4.13.0-LICENSE.txt
+15181e7363dca9aed78b79bebebc7fde7f1814b8bd311ea3b87ae8ccadfc185b  Pillow-12.3.0-LICENSE.txt
+89db2e4de92e1d03890f3e7fe517f895a36514f355da097b2c8e4c55fc1847e4  upstream OpenCV 4.13.0 resize.cpp

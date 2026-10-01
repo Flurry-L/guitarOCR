@@ -51,6 +51,27 @@ class Workspace:
         self.pool.close()
         self.layout_detector.close()
 
+    def process(self, sid, *, mode="auto", source="auto", progress=None,
+                cancelled=None, on_stage=None, measures=None):
+        """Run missing project stages; HTTP transports own scheduling and locks."""
+        from shared.tasks import Cancelled
+
+        for key, label, operation in (
+            ("layout", "正在检测小节与音轨", lambda: self.detect(sid, mode, source)),
+            ("info", "正在读取乐器与谱面信息", lambda: self.information(sid, cancelled=cancelled)),
+            ("recognition", "正在识别音符与节奏", lambda: self.recognize(
+                sid, progress, resume=bool(self.load(sid).get("ocr_task")),
+                measures=measures, cancelled=cancelled)),
+        ):
+            if cancelled and cancelled():
+                raise Cancelled("任务已停止，已完成的阶段已保存")
+            state = self.load(sid)
+            if state[key] and not (key == "recognition" and state.get("ocr_task")):
+                continue
+            if on_stage:
+                on_stage(label)
+            operation()
+
     def warmup(self):
         from concurrent.futures import ThreadPoolExecutor
 
@@ -289,6 +310,10 @@ class Workspace:
             retry_measures=task["measures"],
             cancelled=cancelled,
         )
+        if cancelled and cancelled():
+            from shared.tasks import Cancelled
+
+            raise Cancelled("识别已停止，已完成的小节已保存，可以继续")
         state["recognition"] = str(result)
         state.pop("ocr_task", None)
         self.invalidate(state, "recognition")

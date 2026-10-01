@@ -9,6 +9,7 @@ import atexit
 import os
 from pathlib import Path
 import socket
+import secrets
 import subprocess
 import time
 from urllib.error import HTTPError, URLError
@@ -26,6 +27,20 @@ class LlamaCppBackend:
     def __init__(self, model_path, endpoint=None, *, device='cpu', options=None):
         self.process = None
         self.log = None
+        self._api_key = None
+        options = options or {}
+        self.parallel = int(os.environ.get('GUITAROCR_LLAMA_PARALLEL', options.get('parallel', 1)))
+        self.threads = int(os.environ.get('GUITAROCR_LLAMA_THREADS', options.get('threads', min(4, os.cpu_count() or 1))))
+        self.context = int(os.environ.get('GUITAROCR_LLAMA_CONTEXT', options.get('context', 8192)))
+        if self.threads < 1:
+            raise ValueError('llama.cpp threads 必须大于 0')
+        if self.context < 2048:
+            raise ValueError('llama.cpp context 至少需要 2048')
+        if not 1 <= self.parallel <= 4:
+            raise ValueError('llama.cpp parallel 必须为 1–4')
+        self.request_timeout = float(os.environ.get('GUITAROCR_LLAMA_TIMEOUT', '1800' if device == 'cpu' else '600'))
+        if self.request_timeout <= 0:
+            raise ValueError('llama.cpp timeout 必须大于 0')
         if not endpoint:
             model_path = Path(model_path)
             folder = model_path.parent / 'gguf'
@@ -33,29 +48,33 @@ class LlamaCppBackend:
                 sock.bind(('127.0.0.1', 0))
                 port = sock.getsockname()[1]
             endpoint = f'http://127.0.0.1:{port}'
+            self._api_key = secrets.token_urlsafe(32)
             from shared.paths import PROJECT_ROOT
             logs = PROJECT_ROOT / 'output/runtime'
             logs.mkdir(parents=True, exist_ok=True)
             self.log_path = logs / f'llama-{model_path.parent.name}-{os.getpid()}.log'
             self.log = self.log_path.open('a')
-            context = int((options or {}).get('max_model_len', 16384))
             command = [os.environ.get('GUITAROCR_LLAMA_SERVER', 'llama-server'),
+                       '--log-verbosity', '3', '--api-key', self._api_key, '--no-webui',
+                       '--cors-origins', endpoint, '--no-cors-credentials',
                        '-m', str(folder / 'model-Q8_0.gguf'), '--mmproj', str(folder / 'vision-F16.gguf'),
-                       '--host', '127.0.0.1', '--port', str(port), '-c', str(context * 4), '-np', '4',
-                       '-ngl', os.environ.get('GUITAROCR_LLAMA_GPU_LAYERS', '99' if device.startswith('cuda') else '0')]
+                       '--host', '127.0.0.1', '--port', str(port), '-c', str(self.context * self.parallel), '-np', str(self.parallel), '-t', str(self.threads),
+                       '-ngl', os.environ.get('GUITAROCR_LLAMA_GPU_LAYERS', '99' if device.startswith('cuda') or device == 'metal' else '0')]
             try:
                 # The pinned CUDA graph implementation crashes in GLM's
                 # vision encoder when successive crops have different shapes.
                 # Ordinary CUDA execution retains GPU offload and model quality.
-                environment = {**os.environ, 'GGML_CUDA_DISABLE_GRAPHS': '1'}
+                environment = {key: value for key, value in os.environ.items()
+                               if key not in {'LLAMA_API_KEY', 'LLAMA_API_KEY_FILE', 'LLAMA_ARG_API_KEY_FILE', 'LLAMA_ARG_LOG_VERBOSITY', 'LLAMA_LOG_VERBOSITY'}}
+                environment['GGML_CUDA_DISABLE_GRAPHS'] = '1'
                 self.process = subprocess.Popen(command, stdout=self.log, stderr=self.log, env=environment)
                 atexit.register(self.close)
-                deadline = time.monotonic() + 240
+                deadline = time.monotonic() + float(os.environ.get('GUITAROCR_LLAMA_START_TIMEOUT', '600'))
                 while time.monotonic() < deadline:
                     if self.process.poll() is not None:
                         raise RuntimeError(f'llama-server 启动失败：{self.log_path.read_text(errors="replace")[-3000:]}')
                     try:
-                        with urlopen(endpoint + '/health', timeout=2) as response:
+                        with urlopen(Request(endpoint + '/health', headers=self._auth_headers()), timeout=2) as response:
                             if response.status == 200:
                                 break
                     except OSError:
@@ -68,6 +87,9 @@ class LlamaCppBackend:
         self.endpoint = endpoint.rstrip('/')
         self.image_policy = load_policy(model_path)
 
+    def _auth_headers(self):
+        return {'Authorization': f'Bearer {self._api_key}'} if self._api_key else {}
+
     def close(self):
         if self.process is not None and self.process.poll() is None:
             self.process.terminate()
@@ -78,6 +100,13 @@ class LlamaCppBackend:
                 self.process.wait()
         if self.log is not None:
             self.log.close()
+        self._api_key = None
+        # Popen retains argv after exit; do not retain the ephemeral credential.
+        if self.process is not None and isinstance(self.process.args, (list, tuple)):
+            args = list(self.process.args)
+            if '--api-key' in args:
+                args[args.index('--api-key') + 1] = '<redacted>'
+                self.process.args = args
 
     def generate(self, messages, max_new_tokens, *, skip_special_tokens=True, json_schema=None, grammar=None):
         if json_schema is not None and grammar is not None:
@@ -107,10 +136,10 @@ class LlamaCppBackend:
             body['response_format'] = {'type': 'json_schema', 'json_schema': {'name': 'score_annotation', 'schema': json_schema}}
         if grammar is not None:
             body['grammar'] = grammar
-        request = Request(self.endpoint + '/v1/chat/completions', headers={'Content-Type': 'application/json'},
+        request = Request(self.endpoint + '/v1/chat/completions', headers={'Content-Type': 'application/json', **self._auth_headers()},
                           data=json.dumps(body).encode())
         try:
-            with urlopen(request, timeout=300) as response:
+            with urlopen(request, timeout=self.request_timeout) as response:
                 result = json.load(response)
         except HTTPError as error:
             detail = error.read(4096).decode(errors='replace')
@@ -129,7 +158,7 @@ class LlamaCppBackend:
         if len(schemas) != len(messages) or len(grammars) != len(messages):
             raise ValueError('Each prompt needs its own output schema')
         # llama-server owns the inference slots and KV memory; preserve input order.
-        with ThreadPoolExecutor(max_workers=min(4, max(1, len(messages)))) as pool:
+        with ThreadPoolExecutor(max_workers=min(self.parallel, max(1, len(messages)))) as pool:
             return list(pool.map(lambda item: self.generate(item[0], max_new_tokens,
                 skip_special_tokens=skip_special_tokens, json_schema=item[1], grammar=item[2]),
                 zip(messages, schemas, grammars, strict=True)))

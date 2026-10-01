@@ -7,24 +7,28 @@
       {
         "path": "auxiliary/layout.onnx",
         "asset": "auxiliary-layout.onnx",
-        "bytes": 130435504
+        "bytes": 130435504,
+        "sha256": "c7527f28cdd44b6cd4a96524f792c186471fd8aba027a70624d702379b808f58"
       },
       {
         "path": "auxiliary/signature.onnx",
         "asset": "auxiliary-signature.onnx",
-        "bytes": 53210842
+        "bytes": 53210842,
+        "sha256": "3c40942998c3d9cfd5b8f6fa984f96328042bd33e4cf2d52e8cb3e77e2702912"
       }
     ],
     "llamacpp": [
       {
         "path": "weights/score_ocr/gguf/model-Q8_0.gguf",
         "asset": "score_ocr-model-Q8_0.gguf",
-        "bytes": 722295296
+        "bytes": 722295296,
+        "sha256": "e53c6e0ba9b1ced1156a4456b5f72e239cc711dea8209092bb0c1f5e06a7ff80"
       },
       {
         "path": "weights/score_ocr/gguf/vision-F16.gguf",
         "asset": "score_ocr-vision-F16.gguf",
-        "bytes": 869017888
+        "bytes": 869017888,
+        "sha256": "ec60f6c25f673349d320b1968794225b5639d769df7288f7e230b5a046608563"
       }
     ]
   }

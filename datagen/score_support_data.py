@@ -6,10 +6,9 @@ from concurrent.futures import ProcessPoolExecutor
 import json
 from pathlib import Path
 
-from datagen.training_samples import dataset_entry
+from datagen.training_samples import dataset_entry, visual_measure_sample
 from datagen.source_profile import apply_source_profile
 from shared.pitch_context import convert_pitch_target
-from shared.score_state import state_prompt
 from shared.m2 import format_measure_target, parse_measure_target
 from shared.techniques import canonical_chord_marks
 
@@ -38,17 +37,7 @@ def prepare_source(job):
             row['pitch_context'] = context
             row['target'] = convert_pitch_target(row.get('sounding_target', row['target']),
                                                  context, to_written=True, mode='both')
-        # The line counts and open strings are not evidence for a written pitch.
-        # TAB retains tuning only for compatibility with earlier task prompts.
-        state = dict(row['score_state'])
-        if mode != 'tab':
-            state.pop('tuning', None)
-        prompt = state_prompt(mode, instrument, state, row.get('pitch_context'),
-                              first=row['measure_index'] == 0, visual_pitch=True)
-        sample = {'messages': [
-            {'role': 'user', 'content': '<image><image><image>' + prompt},
-            {'role': 'assistant', 'content': row['target']}],
-            'images': [row['image'], row.get('previous_image', row['image']), row.get('next_image', row['image'])]}
+        sample = visual_measure_sample(row, first=row['measure_index'] == 0)
         repeat = 1
         if row['split'] == 'train':
             repeat = 3 if corpus != 'original' else 2 if mode == 'both' else 1

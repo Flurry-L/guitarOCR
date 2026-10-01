@@ -1,8 +1,11 @@
+from pathlib import Path
+import tempfile
 import unittest
 
 from PIL import Image, ImageDraw
 
 from layout.postprocess import order_measure_boxes, refine_measure_boxes
+from layout.score_grid import align_system
 from layout.tab_geometry import detect_tab_boundaries_for_lines, detect_tab_geometry
 
 
@@ -65,8 +68,8 @@ class OrderMeasureBoxesTest(unittest.TestCase):
         self.assertEqual([box["coordinate"] for box in boxes], original)
 
 
-    def test_barline_evidence_merges_false_splits(self):
-        image = Image.new("L", (420, 130), 255)
+    def test_missing_barline_preserves_detector_boxes_without_staff_consensus(self):
+        image = Image.new("L", (420, 330), 255)
         draw = ImageDraw.Draw(image)
         for y in (40, 50, 60, 70, 80):
             draw.line((10, y, 410, y), fill=0)
@@ -80,8 +83,40 @@ class OrderMeasureBoxesTest(unittest.TestCase):
             ]
         )
         result = refine_measure_boxes(image, boxes)
-        self.assertEqual(len(result), 10)
-        self.assertEqual(result[0]["bbox"], [10.0, 30.0, 190.0, 70.0])
+        # A missing or faint printed barline alone cannot prove a false split.
+        self.assertEqual(result, boxes)
+
+    def test_staff_consensus_merges_false_splits(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            image_path = root / "page.png"
+            Image.new("L", (420, 330), 255).save(image_path)
+            rows = [
+                [measure(10, 30, 100, 100), measure(100, 30, 200, 100),
+                 measure(200, 30, 410, 100)],
+                [measure(10, 150, 200, 220), measure(200, 150, 410, 220)],
+                [measure(10, 250, 200, 320), measure(200, 250, 410, 320)],
+            ]
+            members = []
+            for part, row in enumerate(rows):
+                records = [
+                    {**box, "mode": "notation", "source_page": str(image_path),
+                     "measure_number": index + 1}
+                    for index, box in enumerate(order_measure_boxes(row))
+                ]
+                members.append((records, part, 0))
+
+            aligned, count = align_system(members, root, page=1, system=0)
+
+            self.assertEqual(count, 2)
+            self.assertEqual([len(row) for row, _, _ in aligned], [2, 2, 2])
+            merged, column = aligned[0][0][0]
+            self.assertEqual(column, 0)
+            self.assertEqual(merged["bbox"], [10.0, 30.0, 190.0, 70.0])
+            self.assertEqual(merged["source_measure_numbers"], [1, 2])
+            self.assertEqual(merged["geometry_source"], "staff_consensus")
+            self.assertTrue(Path(merged["image"]).is_file())
+            self.assertEqual(aligned[0][0][1][0]["bbox"], [200.0, 30.0, 210.0, 70.0])
 
     def test_barlines_recover_missing_middle_measure(self):
         image = Image.new("L", (420, 130), 255)

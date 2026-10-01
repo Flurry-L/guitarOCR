@@ -1,0 +1,493 @@
+[
+  {
+    "name": "open-muted",
+    "image": "open-muted.png",
+    "diagram": {
+      "base_fret": 1,
+      "frets": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "fingers": [
+        null,
+        3,
+        2,
+        null,
+        1,
+        null
+      ],
+      "barres": []
+    },
+    "expected": {
+      "base_fret": 1,
+      "frets": [
+        "x",
+        3,
+        2,
+        0,
+        1,
+        0
+      ],
+      "fingers": [
+        null,
+        3,
+        2,
+        null,
+        1,
+        null
+      ],
+      "barres": []
+    }
+  },
+  {
+    "name": "full-barre",
+    "image": "full-barre.png",
+    "diagram": {
+      "base_fret": 1,
+      "frets": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "fingers": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "barres": []
+    },
+    "expected": {
+      "base_fret": 1,
+      "frets": [
+        1,
+        3,
+        3,
+        2,
+        1,
+        1
+      ],
+      "fingers": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "barres": [
+        [
+          1,
+          0,
+          5
+        ]
+      ]
+    }
+  },
+  {
+    "name": "partial-barre",
+    "image": "partial-barre.png",
+    "diagram": {
+      "base_fret": 1,
+      "frets": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "fingers": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "barres": []
+    },
+    "expected": {
+      "base_fret": 1,
+      "frets": [
+        0,
+        2,
+        2,
+        2,
+        0,
+        0
+      ],
+      "fingers": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "barres": [
+        [
+          2,
+          1,
+          3
+        ]
+      ]
+    }
+  },
+  {
+    "name": "shifted-base",
+    "image": "shifted-base.png",
+    "diagram": {
+      "base_fret": 7,
+      "frets": [
+        7,
+        7,
+        7,
+        7,
+        7,
+        7
+      ],
+      "fingers": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "barres": []
+    },
+    "expected": {
+      "base_fret": 7,
+      "frets": [
+        7,
+        9,
+        8,
+        0,
+        "x",
+        7
+      ],
+      "fingers": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "barres": []
+    }
+  },
+  {
+    "name": "missing-open-marker",
+    "image": "missing-open-marker.png",
+    "diagram": {
+      "base_fret": 1,
+      "frets": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "fingers": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "barres": []
+    },
+    "expected": null
+  },
+  {
+    "name": "skewed-grid",
+    "image": "skewed-grid.png",
+    "diagram": {
+      "base_fret": 1,
+      "frets": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "fingers": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "barres": []
+    },
+    "expected": null
+  },
+  {
+    "name": "highest-visible-dot",
+    "image": "highest-visible-dot.png",
+    "diagram": {
+      "base_fret": 1,
+      "frets": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "fingers": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "barres": []
+    },
+    "expected": {
+      "base_fret": 1,
+      "frets": [
+        2,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "fingers": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "barres": []
+    }
+  },
+  {
+    "name": "three-strings",
+    "image": "three-strings.png",
+    "diagram": {
+      "base_fret": 1,
+      "frets": [
+        1,
+        1,
+        1
+      ],
+      "fingers": [
+        null,
+        null,
+        null
+      ],
+      "barres": []
+    },
+    "expected": {
+      "base_fret": 1,
+      "frets": [
+        1,
+        0,
+        "x"
+      ],
+      "fingers": [
+        null,
+        null,
+        null
+      ],
+      "barres": []
+    }
+  },
+  {
+    "name": "seven-strings",
+    "image": "seven-strings.png",
+    "diagram": {
+      "base_fret": 1,
+      "frets": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "fingers": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "barres": []
+    },
+    "expected": {
+      "base_fret": 1,
+      "frets": [
+        1,
+        0,
+        "x",
+        2,
+        3,
+        1,
+        0
+      ],
+      "fingers": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "barres": []
+    }
+  },
+  {
+    "name": "no-grid",
+    "image": "blank-chord.png",
+    "diagram": {
+      "base_fret": 1,
+      "frets": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "expected": null
+  },
+  {
+    "name": "even-morphology-anchor",
+    "image": "even-morphology-anchor.png",
+    "diagram": {
+      "base_fret": 1,
+      "frets": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "fingers": [
+        null,
+        3,
+        2,
+        null,
+        1,
+        null
+      ],
+      "barres": []
+    },
+    "expected": {
+      "base_fret": 1,
+      "frets": [
+        "x",
+        3,
+        2,
+        0,
+        1,
+        0
+      ],
+      "fingers": [
+        null,
+        3,
+        2,
+        null,
+        1,
+        null
+      ],
+      "barres": []
+    }
+  },
+  {
+    "name": "thick-nut-grid",
+    "image": "thick-nut-grid.png",
+    "diagram": {
+      "base_fret": 1,
+      "frets": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "fingers": [
+        null,
+        3,
+        2,
+        null,
+        1,
+        null
+      ],
+      "barres": []
+    },
+    "expected": {
+      "base_fret": 1,
+      "frets": [
+        "x",
+        3,
+        2,
+        0,
+        1,
+        0
+      ],
+      "fingers": [
+        null,
+        3,
+        2,
+        null,
+        1,
+        null
+      ],
+      "barres": []
+    }
+  },
+  {
+    "name": "out-of-range-correction-keeps-model",
+    "image": "open-muted.png",
+    "diagram": {
+      "base_fret": 36,
+      "frets": [
+        36,
+        36,
+        36,
+        36,
+        36,
+        36
+      ],
+      "fingers": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "barres": []
+    },
+    "expected": null
+  }
+]

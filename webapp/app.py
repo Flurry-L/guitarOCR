@@ -180,6 +180,10 @@ def create_app(
 
             def run():
                 with lock:
+                    # A cancelled queued job may have already been replaced by a
+                    # retry. Never publish its state or remove the new event.
+                    if cancel.is_set():
+                        return
                     job["status"] = "running"
                     save_job(sid, job)
                 try:
@@ -205,32 +209,12 @@ def create_app(
             return {"id": sid, "job": job.copy()}
 
     def process(sid, mode, progress, cancelled):
-        for key, label, operation in (
-            ("layout", "正在检测小节与音轨", lambda: workflow.detect(sid, mode)),
-            (
-                "info",
-                "正在读取乐器与谱面信息",
-                lambda: workflow.information(sid, cancelled=cancelled),
-            ),
-            (
-                "recognition",
-                "正在识别音符与节奏",
-                lambda: workflow.recognize(
-                    sid,
-                    progress,
-                    resume=bool(workflow.load(sid).get("ocr_task")),
-                    cancelled=cancelled,
-                ),
-            ),
-        ):
-            if cancelled():
-                raise Cancelled("任务已停止，已完成的阶段已保存")
-            if workflow.load(sid)[key]:
-                continue
+        def stage(label):
             with lock:
                 jobs[sid].update(message=label, done=0, total=0)
                 save_job(sid, jobs[sid])
-            operation()
+
+        workflow.process(sid, mode=mode, progress=progress, cancelled=cancelled, on_stage=stage)
 
     @app.get("/")
     def index():
@@ -239,7 +223,7 @@ def create_app(
     def require_inference():
         if not inference_enabled:
             raise HTTPException(
-                409, "当前为校对模式。识别请连接 GPU 服务，或从桌面启动页选择本机 GPU。"
+                409, "当前为校对模式。识别请启动已安装模型的 Python 工作台，或使用原生桌面本机识别。"
             )
 
     @app.get("/api/config")
@@ -486,9 +470,14 @@ def create_app(
             if event is None or not jobs[sid].get("cancellable"):
                 raise HTTPException(409, "当前没有可以停止的识别任务")
             event.set()
-            jobs[sid].update(cancellable=False, message="正在停止，已完成部分会保留")
-            save_job(sid, jobs[sid])
-            return {"message": "正在停止，当前小节处理结束后生效"}
+            job = jobs[sid]
+            if job["status"] == "queued":
+                job.update(status="cancelled", cancellable=False, message="任务已取消", finished=time())
+                cancellations.pop(sid, None)
+            else:
+                job.update(cancellable=False, message="正在停止，已完成部分会保留")
+            save_job(sid, job)
+            return {"id": sid, "job": job.copy(), "message": job["message"]}
 
     @app.put("/api/sessions/{sid}/measures/{number}")
     def correct(sid: str, number: int, body: Correction, request: Request):

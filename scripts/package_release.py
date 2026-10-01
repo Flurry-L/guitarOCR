@@ -65,8 +65,10 @@ def build(output):
         source, target = ROOT / name, assets / asset
         if name in converted and not source.is_file():
             continue  # The conversion workflow publishes these assets separately.
-        if name in converted and source.stat().st_size != converted[name]['bytes']:
-            raise ValueError(f'{name} does not match the distribution manifest')
+        if name in converted:
+            errors = verify_files(source.parent, [{**converted[name], 'name': source.name}])
+            if errors:
+                raise ValueError('; '.join(errors))
         if source.stat().st_size >= 2**31:
             raise ValueError(f'{name} exceeds the GitHub asset limit; shard the model first')
         target.unlink(missing_ok=True)

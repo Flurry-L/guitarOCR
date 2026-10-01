@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, field, fields
-from fractions import Fraction
 from typing import Any
 
 from shared.m2 import (
     _duration_token,
+    duration_ticks,
     format_measure_target,
     parse_measure_target,
 )
@@ -287,9 +287,7 @@ class MeasureSequenceMetrics:
             for voice in measure['voices']:
                 for event in voice['events']:
                     slot = (int(voice['voice']), int(event['start']))
-                    d = event['duration']
-                    ticks = Fraction(3840 * d.get('tuplet_times', 1), d['value'] * d.get('tuplet_enters', 1))
-                    ticks *= Fraction(7, 4) if d.get('double_dotted') else Fraction(3, 2) if d.get('dotted') else 1
+                    ticks = duration_ticks(event['duration'])
                     for n in event.get('notes', []):
                         dead = instrument != 'drums' and (n.get('fret') == 'x' or 'dead' in n.get('effects', []))
                         if dead:

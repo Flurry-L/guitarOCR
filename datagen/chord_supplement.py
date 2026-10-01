@@ -7,9 +7,7 @@ import json
 from pathlib import Path
 
 from datagen.native_chords import visible_chords
-from datagen.quality_data import sample
-from datagen.training_samples import dataset_entry
-from datagen.unified_data import chat
+from datagen.training_samples import annotation_sample, dataset_entry, visual_measure_sample
 from shared.pdf import open_pdf
 from shared.pitch_context import convert_pitch_target
 from shared.score_state import attach_neighbours
@@ -38,7 +36,7 @@ def document(job):
                 bounds = [max(0, round(v * 2.5)) for v in box]
                 bounds[2], bounds[3] = min(image.width, bounds[2]), min(image.height, bounds[3])
                 image.crop(tuple(bounds)).save(path)
-                metadata.append(chat(path, value))
+                metadata.append(annotation_sample(path, value))
     return row['split'], metadata, pages
 
 
@@ -83,7 +81,7 @@ def build():
                         row['sounding_target'] = row['target']
                         if row['mode'] != 'tab':
                             row['target'] = convert_pitch_target(row['target'], row['pitch_context'], to_written=True, mode=row['mode'])
-                        write(split, sample(row), 'chord_measure')
+                        write(split, visual_measure_sample(row), 'chord_measure')
                         manifest.write(json.dumps(row) + '\n')
             with (root / f'paired_{split}.jsonl').open() as handle:
                 for line in handle:

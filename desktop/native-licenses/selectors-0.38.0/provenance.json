@@ -1,0 +1,8 @@
+{
+  "file": "LICENSE-MPL-2.0",
+  "source": "canonical Mozilla Public License 2.0 text included unmodified in crates.io cssparser 0.37.0",
+  "sha256": "fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85",
+  "basis": "selectors 0.38.0 Cargo.toml declares MPL-2.0 and source headers link https://mozilla.org/MPL/2.0/",
+  "sourceIncluded": true,
+  "upstreamCommit": "572ecba2d1600e7c3d490586692a209faf703baa"
+}

@@ -7,6 +7,7 @@ from typing import Any
 
 from measure_ocr.prompts import recognition_prompt
 from shared.m2 import format_history_context, parse_measure_target, full_measure_rest_target as _full_measure_rest_target
+from measure_ocr.review import ocr_rhythm_warnings
 from shared.constraints import validate_measure_target
 from shared.glm_backend import GlmBackend
 from shared.instruments import DEFAULT_TUNINGS
@@ -180,6 +181,9 @@ def recognize_crops(
                 )
                 if saved:
                     record["needs_review"] = bool(value.get("fallback_reason")) or bool(record.get("pitch_needs_review"))
+                    warnings = ocr_rhythm_warnings(target, "/".join(map(str, _active_time_signature(history))))
+                    record["fallback_reason"] = list(dict.fromkeys([*(record.get("fallback_reason") or []), *warnings]))
+                    record["needs_review"] = bool(record.get("needs_review") or warnings)
                 record["target"] = target
                 record["previous_context"] = previous_context
                 record["recognition_attempts"] = value.get(
@@ -239,6 +243,8 @@ def recognize_crops(
                         "generation reached max_new_tokens inside optional text"
                     ]
                 accepted_attempt = not constraint_errors
+                rhythm_warnings = (ocr_rhythm_warnings(target, "/".join(map(str, _active_time_signature(history))))
+                                   if accepted_attempt else [])
                 diagnostics.write(
                     json.dumps(
                         {
@@ -254,6 +260,8 @@ def recognize_crops(
                             "deterministic_repairs": deterministic_repairs,
                             "constraint_errors": constraint_errors,
                             "accepted": accepted_attempt,
+                            "needs_review": bool(rhythm_warnings),
+                            "fallback_reason": rhythm_warnings,
                         },
                         ensure_ascii=False,
                     )
@@ -339,8 +347,9 @@ def recognize_crops(
             record["target"] = target
             record["previous_context"] = previous_context
             record["recognition_attempts"] = attempt
-            record["needs_review"] = bool(constraint_errors) or bool(record.get("pitch_needs_review"))
-            record["fallback_reason"] = constraint_errors
+            rhythm_warnings = ocr_rhythm_warnings(target, "/".join(map(str, _active_time_signature(history))))
+            record["needs_review"] = bool(constraint_errors or rhythm_warnings) or bool(record.get("pitch_needs_review"))
+            record["fallback_reason"] = [*constraint_errors, *rhythm_warnings]
             if progress:
                 progress(index, len(records))
             print(

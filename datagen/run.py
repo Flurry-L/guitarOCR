@@ -5,9 +5,6 @@ import json
 from pathlib import Path
 
 from shared.paths import DATABASE_ROOT, PROJECT_ROOT
-from datagen.select_sources import select_sources, relabel_selected_sources
-from datagen.render import render_modes
-from datagen.build_measure_data import crop_and_manifest
 from shared.layout_labels import MODES
 
 
@@ -35,7 +32,7 @@ def main() -> None:
     parser.add_argument("--wine-prefix-template", type=Path)
     parser.add_argument("--wine-python", type=Path)
     parser.add_argument("--workers", type=int, default=1)
-    parser.add_argument("--typed-measures", action="store_true", help="Build four-class layout labels including notation type")
+    parser.add_argument("--typed-measures", action="store_true", help="Separate TAB/notation/both labels using the shared layout categories")
     parser.add_argument(
         "--phase",
         choices=(
@@ -50,23 +47,6 @@ def main() -> None:
         default="all",
     )
     args = parser.parse_args()
-    modes = args.mode or list(MODES)
-    output = args.output.resolve()
-    output.mkdir(parents=True, exist_ok=True)
-    if args.phase in {"all", "select"}:
-        select_sources(
-            args.corpus.resolve(),
-            output,
-            source_count=args.source_count,
-            seed=args.seed,
-            minimum_measures=args.minimum_measures,
-            maximum_measures=args.maximum_measures,
-            modes=modes,
-        )
-    if args.phase == "relabel":
-        relabel_selected_sources(output, modes)
-    if args.phase == "relabel-labels":
-        relabel_selected_sources(output, modes, prepare=False)
     if args.phase in {"all", "render"}:
         if (
             args.runtime is None
@@ -76,6 +56,28 @@ def main() -> None:
             parser.error(
                 "rendering requires --runtime, --wine-prefix-template and --wine-python"
             )
+    modes = args.mode or list(MODES)
+    output = args.output.resolve()
+    output.mkdir(parents=True, exist_ok=True)
+    if args.phase in {"all", "select"}:
+        from datagen.select_sources import select_sources
+
+        select_sources(
+            args.corpus.resolve(),
+            output,
+            source_count=args.source_count,
+            seed=args.seed,
+            minimum_measures=args.minimum_measures,
+            maximum_measures=args.maximum_measures,
+            modes=modes,
+        )
+    if args.phase in {"relabel", "relabel-labels"}:
+        from datagen.select_sources import relabel_selected_sources
+
+        relabel_selected_sources(output, modes, prepare=args.phase == "relabel")
+    if args.phase in {"all", "render"}:
+        from datagen.render import render_modes
+
         render_modes(
             output,
             modes,
@@ -85,6 +87,8 @@ def main() -> None:
             args.workers,
         )
     if args.phase in {"all", "crop"}:
+        from datagen.build_measure_data import crop_and_manifest
+
         summary = crop_and_manifest(output, modes, args.dpi, args.seed, args.workers)
         print(json.dumps(summary, ensure_ascii=False, indent=2))
 

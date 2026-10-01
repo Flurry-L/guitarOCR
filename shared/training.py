@@ -1,4 +1,4 @@
-"""Launch LLaMA-Factory with a stage's own training configuration."""
+"""Read OCR training options and launch LLaMA-Factory without loading models."""
 
 import argparse
 import os
@@ -6,6 +6,41 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+
+
+OCR_TRAINING_DEFAULTS = {
+    "vocab_trainable_from": None,
+    "vocab_learning_rate": 5e-4,
+    "vocab_freeze_original": True,
+    "music_field_loss": False,
+    "batch_token_budget": None,
+    "maximum_batch_examples": 128,
+    "share_context_images": False,
+    "context_chunk_size": 1,
+}
+
+
+def load_training_config(path: Path, overrides=()) -> tuple[dict, dict]:
+    """Separate framework arguments from OCR-only options before either use.
+
+    Inactive features still consume their options: LLaMA-Factory rejects
+    unknown keys even when the corresponding OCR hook is not installed.
+    YAML stays an optional dependency until a training command is run.
+    """
+    import yaml
+
+    config = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(config, dict):
+        raise ValueError(f"Training configuration must be a mapping: {path}")
+    for override in overrides:
+        key, separator, value = override.partition("=")
+        if separator:
+            config[key] = yaml.safe_load(value)
+    options = {
+        key: config.pop(key, default)
+        for key, default in OCR_TRAINING_DEFAULTS.items()
+    }
+    return config, options
 
 
 def llamafactory_main(default_config: Path, *, worker_module: str | None = None) -> None:

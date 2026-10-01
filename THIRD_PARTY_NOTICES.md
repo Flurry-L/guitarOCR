@@ -26,4 +26,6 @@ GLM-OCR 基座的模型卡声明 MIT，来源固定为 [zai-org/GLM-OCR](https:/
 
 Guitar Pro 是 Arobas Music 的专有软件，安装程序和运行库不随仓库提供。`datagen/native-source/` 及 DLL 使用其内部接口和 Qt，需要分别确认迁入代码的授权、接口使用条件及 Qt 的分发要求。源码和构建步骤见[原生工具说明](docs/native-build.md)。
 
-部署用 ONNX Runtime 使用 MIT 许可，OpenCV 使用 Apache-2.0 许可，随 Python 依赖保留各自的许可证文件。分发的 ONNX 辅助模型是原版面与拍号／调号模型的格式转换，继续适用对应模型授权。可选 llama.cpp 使用 MIT 许可，由用户选择构建；GGUF 转换不改变原始模型许可。
+部署用 ONNX Runtime 使用 MIT 许可，OpenCV 使用 Apache-2.0 许可，随 Python 依赖保留各自的许可证文件。分发的 ONNX 辅助模型是原版面与拍号／调号模型的格式转换，继续适用对应模型授权。llama.cpp 使用 MIT 许可；预编译 runtime 须附带固定提交的原始 LICENSE、所含依赖许可与真实校验清单。当前本地构建保留上游聚合许可及相关头文件许可文本；正式发布还需目标平台依赖和兼容性审计。GGUF 转换不改变原始模型许可。
+
+`scripts/create_demo.py` 生成的 Harbor Light 曲例与原图为原创合成素材，可按 CC0-1.0 使用、修改和再分发；预置校对结果没有执行 OCR，不代表模型准确率。
