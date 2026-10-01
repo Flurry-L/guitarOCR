@@ -1,1 +1,0 @@
-"""layout stage of GuitarOCR."""

@@ -1,8 +1,8 @@
 # 构建 GP8 原生导出 DLL
 
-`datagen/native-source/` 包含 C++ 源码、导出符号、接口声明和构建脚本。代码源自 GPOMR 的原生导出器，当前构建所需文件均在本仓库中。
+`gpbridge/native/` 包含 C++ 源码、导出符号、接口声明和构建脚本。代码源自 GPOMR 的原生导出器，当前构建所需文件均在本仓库中。
 
-DLL 支持 `display_mode=tab|notation|both`，由本目录源码在 Linux 上使用 clang-cl 18、xwin 的 MSVC/Windows SDK 和 Qt 5.15.2 MSVC SDK 交叉编译。已在 GP8 8.1.2.37 + Wine 中检查三种排版、小节和谱号区域、记谱移调及局部八度范围。源码、二进制哈希和运行验收记录见 [provenance.json](../datagen/native-bin/provenance.json)。
+DLL 支持 `display_mode=tab|notation|both`，由本目录源码在 Linux 上使用 clang-cl 18、xwin 的 MSVC/Windows SDK 和 Qt 5.15.2 MSVC SDK 交叉编译。已在 GP8 8.1.2.37 + Wine 中检查三种排版、小节和谱号区域、记谱移调及局部八度范围。源码、二进制哈希和运行验收记录见 [provenance.json](../gpbridge/bin/provenance.json)。
 
 `gpomr_native_export.dll` 由原生会话加载，`gpomr_amprof_preload.dll` 是 GP8 预加载代理。它们只用于数据生产，PDF / 图片识别及 GP5 导出不依赖 Guitar Pro、Wine 或这些 DLL。
 
@@ -21,14 +21,14 @@ py -3.11 -m aqt install-qt windows desktop 5.15.2 win64_msvc2019_64 -O C:\Qt
 
 ```powershell
 $vsRoot = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-powershell -ExecutionPolicy Bypass -File datagen/native-source/build.ps1 -QtRoot C:\Qt\5.15.2\msvc2019_64 -VisualStudioRoot $vsRoot
+powershell -ExecutionPolicy Bypass -File gpbridge/native/build.ps1 -QtRoot C:\Qt\5.15.2\msvc2019_64 -VisualStudioRoot $vsRoot
 ```
 
 默认生成：
 
 ```text
-datagen/native-bin/gpomr_native_export.dll
-datagen/native-bin/gpomr_amprof_preload.dll
+gpbridge/bin/gpomr_native_export.dll
+gpbridge/bin/gpomr_amprof_preload.dll
 ```
 
 可通过 `-OutputDll`、`-OutputPreloadDll` 指定其他输出位置。脚本在临时目录生成导入库和中间文件，使用 MSVC x64 编译，然后自动清理。Qt 头文件和链接库使用传入的 `QtRoot`；GP8 导入库由仓库中的 `.def` 生成。
@@ -48,10 +48,10 @@ datagen/native-bin/gpomr_amprof_preload.dll
 ```bash
 xwin --accept-license --arch x86_64 splat --output tools/native-build/msvc
 uvx --from aqtinstall aqt install-qt windows desktop 5.15.2 win64_msvc2019_64 --archives qtbase -O tools/native-build/qt
-uv run --no-sync python datagen/native-source/build_linux.py \
+uv run --no-sync python gpbridge/native/build_linux.py \
   --sdk tools/native-build/msvc --qt tools/native-build/qt/5.15.2/msvc2019_64 \
   --clang clang-cl-18 --linker tools/native-build/llvm/usr/lib/llvm-18/bin/lld-link --lib /usr/bin/llvm-lib-18 \
-  --output datagen/native-bin
+  --output gpbridge/bin
 ```
 
 三种模式都通过 GP8 的 `TrackViewGroup` 设置显示方式，随后从真实 `BarView` 取得坐标；混合谱同一小节的两个谱表合并成一个框。`tab_only` 字段保留用于兼容，旧布局缺少 `display_mode` 时按 TAB 解释。音符品位的 glyph 标注仅在 TAB 模式导出。五线谱和混合谱另提供谱号、八度线区域，以及乐器记谱移调和谱号状态；文本移调说明的位置由原生 PDF 字符坐标取得。混合谱中的 TAB 符号也可能出现在 `clefElement`，数据生成器依据字形将它与五线谱谱号区分。

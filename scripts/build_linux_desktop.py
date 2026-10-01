@@ -144,7 +144,7 @@ def main():
         run(['npm', 'ci'], cwd=desktop, env=env)
     run(['cargo', 'fetch', '--locked', '--manifest-path', desktop / 'src-tauri/Cargo.toml'], env=env)
     if not args.skip_resources:
-        run(['cargo', 'fetch', '--locked', '--manifest-path', desktop / 'native-service/Cargo.toml'], env=env)
+        run(['cargo', 'fetch', '--locked', '--manifest-path', ROOT / 'backend/Cargo.toml'], env=env)
         run(['node', ROOT / 'scripts/prepare_native_desktop.mjs', '--build'], cwd=ROOT, env=env)
     config = bundle_config(env, ROOT / 'output/desktop-debian.conf.json')
     run(['npm', 'run', 'build', '--', '--verbose', '--config', config, '--bundles', args.bundles, '--', '--locked'],

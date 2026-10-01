@@ -42,13 +42,13 @@ jobs:
           python -m pip install 'onnx==1.23.0' safetensors 'numpy==2.2.6' Pillow
           python -m venv /tmp/paddle-converter
           /tmp/paddle-converter/bin/python -m pip install 'paddlepaddle==3.2.0' 'paddle2onnx==2.1.0' 'onnx==1.17.0' 'numpy==1.26.4' packaging
-      - run: python scripts/export_auxiliary.py --paddle-python /tmp/paddle-converter/bin/python
+      - run: python research/export/export_auxiliary.py --paddle-python /tmp/paddle-converter/bin/python
       - name: Upload ONNX assets
         shell: python
         run: |
           import json, os, shutil, subprocess
           from pathlib import Path
-          from shared.model_files import verify_files
+          from research.common.model_files import verify_files
           catalog = json.loads(Path('weights/distribution.json').read_text())
           folder = Path('output/model-assets')
           folder.mkdir(parents=True, exist_ok=True)

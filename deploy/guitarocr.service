@@ -1,0 +1,21 @@
+[Unit]
+Description=GuitarOCR native server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=guitarocr
+Group=guitarocr
+WorkingDirectory=/opt/guitarocr
+ExecStart=/opt/guitarocr/native/guitarocr-backend --server --bind 127.0.0.1 --port 8080 --public-url https://ocr.example.com --projects /var/lib/guitarocr/projects --models /var/lib/guitarocr/models --resources /opt/guitarocr/native --assets /opt/guitarocr/ui/workbench --slots 4
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=45
+KillMode=control-group
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

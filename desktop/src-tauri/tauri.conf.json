@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "identifier": "io.github.flurry-l.guitarocr",
   "build": {
-    "frontendDist": "../ui",
+    "frontendDist": "../../ui/launcher",
     "beforeDevCommand": "node sync-assets.mjs",
     "beforeBuildCommand": "node sync-assets.mjs"
   },
@@ -19,7 +19,7 @@
     "active": true,
     "targets": "all",
     "resources": {
-      "resources/webapp/static/": "webapp/static/",
+      "resources/ui/": "ui/",
       "resources/native/": "native/",
       "resources/licenses/": "licenses/"
     },

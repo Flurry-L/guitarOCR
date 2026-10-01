@@ -1,0 +1,21 @@
+[package]
+name = "scorelib"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[features]
+python = ["dep:pyo3"]
+
+[dependencies]
+getrandom = "0.3"
+serde_json = { version = "1", features = ["arbitrary_precision"] }
+regex = "1"
+encoding_rs = "0.8"
+pyo3 = { version = "0.25", optional = true, features = ["extension-module", "abi3-py310"] }
+
+[dev-dependencies]
+tempfile = "3"

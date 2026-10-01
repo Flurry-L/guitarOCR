@@ -1,0 +1,4 @@
+selectors 0.38.0 is distributed under MPL-2.0, without modifications.
+Corresponding source: https://crates.io/api/v1/crates/selectors/0.38.0/download
+Upstream: https://github.com/servo/stylo
+The exact crate version is recorded in Cargo.lock and the packaged components.json.

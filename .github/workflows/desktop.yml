@@ -1,18 +1,24 @@
-name: Build native desktop preview installers
+name: Build native applications
 on:
   workflow_dispatch:
     inputs:
       platform:
-        description: 'Platform to build (not a claim of platform validation)'
+        description: 'Platform to build'
         required: true
         type: choice
         default: linux-x64
         options: [all, linux-x64, windows-x64, macos-arm64, macos-x64]
       include_inference:
-        description: 'Bundle verified CPU/Metal inference libraries (models still download on first use)'
+        description: 'Include inference libraries; models download once on first use'
         required: true
         type: boolean
         default: true
+      acceleration:
+        description: 'Native runtime: auto selects Metal on Apple Silicon, CPU elsewhere; cuda selects NVIDIA on Linux/Windows'
+        required: true
+        type: choice
+        default: auto
+        options: [auto, cuda]
 permissions:
   contents: read
 jobs:
@@ -35,16 +41,17 @@ jobs:
           cache-dependency-path: desktop/package-lock.json
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - uses: Jimver/cuda-toolkit@v0.2.24
+        if: inputs.include_inference && inputs.acceleration == 'cuda' && runner.os != 'macOS'
         with:
-          workspaces: |
-            desktop/src-tauri
-            desktop/native-service
+          cuda: '12.8.1'
+          method: network
       - if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf
       - run: npm ci
         working-directory: desktop
       - run: cargo fetch --locked --manifest-path desktop/src-tauri/Cargo.toml
-      - run: cargo fetch --locked --manifest-path desktop/native-service/Cargo.toml
+      - run: cargo fetch --locked --manifest-path backend/Cargo.toml
       - uses: actions/setup-python@v5
         if: inputs.include_inference
         with:
@@ -65,11 +72,13 @@ jobs:
         shell: python
         env:
           NATIVE_PLATFORM: ${{ matrix.platform }}
+          NATIVE_ACCELERATION: ${{ inputs.acceleration }}
         run: |
           import os, subprocess, sys
           from pathlib import Path
           platform = os.environ['NATIVE_PLATFORM']
-          target = platform + ('-metal' if platform == 'macos-arm64' else '-cpu')
+          backend = 'cuda' if os.environ['NATIVE_ACCELERATION'] == 'cuda' and not platform.startswith('macos') else 'metal' if platform == 'macos-arm64' else 'cpu'
+          target = platform + '-' + backend
           run = lambda *args: subprocess.run([sys.executable, *map(str, args)], check=True)
           run('scripts/build_llamacpp_runtime.py', '--source', '.runtime-source',
               '--build', 'output/runtime-build', '--output', 'output/runtime-artifacts', '--target', target)
@@ -82,28 +91,30 @@ jobs:
               '--llama-manifest', artifacts / (target + '.json'), '--output', 'output/native-components')
       - run: npm run native:build
         working-directory: desktop
-      - name: Stage complete native preview
+      - name: Stage native application
         if: inputs.include_inference
         run: npm run resources -- --manifest ../output/native-components/manifest.json --require-inference
         working-directory: desktop
-      - name: Stage editor-only preview
+      - name: Stage editor application
         if: ${{ !inputs.include_inference }}
         run: npm run resources
         working-directory: desktop
       - run: npm test
         working-directory: desktop
-      - run: node --test tests/score-editor.test.mjs tests/project-import.test.mjs
+      - run: node --test ui/tests/score-editor.test.mjs ui/tests/project-import.test.mjs
       - run: npm run build -- --verbose --bundles ${{ matrix.platform == 'linux-x64' && 'deb,appimage' || matrix.platform == 'windows-x64' && 'nsis' || 'dmg' }} -- --locked
         working-directory: desktop
-      # Verified build inputs do not replace real device/model acceptance or signing.
-      # This workflow never publishes a release.
+      - name: Package self-hosted backend
+        if: inputs.include_inference
+        run: python scripts/package_release.py
       - uses: actions/upload-artifact@v4
         with:
-          name: GuitarOCR-${{ inputs.include_inference && 'native' || 'editor' }}-preview-${{ matrix.platform }}
+          name: GuitarOCR-${{ inputs.include_inference && 'native' || 'editor' }}-${{ matrix.platform }}-${{ inputs.acceleration }}
           if-no-files-found: error
           compression-level: 0
           path: |
-            desktop/src-tauri/target/release/bundle/**/*.exe
-            desktop/src-tauri/target/release/bundle/**/*.dmg
-            desktop/src-tauri/target/release/bundle/**/*.deb
-            desktop/src-tauri/target/release/bundle/**/*.AppImage
+            output/releases/*
+            target/release/bundle/**/*.exe
+            target/release/bundle/**/*.dmg
+            target/release/bundle/**/*.deb
+            target/release/bundle/**/*.AppImage

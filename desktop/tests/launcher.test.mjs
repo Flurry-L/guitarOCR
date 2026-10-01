@@ -2,10 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
-import { StartupProgress } from '../ui/progress.mjs';
+import { StartupProgress } from '../../ui/launcher/progress.mjs';
 
-const html = await readFile(new URL('../ui/index.html', import.meta.url), 'utf8');
-const script = (await readFile(new URL('../ui/app.js', import.meta.url), 'utf8'))
+const html = await readFile(new URL('../../ui/launcher/index.html', import.meta.url), 'utf8');
+const script = (await readFile(new URL('../../ui/launcher/app.js', import.meta.url), 'utf8'))
   .replace("import { StartupProgress } from './progress.mjs';", '');
 
 function element() {
@@ -34,7 +34,7 @@ function documentFixture() {
   };
 }
 
-async function launcher({ supported = true, approve = true, startError } = {}) {
+async function launcher({ supported = true, startError } = {}) {
   const { document, elements } = documentFixture();
   const calls = [];
   const events = new Map();
@@ -50,7 +50,6 @@ async function launcher({ supported = true, approve = true, startError } = {}) {
       core: { invoke: async (command, args) => {
         calls.push({ command, args });
         if (command === 'settings') return { server: 'https://ocr.example.com', native_available: supported };
-        if (command === 'confirm_local_setup') return typeof approve === 'function' ? approve() : approve;
         if (command === 'start_local' && startError) throw new Error(startError);
       } },
       event: { listen: async (name, callback) => { events.set(name, callback); } },
@@ -64,25 +63,17 @@ async function launcher({ supported = true, approve = true, startError } = {}) {
 test('native client is explicit and remote remains optional', () => {
   assert.ok(html.indexOf('id="localEdit"') < html.indexOf('id="remote"'));
   assert.match(html, /打开本机工作台/);
-  assert.match(html, /不安装或下载 Python/);
+  assert.match(html, /保存在本机/);
   assert.doesNotMatch(html, /id="localAuto"|id="localCpu"|无需自行安装 Python/);
 });
 
 test('native client confirms mode and starts without Python installation', async () => {
   const state = await launcher();
   await state.elements.get('localEdit').onclick();
-  assert.deepEqual(state.calls.map(call => call.command), ['settings', 'confirm_local_setup', 'start_local']);
+  assert.deepEqual(state.calls.map(call => call.command), ['settings', 'start_local']);
   assert.equal(state.calls[1].args.mode, 'native');
-  assert.equal(state.calls[2].args.mode, 'native');
   assert.deepEqual(state.progress, [['begin'], ['end', true]]);
   assert.equal(state.elements.get('status').textContent, '本机工作台已打开。');
-});
-
-test('declining native client starts no process', async () => {
-  const state = await launcher({ approve: false });
-  await state.elements.get('localEdit').onclick();
-  assert.deepEqual(state.calls.map(call => call.command), ['settings', 'confirm_local_setup']);
-  assert.deepEqual(state.progress, []);
 });
 
 test('unsupported platform leaves remote access but does not offer broken local mode', async () => {

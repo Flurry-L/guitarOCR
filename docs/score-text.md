@@ -10,12 +10,11 @@ MEASURE time=4/4 tempo=120 | V0{@0:q:s1f0 @960:q:s2f1 @1920:h:r}
 
 ## 表示与职责边界
 
-- `shared/m2.py` 解析和格式化模型的 `M2` 小节事件；`shared/score_text.py` 仅将其显示为 `MEASURE`，不改音乐内容
-- 识别阶段 `manifest.json` 的 `records` 是项目保存和校对的依据，包含原谱位置、目标文本、人工修改及待核对状态；`shared/schema.py` 描述的是阶段交换字段，不是模型输出语法
-- `shared/score_document.py` 把记录整理成 `guitarocr.score/2` 整谱投影：统一时间轴、音轨、谱表与音高语义。`score.json`、`score.txt`、MusicXML 和 GP5 均从记录生成，不反向覆盖项目
-- `shared/constraints.py` 检查 IR 合法性；`measure_ocr/review.py` 给模型结果加可疑节奏软警告；`gp5_export/timing.py` 检查 GP5 顺序存储限制。三者不能合并成同一个“乐谱是否正确”判断
+- `scorelib/src/score.rs` 解析、格式化和校验 `M2`，并生成整谱 IR；Python 通过 `scorelib` 调用同一实现。
+- 识别记录包含原谱位置、目标文本、人工修改及校对状态；项目由 `backend` 保存，研究脚本的阶段交换字段位于 `research/common/schema.py`。
+- `guitarocr.score/2` 统一时间轴、音轨、谱表与音高语义。`score.json`、小节文本、MusicXML 和 GP5 从识别记录生成；格式限制由 `scorelib/src/music_exports` 处理。
 
-IR 模块不加载模型、训练框架或 Web 服务。`measure_ocr/result.py` 属于保存／校对业务，负责组合这些规则；导出器负责自己的格式限制。需要保存识别上下文、校对状态及原图时使用项目 ZIP，单独文本或 `score.json` 不替代完整项目。
+音乐语义不加载模型或 Web 服务。产品的编辑和项目事务属于 `backend`；`research/inference/measures/result.py` 只组织研究任务的输出。保存原图、上下文与校对状态时使用项目 ZIP，单独文本或 `score.json` 不替代完整项目。
 
 ## 单位和声部
 
@@ -43,7 +42,7 @@ IR 模块不加载模型、训练框架或 Web 服务。`measure_ocr/result.py` 
 
 `feel=eighth` / `feel=sixteenth` 表示当前小节采用八分／十六分 swing。它是逐小节状态：正常目标中省略 `feel` 或显式写 `feel=none` 都表示直拍，不无限沿用历史 swing。默认并行模型从相邻图像读取演奏方式；识别失败的小节按有效拍号生成整小节休止占位并标为待检查。
 
-音符级奏法放在圆括号中，例如 `s1f3(vib)`、`s2f5(hammer)`、`s3f2(pm,let)`。常见标记包括 tie、dead、vib、hammer、ghost、pm、stacc、let、accent、sl / ss 及 harm 等。事件级奏法放在尖括号中，例如 `<dyn:70>`。具体参数映射见 `gp5_export/effects.py`；使用 WebUI 谱面编辑时会保留已有奏法参数。
+音符级奏法放在圆括号中，例如 `s1f3(vib)`、`s2f5(hammer)`、`s3f2(pm,let)`。常见标记包括 tie、dead、vib、hammer、ghost、pm、stacc、let、accent、sl / ss 及 harm 等。事件级奏法放在尖括号中，例如 `<dyn:70>`。具体参数映射见 `scorelib/src/music_exports/gp5_techniques.rs`；使用 WebUI 谱面编辑时会保留已有奏法参数。
 
 和弦名附着在对应拍上，例如 `<chord:F%23m>` 表示 F♯m，文字使用 URL 编码。指法图可同时写为 `<chord:C,diagram:1:x/3/2/0/1/0:-/3/2/-/1/-:->`；`diagram` 的四段依次是起始品、从低音弦到高音弦的绝对品位、每弦指法数字、横按。`x` 表示不弹，品位 `0` 表示空弦，指法 `-` 表示未标注、`0` 表示拇指。横按格式为 `品位/低弦索引/高弦索引`，索引从 0 开始，多条横按以分号分隔。页首和弦图保存在乐谱的标注库中，不会被当成第一拍的和弦。
 
@@ -67,15 +66,20 @@ GP5 表示能力与原始谱面并非完全一致。请对照原图检查连线�
 
 默认模型读取当前及相邻小节图像，并接收批量识别后按谱序传播的拍号、调号；各小节文本独立生成，跨节延音统一处理。旧模型的 `CONTEXT` 表示上一小节摘要，不属于乐谱正文。谱面类型由版面检测传给 OCR，不由文本标记判断。
 
-旧项目和旧格式文本仍可读取。内部表示与显示名称的转换由 `shared/score_text.py` 处理，不改变模型训练协议。
+旧项目和旧格式文本仍可读取。内部表示与显示名称的转换由 `scorelib/python/scorelib/score_text.py` 处理，不改变模型训练协议。
 
-将下载的小节文本转为 GP5：
+通过 Python 库将单轨小节文本转为 GP5：
 
-```bash
-uv run --no-sync python -m gp5_export.writer score.txt output/score.gp5 --mode tab
+```python
+from pathlib import Path
+from scorelib.gp5.writer import write_targets_gp5
+from scorelib.score_text import model_score_text
+
+lines = Path("score.txt").read_text(encoding="utf-8").splitlines()
+write_targets_gp5([model_score_text(line) for line in lines if line.strip()], "output/score.gp5", mode="tab")
 ```
 
-贝斯、钢琴和鼓组分别使用 `--instrument bass|pitched|drums`。弦乐器可用 `--tuning` 指定调弦，`--midi-program` 指定从 0 开始的 MIDI 乐器编号。
+`instrument` 可以指定 `guitar`、`bass`、`pitched` 或 `drums`，`tuning` 为调弦列表，`midi_program` 为从 0 开始的 MIDI 乐器编号。多轨项目应通过工作台导出，以保留音轨和谱表分组。
 
 项目备份中的 `score.json` 使用 `guitarocr.score/2` 中间表示，保存统一时间轴、乐器、MIDI 音色、调弦，以及按音轨和谱表分组的小节与校对状态。`index` 对齐同时演奏的小节，`source_record` 对应原谱裁图；每个谱表可保存多个声部。页面流程自动识别总谱分组，各谱表独立读取音符并维护谱号、移调和延音关系。MusicXML 是可选导出格式，不参与模型的逐小节解码；GP5 将双谱表、超过两声部或超过七弦的内容拆为同步音轨。
 

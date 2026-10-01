@@ -1,0 +1,4 @@
+tauri-plugin 2.7.1, Apache-2.0 OR MIT
+Upstream commit from published crate .cargo_vcs_info.json:
+https://raw.githubusercontent.com/tauri-apps/tauri/30da1fd6e17de6107ecc850c95dfb16b5729f2dd/LICENSE-MIT
+https://raw.githubusercontent.com/tauri-apps/tauri/30da1fd6e17de6107ecc850c95dfb16b5729f2dd/LICENSE-APACHE-2.0

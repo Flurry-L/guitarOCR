@@ -11,7 +11,6 @@ dist/
 
 # Downloaded third-party runtimes
 tools/
-datagen/runtime/
 
 # Original corpora and local acceptance-test material
 music-scores-collection/
@@ -34,15 +33,16 @@ Thumbs.db
 *.pem
 *.key
 
-# Native build intermediates
-datagen/native-bin/*.lib
-datagen/native-bin/*.exp
-datagen/native-bin/*.pdb
-
 # Built deployment models are published as release assets.
 weights/auxiliary/*.onnx
 weights/*/gguf/*.gguf
 
-# Native client build outputs (keep source fixtures and Cargo.lock files).
-/desktop/native-core/target/
-/desktop/native-service/target/
+# Native builds and local Guitar Pro runtime
+**/target/
+/gpbridge/runtime/
+/gpbridge/bin/*.lib
+/gpbridge/bin/*.exp
+/gpbridge/bin/*.pdb
+*.so
+*.dylib
+*.pyd

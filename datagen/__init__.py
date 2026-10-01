@@ -1,1 +1,0 @@
-"""datagen stage of GuitarOCR."""

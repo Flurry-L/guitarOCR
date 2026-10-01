@@ -1,51 +1,14 @@
-"""Pinned, verified llama.cpp distribution; never build code on end-user machines.
-
-Release maintainers populate artifacts with package_llamacpp_runtime.py output
-only after native smoke tests. An empty catalog intentionally blocks downloads.
-"""
-from __future__ import annotations
-
-import json
-import os
-from pathlib import Path
-import platform
+"""Pinned llama.cpp build and package validation (build machines only)."""
 import re
+import platform
 import shutil
 import subprocess
-import tempfile
+from pathlib import Path
 from urllib.parse import unquote, urlsplit
 from zipfile import ZipFile
+from research.common.model_files import verify_files
 
-from scripts.downloads import download_verified
-from shared.model_files import verify_files
-
-ROOT = Path(__file__).resolve().parent.parent
 COMMIT = '8019dc563b1ecbae6b161a70c3a1359f1b206c1e'
-BUNDLED_DIRECTORY = Path('scripts/llamacpp-bundled')
-
-
-def read_catalog(path):
-    data = json.loads(path.read_text(encoding='utf-8'))
-    if data['commit'] != COMMIT or data['source'] != 'https://github.com/ggml-org/llama.cpp' or data['license'] != 'MIT':
-        raise ValueError('llama.cpp runtime 来源或版本不匹配')
-    return data
-
-
-def catalog():
-    data = read_catalog(ROOT / 'scripts/llamacpp-runtime.json')
-    # Only this generated resource can supply embedded archives. Neither manifest
-    # may choose a local filename or arbitrary filesystem path.
-    data['bundled_artifacts'] = []
-    bundled = ROOT / BUNDLED_DIRECTORY / 'manifest.json'
-    if bundled.is_file():
-        entries = read_catalog(bundled)['artifacts']
-        for key, entry in entries.items():
-            validate_target(key, entry)
-            validate_entry(entry)
-            data['artifacts'][key] = entry
-            data['bundled_artifacts'].append(key)
-    return data
-
 
 def target(device):
     system = {'Darwin': 'macos', 'Windows': 'windows', 'Linux': 'linux'}.get(platform.system())
@@ -63,19 +26,6 @@ def validate_target(key, entry, *, native=False):
     executable = 'llama-server.exe' if key.startswith('windows-') else 'llama-server'
     if entry.get('executable') != executable:
         raise ValueError('runtime 可执行文件与目标平台不匹配')
-
-
-def select_device(device, *, allow_fallback=False):
-    data = catalog()
-    key = target(device)
-    if key not in data['artifacts']:
-        if allow_fallback and device != 'cpu' and target('cpu') in data['artifacts']:
-            print(f'{device} runtime 尚未发布，将使用 CPU（较慢）。', flush=True)
-            return 'cpu'
-        raise ValueError(f'本发行版尚未提供已验证的 {key} runtime（llama.cpp {COMMIT[:12]}）。'
-                         '请使用仅校对与导出或连接远程服务；维护者需先构建、测试并发布对应预编译包。'
-                         '不会自动编译或下载不明来源程序。')
-    return device
 
 
 def probe(executable):
@@ -135,32 +85,3 @@ def extract_archive(archive, entry, staging):
         raise ValueError('；'.join(errors))
     (staging / entry['executable']).chmod(0o755)
     return probe(staging / entry['executable'])
-
-
-def acquire(tools, device, explicit=None):
-    if explicit:
-        executable = shutil.which(str(explicit))
-        if not executable:
-            raise ValueError('找不到指定的 llama-server')
-        return probe(executable)
-    data = catalog()
-    key = target(device)
-    select_device(device)
-    entry = data['artifacts'][key]
-    validate_entry(entry)
-    cache = Path(tools) / 'llamacpp' / COMMIT / key
-    if verify_files(cache, entry['files']):
-        cache.parent.mkdir(parents=True, exist_ok=True)
-        if key in data.get('bundled_artifacts', []):
-            archive = ROOT / BUNDLED_DIRECTORY / f'{key}.zip'
-        else:
-            archive = cache.parent / f'{key}.zip'
-            if verify_files(archive.parent, [{**entry, 'name': archive.name}]):
-                download_verified(entry['url'], archive, entry)
-        with tempfile.TemporaryDirectory(prefix=key + '-', dir=cache.parent) as temp:
-            staging = Path(temp)
-            extract_archive(archive, entry, staging)
-            if cache.exists():
-                shutil.rmtree(cache)
-            os.replace(staging, cache)
-    return probe(cache / entry['executable'])

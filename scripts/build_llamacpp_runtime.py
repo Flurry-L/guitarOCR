@@ -1,4 +1,4 @@
-"""Build and package a pinned native CPU/Metal runtime without publishing it.
+"""Build and package a pinned native CPU/CUDA/Metal runtime without publishing it.
 
 Run on the target OS/architecture (the workflow supplies Linux, Windows and macOS
 builders). Packaging verifies the executable revision and every archive member.
@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import platform
 import re
@@ -24,8 +25,10 @@ from scripts.package_llamacpp_runtime import package  # noqa: E402
 
 def configure(source, build, key):
     system, arch, backend = key.split('-')
-    if backend not in {'cpu', 'metal'} or key != target(backend):
-        raise ValueError('Build on the selected native OS/architecture; CPU or Metal only')
+    if backend not in {'cpu', 'metal', 'cuda'} or key != target(backend):
+        raise ValueError('Build on the selected native OS/architecture; CPU, CUDA or Metal')
+    if backend == 'cuda' and system == 'macos':
+        raise ValueError('CUDA builds target Linux or Windows')
     if backend == 'metal' and (system, arch) != ('macos', 'arm64'):
         raise ValueError('Metal release builds target Apple Silicon')
     options = {
@@ -34,7 +37,8 @@ def configure(source, build, key):
         'GGML_BACKEND_DL': 'OFF',
         'GGML_NATIVE': 'OFF',
         'GGML_OPENMP': 'OFF',
-        'GGML_CUDA': 'OFF',
+        'GGML_CUDA': 'ON' if backend == 'cuda' else 'OFF',
+        'GGML_STATIC': 'ON' if backend == 'cuda' else 'OFF',
         'GGML_METAL': 'ON' if backend == 'metal' else 'OFF',
         'GGML_METAL_EMBED_LIBRARY': 'ON',
         'LLAMA_OPENSSL': 'OFF',
@@ -45,6 +49,8 @@ def configure(source, build, key):
         'LLAMA_BUILD_UI': 'OFF',
         'LLAMA_USE_PREBUILT_UI': 'OFF',
     }
+    if backend == 'cuda':
+        options['CMAKE_CUDA_ARCHITECTURES'] = os.environ.get('GUITAROCR_CUDA_ARCHS', '75-virtual;80-virtual;86-real;89-real;90-virtual')
     if arch == 'x64':
         # A generic CPU package must not inherit the hosted runner's ISA. Keep
         # the baseline runnable on x86-64 machines without AVX2/FMA support.
@@ -84,6 +90,20 @@ def build_runtime(source, build, output, key, release_tag, jobs):
         staging = Path(temp)
         shutil.copy2(binary, staging / executable)
         shutil.copy2(source / 'LICENSE', staging / 'LICENSE')
+        if key.endswith('-cuda'):
+            toolkit = Path(os.environ.get('CUDA_PATH') or os.environ.get('CUDA_HOME') or '/usr/local/cuda')
+            license = next((p for p in (toolkit / 'EULA.txt', toolkit / 'doc/EULA.txt') if p.is_file()), None)
+            if license is None:
+                raise ValueError('CUDA redistribution requires the toolkit EULA.txt')
+            shutil.copy2(license, staging / 'CUDA-EULA.txt')
+            if key.startswith('windows-'):
+                # NVIDIA provides cuBLAS only as DLLs on Windows. CUDA runtime is
+                # static; ship the exact redistributable cuBLAS pair next to it.
+                libraries = [p for p in (toolkit / 'bin').rglob('cublas*.dll') if p.is_file()]
+                if not any(p.name.startswith('cublasLt') for p in libraries) or not any(p.name.startswith('cublas64') for p in libraries):
+                    raise ValueError('CUDA toolkit cuBLAS redistributable DLLs are missing')
+                for library in libraries:
+                    shutil.copy2(library, staging / library.name)
         for folder in ('licenses', 'vendor', 'ggml'):
             for path in (source / folder).rglob('*'):
                 if path.is_file() and path.name.upper().startswith(('LICENSE', 'COPYING', 'NOTICE')):
@@ -94,8 +114,7 @@ def build_runtime(source, build, output, key, release_tag, jobs):
         (staging / 'build.json').write_text(json.dumps({
             'source': 'https://github.com/ggml-org/llama.cpp', 'commit': COMMIT,
             'target': key, 'platform': platform.platform(), 'configure': command,
-            'version_smoke_test': 'passed', 'model_inference_test': 'not_run',
-            'device_acceptance': 'not_run',
+            'version_smoke_test': 'passed',
         }, indent=2) + '\n', encoding='utf-8')
         filename = f'llamacpp-{COMMIT[:12]}-{key}.zip'
         url = f'https://github.com/Flurry-L/guitarOCR/releases/download/{release_tag}/{filename}'

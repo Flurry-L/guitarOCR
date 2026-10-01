@@ -7,7 +7,7 @@
     "build": "tauri build",
     "resources": "node ../scripts/prepare_native_desktop.mjs",
     "test": "node --test tests/*.test.mjs",
-    "native:build": "cargo build --locked --release --manifest-path native-service/Cargo.toml"
+    "native:build": "cargo build --locked --release -p guitarocr-backend"
   },
   "devDependencies": {
     "@tauri-apps/cli": "2.12.0"

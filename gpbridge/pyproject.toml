@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gpbridge"
+version = "0.1.0"
+description = "Guitar Pro automation, raw score access and isolated batch workers"
+requires-python = ">=3.10"
+
+[tool.setuptools]
+packages = ["gpbridge"]
+package-dir = {gpbridge = "."}
+
+[tool.setuptools.package-data]
+gpbridge = ["bin/*.dll"]

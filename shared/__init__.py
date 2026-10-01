@@ -1,1 +1,0 @@
-"""shared stage of GuitarOCR."""

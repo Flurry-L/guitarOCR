@@ -33,7 +33,7 @@ jobs:
           import json, os, subprocess, tomllib
           from pathlib import Path
           release = json.loads(subprocess.check_output(['gh', 'release', 'view', os.environ['RELEASE_TAG'], '--json', 'isDraft,targetCommitish']))
-          version = tomllib.loads(Path('pyproject.toml').read_text())['project']['version']
+          version = tomllib.loads(Path('research/pyproject.toml').read_text())['project']['version']
           assert release['isDraft'], 'Only upload models to a draft release'
           assert os.environ['RELEASE_TAG'] == f'v{version}'
           head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
@@ -46,13 +46,13 @@ jobs:
         run: |
           git clone https://github.com/ggml-org/llama.cpp.git --filter=blob:none --no-checkout /tmp/llama.cpp
           git -C /tmp/llama.cpp checkout 8019dc563b1ecbae6b161a70c3a1359f1b206c1e
-      - run: python scripts/export_gguf.py --llama-cpp /tmp/llama.cpp --output output/gguf
+      - run: python research/export/export_gguf.py --llama-cpp /tmp/llama.cpp --output output/gguf
       - name: Upload model packages
         shell: python
         run: |
           import json, os, shutil, subprocess
           from pathlib import Path
-          from shared.model_files import verify_files
+          from research.common.model_files import verify_files
           catalog = json.loads(Path('weights/distribution.json').read_text())
           folder = Path('output/model-assets')
           folder.mkdir(parents=True, exist_ok=True)

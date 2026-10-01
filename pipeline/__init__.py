@@ -1,1 +1,0 @@
-"""pipeline stage of GuitarOCR."""

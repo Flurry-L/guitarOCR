@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "guitarocr-research"
+version = "0.1.0"
+description = "Score OCR data, training, evaluation and model export"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+  "scorelib==0.1.0",
+  "gpbridge==0.1.0",
+  "numpy>=1.26,<3",
+  "scipy>=1.11,<2",
+  "Pillow>=12.3,<13",
+  "PyGuitarPro>=0.7,<1",
+  "pypdfium2>=5.13,<6",
+  "pdfplumber>=0.11.10,<1",
+]
+
+[project.optional-dependencies]
+dev = ["httpx>=0.27,<1", "ruff>=0.11,<1", "reportlab>=4.4,<5"]
+glm-ocr = [
+  "torch>=2.2,<3",
+  "torchvision>=0.17,<1",
+  "accelerate>=1.11,<2",
+  "huggingface-hub>=1.23,<2",
+  "peft==0.18.1",
+  "safetensors>=0.8,<1",
+  "transformers==5.8.0",
+]
+training = ["liger-kernel>=0.8.3,<0.9", "verovio>=6.3,<7", "cairosvg>=2.9,<3"]
+
+[project.scripts]
+guitarocr-gp = "research.inference.pipeline.run:main"
+guitarocr-data = "research.data.run:main"
+guitarocr-check = "research.environment:main"
+
+[tool.setuptools]
+package-dir = {research = "."}
+
+[tool.setuptools.packages.find]
+where = [".."]
+include = ["research*"]
+exclude = ["research.tests*"]
+namespaces = false
+
+[tool.setuptools.package-data]
+research = ["configs/**/*.yaml", "configs/**/*.json", "configs/**/*.txt"]

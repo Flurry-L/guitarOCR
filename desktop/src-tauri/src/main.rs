@@ -279,23 +279,6 @@ fn validate_local_mode(mode: &str) -> Result<(), String> {
     }
     Ok(())
 }
-fn confirm_setup(_app: &tauri::AppHandle, mode: &str) -> Result<bool, String> {
-    validate_local_mode(mode)?;
-    // Starting the workbench downloads nothing. Its first model preparation has
-    // an explicit UI confirmation, separate from opening an editor.
-    Ok(true)
-}
-#[tauri::command]
-async fn confirm_local_setup(
-    app: tauri::AppHandle,
-    window: WebviewWindow,
-    mode: String,
-) -> Result<bool, String> {
-    authorize(&window)?;
-    tauri::async_runtime::spawn_blocking(move || confirm_setup(&app, &mode))
-        .await
-        .map_err(|e| e.to_string())?
-}
 fn start(app: &tauri::AppHandle, mode: &str) -> Result<Url, String> {
     validate_local_mode(mode)?;
     let root = data(app)?;
@@ -315,13 +298,13 @@ fn start(app: &tauri::AppHandle, mode: &str) -> Result<Url, String> {
     let resource = app.path().resource_dir().map_err(|e| e.to_string())?;
     let native = resource.join("native");
     let executable = native.join(if cfg!(windows) {
-        "guitarocr-native-service.exe"
+        "guitarocr-backend.exe"
     } else {
-        "guitarocr-native-service"
+        "guitarocr-backend"
     });
-    let assets = resource.join("webapp/static");
+    let assets = resource.join("ui/workbench");
     if !executable.is_file() || !assets.is_dir() {
-        return Err("此安装包缺少原生服务或工作台资源，请重新安装原生预览构建。".into());
+        return Err("此安装包缺少原生服务或工作台资源，请重新安装完整安装包。".into());
     }
     let _ = fs::write(root.join("runtime.log"), "");
     let mut cmd = command(&executable);
@@ -475,7 +458,6 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             settings,
             connect_server,
-            confirm_local_setup,
             start_local,
             stop_local,
             open_data

@@ -30,10 +30,10 @@ test('native manifests require exact target, provenance, SHA-256 and licenses', 
 });
 test('Tauri bundle and launcher contain no Python or uv runtime path', async () => {
   const config = JSON.parse(await readFile(new URL('../src-tauri/tauri.conf.json', import.meta.url)));
-  assert.deepEqual(Object.values(config.bundle.resources).sort(), ['licenses/', 'native/', 'webapp/static/']);
+  assert.deepEqual(Object.values(config.bundle.resources).sort(), ['licenses/', 'native/', 'ui/']);
   const source = await readFile(new URL('../src-tauri/src/main.rs', import.meta.url), 'utf8');
   assert.doesNotMatch(source, /desktop_runtime\.py|managed-python|UV_PYTHON|GUITAROCR_UV|root\.join\("backend"\)/);
-  assert.match(source, /guitarocr-native-service/);
+  assert.match(source, /guitarocr-backend/);
   assert.match(source, /GUITAROCR_READY/);
   assert.match(source, /mode != "native"/);
 });
@@ -73,8 +73,8 @@ test('source-informed native notices are copied exactly and missing files fail c
     }
     assert.deepEqual(JSON.parse(await readFile(path.join(destination, 'components.json'))), records);
     const fixture = path.join(root, 'fixture');
-    await mkdir(path.join(fixture, 'desktop/native-core/licenses'), { recursive: true });
-    for (const name of NATIVE_CORE_NOTICES.slice(1)) await writeFile(path.join(fixture, 'desktop/native-core/licenses', name), 'fixture');
+    await mkdir(path.join(fixture, 'backend/licenses'), { recursive: true });
+    for (const name of NATIVE_CORE_NOTICES.slice(1)) await writeFile(path.join(fixture, 'backend/licenses', name), 'fixture');
     const absentOutput = path.join(root, 'missing-output');
     await assert.rejects(stageNativeCoreNotices(absentOutput, fixture), /ENOENT/);
     await assert.rejects(readdir(absentOutput), /ENOENT/);

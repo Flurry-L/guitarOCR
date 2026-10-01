@@ -1,0 +1,15 @@
+[build-system]
+requires = ["maturin>=1.8,<2"]
+build-backend = "maturin"
+
+[project]
+name = "scorelib"
+version = "0.1.0"
+requires-python = ">=3.10"
+description = "Shared score IR, musical rules and GP5/MusicXML conversion"
+dependencies = ["PyGuitarPro>=0.7,<1"]
+
+[tool.maturin]
+features = ["python"]
+python-source = "python"
+module-name = "scorelib._native"
