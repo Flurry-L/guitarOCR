@@ -559,7 +559,32 @@ fn edited_information(layout: &Value, previous: &Value, values: &Value) -> Resul
         .collect::<Vec<_>>();
     let mut local = layout.clone();
     local["records"] = json!(local_records);
-    let edited = edited_single(&local, &parts[index], values)?;
+    // Native information stores contexts at document level. Editing a title
+    // must retain the selected part's contexts and every other part's music.
+    let contexts = previous["measure_pitch_contexts"]
+        .as_array()
+        .cloned()
+        .unwrap_or_else(|| {
+            parts
+                .iter()
+                .flat_map(|p| {
+                    p["measure_pitch_contexts"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .cloned()
+                })
+                .collect()
+        });
+    let belongs = |context: &Value| {
+        profiles
+            .iter()
+            .any(|p| p["measure_number"] == context["measure_number"])
+    };
+    let mut previous_part = parts[index].clone();
+    previous_part["measure_pitch_contexts"] =
+        json!(contexts.iter().filter(|c| belongs(c)).collect::<Vec<_>>());
+    let edited = edited_single(&local, &previous_part, values)?;
     let mut result = previous.clone();
     result["parts"][index]
         .as_object_mut()
@@ -593,15 +618,15 @@ fn edited_information(layout: &Value, previous: &Value, values: &Value) -> Resul
         profile["fingering_tunings"] = json!([edited["tuning_used"]]);
         profile["part_name"] = name.clone();
     }
-    result["measure_pitch_contexts"] = json!(result["parts"]
-        .as_array()
-        .unwrap()
+    result["measure_pitch_contexts"] = json!(contexts
         .iter()
-        .flat_map(|p| p["measure_pitch_contexts"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .cloned())
+        .filter(|c| !belongs(c))
+        .chain(
+            edited["measure_pitch_contexts"]
+                .as_array()
+                .into_iter()
+                .flatten()
+        )
         .collect::<Vec<_>>());
     result["title"] = edited["title"].clone();
     result["artist"] = edited["artist"].clone();
