@@ -3,5 +3,102 @@
   "source": "https://github.com/ggml-org/llama.cpp",
   "commit": "8019dc563b1ecbae6b161a70c3a1359f1b206c1e",
   "license": "MIT",
-  "artifacts": {}
+  "artifacts": {
+    "windows-x64-cpu": {
+      "url": "https://github.com/Flurry-L/guitarOCR/releases/download/v0.1.0-resources/llamacpp-8019dc563b1e-windows-x64-cpu.zip",
+      "bytes": 3909388,
+      "sha256": "b9b39ad39fb8a6bda6475ed0a2051c06a4b69293a1f0809c51b8867b268d3fe1",
+      "executable": "llama-server.exe",
+      "files": [
+        {
+          "name": "build.json",
+          "bytes": 1131,
+          "sha256": "5574b4c3cad95f179559bfe310afaca935294f279764d439dbb2b39d038934f2"
+        },
+        {
+          "name": "LICENSE",
+          "bytes": 1099,
+          "sha256": "bcd8ec749126d45cb06737d0690295d73df4b6e7e194205bcf91190368f27285"
+        },
+        {
+          "name": "llama-server.exe",
+          "bytes": 9335808,
+          "sha256": "749e5301652b855471880dd80b3098d83782317af715c048f970cf4a46621897"
+        },
+        {
+          "name": "notices/licenses/LICENSE-jsonhpp",
+          "bytes": 1096,
+          "sha256": "61e08da79c44061654015ce6b0c4061c23ee1dd18237fbf09e9bfda3c0ea2831"
+        },
+        {
+          "name": "notices/vendor/cpp-httplib/LICENSE",
+          "bytes": 1097,
+          "sha256": "bb546eae5924d8ee842e0e567e6d533c5824bdebccf605f99a5b3429034e6697"
+        },
+        {
+          "name": "notices/vendor/hash/rotate-bits/LICENSE.md",
+          "bytes": 1109,
+          "sha256": "6d1a68e8ae5085d15a5c4f8dc1363b7bf256756b3a49cbaf29fe7f7a49eae4e3"
+        },
+        {
+          "name": "notices/vendor/hash/sha256/LICENSE",
+          "bytes": 42,
+          "sha256": "24836bd0f33996623060eabeb765fb0b091bcbca47e6e6e9493385df8ce9e30a"
+        },
+        {
+          "name": "notices/vendor/hash/xxhash/LICENSE",
+          "bytes": 1415,
+          "sha256": "a2973411d278045bde3c7161b911e0680d53e2d73d6457c77068d2e55d816d67"
+        }
+      ]
+    },
+    "macos-arm64-metal": {
+      "url": "https://github.com/Flurry-L/guitarOCR/releases/download/v0.1.0-resources/llamacpp-8019dc563b1e-macos-arm64-metal.zip",
+      "bytes": 5357606,
+      "sha256": "049312b1fa8fd8f954e8a10135f849d7594498d58a2073671a53091ddd504fd7",
+      "executable": "llama-server",
+      "files": [
+        {
+          "name": "LICENSE",
+          "bytes": 1078,
+          "sha256": "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d"
+        },
+        {
+          "name": "build.json",
+          "bytes": 947,
+          "sha256": "0fe7ae1c3df1635936b8e717537b5dabb7a36cc2087f90ae7aa3121273410917"
+        },
+        {
+          "name": "llama-server",
+          "bytes": 17851344,
+          "sha256": "57fa7712daa0c3f65ad80033268a69713ed5cc6da38b2f798de3b4482f766508"
+        },
+        {
+          "name": "notices/licenses/LICENSE-jsonhpp",
+          "bytes": 1075,
+          "sha256": "c0d068392ea65358b798b8c165103560f06e9e3b38c4ab4e2d8810a7b931af86"
+        },
+        {
+          "name": "notices/vendor/cpp-httplib/LICENSE",
+          "bytes": 1075,
+          "sha256": "4b45cbe16d7b71b89ae6127e26e0d90a029198ca5e958ad8e3d0b8bbed364d8b"
+        },
+        {
+          "name": "notices/vendor/hash/rotate-bits/LICENSE.md",
+          "bytes": 1088,
+          "sha256": "ca0b44aec101afb6b46f4c39b23369fa06a64fb9c0add37c2689d702156fee55"
+        },
+        {
+          "name": "notices/vendor/hash/sha256/LICENSE",
+          "bytes": 41,
+          "sha256": "b81d0022ca6367918c67b57e9647d3513ee58809fd4b0ef0b3492f1356bced25"
+        },
+        {
+          "name": "notices/vendor/hash/xxhash/LICENSE",
+          "bytes": 1389,
+          "sha256": "6ffedbc0f7878612d2b23589f1ff2ab15633e1df7963a5d9fc750ec5500c7e7a"
+        }
+      ]
+    }
+  }
 }

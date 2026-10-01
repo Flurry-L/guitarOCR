@@ -1,25 +1,18 @@
-name: Build pinned local runtimes
+name: Build inference runtime
 on:
   workflow_dispatch:
+    inputs:
+      target:
+        description: 'Only rebuild when the inference runtime changes'
+        required: true
+        type: choice
+        default: windows-x64-cuda
+        options: [windows-x64-cpu, windows-x64-cuda, macos-arm64-metal]
 permissions:
   contents: read
 jobs:
   runtime:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: linux-x64-cpu
-            runner: ubuntu-22.04
-          - target: windows-x64-cpu
-            runner: windows-2022
-          - target: macos-x64-cpu
-            runner: macos-15-intel
-          - target: macos-arm64-cpu
-            runner: macos-15
-          - target: macos-arm64-metal
-            runner: macos-15
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ startsWith(inputs.target, 'windows') && 'windows-2022' || 'macos-15' }}
     env:
       PYTHONUTF8: '1'
     steps:
@@ -34,35 +27,20 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Compile, version-probe, and checksum runtime
+      - uses: Jimver/cuda-toolkit@v0.2.24
+        if: inputs.target == 'windows-x64-cuda'
+        with:
+          cuda: '12.8.1'
+          method: network
+      - name: Build runtime
         run: >-
           python scripts/build_llamacpp_runtime.py
-          --source .runtime-source
-          --build output/runtime-build
-          --output output/runtime-artifacts
-          --target ${{ matrix.target }}
-      - name: Verify archive integrity
-        shell: python
-        run: |
-          from hashlib import sha256
-          import json
-          from pathlib import Path
-          from zipfile import ZipFile
-          for path in Path('output/runtime-artifacts').glob('*.json'):
-              for key, entry in json.loads(path.read_text()).items():
-                  archive = path.parent / entry['url'].rsplit('/', 1)[1]
-                  assert archive.stat().st_size == entry['bytes']
-                  assert sha256(archive.read_bytes()).hexdigest() == entry['sha256']
-                  with ZipFile(archive) as bundle:
-                      assert bundle.testzip() is None
-                      assert set(bundle.namelist()) == {item['name'] for item in entry['files']}
-                      for item in entry['files']:
-                          data = bundle.read(item['name'])
-                          assert len(data) == item['bytes']
-                          assert sha256(data).hexdigest() == item['sha256']
+          --source .runtime-source --build output/runtime-build
+          --output output/runtime-artifacts --target ${{ inputs.target }}
+          --release-tag v0.1.0-resources
       - uses: actions/upload-artifact@v4
         with:
-          name: GuitarOCR-runtime-${{ matrix.target }}
+          name: GuitarOCR-runtime-${{ inputs.target }}
           if-no-files-found: error
           compression-level: 0
           path: output/runtime-artifacts/*

@@ -8,7 +8,9 @@
 
 ## 使用
 
-[下载应用](https://github.com/Flurry-L/guitarOCR/releases) · [安装与设备要求](docs/setup.md) · [自托管部署](docs/server.md)
+[下载应用](https://github.com/Flurry-L/guitarOCR/releases/tag/v0.1.0) · [安装与设备要求](docs/setup.md) · [自托管部署](docs/server.md)
+
+提供 Apple 芯片 Mac 和 Windows 客户端。Windows 自动选择设备，兼容的 NVIDIA 显卡按需获取加速组件。Linux、Intel Mac 和自托管服务从源码构建。
 
 1. 打开应用，导入 PDF 或图片，点击「开始识别」。首次识别需下载约 1.8 GB 模型。
 2. 对照原谱修改音符，按「确认并继续」逐小节核对。

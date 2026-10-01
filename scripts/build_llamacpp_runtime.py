@@ -127,8 +127,8 @@ def main():
     parser.add_argument('--build', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--target', required=True)
-    parser.add_argument('--release-tag', default='v0.1.0')
-    parser.add_argument('--jobs', type=int, default=2)
+    parser.add_argument('--release-tag', default='v0.1.0-resources')
+    parser.add_argument('--jobs', type=int, default=min(os.cpu_count() or 2, 8))
     args = parser.parse_args()
     if args.jobs < 1:
         parser.error('--jobs must be positive')

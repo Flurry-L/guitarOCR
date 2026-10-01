@@ -18,6 +18,7 @@ use std::{
 type Result<T> = std::result::Result<T, String>;
 pub struct Options {
     pub executable: PathBuf,
+    pub accelerator: Option<PathBuf>,
     pub model: PathBuf,
     pub projector: PathBuf,
     pub log: PathBuf,
@@ -159,15 +160,30 @@ impl Runtime {
                     self.options.context,
                     self.options.slots,
                 )?;
+                let mut capabilities = self.options.capabilities.clone();
+                if self.options.accelerator.is_some() {
+                    capabilities.cuda = Some(true);
+                }
                 let mut selected = device_selection::choose_runtime(
-                    &self.options.executable,
-                    &self.options.capabilities,
+                    self.options
+                        .accelerator
+                        .as_ref()
+                        .unwrap_or(&self.options.executable),
+                    &capabilities,
                     &budget,
                     Preference::Auto,
                     cancelled,
                 )?;
                 let config = |selected: &Selection| Config {
-                    executable: self.options.executable.clone(),
+                    executable: if selected.device == llama::Device::Cuda {
+                        self.options
+                            .accelerator
+                            .as_ref()
+                            .unwrap_or(&self.options.executable)
+                            .clone()
+                    } else {
+                        self.options.executable.clone()
+                    },
                     model: self.options.model.clone(),
                     projector: self.options.projector.clone(),
                     log: self.options.log.clone(),

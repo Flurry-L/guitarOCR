@@ -1,7 +1,9 @@
 //! Shared product backend for local and hosted operation.
+mod acceleration;
 mod accounts;
 pub mod assets;
 pub mod auxiliary_onnx;
+mod downloads;
 pub mod edit;
 pub mod image_boundary;
 pub mod image_transforms;
@@ -65,10 +67,10 @@ fn bad(error: impl ToString) -> ApiError {
 async fn config(Extension(app): Extension<AppState>) -> Json<Value> {
     Json(
         json!({"device":app.pipeline.device()["device"],"max_upload_mb":200,"max_pages":100,
-        "inference_enabled":app.pipeline.available(),"model_ready":app.models.ready(),"model_cached":app.models.cached(),
+        "inference_enabled":app.pipeline.available(),"model_ready":app.pipeline.ready(),"model_cached":app.models.cached(),
         "layout_ready":app.native.ort.is_some()&&app.models.ready(),"layout_cached":app.models.layout().is_file(),
         "pdf_enabled":app.native.pdfium.is_some(),
-        "native":true,"server":app.accounts.is_some(),"registration":app.accounts.as_ref().is_some_and(|a|a.registration()),"gpu_available":app.pipeline.available(),"editing_enabled":true,"native_runtime_error":app.native_error,"model_download_bytes":app.models.total_bytes(),"requires_model_confirmation":!app.models.ready()}),
+        "native":true,"server":app.accounts.is_some(),"registration":app.accounts.as_ref().is_some_and(|a|a.registration()),"gpu_available":app.pipeline.available(),"editing_enabled":true,"native_runtime_error":app.native_error,"model_download_bytes":app.pipeline.download_bytes(),"requires_model_confirmation":!app.pipeline.ready()}),
     )
 }
 

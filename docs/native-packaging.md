@@ -26,12 +26,11 @@ python scripts/collect_native_assets.py --target linux-x64-cpu \
   --output output/native-components
 node scripts/prepare_native_desktop.mjs --manifest output/native-components/manifest.json --require-inference
 npm run build --prefix desktop
-python scripts/package_release.py
 ```
 
 将示例归档路径换成上一步的实际产物。目标包括 `linux-x64-cpu`、`linux-x64-cuda`、`windows-x64-cpu`、`windows-x64-cuda`、`macos-arm64-metal` 和 `macos-x64-cpu`。CUDA 需要构建期 CUDA Toolkit；Linux 使用静态 CUDA 数学库，Windows 包含所需可再分发 DLL 和授权。可以用 `GUITAROCR_CUDA_ARCHS` 指定编译架构。Apple Silicon 构建嵌入 Metal shader。
 
-`.github/workflows/desktop.yml` 按平台编排这套流程，输出安装包与服务端归档。产物位于根目录 `target/release/bundle/` 和 `output/releases/`。无推理组件的资源准备只用于编辑器开发；完整识别包必须使用 `--require-inference`。
+正式客户端只发布 Apple 芯片 Mac 与 Windows，安装包位于 `target/release/bundle/`。`.github/workflows/desktop.yml` 复用 `scripts/llamacpp-runtime.json` 中已发布的引擎，不再随客户端重复编译 CUDA。引擎升级才运行 `llamacpp-runtime.yml`，将 ZIP 发布到应用资源页并更新清单。Linux、Intel Mac 按上面的步骤本地构建；服务端完成资源准备后即可运行 `native/guitarocr-backend`，无需执行最后的桌面打包命令。无推理组件的资源准备只用于编辑器开发；完整识别包必须使用 `--require-inference`。
 
 ## 资源与进程边界
 
@@ -45,7 +44,7 @@ licenses/  原生依赖、Cargo 依赖与源代码适配的授权
 
 桌面启动界面来自 `ui/launcher`，由 Tauri 打包。所有原生 crate 共用根目录 Cargo workspace、lockfile 和 target。更改后端或 UI 后应重新准备资源再打包，避免带入旧二进制。
 
-Tauri 只启动 `guitarocr-backend`，读取其 `GUITAROCR_READY` 回环地址；关闭应用时结束拥有的子进程组。后端组合 `engine` 和 `scorelib`。engine 拥有一个 llama-server，使用短期密钥访问回环接口，独立取消单个生成请求。ONNX Runtime 负责辅助模型，PDFium 负责 PDF 栅格化。用户的模型、项目和日志保存到应用数据目录。
+Tauri 只启动 `guitarocr-backend`，读取其 `GUITAROCR_READY` 回环地址；关闭应用时结束拥有的子进程组。后端组合 `engine` 和 `scorelib`。engine 拥有一个 llama-server，使用短期密钥访问回环接口，独立取消单个生成请求。ONNX Runtime 负责辅助模型，PDFium 负责 PDF 栅格化。用户的模型、项目和日志保存到应用数据目录。Windows 通过系统 NVIDIA 驱动判断是否需要加速组件，按需下载到同一数据目录的 `runtimes/`；模型与设备无关，继续共用已有缓存。
 
 组件清单记录文件、平台及完整性信息；收集器拒绝路径穿越、错误架构、损坏文件与缺失授权。补充的上游许可证位于 `desktop/native-licenses`。Pillow／OpenCV 图像变换适配的授权位于 `backend/licenses`；修改或打包时须一并保留。
 
@@ -53,6 +52,6 @@ Tauri 只启动 `guitarocr-backend`，读取其 `GUITAROCR_READY` 回环地址�
 
 Linux 已实际运行原生 ONNX＋GGUF 识谱、两个账号并发、取消续跑、编辑保存及 GP5／项目导出。模型质量仍应以独立[评测报告](model-evaluation.md)为准，流程跑完不表示每个音符都正确。
 
-每个平台的安装、设备加速和桌面交互应在对应系统验证；CI 配置本身不能代替真机结果。Linux 公共构建使用 Ubuntu 22.04；本地 Debian 构建可用 `scripts/build_linux_desktop.py --sysroot DIR`，它把实际系统库要求写入 DEB。macOS 原生组件最低 13.4；不要将本机较高的 glibc／SDK 基线包装成兼容更旧系统的发行件。
+每个平台的安装、设备加速和桌面交互应在对应系统验证；CI 配置本身不能代替真机结果。Linux 构建可使用 Ubuntu 22.04；本地 Debian 构建可用 `scripts/build_linux_desktop.py --sysroot DIR`，它把实际系统库要求写入 DEB。macOS 原生组件最低 13.4；不要将本机较高的 glibc／SDK 基线包装成兼容更旧系统的发行件。
 
 Guitar Pro 数据导出 DLL 属于独立的 `gpbridge`，构建见 [GP8 原生导出](gpbridge-build.md)，不进入用户的识谱应用。

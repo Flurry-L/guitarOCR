@@ -4,7 +4,7 @@
 
 ## 安装和运行
 
-下载并解压对应平台的 `GuitarOCR-0.1.0-server-*` 附件，或按[原生打包](native-packaging.md)构建。解压目录包含 `native/`、`ui/` 和 `licenses/`。将其放到 `/opt/guitarocr`，准备可写的数据目录 `/var/lib/guitarocr`，以运行服务的账号创建管理员：
+按[源码构建说明](native-packaging.md)构建后端并准备原生组件，无需打包桌面安装程序。把生成的 `desktop/src-tauri/resources/` 内容放到 `/opt/guitarocr`，其中包含 `native/`、`ui/` 和 `licenses/`。准备可写的数据目录 `/var/lib/guitarocr`，以运行服务的账号创建管理员：
 
 ```bash
 cd /opt/guitarocr

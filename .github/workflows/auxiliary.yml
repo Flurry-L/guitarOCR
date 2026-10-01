@@ -3,11 +3,11 @@ on:
   workflow_dispatch:
     inputs:
       source_ref:
-        description: 'Exact source commit matching the draft release'
+        description: 'Exact source commit matching the resource release'
         required: true
         type: string
       release_tag:
-        description: 'Draft release to receive the ONNX models'
+        description: 'Resource release to receive ONNX files'
         required: true
         type: string
 permissions:
@@ -31,10 +31,10 @@ jobs:
         shell: python
         run: |
           import json, os, subprocess
-          release = json.loads(subprocess.check_output(['gh', 'release', 'view', os.environ['RELEASE_TAG'], '--json', 'isDraft,targetCommitish']))
+          release = json.loads(subprocess.check_output(['gh', 'release', 'view', os.environ['RELEASE_TAG'], '--json', 'isDraft,isPrerelease,targetCommitish']))
           head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
-          assert release['isDraft'] and release['targetCommitish'] == head
-          assert os.environ['RELEASE_TAG'] == 'v0.1.0'
+          assert (release['isDraft'] or release['isPrerelease']) and release['targetCommitish'] == head
+          assert os.environ['RELEASE_TAG'] == 'v0.1.0-resources'
       - run: git lfs pull --include='weights/layout/**,weights/score_ocr/**'
       - name: Install build-only conversion tools
         run: |

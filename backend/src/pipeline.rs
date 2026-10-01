@@ -17,50 +17,79 @@ use std::{
     fs::{self, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 type Result<T> = std::result::Result<T, String>;
 pub struct Pipeline {
     pub native: NativeAssets,
     pub models: Arc<Models>,
-    engine: Option<Runtime>,
+    engine: Mutex<Option<Arc<Runtime>>>,
+    acceleration: Option<crate::acceleration::Acceleration>,
+    slots: usize,
 }
 impl Pipeline {
     pub fn new(native: NativeAssets, models: Arc<Models>, slots: usize) -> Self {
-        let engine = native.llama.as_ref().map(|executable| {
-            Runtime::new(Options {
-                executable: executable.clone(),
-                model: models.model(),
-                projector: models.projector(),
-                log: models.root.join("inference.log"),
-                capabilities: native.capabilities.clone(),
-                slots,
-                context: 8192,
-            })
-        });
+        let acceleration = if native.capabilities.cuda == Some(true) || native.llama.is_none() {
+            None
+        } else {
+            crate::acceleration::Acceleration::for_device(&models, slots)
+        };
         Self {
             native,
             models,
-            engine,
+            engine: Mutex::new(None),
+            acceleration,
+            slots,
         }
     }
     pub fn available(&self) -> bool {
-        self.native.ort.is_some() && self.engine.is_some()
+        self.native.ort.is_some() && self.native.llama.is_some()
+    }
+    pub fn ready(&self) -> bool {
+        self.models.ready()
+            && (self.acceleration.as_ref().is_none_or(|a| a.cached())
+                || self.engine.try_lock().is_ok_and(|e| e.is_some()))
+    }
+    pub fn download_bytes(&self) -> u64 {
+        self.models.total_bytes()
+            + self
+                .acceleration
+                .as_ref()
+                .filter(|a| !a.cached())
+                .map_or(0, |a| a.bytes())
     }
     pub fn device(&self) -> Value {
         self.engine
-            .as_ref()
-            .map_or(json!({"device":"auto"}), Runtime::device)
+            .try_lock()
+            .map(|engine| {
+                engine
+                    .as_ref()
+                    .map_or(json!({"device":"auto"}), |engine| engine.device())
+            })
+            .unwrap_or(json!({"device":"auto","loading":true}))
     }
     pub fn stats(&self) -> Value {
-        self.engine.as_ref().map_or(Value::Null, Runtime::stats)
+        self.engine
+            .try_lock()
+            .ok()
+            .and_then(|engine| engine.as_ref().map(|e| e.stats()))
+            .unwrap_or(Value::Null)
     }
     pub fn unload(&self) -> Result<()> {
-        self.engine.as_ref().map_or(Ok(()), Runtime::unload)
+        let engine = self
+            .engine
+            .try_lock()
+            .map_err(|_| "模型正在准备，请先停止任务")?;
+        if let Some(runtime) = engine.as_ref() {
+            runtime.unload()?;
+        }
+        Ok(())
     }
     pub fn shutdown(&self) {
-        if let Some(engine) = &self.engine {
-            engine.shutdown();
+        if let Ok(engine) = self.engine.lock() {
+            if let Some(engine) = engine.as_ref() {
+                engine.shutdown();
+            }
         }
     }
     fn with_engine<T>(
@@ -70,14 +99,52 @@ impl Pipeline {
         run: impl FnOnce(&mut Session<'_>) -> Result<T>,
     ) -> Result<T> {
         self.models.ensure(allow_download, progress)?;
-        self.engine
-            .as_ref()
-            .ok_or("识别组件未准备，请安装完整客户端")?
-            .run(
-                &|| progress.cancelled(),
-                &|message| progress.update(json!({"message":message})),
-                run,
-            )
+        let engine = {
+            let mut engine = loop {
+                progress.checkpoint()?;
+                match self.engine.try_lock() {
+                    Ok(engine) => break engine,
+                    Err(std::sync::TryLockError::WouldBlock) => {
+                        std::thread::sleep(std::time::Duration::from_millis(100))
+                    }
+                    Err(_) => return Err("识别引擎不可用，请重新打开应用".into()),
+                }
+            };
+            if engine.is_none() {
+                let accelerator = match &self.acceleration {
+                    Some(acceleration) => match acceleration.prepare(allow_download, progress) {
+                        Ok(path) => path,
+                        Err(error) => {
+                            progress.checkpoint()?;
+                            eprintln!("显卡组件准备失败：{error}");
+                            progress.update(json!({"message":"显卡加速暂不可用，改用 CPU 识别；重新打开应用可重试下载"}))?;
+                            None
+                        }
+                    },
+                    None => None,
+                };
+                *engine = Some(Arc::new(Runtime::new(Options {
+                    executable: self
+                        .native
+                        .llama
+                        .clone()
+                        .ok_or("识别组件未准备，请重新安装应用")?,
+                    accelerator,
+                    model: self.models.model(),
+                    projector: self.models.projector(),
+                    log: self.models.root.join("inference.log"),
+                    capabilities: self.native.capabilities.clone(),
+                    slots: self.slots,
+                    context: 8192,
+                })));
+            }
+            engine.as_ref().unwrap().clone()
+        };
+        engine.run(
+            &|| progress.cancelled(),
+            &|message| progress.update(json!({"message":message})),
+            run,
+        )
     }
     pub fn detect(
         &self,

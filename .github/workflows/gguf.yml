@@ -3,11 +3,11 @@ on:
   workflow_dispatch:
     inputs:
       source_ref:
-        description: 'Exact source commit to export (same as the draft release)'
+        description: 'Exact source commit to export (matching the resource release)'
         required: true
         type: string
       release_tag:
-        description: 'Draft release to receive the selected-engine model files'
+        description: 'Resource release to receive GGUF files'
         required: true
         type: string
 permissions:
@@ -32,10 +32,10 @@ jobs:
         run: |
           import json, os, subprocess, tomllib
           from pathlib import Path
-          release = json.loads(subprocess.check_output(['gh', 'release', 'view', os.environ['RELEASE_TAG'], '--json', 'isDraft,targetCommitish']))
+          release = json.loads(subprocess.check_output(['gh', 'release', 'view', os.environ['RELEASE_TAG'], '--json', 'isDraft,isPrerelease,targetCommitish']))
           version = tomllib.loads(Path('research/pyproject.toml').read_text())['project']['version']
-          assert release['isDraft'], 'Only upload models to a draft release'
-          assert os.environ['RELEASE_TAG'] == f'v{version}'
+          assert release['isDraft'] or release['isPrerelease'], 'Models belong in a resource release'
+          assert os.environ['RELEASE_TAG'] == f'v{version}-resources'
           head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
           assert head == release['targetCommitish'], 'Model source must match the release commit'
       - name: Install conversion dependencies

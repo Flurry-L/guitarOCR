@@ -1,24 +1,13 @@
-name: Build native applications
+name: Build desktop applications
 on:
   workflow_dispatch:
     inputs:
       platform:
-        description: 'Platform to build'
+        description: 'Client to build'
         required: true
         type: choice
-        default: linux-x64
-        options: [all, linux-x64, windows-x64, macos-arm64, macos-x64]
-      include_inference:
-        description: 'Include inference libraries; models download once on first use'
-        required: true
-        type: boolean
-        default: true
-      acceleration:
-        description: 'Native runtime: auto selects Metal on Apple Silicon, CPU elsewhere; cuda selects NVIDIA on Linux/Windows'
-        required: true
-        type: choice
-        default: auto
-        options: [auto, cuda]
+        default: all
+        options: [all, windows-x64, macos-arm64]
 permissions:
   contents: read
 jobs:
@@ -26,10 +15,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: ${{ fromJSON(inputs.platform == 'all' && '["linux-x64","windows-x64","macos-arm64","macos-x64"]' || format('["{0}"]', inputs.platform)) }}
-    runs-on: ${{ fromJSON('{"linux-x64":"ubuntu-22.04","windows-x64":"windows-2022","macos-arm64":"macos-15","macos-x64":"macos-15-intel"}')[matrix.platform] }}
-    env:
-      LDAI_COMP: zstd
+        platform: ${{ fromJSON(inputs.platform == 'all' && '["windows-x64","macos-arm64"]' || format('["{0}"]', inputs.platform)) }}
+    runs-on: ${{ matrix.platform == 'windows-x64' && 'windows-2022' || 'macos-15' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -44,93 +31,49 @@ jobs:
         with:
           cache-on-failure: true
           cache-workspace-crates: true
-      - uses: actions/cache/restore@v4
-        if: inputs.include_inference
-        id: runtime-cache
-        with:
-          path: output/runtime-artifacts
-          key: native-runtime-${{ matrix.platform }}-${{ inputs.acceleration }}-${{ hashFiles('scripts/build_llamacpp_runtime.py', 'scripts/package_llamacpp_runtime.py', 'scripts/llamacpp_runtime.py', 'scripts/llamacpp-runtime.json') }}
-      - uses: Jimver/cuda-toolkit@v0.2.24
-        if: inputs.include_inference && inputs.acceleration == 'cuda' && runner.os != 'macOS' && steps.runtime-cache.outputs.cache-hit != 'true'
-        with:
-          cuda: '12.8.1'
-          method: network
-      - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf
-      - run: npm ci
-        working-directory: desktop
-      - run: cargo fetch --locked --manifest-path desktop/src-tauri/Cargo.toml
-      - run: cargo fetch --locked --manifest-path backend/Cargo.toml
       - uses: actions/setup-python@v5
-        if: inputs.include_inference
         with:
           python-version: '3.11'
-      - uses: actions/checkout@v4
-        if: inputs.include_inference && steps.runtime-cache.outputs.cache-hit != 'true'
-        with:
-          repository: ggml-org/llama.cpp
-          ref: 8019dc563b1ecbae6b161a70c3a1359f1b206c1e
-          path: .runtime-source
-      - name: Acquire fixed native build inputs
-        if: inputs.include_inference
+      - run: npm ci
+        working-directory: desktop
+      - name: Acquire native libraries
         run: >-
           python -m pip download --index-url https://pypi.org/simple --only-binary=:all:
           --no-deps onnxruntime==1.23.2 pypdfium2==5.13.0 --dest output/native-wheels
-      - name: Build and verify native inference inventory
-        if: inputs.include_inference
+      - name: Stage prebuilt inference runtime
         shell: python
         env:
           NATIVE_PLATFORM: ${{ matrix.platform }}
-          NATIVE_ACCELERATION: ${{ inputs.acceleration }}
         run: |
-          import os, subprocess, sys
+          import json, os, subprocess, sys, urllib.request
           from pathlib import Path
-          platform = os.environ['NATIVE_PLATFORM']
-          backend = 'cuda' if os.environ['NATIVE_ACCELERATION'] == 'cuda' and not platform.startswith('macos') else 'metal' if platform == 'macos-arm64' else 'cpu'
-          target = platform + '-' + backend
-          run = lambda *args: subprocess.run([sys.executable, *map(str, args)], check=True)
-          wheels = Path('output/native-wheels')
+          target = os.environ['NATIVE_PLATFORM'] + ('-metal' if os.environ['NATIVE_PLATFORM'] == 'macos-arm64' else '-cpu')
+          catalog = json.loads(Path('scripts/llamacpp-runtime.json').read_text())
+          entry = catalog['artifacts'][target]
           artifacts = Path('output/runtime-artifacts')
-          if not (artifacts / (target + '.json')).is_file():
-              run('scripts/build_llamacpp_runtime.py', '--source', '.runtime-source',
-                  '--build', 'output/runtime-build', '--output', artifacts, '--target', target)
-          run('scripts/collect_native_assets.py', '--target', target,
-              '--ort-archive', next(wheels.glob('onnxruntime-*.whl')),
-              '--pdfium-wheel', next(wheels.glob('pypdfium2-*.whl')),
-              '--llama-archive', next(artifacts.glob('*.zip')),
-              '--llama-manifest', artifacts / (target + '.json'), '--output', 'output/native-components')
-      - uses: actions/cache/save@v4
-        if: inputs.include_inference && steps.runtime-cache.outputs.cache-hit != 'true'
-        with:
-          path: output/runtime-artifacts
-          key: ${{ steps.runtime-cache.outputs.cache-primary-key }}
+          artifacts.mkdir(parents=True, exist_ok=True)
+          archive = artifacts / entry['url'].rsplit('/', 1)[1]
+          urllib.request.urlretrieve(entry['url'], archive)
+          manifest = artifacts / (target + '.json')
+          manifest.write_text(json.dumps({target: entry}))
+          wheels = Path('output/native-wheels')
+          subprocess.run([sys.executable, 'scripts/collect_native_assets.py', '--target', target,
+              '--ort-archive', str(next(wheels.glob('onnxruntime-*.whl'))),
+              '--pdfium-wheel', str(next(wheels.glob('pypdfium2-*.whl'))),
+              '--llama-archive', str(archive), '--llama-manifest', str(manifest),
+              '--output', 'output/native-components'], check=True)
       - run: npm run native:build
         working-directory: desktop
-      - name: Stage native application
-        if: inputs.include_inference
-        run: npm run resources -- --manifest ../output/native-components/manifest.json --require-inference
+      - run: npm run resources -- --manifest ../output/native-components/manifest.json --require-inference
         working-directory: desktop
-      - name: Stage editor application
-        if: ${{ !inputs.include_inference }}
-        run: npm run resources
+      - run: npm run build -- --verbose --bundles ${{ matrix.platform == 'windows-x64' && 'nsis' || 'dmg' }} -- --locked
         working-directory: desktop
-      - run: npm test
-        working-directory: desktop
-      - run: node --test ui/tests/score-editor.test.mjs ui/tests/project-import.test.mjs
-      - run: npm run build -- --verbose --bundles ${{ matrix.platform == 'linux-x64' && 'deb,appimage' || matrix.platform == 'windows-x64' && 'nsis' || 'dmg' }} -- --locked
-        working-directory: desktop
-      - name: Package self-hosted backend
-        if: inputs.include_inference
-        run: python scripts/package_release.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: GuitarOCR-${{ inputs.include_inference && 'native' || 'editor' }}-${{ matrix.platform }}-${{ inputs.acceleration }}
+          name: GuitarOCR-${{ matrix.platform }}
           if-no-files-found: error
           compression-level: 0
           path: |
-            output/releases/*
             target/release/bundle/**/*.exe
             target/release/bundle/**/*.dmg
-            target/release/bundle/**/*.deb
-            target/release/bundle/**/*.AppImage
