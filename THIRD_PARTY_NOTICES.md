@@ -24,7 +24,7 @@ GLM-OCR 基座的模型卡声明 MIT，来源固定为 [zai-org/GLM-OCR](https:/
 
 ## Guitar Pro 数据工具
 
-Guitar Pro 是 Arobas Music 的专有软件，安装程序和运行库不随仓库提供。`gpbridge/native/` 及 DLL 使用其内部接口和 Qt，需要分别确认迁入代码的授权、接口使用条件及 Qt 的分发要求。源码和构建步骤见[原生工具说明](docs/native-build.md)。
+Guitar Pro 是 Arobas Music 的专有软件，安装程序和运行库不随仓库提供。`gpbridge/native/` 及 DLL 使用其内部接口和 Qt，需要分别确认迁入代码的授权、接口使用条件及 Qt 的分发要求。源码和构建步骤见[原生工具说明](docs/gpbridge-build.md)。
 
 部署用 ONNX Runtime 使用 MIT 许可；Pillow／OpenCV 图像变换适配的许可与来源保存在 `backend/licenses/`，随原生包提供。分发的 ONNX 辅助模型是原版面与拍号／调号模型的格式转换，继续适用对应模型授权。llama.cpp 使用 MIT 许可；预编译 runtime 须附带固定提交的原始 LICENSE、所含依赖许可与真实校验清单。当前本地构建保留上游聚合许可及相关头文件许可文本；正式发布还需目标平台依赖和兼容性审计。GGUF 转换不改变原始模型许可。
 

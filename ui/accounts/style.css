@@ -1,170 +1,73 @@
 @import url("/static/theme.css");
 @import url("/static/shell.css");
 
-/* The server owns account and queue content; the application frame is shared. */
+.signed-out .app-sidebar,
+.signed-out .app-header {
+  display: none;
+}
+.signed-out .app-main {
+  margin: 0;
+  min-height: 100dvh;
+  display: grid;
+  place-content: center;
+}
 .login {
-  width: min(470px, calc(100% - 32px));
-  max-height: calc(100dvh - 32px);
-  padding: 28px;
+  width: min(420px, calc(100vw - 32px));
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 32px;
+}
+.login .brand {
+  margin-bottom: 24px;
+}
+.login h1 {
+  font-size: 22px;
 }
 .login label,
 .narrow label {
   display: grid;
   gap: 6px;
-  margin: 14px 0;
+  margin: 16px 0;
 }
-.login form > button {
-  margin: 12px 8px 0 0;
-}
+.row,
 .heading {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
-  margin-bottom: 16px;
+  flex-wrap: wrap;
 }
-.heading h1 {
-  font-size: 22px;
+.heading {
+  justify-content: space-between;
+  margin-bottom: 16px;
 }
 .hint {
-  padding: 0;
-  background: transparent;
-  margin: 8px 0 12px;
-  font-size: 12px;
+  color: var(--muted);
+  font-size: 13px;
+  margin: 8px 0 16px;
 }
-.server-input h2 {
-  margin-bottom: 10px;
-}
-.server-input .dropzone {
-  margin: 16px 0;
-}
-.server-options h2 {
-  border-bottom: 1px solid var(--line);
-  padding-bottom: 12px;
-}
-.server-options .hint {
-  margin: 0;
-}
-.server-options label {
-  display: grid;
-  gap: 6px;
-}
-#selectedFiles {
-  overflow-wrap: anywhere;
+#notice,
+#authNotice {
+  white-space: pre-wrap;
+  margin-bottom: 16px;
 }
 #notice {
-  padding: 11px 15px;
-  border: 1px solid var(--line);
+  padding: 12px;
   background: var(--surface);
+  border: 1px solid var(--line);
   border-radius: 8px;
-  margin-bottom: 16px;
-  font-size: 13px;
-  white-space: pre-wrap;
 }
 #notice.error {
   background: var(--danger-bg);
 }
-.project-filters {
-  display: flex;
-  gap: 10px;
-  margin: 20px 0;
-}
-.project-filters input {
+.app-header h1 {
   flex: 1;
 }
-.project-list {
-  display: grid;
-  gap: 14px;
-}
-#projects {
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-}
-.project {
-  min-width: 0;
-  padding: 18px;
-  background: var(--paper);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
-}
-#projects .project {
-  grid-template-columns: minmax(0, 1fr);
-}
-.project h2 {
-  font-size: 14px;
-  overflow-wrap: anywhere;
-}
-.project p {
-  font-size: 12px;
-  margin-top: 6px;
-}
-.project progress {
-  width: 100%;
-  height: 6px;
-}
-.actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-#projects .actions {
-  justify-content: flex-start;
-  border-top: 1px solid var(--line);
-  padding-top: 12px;
-}
-.actions :is(button, a) {
-  font-size: 12px;
-}
-.empty {
-  padding: 60px 20px;
-  text-align: center;
+#accountIdentity {
   color: var(--muted);
-  background: var(--surface);
-  border: 1px dashed var(--line);
-  border-radius: 10px;
-}
-.stats {
-  display: flex;
-  gap: 16px;
-  flex-wrap: wrap;
-  margin: 16px 0;
-}
-.stat {
-  background: var(--paper);
-  padding: 18px 24px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  min-width: 190px;
-}
-.stat strong {
-  font-size: 24px;
-  display: block;
-  font-weight: 550;
-}
-.stat span {
-  color: var(--muted);
-  font-size: 12px;
 }
 .narrow {
   max-width: 480px;
-  padding: 24px;
-  background: var(--paper);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  margin-top: 14px;
-}
-section[data-view="account"] > h2,
-section[data-view="admin"] > h2 {
-  margin-top: 24px;
-}
-section[data-view="account"] > h1,
-section[data-view="admin"] > h1 {
-  font-size: 22px;
-  margin-bottom: 20px;
 }
 .table-scroll {
   overflow: auto;
@@ -174,43 +77,26 @@ table {
   border-collapse: collapse;
   background: var(--paper);
 }
-th,
-td {
-  text-align: left;
+th, td {
   padding: 12px;
+  text-align: left;
   border-bottom: 1px solid var(--line);
 }
 td button {
   margin: 2px 5px 2px 0;
 }
-.update {
-  padding: 22px;
-  background: var(--paper);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  margin-bottom: 24px;
+section[data-view="admin"] > h2 {
+  margin: 24px 0 12px;
+}
+.admin-job {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
 }
 @media (max-width: 760px) {
-  #projects {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .project {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .actions {
-    justify-content: flex-start;
-  }
-  .heading,
-  .project-filters {
-    flex-wrap: wrap;
-  }
-  .project-filters input {
-    min-width: 150px;
-  }
-  .login {
-    padding: 20px;
-  }
-  .narrow {
-    padding: 16px;
-  }
+  .login, .narrow { padding: 20px; }
+  .admin-job { flex-wrap: wrap; }
 }

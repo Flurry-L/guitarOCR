@@ -12,7 +12,7 @@ function workspace(pathname = '/') {
     return elements.get(id);
   };
   let refreshes = 0;
-  const context = vm.createContext({ $, notice() {}, ui: {}, location: { pathname }, document: { body: { dataset: {} }, querySelectorAll: () => [] },
+  const context = vm.createContext({ $, notice() {}, ui: { navigation: 0 }, location: { pathname }, document: { body: { dataset: {} }, querySelectorAll: () => [] },
     window: { dispatchEvent() {} }, Event, action: fn => fn, setInterval() {},
     refresh: async () => { refreshes++; } });
   vm.runInContext(script + '\nglobalThis.workspace = initWorkspace({ refreshConfig: refresh });', context);
@@ -24,13 +24,13 @@ const native = { native: true, inference_enabled: true, device: 'auto', model_re
 test('cached native models are not confused with missing or verified files', () => {
   const { api, $ } = workspace();
   api.configure(native);
-  assert.equal($('settingModel').textContent, '已缓存，待校验');
-  assert.match($('settingDevice').textContent, /首次识别/);
-  assert.match($('settingHint').textContent, /中断后重试可续传/);
+  assert.equal($('settingModel').textContent, '已下载');
+  assert.equal($('settingDevice').textContent, '自动选择');
+  assert.equal($('settingHint').hidden, true);
   api.configure({ ...native, device: 'metal', model_ready: true, layout_ready: true });
-  assert.equal($('settingDevice').textContent, 'metal');
+  assert.equal($('settingDevice').textContent, 'Apple GPU');
   assert.equal($('settingModel').textContent, '已就绪');
-  assert.match($('settingHint').textContent, /模型已校验/);
+  assert.equal($('settingHint').hidden, true);
 });
 test('settings refresh does not retain an old disabled state or Python advice', async () => {
   const { api, $, refreshes } = workspace();
@@ -44,6 +44,6 @@ test('settings refresh does not retain an old disabled state or Python advice', 
 });
 test('remote model problems direct users to the service administrator', () => {
   const { api, $ } = workspace('/workbench');
-  api.configure({ ...native, server: true, model_cached: false });
-  assert.match($('settingHint').textContent, /服务管理员/);
+  api.configure({ ...native, server: true, inference_enabled: false });
+  assert.match($('settingHint').textContent, /管理员/);
 });

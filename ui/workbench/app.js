@@ -8,7 +8,6 @@ import {
 } from "./state.js";
 import { $, el, notice, action } from "./dom.js";
 import { api } from "./api.js";
-import { modelOptions } from "./model-setup.js";
 import { initWorkspace } from "./workspace.js";
 import { initMetadata } from "./metadata-editor.js";
 import { initPages } from "./pages.js";
@@ -58,8 +57,18 @@ async function refreshConfig() {
   renderFiles();
   return config;
 }
+let downloadAllowed = false;
 function nativeModelOptions(body) {
-  return modelOptions(uploadConfig, body);
+  if (uploadConfig.inference_enabled === false)
+    throw new Error("识别暂不可用，请在设置中查看原因。");
+  if (uploadConfig.requires_model_confirmation && !downloadAllowed) {
+    const size = ((uploadConfig.model_download_bytes || 0) / 1e9).toFixed(1);
+    const device = uploadConfig.server ? "服务器" : "这台电脑";
+    if (!confirm(`${device}可能需要下载约 ${size} GB 模型，已有的文件会继续使用。请预留 5 GB 空间。开始识别？`))
+      throw new Error("已取消识别，所选文件和编辑仍保留。");
+    downloadAllowed = true;
+  }
+  return { ...body, allow_download: downloadAllowed };
 }
 
 
@@ -84,7 +93,7 @@ async function openExisting(id) {
     const current = await api(`/api/sessions/${id}`);
     if (ticket !== opening || generation !== ui.openGeneration || navigation !== workspace.navigation()) return false;
     if (!current.pages && !activeJob(current.job))
-      throw new Error(current.job?.error || "这个项目尚未完成导入，请在任务中心查看。");
+      throw new Error(current.job?.error || "这个项目尚未完成导入，请在项目列表查看。");
     window.dispatchEvent(new Event("guitarocr:leave-project"));
     openProject(id, { discardDrafts: true });
     ui.step = 0;
@@ -120,8 +129,8 @@ function setBusy(value) {
   updateBoxControls();
   updateMetadataControls();
   renderExport();
-  document.querySelectorAll(".project-card").forEach((node) => {
-    node.disabled = value && !["queued", "running"].includes(ui.state?.job?.status);
+  document.querySelectorAll("[data-open-project]").forEach((node) => {
+    node.disabled = node.dataset.unavailable === "true" || (value && !["queued", "running"].includes(ui.state?.job?.status));
   });
 }
 function go(next, reveal = true) {
@@ -168,8 +177,8 @@ function renderFiles() {
   $("importMode").disabled = ui.busy || $("importAction").value !== "full";
   $("actionDescription").textContent =
     $("importAction").value === "full"
-      ? "自动完成页面展开、小节检测、谱面信息和音符识别。"
-      : "导入后先检查小节位置与阅读顺序，再继续识别。";
+      ? "完成后对照原谱校对，再导出。"
+      : "先调整小节框与阅读顺序，再识别音符。";
   $("importAction").querySelector('[value="full"]').disabled =
     uploadConfig.inference_enabled === false;
   $("cancelImport").hidden = !ui.state?.pages || ui.step !== 0;
@@ -212,7 +221,7 @@ function renderFiles() {
 function chooseFiles(incoming) {
   if (!incoming.length || ui.busy) return;
   if (uploadConfig.native && uploadConfig.pdf_enabled === false && incoming.some(file => /\.pdf$/i.test(file.name)))
-    return notice("当前安装包缺少 PDF 组件。请使用完整原生安装包，或先导入乐谱图片、恢复项目 ZIP。", true);
+    return notice("当前无法打开 PDF，请更新应用或先将 PDF 转为图片。", true);
   const invalid = incoming.find(
     (file) => !/\.(pdf|png|jpe?g|bmp|tiff?)$/i.test(file.name),
   );
@@ -269,7 +278,7 @@ async function watch(after, initial, navigation = workspace.navigation()) {
         if (ui.sid !== sid || ui.openGeneration !== generation) return;
         if (!activeJob(ui.state?.job)) throw error;
         if (workspace.screen() === "workbench")
-          notice(`${error.message} 正在重新连接；任务可能仍在后台运行，可在任务中心查看。`, true);
+          notice(`${error.message} 正在重新连接；任务可能仍在后台运行，可在项目列表查看。`, true);
         await new Promise(resolve => setTimeout(resolve, 3000));
         continue;
       }
@@ -279,7 +288,6 @@ async function watch(after, initial, navigation = workspace.navigation()) {
       workspace.renderJob(job);
       if (job && ["queued", "running"].includes(job.status)) {
         if (ui.step === 0) {
-          $("intro").hidden = true;
           document.querySelector('[data-panel="0"]').classList.remove("active");
           $("currentDocument").hidden = false;
           $("scoreTitle").textContent = current.metadata?.title || "正在导入乐谱";
@@ -308,14 +316,7 @@ async function watch(after, initial, navigation = workspace.navigation()) {
       } else if (after && current.pages) {
         go(readyStep(current), false);
       }
-      if (workspace.screen() === "workbench") notice(
-        job?.status === "failed"
-          ? job.error
-          : ["cancelled", "interrupted"].includes(job?.status)
-            ? job.message
-            : "已完成并保存。",
-        job?.status === "failed",
-      );
+      if (workspace.screen() === "workbench") notice("");
       // Model preparation/device selection can finish even when a later OCR step fails.
       if (uploadConfig.native) await refreshConfig().catch(() => {});
       break;
@@ -381,7 +382,7 @@ $("upload").onclick = action(async () => {
     const result = await api("/api/sessions", "POST", form);
     if (generation !== ui.openGeneration) return;
     if (navigation !== workspace.navigation()) {
-      notice("新项目已提交，可在任务中心查看。原项目编辑和所选文件仍保留。");
+      notice("新项目已提交，可在项目列表查看。原项目编辑和所选文件仍保留。");
       await workspace.refresh();
       return;
     }
@@ -421,17 +422,22 @@ $("importProject").onchange = async (event) => {
     prompt: "恢复项目后将替换当前未保存的编辑和已选文件，继续？",
     loading: "正在恢复项目…",
     opened: "项目已恢复。",
-    background: "项目已恢复到项目库，可稍后打开。当前编辑与已选文件已保留。",
+    background: "项目已恢复到项目列表，可稍后打开。当前编辑仍保留。",
   });
 };
 $("openSample").onclick = () => importProject(readSample, {
   prompt: "打开示例后将替换当前未保存的编辑和已选文件，继续？",
-  loading: "正在打开原创示例…",
-  opened: "已打开原创预设示例（非 OCR 结果）。可编辑音符、核对音轨，检查后导出。",
-  background: "原创示例已加入项目库，可稍后打开。当前编辑与已选文件已保留。",
+  loading: "正在打开示例…",
+  opened: "已打开示例。点选音符可编辑，对照右侧原谱核对后导出。",
+  background: "示例已加入项目列表，可稍后打开。当前编辑仍保留。",
 });
 window.addEventListener("guitarocr:auth-required", () => { $("authRecovery").hidden = false; });
-window.addEventListener("guitarocr:authenticated", () => { $("authRecovery").hidden = true; });
+window.addEventListener("guitarocr:authenticated", ({ detail: user }) => {
+  $("authRecovery").hidden = true;
+  $("accountLinks").hidden = false;
+  $("accountLink").textContent = `账号 · ${user.username}`;
+  $("adminLink").hidden = !user.admin;
+});
 $("newProject").onclick = () => {
   if ((hasDrafts() || ui.files.length) && !confirm("放弃当前未保存的编辑和已选文件，新建项目？")) return;
   sessionStorage.removeItem(`guitarocr-draft:${ui.sid}`);
@@ -468,7 +474,6 @@ function render() {
   $("documentName").textContent = documentName();
   $("currentDocument").title = documentName();
   $("documentPages").textContent = `，共 ${ui.state.pages.length} 页`;
-  $("intro").hidden = true;
   $("steps").hidden = false;
   document.querySelectorAll("[data-step]").forEach((node) => {
     const n = +node.dataset.step;
@@ -485,6 +490,7 @@ function render() {
     node.disabled = ui.busy;
   });
   $("newProject").hidden = false;
+  $("keyboardHelp").hidden = workspace.screen() !== "workbench" || !ui.state.measures?.length;
   $("mode").value = ui.state.mode_setting || ui.state.mode;
   $("deleteProject").hidden = workspace.screen() !== "workbench";
   renderPages();
@@ -579,6 +585,7 @@ window.addEventListener("beforeunload", (e) => {
   }
 });
 (async () => {
+  if (new URLSearchParams(location.search).get("view") === "projects") workspace.show("library");
   const initialGeneration = ui.openGeneration;
   const initialNavigation = workspace.navigation();
   try {
@@ -595,18 +602,8 @@ window.addEventListener("beforeunload", (e) => {
       )
         notice("");
     }
-    if (config.inference_enabled === false) {
-      document.body.dataset.inference = "disabled";
-      if (!ui.state?.pages && !ui.busy)
-        notice(config.native_runtime_error
-          ? `本机识别组件未通过校验：${config.native_runtime_error}。可继续校对与导出项目。`
-          : "当前为校对模式。可打开原创示例或恢复项目备份，编辑并导出乐谱。");
-    } else if (!config.model_ready && !ui.state?.pages && !ui.busy)
-      notice(
-        config.server
-          ? "服务端识别模型尚未就绪。可先打开原创示例体验校对与导出。"
-          : "识别模型尚未准备。可先打开示例；首次识别时会确认模型下载。",
-      );
+    if (config.inference_enabled === false && !ui.state?.pages && !ui.busy)
+      notice("识别暂不可用。可打开示例或恢复项目进行编辑，详情见设置。");
   } catch (e) {
     if (ui.openGeneration === initialGeneration && !ui.busy)
       notice(e.message, true);

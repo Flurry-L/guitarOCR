@@ -15,7 +15,7 @@ export async function authenticate() {
     }
     userId = session.user.id;
     csrf = session.csrf;
-    window.dispatchEvent(new Event("guitarocr:authenticated"));
+    window.dispatchEvent(new CustomEvent("guitarocr:authenticated", { detail: session.user }));
     return session;
   })().finally(() => { authentication = null; });
   return authentication;

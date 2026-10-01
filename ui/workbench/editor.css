@@ -409,7 +409,9 @@ button[aria-pressed="true"],
   right: 4px;
   top: -22px;
   padding: 1px 5px;
-  font-size: 10px;
+  min-width: 20px;
+  font-size: 12px;
+  font-weight: 700;
   line-height: 16px;
   pointer-events: auto;
   border: 0;

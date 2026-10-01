@@ -165,12 +165,6 @@ function beatEffects(beat, effects) {
     beat.chordId = id;
   }
 }
-function colorStyle(Style, Elements, color) {
-  const style = new Style();
-  for (const key of Object.values(Elements))
-    if (typeof key === "number") style.colors.set(key, color);
-  return style;
-}
 const keys = {
   C: 0,
   G: 1,
@@ -318,13 +312,6 @@ export function engrave(state, settings, edited = null, mode = null) {
       );
       bar.keySignatureType = key.includes("Minor") ? 1 : 0;
     }
-    const kind = reviewKind(record),
-      color = kind
-        ? kind === "failed"
-          ? new M.Color(181, 48, 58)
-          : new M.Color(153, 102, 18)
-        : null;
-    if (color) bar.style = colorStyle(M.BarStyle, M.BarSubElement, color);
     // Preserve voice numbers, even when only the second voice has content.
     const count = Math.max(1, ...data.voices.map((v) => v.voice + 1));
     for (let v = 0; v < count; v++) {
@@ -354,8 +341,6 @@ export function engrave(state, settings, edited = null, mode = null) {
         beat.tupletDenominator = event.duration.tuplet_times || 1;
         beat.isEmpty = event.status === "empty";
         beatEffects(beat, event.effects || []);
-        if (color)
-          beat.style = colorStyle(M.BeatStyle, M.BeatSubElement, color);
         if (event.status === "normal")
           event.notes.forEach((source, ni) => {
             const note = new EngravedNote();
@@ -383,8 +368,6 @@ export function engrave(state, settings, edited = null, mode = null) {
             }
             note.isDead = source.fret === "x";
             noteEffects(note, source.effects || []);
-            if (color)
-              note.style = colorStyle(M.NoteStyle, M.NoteSubElement, color);
           });
         cursor = event.start + ticks(event);
       });

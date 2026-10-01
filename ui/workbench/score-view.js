@@ -289,11 +289,12 @@ function engravedSection(
       rectangle(marker, box);
       const flag = el(
         "button",
-        kind === "failed" ? "识别失败" : "待检查",
+        kind === "failed" ? "×" : "!",
         "measure-flag",
       );
       flag.type = "button";
-      flag.setAttribute("aria-label", `第 ${i + 1} 小节，${flag.textContent}`);
+      flag.title = `${state.measures[i].part_name || ""} 第 ${index + 1} 小节：${kind === "failed" ? "识别失败" : "待检查"}`.trim();
+      flag.setAttribute("aria-label", flag.title);
       flag.onclick = () =>
         onSelect({
           mi: i,

@@ -196,7 +196,7 @@ uv run --no-sync python -m research.data.augment_info \
   --output database/headers/datasets/info_mixed
 ```
 
-作者缺失时目标为 `null`，副标题保留为独立元数据。中文字段通过原生 UTF-8 属性附属文件设置，需同时检查元数据和实际字形，见[原生工具说明](native-build.md)。
+作者缺失时目标为 `null`，副标题保留为独立元数据。中文字段通过原生 UTF-8 属性附属文件设置，需同时检查元数据和实际字形，见[原生工具说明](gpbridge-build.md)。
 
 旧 GP 文件还需通过 `text_encoding` 声明原始编码，原生排版前统一解码曲名、轨名、段落、自由文字及和弦名。小节构建器以实际排版所用的原生模型校正文字字段，保持音符与节奏不变。历史图片中的乱码不能配正常中文答案；应修正这些图片对应的文字标签，或重新排版后再使用正常文字。
 
@@ -260,4 +260,4 @@ Guitar Pro 8 使用官方安装程序安装到同一 Wine prefix；在有桌面�
 wine /path/to/GuitarPro8-setup.exe
 ```
 
-原生 DLL 的构建方法见[原生工具说明](native-build.md)。
+原生 DLL 的构建方法见[原生工具说明](gpbridge-build.md)。

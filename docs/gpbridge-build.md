@@ -1,6 +1,6 @@
 # 构建 GP8 原生导出 DLL
 
-`gpbridge/native/` 包含 C++ 源码、导出符号、接口声明和构建脚本。代码源自 GPOMR 的原生导出器，当前构建所需文件均在本仓库中。
+`gpbridge/native/` 包含 C++ 源码、导出符号、接口声明和构建脚本。导出器源自 GPOMR。
 
 DLL 支持 `display_mode=tab|notation|both`，由本目录源码在 Linux 上使用 clang-cl 18、xwin 的 MSVC/Windows SDK 和 Qt 5.15.2 MSVC SDK 交叉编译。已在 GP8 8.1.2.37 + Wine 中检查三种排版、小节和谱号区域、记谱移调及局部八度范围。源码、二进制哈希和运行验收记录见 [provenance.json](../gpbridge/bin/provenance.json)。
 

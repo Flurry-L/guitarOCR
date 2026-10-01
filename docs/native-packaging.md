@@ -1,6 +1,6 @@
 # 原生应用构建与打包
 
-客户端由 Tauri 壳、共用 Rust 后端、`ui` 和原生推理组件组成。模型按需下载；安装包与服务端归档均不包含 Python、Torch 或训练权重。Python 可以用作构建机器上的转换／资源收集工具。
+客户端由 Tauri 壳、共用 Rust 后端、`ui` 和推理组件组成。模型按需下载，交付包不包含 Python 环境；下面的 Python 命令仅用于构建机上的资源收集。
 
 ## 构建流程
 
@@ -55,4 +55,4 @@ Linux 已实际运行原生 ONNX＋GGUF 识谱、两个账号并发、取消续�
 
 每个平台的安装、设备加速和桌面交互应在对应系统验证；CI 配置本身不能代替真机结果。Linux 公共构建使用 Ubuntu 22.04；本地 Debian 构建可用 `scripts/build_linux_desktop.py --sysroot DIR`，它把实际系统库要求写入 DEB。macOS 原生组件最低 13.4；不要将本机较高的 glibc／SDK 基线包装成兼容更旧系统的发行件。
 
-Guitar Pro 数据导出 DLL 属于独立的 `gpbridge`，构建见 [GP8 原生导出](native-build.md)，不进入用户的识谱应用。
+Guitar Pro 数据导出 DLL 属于独立的 `gpbridge`，构建见 [GP8 原生导出](gpbridge-build.md)，不进入用户的识谱应用。

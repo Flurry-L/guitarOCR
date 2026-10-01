@@ -1,5 +1,4 @@
 # Generated shared theme assets for the standalone Tauri launch screen.
 launcher/theme.css
 launcher/theme.js
-launcher/shell.css
 launcher/icons.js

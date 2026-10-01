@@ -726,17 +726,10 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             if !accounts.join("index.html").is_file() {
                 return Err("Account UI assets are missing".into());
             }
-            let html=fs::read_to_string(assets.join("index.html"))?.replace("</head>","<link rel=\"stylesheet\" href=\"/server-static/workbench.css\"><script type=\"module\" src=\"/server-static/workbench.js\"></script></head>");
             app = app
                 .nest_service("/server-static", ServeDir::new(&accounts))
                 .route_service("/", ServeFile::new(accounts.join("index.html")))
-                .route(
-                    "/workbench",
-                    get(move || {
-                        let html = html.clone();
-                        async move { axum::response::Html(html) }
-                    }),
-                );
+                .route_service("/workbench", ServeFile::new(assets.join("index.html")));
         } else {
             app = app.route_service("/", ServeFile::new(assets.join("index.html")));
         }

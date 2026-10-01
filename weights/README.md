@@ -9,7 +9,7 @@
 | `score_ocr/merged/state_reader` | 训练用拍号／调号分类器；部署使用对应 ONNX 文件 |
 | `auxiliary` | 部署用版面检测和拍号／调号 ONNX 文件 |
 
-训练与实验推理使用通用 safetensors，vLLM 与 Transformers 共用一份权重。客户端只获取部署用 GGUF 和 ONNX：Q8_0 语言模型、F16 视觉编码器及辅助模型合计约 1.775 GB。训练权重不随应用下载，原生运行组件随安装包提供。模型转换代码位于 `research/export/`，缓存规则见[安装说明](../docs/setup.md#模型项目与更新)。
+训练与实验推理使用通用 safetensors，vLLM 与 Transformers 共用一份权重。客户端只获取部署用 GGUF 和 ONNX：Q8_0 语言模型、F16 视觉编码器及辅助模型合计约 1.775 GB。训练权重不随应用下载，原生运行组件随安装包提供。模型转换代码位于 `research/export/`，缓存规则见[安装说明](../docs/setup.md#保存与更新)。
 
 音乐词表增加 1,121 个词元；`music_vocabulary.json` 记录映射，`score_image_policy.json` 记录训练及推理共用的等比缩放、谱线尺度和小标注放大规则。页面结构使用固定行数及可见连线约束；小节首次生成不加 M2 语法约束，失败重试时启用。研究环境的 vLLM 支持经过蒸馏的 MTP，GGUF 去掉不执行的 MTP 层。
 

@@ -1,226 +1,61 @@
 import { api, auth, setAuth, element as el } from "./http.js";
-import { modelOptions } from "/static/model-setup.js";
-const $ = (id) => document.getElementById(id);
-let cachedProjects = [];
-let config,
-  registering = false,
-  view = "projects",
-  refreshing = false,
-  refreshAgain = false,
-  uploading = false,
-  navigation = 0,
-  pendingView = location.hash.slice(1) || "projects";
-const signedIn = () => Boolean(auth?.user && !auth.user.guest);
+const $ = id => document.getElementById(id);
+let registering = false, view = "account", navigation = 0, refreshing = false, refreshAgain = false;
 function notice(text, error = false) {
-  if ($("auth").open) {
-    $("authNotice").textContent = text;
-    $("authNotice").hidden = !text;
-    return;
-  }
-  $("notice").textContent = text;
-  $("notice").hidden = !text;
-  $("notice").classList.toggle("error", error);
+  const node = $(!$("auth").hidden ? "authNotice" : "notice");
+  node.textContent = text;
+  node.hidden = !text;
+  node.classList.toggle("error", error);
 }
 function action(fn) {
   let pending = false;
-  return async (event) => {
+  return async event => {
     event?.preventDefault();
     if (pending) return;
     pending = true;
     const button = event?.currentTarget;
     if (button?.tagName === "BUTTON") button.disabled = true;
-    try {
-      await fn(event);
-    } catch (error) {
-      notice(error.message || "无法连接服务，请稍后重试。", true);
-    } finally {
+    try { await fn(event); }
+    catch (error) { notice(error.message, true); }
+    finally {
       pending = false;
       if (button?.tagName === "BUTTON") button.disabled = false;
     }
   };
 }
 function show(name) {
-  const titles = {
-    projects: "工作台",
-    library: "项目库",
-    tasks: "任务中心",
-    account: "设置",
-    admin: "服务管理",
-  };
-  if (!Object.hasOwn(titles, name)) name = "projects";
-  if (name !== "projects" && !signedIn()) {
-    pendingView = name;
-    openAuth("登录后查看保存的乐谱、任务和账号设置。");
-    return;
-  }
-  if (name === "admin" && !auth?.user?.admin) name = "projects";
-  if (view !== name) navigation += 1;
+  if (name !== "admin" || !auth?.user.admin) name = "account";
+  if (name !== view) navigation += 1;
   view = name;
-  history.replaceState(null, "", name === "projects" ? "/" : `/#${name}`);
-  document
-    .querySelectorAll("section[data-view]")
-    .forEach((n) => (n.hidden = n.dataset.view !== name));
-  document.querySelectorAll("nav [data-view]").forEach((n) => {
-    n.classList.toggle("active", n.dataset.view === name);
-    if (n.dataset.view === name) n.setAttribute("aria-current", "page");
-    else n.removeAttribute("aria-current");
+  history.replaceState(null, "", `/#${name}`);
+  document.querySelectorAll("section[data-view]").forEach(node => { node.hidden = !auth || node.dataset.view !== name; });
+  document.querySelectorAll("nav [data-view]").forEach(node => {
+    node.classList.toggle("active", node.dataset.view === name);
+    if (node.dataset.view === name) node.setAttribute("aria-current", "page");
+    else node.removeAttribute("aria-current");
   });
-  $("screenTitle").textContent = titles[name];
+  $("screenTitle").textContent = name === "admin" ? "用户与任务" : "账号设置";
+}
+function identity() {
+  document.body.classList.toggle("signed-out", !auth);
+  $("auth").hidden = !!auth;
+  $("adminTab").hidden = !auth?.user.admin;
+  $("accountIdentity").textContent = auth?.user.username || "";
 }
 function button(label, fn) {
-  const n = el("button", label);
-  n.type = "button";
-  n.onclick = action(fn);
-  return n;
-}
-function link(label, url) {
-  const n = el("a", label, "button");
-  n.href = url;
-  return n;
+  const node = el("button", label);
+  node.type = "button";
+  node.onclick = action(fn);
+  return node;
 }
 function minutes(seconds) {
-  return seconds < 60
-    ? `${Math.round(seconds)} 秒`
-    : `${Math.round(seconds / 60)} 分钟`;
-}
-function uploadState() {
-  if (!config) return;
-  $("uploadButton").textContent = signedIn() ? "上传并识别" : "登录后识别";
-  $("uploadButton").disabled =
-    uploading || !config.inference_enabled || !$("files").files.length;
-  $("files").disabled = uploading;
-  $("recognitionMode").disabled = uploading;
-}
-function openAuth(reason) {
-  $("authReason").textContent =
-    reason || "登录后可使用服务器识别，并在账号中保存任务和结果。";
-  $("authNotice").hidden = true;
-  $("auth").showModal();
-}
-function renderIdentity() {
-  $("loginButton").hidden = signedIn();
-  $("logout").hidden = !signedIn();
-  $("newProject").hidden = !signedIn();
-  $("adminTab").hidden = !auth?.user?.admin;
-  $("accountIdentity").textContent = signedIn() ? auth.user.username : "";
-  $("history").hidden = !auth;
-  $("sessionHint").textContent = signedIn()
-    ? "任务和结果已保存到账号。关闭网页后继续处理。"
-    : "登录后可使用服务器识别，并将项目保存在账号中。";
-  uploadState();
-}
-window.addEventListener("guitarocr:auth-required", () => {
-  renderIdentity();
-  renderProjects([]);
-  show("projects");
-  openAuth("登录已失效，请重新登录。已选择的文件和填写的内容仍保留。");
-});
-function renderProjects(projects, target = "projects") {
-  if (target === "projects") {
-    cachedProjects = projects;
-    renderProjects(
-      projects.filter((p) => p.job),
-      "taskProjects",
-    );
-    $("empty").hidden = projects.length > 0;
-    const query = $("projectSearch").value.trim().toLocaleLowerCase(),
-      filter = $("projectFilter").value;
-    projects = projects.filter(
-      (p) =>
-        (p.title || "").toLocaleLowerCase().includes(query) &&
-        (filter === "all" ||
-          {
-            active: ["queued", "running"].includes(p.job?.status),
-            review: p.stage === "待校对",
-            exported: p.stage === "已导出",
-            failed: ["failed", "cancelled"].includes(p.job?.status),
-          }[filter]),
-    );
-    $("noMatches").hidden = !!projects.length || !cachedProjects.length;
-  } else $("noTasks").hidden = !!projects.length;
-  const nodes = [];
-  for (const project of projects) {
-    const row = el("article", undefined, "project"),
-      info = el("div"),
-      actions = el("div", undefined, "actions");
-    info.append(el("h2", project.title));
-    const job = project.job,
-      busy = job && ["queued", "running"].includes(job.status);
-    let status = project.stage;
-    if (busy)
-      status = !job.cancellable
-        ? "正在取消，已完成部分会保留"
-        : job.status === "queued"
-          ? `排队中，前面约 ${Math.max(0, job.position - 1)} 个任务`
-          : job.message;
-    if (job?.status === "failed") status = job.error;
-    if (job?.status === "cancelled") status = "已取消，可继续处理";
-    info.append(el("p", `${project.pages} 页，${status}`));
-    if (job?.status === "failed") info.append(el("p", `任务编号 ${job.id}`));
-    if (busy && job.total) {
-      const p = el("progress");
-      p.max = job.total;
-      p.value = job.done;
-      p.setAttribute("aria-label", "识别进度");
-      info.append(p);
-    }
-    if (!busy && project.pages)
-      actions.append(link("校对 / 下载", `/workbench?project=${project.id}`));
-    if (busy) {
-      const cancelButton = button(
-        job.cancellable ? "取消任务" : "正在取消…",
-        async () => {
-          await api(`/api/sessions/${project.id}/cancel`, "POST");
-          notice("已请求取消，当前步骤结束后停止。已完成部分会保留。");
-          await refresh();
-        },
-      );
-      cancelButton.disabled = !job.cancellable;
-      actions.append(cancelButton);
-    } else {
-      if (signedIn() && ["failed", "cancelled"].includes(job?.status))
-        actions.append(
-          button("重试", async () => {
-            const current = await api(`/api/sessions/${project.id}`);
-            await api(`/api/sessions/${project.id}/process`, "POST", {}, current.revision);
-            await refresh();
-          }),
-        );
-      if (signedIn())
-        actions.append(
-          button("删除", async () => {
-            if (!confirm(`删除「${project.title}」及其结果？`)) return;
-            await api(`/api/sessions/${project.id}`, "DELETE");
-            await refresh();
-          }),
-        );
-    }
-    row.append(info, actions);
-    nodes.push(row);
-  }
-  $(target).replaceChildren(...nodes);
+  return seconds < 60 ? `${Math.round(seconds)} 秒` : `${Math.round(seconds / 60)} 分钟`;
 }
 async function renderUsage() {
   const session = auth, startedAt = navigation;
   const usage = await api("/api/usage");
   if (auth !== session || navigation !== startedAt) return;
-  $("usage").replaceChildren();
-  for (const engine of usage.engines) {
-    const n = el("div", undefined, "stat");
-    n.append(
-      el("span", "服务器识别"),
-      el("strong", `${engine.jobs} 次任务`),
-      el("span", minutes(engine.seconds)),
-    );
-    $("usage").append(n);
-  }
-  const n = el("div", undefined, "stat");
-  n.append(
-    el("span", "已保存"),
-    el("strong", `${usage.projects} 份乐谱`),
-    el("span", `${usage.pages} 页，${(usage.bytes / 1024 ** 2).toFixed(0)} MB`),
-  );
-  $("usage").append(n);
+  $("usage").textContent = `已保存 ${usage.projects} 个项目 · ${(usage.bytes / 1024 ** 2).toFixed(1)} MB`;
 }
 async function renderAdmin() {
   const session = auth, startedAt = navigation;
@@ -268,7 +103,7 @@ async function renderAdmin() {
   $("users").replaceChildren(...userRows);
   $("adminJobs").replaceChildren(
     ...status.jobs.map((job) => {
-      const row = el("div", undefined, "project");
+      const row = el("div", undefined, "admin-job");
       row.append(
         el("span", `${job.username}，${job.message}`),
         button("取消任务", async () => {
@@ -289,160 +124,91 @@ async function refresh() {
   try {
     do {
       refreshAgain = false;
-      const session = auth, startedAt = navigation;
-      if (["projects", "library", "tasks"].includes(view)) {
-        const projects = await api("/api/sessions");
-        if (auth === session && navigation === startedAt) renderProjects(projects);
-      } else if (view === "account") await renderUsage();
+      if (view === "account") await renderUsage();
       else if (auth?.user.admin) await renderAdmin();
     } while (refreshAgain && auth);
   } finally {
     refreshing = false;
   }
 }
-async function enterSession(data) {
-  setAuth(data);
-  $("auth").close();
-  renderIdentity();
-  show(pendingView);
+async function enterSession(session) {
+  setAuth(session);
+  const requested = location.hash.slice(1);
+  if (!["account", "admin"].includes(requested)) {
+    location.replace(["library", "tasks"].includes(requested) ? "/workbench?view=projects" : "/workbench");
+    return;
+  }
+  identity();
+  show(requested);
   notice("");
   await refresh();
 }
 $("authForm").onsubmit = action(async () => {
-  $("authSubmit").disabled = true;
+  const controls = Array.from($("authForm").elements);
+  controls.forEach(node => { node.disabled = true; });
   try {
-    const data = await api(
-      `/api/auth/${registering ? "register" : "login"}`,
-      "POST",
-      { username: $("username").value, password: $("password").value },
-    );
+    const session = await api(`/api/auth/${registering ? "register" : "login"}`, "POST", {
+      username: $("username").value, password: $("password").value,
+    });
     $("password").value = "";
-    await enterSession(data);
+    await enterSession(session);
   } finally {
-    $("authSubmit").disabled = false;
+    controls.forEach(node => { node.disabled = false; });
   }
 });
 $("authToggle").onclick = () => {
   registering = !registering;
-  $("authTitle").textContent = registering ? "创建账号" : "登录";
-  $("authSubmit").textContent = registering ? "创建账号" : "登录";
-  $("authToggle").textContent = registering ? "已有账号，去登录" : "创建账号";
-  $("password").autocomplete = registering
-    ? "new-password"
-    : "current-password";
+  $("authTitle").textContent = $("authSubmit").textContent = registering ? "创建账号" : "登录";
+  $("authToggle").textContent = registering ? "返回登录" : "创建账号";
+  $("password").autocomplete = registering ? "new-password" : "current-password";
+  $("usernameHint").hidden = $("passwordHint").hidden = !registering;
+  notice("");
 };
-$("loginButton").onclick = () => openAuth();
-$("newProject").onclick = () => show("projects");
-$("refreshProjects").onclick = action(refresh);
-$("closeAuth").onclick = () => $("auth").close();
-$("auth").addEventListener("close", () => {
-  $("password").value = "";
+window.addEventListener("guitarocr:auth-required", () => {
+  identity();
+  document.querySelectorAll("section[data-view]").forEach(node => { node.hidden = true; });
+  $("authReason").hidden = false;
+  $("authReason").textContent = "登录已失效，请重新登录。";
 });
 $("logout").onclick = action(async () => {
   await api("/api/auth/logout", "POST");
   localStorage.removeItem("guitarocr-session");
-  location.reload();
+  location.replace("/");
 });
-$("projectSearch").oninput = () => renderProjects(cachedProjects);
-$("projectFilter").onchange = () => renderProjects(cachedProjects);
-$("files").onchange = () => {
-  const files = [...$("files").files];
-  $("selectedFiles").textContent = files.length
-    ? `${files.length} 个文件 · ${(files.reduce((sum, file) => sum + file.size, 0) / 1024 ** 2).toFixed(1)} MB · ${files.map((f) => f.name).join("、")}`
-    : "多文件按选择顺序合并为一份项目。";
-  uploadState();
-};
-$("uploadForm").onsubmit = action(async () => {
-  if (!signedIn()) {
-    openAuth("登录后可使用服务器识别；已选择的文件会保留。");
-    return;
-  }
-  const startedAt = navigation;
-  uploading = true;
-  uploadState();
+$("passwordForm").onsubmit = action(async event => {
+  const form = event.currentTarget, data = Object.fromEntries(new FormData(form));
+  const controls = Array.from(form.elements);
+  controls.forEach(node => { node.disabled = true; });
   try {
-    const form = new FormData();
-    for (const file of $("files").files) form.append("files", file);
-    const selected = [...$("files").files];
-    if (!selected.length) throw new Error("请先选择乐谱文件。");
-    if (
-      selected.some((file) => !/\.(pdf|png|jpe?g|bmp|tiff?)$/i.test(file.name))
-    )
-      throw new Error("请选择 PDF 或支持的乐谱图片。");
-    if (
-      selected.reduce((sum, file) => sum + file.size, 0) >
-      config.max_upload_mb * 1024 ** 2
-    )
-      throw new Error(`总上传大小不能超过 ${config.max_upload_mb} MB。`);
-    form.append("action", "full");
-    form.append("allow_download", String(modelOptions(config).allow_download));
-    form.append("mode", $("recognitionMode").value);
-    notice("正在上传…");
-    await api("/api/sessions", "POST", form);
-    $("files").value = "";
-    $("files").onchange();
-    if (navigation === startedAt) {
-      notice("");
-      show("tasks");
-    } else notice("新项目已提交，可在任务中心查看进度。");
-    await refresh();
-  } finally {
-    uploading = false;
-    uploadState();
-  }
+    const result = await api("/api/auth/password", "PUT", data);
+    setAuth(result);
+    form.reset();
+    notice("密码已修改。");
+  } finally { controls.forEach(node => { node.disabled = false; }); }
 });
-$("passwordForm").onsubmit = action(async (event) => {
-  const data = Object.fromEntries(new FormData(event.currentTarget));
-  const result = await api("/api/auth/password", "PUT", data);
-  setAuth(result);
-  event.currentTarget.reset();
-  notice("密码已修改，其他页面需要重新登录。");
+for (const node of document.querySelectorAll("nav [data-view]")) node.onclick = action(async () => {
+  show(node.dataset.view);
+  notice("");
+  await refresh();
 });
-for (const n of document.querySelectorAll("nav [data-view]"))
-  n.onclick = action(async () => {
-    show(n.dataset.view);
-    notice("");
-    await refresh();
-  });
 $("registration").onchange = action(async () => {
   const desired = $("registration").checked;
   $("registration").disabled = true;
-  try {
-    await api(`/api/admin/registration?enabled=${desired}`, "PUT");
-  } catch (error) {
-    $("registration").checked = !desired;
-    throw error;
-  } finally {
-    $("registration").disabled = false;
-  }
+  try { await api(`/api/admin/registration?enabled=${desired}`, "PUT"); }
+  catch (error) { $("registration").checked = !desired; throw error; }
+  finally { $("registration").disabled = false; }
 });
 (async () => {
   try {
-    config = await api("/api/config");
+    const config = await api("/api/config");
     $("authToggle").hidden = !config.registration;
-    $("gpuUnavailable").hidden = config.inference_enabled;
-    $("limits").textContent =
-      `每份乐谱最多 ${config.max_pages} 页、${config.max_upload_mb} MB。`;
     const session = await api("/api/auth/me");
     if (session.user) await enterSession(session);
-    else {
-      renderIdentity();
-      renderProjects([]);
-      show(pendingView);
-    }
-  } catch (error) {
-    notice(error.message, true);
-  }
+  } catch (error) { notice(error.message, true); }
 })();
 setInterval(() => {
-  if (!document.hidden)
-    refresh().catch(() => notice("暂时无法连接服务，正在等待恢复。", true));
-}, 3000);
-
-window.addEventListener(
-  "hashchange",
-  action(async () => {
-    show(location.hash.slice(1) || "projects");
-    await refresh();
-  }),
-);
+  if (!document.hidden) refresh().catch(error => notice(error.message, true));
+}, 4000);
+window.addEventListener("hashchange", action(async () => {
+  if (auth) { show(location.hash.slice(1)); await refresh(); }
+}));
