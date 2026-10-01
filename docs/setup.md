@@ -19,6 +19,18 @@
 
 已有服务器时，在启动页展开「连接服务器」，填写服务地址。乐谱在服务器处理，本机无需下载模型；关闭网页后任务仍会继续。
 
+## macOS 首次打开
+
+M 系列 Mac 下载 `GuitarOCR_0.1.0_aarch64.dmg`；Intel Mac 下载 `GuitarOCR_0.1.0_x64.dmg`。
+
+当前安装包未使用 Apple Developer ID 签名和公证。若从本项目发布页下载后提示「已损坏」或无法打开，先把 `GuitarOCR.app` 拖到「应用程序」，再在终端执行：
+
+```bash
+xattr -dr com.apple.quarantine /Applications/GuitarOCR.app
+```
+
+重新打开应用即可。该命令解除这份应用的下载隔离标记。
+
 ## 保存与更新
 
 编辑保存到运行识别的设备上：本机模式保存在这台电脑，远程模式保存在服务器。启动页的「打开数据文件夹」可查看本机项目、模型和日志。
