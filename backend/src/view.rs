@@ -167,21 +167,28 @@ pub fn project(root: &Path, sid: &str) -> Result<Value> {
                 })
                 .collect::<Vec<_>>());
         }
-        if let Some(path) = info["predictions"].as_str() {
-            let predictions = read_json(Path::new(path))?;
-            if let Some(boxes) = state["boxes"].as_array_mut() {
-                for b in boxes
-                    .iter_mut()
-                    .filter(|b| matches!(b["kind"].as_str(), Some("annotation" | "transposition")))
+        let mut predictions = Vec::new();
+        for source in std::iter::once(&meta).chain(meta["parts"].as_array().into_iter().flatten()) {
+            for key in ["score_annotations", "pitch_instructions"] {
+                predictions.extend(
+                    source["document_metadata"][key]
+                        .as_array()
+                        .into_iter()
+                        .flatten(),
+                );
+            }
+        }
+        if let Some(boxes) = state["boxes"].as_array_mut() {
+            for b in boxes
+                .iter_mut()
+                .filter(|b| matches!(b["kind"].as_str(), Some("annotation" | "transposition")))
+            {
+                if let Some(p) = predictions
+                    .iter()
+                    .find(|p| p["page"] == b["page"] && p["bbox"] == b["bbox"])
                 {
-                    if let Some(p) = predictions.as_array().and_then(|items| {
-                        items
-                            .iter()
-                            .find(|p| p["page"] == b["page"] && p["bbox"] == b["bbox"])
-                    }) {
-                        b["annotation_type"] = p["parsed"]["kind"].clone();
-                        b["annotation_text"] = p["parsed"]["text"].clone();
-                    }
+                    b["annotation_type"] = p["parsed"]["kind"].clone();
+                    b["annotation_text"] = p["parsed"]["text"].clone();
                 }
             }
         }
