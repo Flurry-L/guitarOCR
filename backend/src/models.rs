@@ -120,9 +120,16 @@ impl Models {
         }
         identity
     }
-    pub fn total_bytes(&self) -> u64 {
+    pub fn download_bytes(&self) -> u64 {
         self.files()
             .iter()
+            .filter(|file| {
+                let existing = file["path"]
+                    .as_str()
+                    .and_then(|path| self.root.join(path).metadata().ok())
+                    .map(|m| m.len());
+                existing != file["bytes"].as_u64()
+            })
             .filter_map(|f| f["bytes"].as_u64())
             .sum()
     }

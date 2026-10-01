@@ -64,7 +64,10 @@ function nativeModelOptions(body) {
   if (uploadConfig.requires_model_confirmation && !downloadAllowed) {
     const size = ((uploadConfig.model_download_bytes || 0) / 1e9).toFixed(1);
     const device = uploadConfig.server ? "服务器" : "这台电脑";
-    if (!confirm(`${device}可能需要下载约 ${size} GB 识别资源，已有的文件会继续使用。请预留 6 GB 空间。开始识别？`))
+    const preparation = uploadConfig.model_download_bytes > 0
+      ? `${device}需下载约 ${size} GB 识别资源，已有文件会继续使用。`
+      : `将检查${device}已下载的识别资源。`;
+    if (!confirm(`${preparation}开始识别？`))
       throw new Error("已取消识别，所选文件和编辑仍保留。");
     downloadAllowed = true;
   }

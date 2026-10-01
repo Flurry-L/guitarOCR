@@ -155,7 +155,7 @@ fn percentile95(histogram: &[usize; 256], length: usize) -> f64 {
 
 /// Count only complete, strongly supported four-to-eight-line TAB grids.
 /// A combined crop needs a second, tighter grid; a solitary staff cannot prove
-/// which lines are TAB. At most one weak interior line may be recovered, and
+/// which lines are TAB. At most one weak line may be recovered, and
 /// only when the expected row has strong faint-ink evidence.
 pub fn visible_tab_strings(image: &RgbImage, mode: &str) -> Result<Option<usize>> {
     if !matches!(mode, "tab" | "both") {
@@ -221,7 +221,7 @@ pub fn visible_tab_strings(image: &RgbImage, mode: &str) -> Result<Option<usize>
     let mut candidates = Vec::new();
     let mut i = 0;
     while i + 3 < ys.len() {
-        let gap = ys[i + 1] - ys[i];
+        let mut gap = ys[i + 1] - ys[i];
         if !(5.0..=45.0).contains(&gap) {
             i += 1;
             continue;
@@ -234,7 +234,9 @@ pub fn visible_tab_strings(image: &RgbImage, mode: &str) -> Result<Option<usize>
             let steps = (distance / gap).round_ties_even() as i64;
             if !matches!(steps, 1 | 2)
                 || missing + steps - 1 > 1
-                || (distance - steps as f64 * gap).abs() >= 1.6f64.max(gap * 0.12) * steps as f64
+                // Thin raster lines can land on opposite sides of a pixel:
+                // consecutive gaps of 14, 16, 15 still form a 15-pixel grid.
+                || (distance - steps as f64 * gap).abs() > 2.0f64.max(gap * 0.12) * steps as f64
             {
                 break;
             }
@@ -249,6 +251,7 @@ pub fn visible_tab_strings(image: &RgbImage, mode: &str) -> Result<Option<usize>
             count += steps as usize;
             missing += steps - 1;
             j += 1;
+            gap = (ys[j] - ys[i]) / (count - 1) as f64;
         }
         if (4..=8).contains(&count)
             && j - i + 1 >= 4
@@ -258,6 +261,26 @@ pub fn visible_tab_strings(image: &RgbImage, mode: &str) -> Result<Option<usize>
                 .fold(f64::INFINITY, f64::min)
                 > 0.45
         {
+            // A faint outer string is just as real as a faint interior string.
+            // Extend only at a measured line, never from an assumed string count.
+            let edges = [ys[i] - gap, ys[j] + gap]
+                .into_iter()
+                .filter(|&y| {
+                    let y = y.round_ties_even() as i64;
+                    if y < 2 || y + 2 >= height as i64 {
+                        return false;
+                    }
+                    let range = y as usize - 2..y as usize + 3;
+                    faint[range.clone()].iter().copied().fold(0.0, f64::max) > 0.6
+                        && ink[range].iter().copied().fold(0.0, f64::max) <= threshold
+                })
+                .count();
+            if edges == 1 && missing == 0 && count < 8 {
+                count += 1;
+            } else if edges > 0 {
+                i = j + 1;
+                continue;
+            }
             candidates.push((count, gap));
             i = j + 1;
         } else {

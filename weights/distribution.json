@@ -6,9 +6,9 @@
     "auxiliary": [
       {
         "path": "auxiliary/layout.onnx",
-        "asset": "auxiliary-layout.onnx",
-        "bytes": 130435504,
-        "sha256": "c7527f28cdd44b6cd4a96524f792c186471fd8aba027a70624d702379b808f58"
+        "asset": "auxiliary-layout-headers.onnx",
+        "bytes": 130417829,
+        "sha256": "acb093ddcfaed6a8dd820b9a151e510750257ad5fab4b01be18be7859e5c244f"
       },
       {
         "path": "auxiliary/signature.onnx",

@@ -45,7 +45,7 @@ tools/paddlex-venv/bin/paddlex --install PaddleDetection
 
 ## 训练配置
 
-OCR 共用 `research/configs/measures/train.yaml`，以 `weights/score_ocr/merged` 为起点，同时训练小节、声部分组、页眉、谱号及标注任务。导出 LoRA 时必须使用本次训练的同一基座。版面配置单独位于 `research/configs/layout/train.yaml`，需要兼容的六类训练检查点，放在 `tools/models/layout-checkpoint.pdparams`。仓库中的 `inference.pdiparams` 是推理权重，不能替代训练检查点。
+OCR 共用 `research/configs/measures/train.yaml`，以 `weights/score_ocr/merged` 为起点，同时训练小节、声部分组、页眉、谱号及标注任务。导出 LoRA 时必须使用本次训练的同一基座。版面配置单独位于 `research/configs/layout/train.yaml`，需要兼容的十一类训练检查点，放在 `tools/models/layout-checkpoint.pdparams`。仓库中的 `inference.pdiparams` 是推理权重，不能替代训练检查点。
 
 下面使用[数据生产](data.md#混合后继续训练)中的混合数据目录。更换语料时同时修改数据、缓存和输出路径，并保留已有乐器、排版、谱号和移调任务的样本。训练结果写入 `output/`，评测后再更新 `weights/`。已发布权重的实际训练参数记录在各模型目录的 `training.json` 中。
 
@@ -91,12 +91,16 @@ H100 的 FA2 从源码针对 SM90 编译，使用 CUDA 13.0、C++20，以及 `MA
 uv run --no-sync python -m research.data.unified_layout --output database/unified_layout
 uv run --no-sync python -m research.data.unified_layout --base database/unified_layout \
   --chords database/chord_training/layout --output database/unified_layout_complete
+uv run --no-sync python -m research.data.header_layout --source database/unified_layout_complete \
+  --output database/unified_layout_headers
 tools/paddlex-venv/bin/python -m research.training.layout -c research/configs/layout/train.yaml
 ```
 
 用 `-o Train.pretrain_weight_path=/path/to/checkpoint.pdparams` 指定其他训练检查点。使用 Paddle 保存的 `best_model.pdparams`；`.pdema` 是恢复训练的原始参数。
 
-若从官方预训练模型开始，可将该路径设为官方 `PP-DocLayoutV3_pretrained.pdparams`，类别数保持为 6，并按验证结果调整学习率和轮数。训练数据需包含谱号和一般标注框，后者覆盖和弦、奏法及移调指令，构建方法见[数据生产](data.md#谱号与移调)。
+`header_layout` 使用原有来源划分，把字体边界和原生 PDF 文字坐标标注的谱头接到小节页面上。曲名、副标题、署名、调弦文字及其他谱头文字新增五类；合成前移除旧页未标注的谱头，保留已有音乐区域。
+
+从旧六类检查点续训时，先运行 `research.inference.layout.extend_classes --source /path/to/best_model.pdparams --output tools/models/layout-checkpoint.pdparams --classes 11`，保留原六类权重并扩展分类头。从官方预训练模型开始则直接指定官方检查点，类别数仍由十一类数据配置决定。
 
 训练入口按验证集 bbox AP 选择检查点，并保留 `gt_read_order` 字段。训练进程正常退出后再复制导出的最佳模型，确保文件写入完成。
 
@@ -107,7 +111,7 @@ tools/paddlex-venv/bin/python -m research.training.layout -c research/configs/la
 ```bash
 tools/paddlex-venv/bin/python -m research.evaluation.layout.evaluate \
   --model-dir weights/layout \
-  --dataset-dir database/unified_layout_complete \
+  --dataset-dir database/unified_layout_headers \
   --split test --postprocess --threshold 0.25 \
   --output output/evaluation/layout.json
 ```
@@ -182,4 +186,4 @@ uv run --no-sync python -m research.evaluation.pipeline.evaluate \
 
 音高上下文使用 `"pitch_context":true`，并学习 `ottava` 事件标记。声明 `"written_pitch":true` 的模型输出记谱音高，运行时根据明确的移调量和事件八度标记换算，再交给校对和导出。训练数据用 `research.data.written_pitch_data` 构建。继续训练时保留三种排版和已有乐器的样本，分别验证小节识别、移调量、谱号、八度范围以及 GP5 导出后的实际音高。
 
-版面类别按顺序为 `measure_tab`、`measure_notation`、`measure_both`、`tempo_region`、`clef_region`、`annotation_region`。最后一类包含和弦、指法图、奏法文字及真正的移调说明，由共享 OCR 分类后决定用途。历史 `transposition_region` 输入仍可读取。从四类权重继续训练时，先用 `python -m research.inference.layout.extend_classes --source 原权重.pdparams --output 扩展权重.pdparams --classes 6` 保留已有分类参数，再把训练配置的 `num_classes` 设为 6。旧版面测试集没有新类别标注，新增类别须在带谱号和移调标注的测试集上单独报告。
+版面类别顺序见 `research/common/layout_labels.py`：三种小节、速度、谱号、一般标注，以及曲名、副标题、署名、调弦和其他谱头文字。一般标注包含和弦、指法图、奏法文字及真正的移调说明，由共享 OCR 分类后决定用途；谱头文字按区域类型逐框转写。历史 `transposition_region` 输入仍可读取。

@@ -43,19 +43,10 @@ def _document_region_crops(
         return regions
     crop_root = output / "document_crops"
     crop_root.mkdir(parents=True, exist_ok=True)
-    first_page = Path(pages[0]["image"])
-    first_boxes = [record for record in records if record["page"] == 1]
-    if first_boxes:
-        with Image.open(first_page) as image:
-            header_bottom = max(1, round(min(float(box["bbox"][1]) for box in first_boxes)))
-            header_path = crop_root / "header.png"
-            image.crop((0, 0, image.width, min(image.height, header_bottom))).convert("RGB").save(header_path)
-        regions.append({"kind": "header", "page": 1, "bbox": [0, 0, image.width, min(image.height, header_bottom)], "image": str(header_path.resolve())})
-
     for page_number, source in enumerate(pages, start=1):
         page_path = Path(source["image"])
         prediction = detected_layout.get(page_path, {})
-        regions_on_page = [*prediction.get("tempo_regions", []), *prediction.get("pitch_regions", [])]
+        regions_on_page = [*prediction.get("tempo_regions", []), *prediction.get("pitch_regions", []), *prediction.get("header_regions", [])]
         if not regions_on_page:
             continue
         with Image.open(page_path) as image:
@@ -67,7 +58,7 @@ def _document_region_crops(
                 if right <= left or bottom <= top:
                     continue
                 kind = {"clef_region": "clef", "transposition_region": "annotation",
-                        "annotation_region": "annotation"}.get(region.get("label"), "tempo")
+                        "annotation_region": "annotation"}.get(region.get("label"), region["label"].removesuffix("_region"))
                 path = crop_root / f"{kind}_p{page_number:03d}_{index:03d}.png"
                 image.crop((
                     max(0, int(left) - 6), max(0, int(top) - 6),

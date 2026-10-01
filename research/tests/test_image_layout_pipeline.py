@@ -72,7 +72,7 @@ class ImageLayoutPipelineTest(unittest.TestCase):
             self.assertEqual(records[0]["geometry_source"], "pp_doclayout")
             self.assertTrue(Path(records[0]["image"]).is_file())
             regions = crops.regions
-            self.assertEqual([region["kind"] for region in regions], ["header", "tempo"])
+            self.assertEqual([region["kind"] for region in regions], ["tempo"])
             self.assertTrue(all(Path(region["image"]).is_file() for region in regions))
 
 

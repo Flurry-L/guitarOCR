@@ -1353,6 +1353,8 @@ pub fn score_document(result: &Value) -> ScoreResult<Value> {
     Ok(
         json!({"schema":"guitarocr.score/2", "ticks_per_quarter":960,
         "title":result.get("title").cloned().unwrap_or(json!("")), "artist":result.get("artist").cloned().unwrap_or(json!("")),
+        "subtitle": result["document_metadata"].get("subtitle").cloned().unwrap_or(json!("")),
+        "instructions": result["document_metadata"].get("header_notes").cloned().unwrap_or(json!("")),
         "timeline":timeline, "parts":parts, "annotations":annotations}),
     )
 }

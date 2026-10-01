@@ -12,6 +12,7 @@ from research.inference.layout.postprocess import refine_measure_boxes
 from research.inference.layout.postprocess import deduplicate_pitch_boxes
 from research.common.layout_labels import mode_vote
 from research.common.layout_labels import PITCH_REGION_LABELS
+from research.common.layout_labels import HEADER_REGION_LABELS
 
 
 def refine_small_regions(image, boxes, model, threshold=.25, batch_size=4):
@@ -29,7 +30,7 @@ def refine_small_regions(image, boxes, model, threshold=.25, batch_size=4):
     origins = [(x, y) for y in (0, height - tile_height) for x in (0, width - tile_width)]
     tiles = [np.asarray(image.crop((x, y, x + tile_width, y + tile_height)).convert('RGB'))
              [:, :, ::-1].copy() for x, y in origins]
-    kinds = {'clef_region', 'annotation_region', 'transposition_region', 'tempo_region'}
+    kinds = {'clef_region', 'annotation_region', 'transposition_region', 'tempo_region', *HEADER_REGION_LABELS}
     candidates = [box for box in boxes if box.get('label') in kinds]
     predictions = model.predict(tiles, batch_size=batch_size, threshold=threshold,
                                 layout_shape_mode='rect', filter_overlap_boxes=False)
@@ -62,7 +63,7 @@ def refine_small_regions(image, boxes, model, threshold=.25, batch_size=4):
                 break
         if not duplicate:
             kept.append(box)
-    return [box for box in boxes if box.get('label') not in kinds] + kept
+    return deduplicate_pitch_boxes([box for box in boxes if box.get('label') not in kinds] + kept)
 
 
 def detect_pages(
@@ -96,7 +97,7 @@ def detect_pages(
             pitches = [box for box in boxes if box.get("label") in PITCH_REGION_LABELS
                        and float(box.get("score", 0)) >= threshold]
             results.append({"measures": measures, "tempo_regions": tempos,
-                            "pitch_regions": pitches, **mode_vote(measures)})
+                            "pitch_regions": pitches, "header_regions": sorted((b for b in boxes if b.get("label") in HEADER_REGION_LABELS and float(b.get("score", 0)) >= threshold), key=lambda b: (b["coordinate"][1], b["coordinate"][0])), **mode_vote(measures)})
         else:
             results.append(measures)
     return results

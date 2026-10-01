@@ -19,6 +19,8 @@ export function initMetadata({ start, go, render, setBusy }) {
     $("partName").value = m?.name || '';
     $("title").value = root?.title || "";
     $("artist").value = root?.artist || "";
+    $("subtitle").value = root?.document_metadata?.subtitle || "";
+    $("headerNotes").value = root?.document_metadata?.header_notes || "";
     $("instrument").value = m?.instrument || "guitar";
     $("midiProgram").value = String(m?.midi_program ?? ({guitar:25,bass:33,pitched:0,drums:0}[$("instrument").value]));
     $("tempo").value = m?.document_metadata?.tempo_quarter || 120;
@@ -73,7 +75,7 @@ export function initMetadata({ start, go, render, setBusy }) {
     ui.metadataDirty = true;
     updateMetadataControls();
   };
-  for (const id of ["title", "artist", "partName", "midiProgram", "tempo", "capo", "tuning", "transpose"])
+  for (const id of ["title", "artist", "subtitle", "headerNotes", "partName", "midiProgram", "tempo", "capo", "tuning", "transpose"])
     $(id).oninput = () => {
       ui.metadataDirty = true;
     updateMetadataControls();
@@ -142,6 +144,8 @@ export function initMetadata({ start, go, render, setBusy }) {
         part_name: $("partNameField").hidden ? null : $("partName").value.trim(),
         title: $("title").value || "未命名乐谱",
         artist: $("artist").value,
+        subtitle: $("subtitle").value,
+        header_notes: $("headerNotes").value,
         instrument: $("instrument").value,
         midi_program: $("instrument").value === 'drums' ? 0 : +$("midiProgram").value,
         tempo_quarter: +$("tempo").value,

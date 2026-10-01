@@ -130,7 +130,7 @@ uv run --no-sync python -m research.data.build_pitch_data \
   --output database/pitch/datasets/native_pitch
 ```
 
-生成器写入可见的整轨移调说明及局部 8va、8vb、15ma、15mb 标记，再由 Guitar Pro 排版。标注使用原生谱号框、八度线范围和 PDF 文字位置。标签核验会检查原生导入后的移调量、音高和起点；没有打印移调信息的移调乐器页面不进入小节训练。输出包含六类版面标注、信息裁图和带移调前文的小节样本。
+生成器写入可见的整轨移调说明及局部 8va、8vb、15ma、15mb 标记，再由 Guitar Pro 排版。标注使用原生谱号框、八度线范围和 PDF 文字位置。标签核验会检查原生导入后的移调量、音高和起点；没有打印移调信息的移调乐器页面不进入小节训练。输出包含版面标注、信息裁图和带移调前文的小节样本。
 
 用 `--named-instruments` 可将数字说明替换为“Trumpet in Bb”等乐器名称。以 `database/pitch` 为 `--source`，指定新的输出目录，再执行同样的原生导出和数据构建。两种文字都应进入训练；用 `research.data.mix_layout_data --new-repeat` 可增加少量新增训练页的采样次数，验证和测试仍各保留一份。
 
@@ -225,7 +225,7 @@ uv run --no-sync python -m research.data.written_pitch_data \
   --output database/pitch/datasets/measure_written
 ```
 
-可把已核验的乐器混合集合作为 `--replay`；命令中的基础吉他集只是可复现的起点。小节混合需传入相关原生音符核验的 `--exclude-report`，重复运行前换用新的输出和缓存目录。合并版面数据前，各数据集必须采用相同的六类顺序。
+可把已核验的乐器混合集合作为 `--replay`；命令中的基础吉他集只是可复现的起点。小节混合需传入相关原生音符核验的 `--exclude-report`，重复运行前换用新的输出和缓存目录。合并版面数据前，各数据集必须采用 `research/common/layout_labels.py` 定义的类别顺序；谱头区域由 `research.data.header_layout` 补充。
 
 最后一步把带音高前文的五线谱训练目标换成记谱音高。运行时由代码将结果换回实际音高，保留原来的小节文本和导出格式。TAB、混合谱和鼓谱的输出语义不变。
 

@@ -261,7 +261,18 @@ pub fn score_musicxml(input: &Value) -> R<Vec<u8>> {
     }
     let timeline = arr(&score, "timeline")?;
     let scale = 1i128;
-    let mut out=format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<score-partwise version=\"4.0\"><work>{}</work><identification><creator type=\"composer\">{}</creator></identification><part-list>",tag("work-title",txt(&score,"title",""))?,esc(txt(&score,"artist",""))?);
+    let subtitle = if txt(&score, "subtitle", "").is_empty() {
+        String::new()
+    } else {
+        tag("movement-title", txt(&score, "subtitle", ""))?
+    };
+    let notes = if txt(&score, "instructions", "").is_empty() {
+        String::new()
+    } else {
+        format!("<miscellaneous><miscellaneous-field name=\"score-header\">{}</miscellaneous-field></miscellaneous>", esc(txt(&score, "instructions", ""))?)
+    };
+    let mut out = format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<score-partwise version=\"4.0\"><work>{}</work>{subtitle}<identification><creator type=\"composer\">{}</creator>{notes}</identification><part-list>",
+        tag("work-title", txt(&score, "title", ""))?, esc(txt(&score, "artist", ""))?);
     let mut melodic_channel = 0;
     for (pi, p) in parts.iter().enumerate() {
         if txt(p, "instrument", "") == "drums" {

@@ -14,6 +14,7 @@ from research.inference.layout.postprocess import deduplicate_pitch_boxes
 from research.common.layout_labels import is_measure
 from research.common.layout_labels import measure_mode
 from research.common.layout_labels import mode_vote
+from research.common.layout_labels import HEADER_REGION_LABELS
 
 
 def _type_matches(boxes: list[list[float]], measures: list[dict], mode: str, modes=None) -> dict:
@@ -293,7 +294,7 @@ def evaluate(
         "postprocess": postprocess,
         "small_region_refinement": ({"views": 4, "tile_fraction": .55,
                                      "minimum_page_width": 2401, "minimum_page_height": 3401,
-                                     "supplements": ["clef_region", "annotation_region", "tempo_region"]}
+                                     "supplements": ["clef_region", "annotation_region", "tempo_region", *HEADER_REGION_LABELS]}
                                     if postprocess else None),
         "localization_categories": localization_labels,
         "model_provides_notation_type": bool(typed_detections) or any(row["predicted_mode"] for row in counts),

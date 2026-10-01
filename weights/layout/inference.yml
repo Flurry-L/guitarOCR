@@ -32,6 +32,11 @@ label_list:
 - tempo_region
 - clef_region
 - annotation_region
+- title_region
+- subtitle_region
+- credit_region
+- tuning_region
+- header_text_region
 Hpi:
   backend_configs:
     paddle_infer:

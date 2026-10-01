@@ -6,7 +6,7 @@ import numpy as np
 from PIL import Image
 from research.common.layout_labels import is_measure
 from research.common.layout_labels import measure_mode
-from research.common.layout_labels import PITCH_REGION_LABELS
+from research.common.layout_labels import PITCH_REGION_LABELS, HEADER_REGION_LABELS
 
 
 def _coordinates(box: dict) -> tuple[float, float, float, float]:
@@ -17,14 +17,16 @@ def deduplicate_pitch_boxes(boxes: list[dict]) -> list[dict]:
     """Keep one prediction per printed instruction, retaining separate spans."""
     kept = []
     for box in sorted(boxes, key=lambda row: float(row.get("score", 0)), reverse=True):
-        if box.get("label") not in PITCH_REGION_LABELS:
+        if box.get("label") not in (*PITCH_REGION_LABELS, *HEADER_REGION_LABELS, "tempo_region"):
             kept.append(box)
             continue
         x0, y0, x1, y1 = _coordinates(box)
         area = max(0, x1 - x0) * max(0, y1 - y0)
         duplicate = False
         for other in kept:
-            if other.get("label") != box["label"]:
+            shared_text = (box['label'] in HEADER_REGION_LABELS and other.get('label') in (*HEADER_REGION_LABELS, 'annotation_region')
+                           or other.get('label') in HEADER_REGION_LABELS and box['label'] == 'annotation_region')
+            if other.get("label") != box["label"] and not shared_text:
                 continue
             a0, b0, a1, b1 = _coordinates(other)
             intersection = max(0, min(x1, a1) - max(x0, a0)) * max(0, min(y1, b1) - max(y0, b0))
@@ -62,7 +64,7 @@ def _select_nonoverlapping(row: list[dict]) -> list[dict]:
                          if _coordinates(ordered[j])[2] <= left + max(
                              6, .08 * min(width, _coordinates(ordered[j])[2] - _coordinates(ordered[j])[0]))), 0)
         confidence = float(box["score"])
-        selected_score = scores[previous] + confidence * confidence + 0.15
+        selected_score = scores[previous] + confidence * confidence
         if selected_score > scores[-1]:
             scores.append(selected_score)
             choices.append([*choices[previous], index])

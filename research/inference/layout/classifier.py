@@ -41,7 +41,8 @@ def visible_tab_strings(image: Image.Image, mode: str) -> int | None:
     interior = gray[:, round(gray.shape[1] * .13):round(gray.shape[1] * .9)]
     ink = (interior < 210).mean(1)
     faint = (interior < min(253, float(np.percentile(interior, 95)) - 2)).mean(1)
-    hits = np.flatnonzero(ink > max(.35, float(ink.max()) * .55))
+    threshold = max(.35, float(ink.max()) * .55)
+    hits = np.flatnonzero(ink > threshold)
     groups = [g for g in np.split(hits, np.flatnonzero(np.diff(hits) > 1) + 1) if len(g)]
     ys = [float(np.average(g, weights=ink[g])) for g in groups]
     strengths = [float(ink[g].max()) for g in groups]
@@ -57,7 +58,7 @@ def visible_tab_strings(image: Image.Image, mode: str) -> int | None:
             distance = ys[j + 1] - ys[j]
             steps = round(distance / gap)
             if (steps not in {1, 2} or missing + steps - 1 > 1
-                    or abs(distance - steps * gap) >= max(1.6, gap * .12) * steps):
+                    or abs(distance - steps * gap) > max(2.0, gap * .12) * steps):
                 break
             if steps == 2:
                 expected = round(ys[j] + gap)
@@ -66,7 +67,21 @@ def visible_tab_strings(image: Image.Image, mode: str) -> int | None:
             count += steps
             missing += steps - 1
             j += 1
+            # Fit the whole grid; raster rounding can alternate 14/16/15 pixels.
+            gap = (ys[j] - ys[i]) / (count - 1)
         if 4 <= count <= 8 and j - i + 1 >= 4 and min(strengths[i:j + 1]) > .45:
+            edges = 0
+            for y in (ys[i] - gap, ys[j] + gap):
+                y = round(y)
+                if (2 <= y < len(ink) - 2
+                        and faint[y-2:y+3].max() > .6
+                        and ink[y-2:y+3].max() <= threshold):
+                    edges += 1
+            if edges == 1 and missing == 0 and count < 8:
+                count += 1
+            elif edges:
+                i = j + 1
+                continue
             candidates.append((count, gap))
             i = j + 1
         else:

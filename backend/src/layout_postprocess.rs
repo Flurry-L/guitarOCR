@@ -90,6 +90,9 @@ fn pitch(label: &str) -> bool {
         "clef_region" | "annotation_region" | "transposition_region"
     )
 }
+fn header_text(label: &str) -> bool {
+    crate::recognition::header_field(label.trim_end_matches("_region")).is_some()
+}
 fn median(mut values: Vec<f64>) -> f64 {
     values.sort_by(f64::total_cmp);
     let n = values.len();
@@ -112,9 +115,12 @@ pub fn deduplicate_pitch_boxes(boxes: &[Value]) -> Result<Vec<Value>> {
     ordered.sort_by(|a, b| b.score.total_cmp(&a.score));
     let mut kept: Vec<Detection> = vec![];
     for row in ordered {
-        if !pitch(&row.label)
+        if !(pitch(&row.label) || header_text(&row.label) || row.label == "tempo_region")
             || !kept.iter().any(|other| {
-                if other.label != row.label {
+                let shared_text = (header_text(&row.label)
+                    && (header_text(&other.label) || other.label == "annotation_region"))
+                    || (header_text(&other.label) && row.label == "annotation_region");
+                if other.label != row.label && !shared_text {
                     return false;
                 }
                 let hit = intersection(&row, other);
@@ -144,7 +150,7 @@ fn select_nonoverlapping(mut row: Vec<Detection>) -> Vec<Detection> {
             .find(|&j| row[j].xy[2] <= b.xy[0] + 6f64.max(0.08 * b.width().min(row[j].width())))
             .map(|j| j + 1)
             .unwrap_or(0);
-        let selected = scores[prev] + b.score * b.score + 0.15;
+        let selected = scores[prev] + b.score * b.score;
         if selected > *scores.last().unwrap() {
             scores.push(selected);
             let mut selection = choices[prev].clone();
@@ -477,6 +483,26 @@ pub fn process_page(page: &RgbImage, boxes: &[Value], threshold: f64) -> Result<
         .filter(|b| pitch(b["label"].as_str().unwrap_or(""))
             && b["score"].as_f64().unwrap_or(0.) >= threshold)
         .collect::<Vec<_>>());
+    let mut headers: Vec<_> = boxes
+        .iter()
+        .filter(|b| {
+            header_text(b["label"].as_str().unwrap_or(""))
+                && b["score"].as_f64().unwrap_or(0.) >= threshold
+        })
+        .collect();
+    headers.sort_by(|a, b| {
+        a["coordinate"][1]
+            .as_f64()
+            .unwrap_or(0.)
+            .total_cmp(&b["coordinate"][1].as_f64().unwrap_or(0.))
+            .then(
+                a["coordinate"][0]
+                    .as_f64()
+                    .unwrap_or(0.)
+                    .total_cmp(&b["coordinate"][0].as_f64().unwrap_or(0.)),
+            )
+    });
+    result["header_regions"] = json!(headers);
     Ok(result)
 }
 

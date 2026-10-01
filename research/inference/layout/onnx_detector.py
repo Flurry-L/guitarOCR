@@ -7,8 +7,7 @@ import numpy as np
 
 from research.inference.backends.onnx_runtime import cpu_session
 
-LABELS = ('measure_tab', 'measure_notation', 'measure_both', 'tempo_region',
-          'clef_region', 'annotation_region')
+from research.common.layout_labels import TYPED_CATEGORIES as LABELS
 
 
 class OnnxDetector:

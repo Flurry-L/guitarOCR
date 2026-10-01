@@ -6,6 +6,7 @@ import argparse
 import json
 from pathlib import Path
 
+from research.inference.information.prompts import DOCUMENT_HEADER_KINDS
 from research.defaults import MODEL
 from research.defaults import INFO_ADAPTER
 
@@ -278,7 +279,7 @@ def run(layout: Path, output: Path, **kwargs) -> Path:
     values, profiles, contexts = [], [], []
     assignments = {}
     for region in source['regions']:
-        if region['kind'] == 'header':
+        if region['kind'] in DOCUMENT_HEADER_KINDS:
             continue
         x, y, w, h = region['bbox']
         candidates = [r for r in source['records'] if r['page'] == region['page']]
@@ -294,7 +295,7 @@ def run(layout: Path, output: Path, **kwargs) -> Path:
     for index, part in enumerate(parts):
         local = deepcopy(source)
         local['records'] = [r for r in local['records'] if r['part_id'] == part['id']]
-        local['regions'] = [r for r in local['regions'] if r['kind'] == 'header' or assignments.get(r['image']) == part['id']]
+        local['regions'] = [r for r in local['regions'] if r['kind'] in DOCUMENT_HEADER_KINDS or assignments.get(r['image']) == part['id']]
         local['mode'] = Counter(r['mode'] for r in local['records']).most_common(1)[0][0]
         options = dict(kwargs)
         if predictions is not None:

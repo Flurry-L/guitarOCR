@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "release": "unified-score-2026-09-30",
+  "release": "unified-score-2026-10-01",
   "models": [
     {
       "stage": "score_ocr",
@@ -86,15 +86,15 @@
       "files": [
         {
           "name": "inference.json",
-          "bytes": 1226126
+          "bytes": 1222604
         },
         {
           "name": "inference.pdiparams",
-          "bytes": 129235195
+          "bytes": 129240335
         },
         {
           "name": "inference.yml",
-          "bytes": 1288
+          "bytes": 1374
         }
       ],
       "display_modes": [
@@ -109,7 +109,12 @@
         "measure_both",
         "tempo_region",
         "clef_region",
-        "annotation_region"
+        "annotation_region",
+        "title_region",
+        "subtitle_region",
+        "credit_region",
+        "tuning_region",
+        "header_text_region"
       ],
       "provides_notation_type": true,
       "training": "weights/layout/training.json"

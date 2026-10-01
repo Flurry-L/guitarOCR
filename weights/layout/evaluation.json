@@ -1,47 +1,71 @@
 {
-  "ap_50_95": 0.8793211090754703,
-  "ap_50": 0.9881203698896823,
+  "ap_50_95": 0.8488266366901097,
+  "ap_50": 0.9858318755650799,
   "categories": {
     "measure": {
-      "ap_50_95": 0.9522542737486686,
-      "recall_50": 0.9997801553568811,
+      "ap_50_95": 0.9536166061568511,
+      "recall_50": 0.9995603107137623,
       "ground_truth_boxes": 54584
     },
     "tempo_region": {
-      "ap_50_95": 0.8525921345460081,
-      "recall_50": 0.9925650557620818,
+      "ap_50_95": 0.8799297374211995,
+      "recall_50": 0.9962825278810409,
       "ground_truth_boxes": 1076
     },
     "clef_region": {
-      "ap_50_95": 0.8525228761195895,
-      "recall_50": 0.9927463898316364,
+      "ap_50_95": 0.8512637439826998,
+      "recall_50": 0.9936780461835363,
       "ground_truth_boxes": 15027
     },
     "annotation_region": {
-      "ap_50_95": 0.859915151887615,
-      "recall_50": 0.9945677722642988,
+      "ap_50_95": 0.8732440998670825,
+      "recall_50": 0.9956124314442413,
       "ground_truth_boxes": 19145
+    },
+    "title_region": {
+      "ap_50_95": 0.8625954185123664,
+      "recall_50": 0.9995429616087751,
+      "ground_truth_boxes": 2188
+    },
+    "subtitle_region": {
+      "ap_50_95": 0.8370938827293619,
+      "recall_50": 0.9933854479855683,
+      "ground_truth_boxes": 1663
+    },
+    "credit_region": {
+      "ap_50_95": 0.8155711319825181,
+      "recall_50": 0.9876543209876543,
+      "ground_truth_boxes": 2268
+    },
+    "tuning_region": {
+      "ap_50_95": 0.8182894661507375,
+      "recall_50": 0.9974921630094044,
+      "ground_truth_boxes": 1595
+    },
+    "header_text_region": {
+      "ap_50_95": 0.7478356434081697,
+      "recall_50": 0.9776536312849162,
+      "ground_truth_boxes": 358
     }
   },
   "total_pages": 2886,
   "matched_measure_type": {
     "iou": 0.5,
-    "matched_measures": 54572,
-    "correct_measures": 54570,
-    "accuracy": 0.9999633511690977
+    "matched_measures": 54560,
+    "correct_measures": 54559,
+    "accuracy": 0.9999816715542522
   },
   "mode_classification": {
-    "correct_pages": 2885,
+    "correct_pages": 2886,
     "total_pages": 2886,
-    "accuracy": 0.9996534996534997,
+    "accuracy": 1.0,
     "unknown_pages": 0,
     "confusion": {
       "tab": {
         "tab": 591
       },
       "notation": {
-        "notation": 1261,
-        "mixed": 1
+        "notation": 1262
       },
       "both": {
         "both": 737
@@ -50,82 +74,132 @@
         "mixed": 296
       }
     },
-    "correct_sources": 1388
+    "correct_sources": 1389
   },
-  "exact_measure_count_pages": 2872,
-  "raw_exact_measure_count_pages": 2872,
-  "changed_count_pages": 0,
-  "exact_measure_count_sources": 1379,
+  "exact_measure_count_pages": 2850,
+  "raw_exact_measure_count_pages": 2849,
+  "changed_count_pages": 1,
+  "exact_measure_count_sources": 1358,
   "total_sources": 1389,
-  "detections": 93133,
+  "detections": 101089,
   "typed_detection": {
-    "ap_50_95": 0.9093484686055763,
-    "ap_50": 0.9904300815766199,
+    "ap_50_95": 0.8705374892153895,
+    "ap_50": 0.9866074739728387,
     "categories": {
       "measure_tab": {
-        "ap_50_95": 0.9765684306629016,
-        "recall_50": 0.9996386630532972,
+        "ap_50_95": 0.9756663444158794,
+        "recall_50": 0.9998193315266486,
         "ground_truth_boxes": 11070
       },
       "measure_notation": {
-        "ap_50_95": 0.9311857987177261,
-        "recall_50": 0.9996903257772823,
+        "ap_50_95": 0.9351502416881448,
+        "recall_50": 0.999318716710021,
         "ground_truth_boxes": 32292
       },
       "measure_both": {
-        "ap_50_95": 0.9833064196996182,
-        "recall_50": 1.0,
+        "ap_50_95": 0.9792726712111263,
+        "recall_50": 0.9999108893245411,
         "ground_truth_boxes": 11222
       },
       "tempo_region": {
-        "ap_50_95": 0.8525921345460081,
-        "recall_50": 0.9925650557620818,
+        "ap_50_95": 0.8799297374211995,
+        "recall_50": 0.9962825278810409,
         "ground_truth_boxes": 1076
       },
       "clef_region": {
-        "ap_50_95": 0.8525228761195895,
-        "recall_50": 0.9927463898316364,
+        "ap_50_95": 0.8512637439826998,
+        "recall_50": 0.9936780461835363,
         "ground_truth_boxes": 15027
       },
       "annotation_region": {
-        "ap_50_95": 0.859915151887615,
-        "recall_50": 0.9945677722642988,
+        "ap_50_95": 0.8732440998670825,
+        "recall_50": 0.9956124314442413,
         "ground_truth_boxes": 19145
+      },
+      "title_region": {
+        "ap_50_95": 0.8625954185123664,
+        "recall_50": 0.9995429616087751,
+        "ground_truth_boxes": 2188
+      },
+      "subtitle_region": {
+        "ap_50_95": 0.8370938827293619,
+        "recall_50": 0.9933854479855683,
+        "ground_truth_boxes": 1663
+      },
+      "credit_region": {
+        "ap_50_95": 0.8155711319825181,
+        "recall_50": 0.9876543209876543,
+        "ground_truth_boxes": 2268
+      },
+      "tuning_region": {
+        "ap_50_95": 0.8182894661507375,
+        "recall_50": 0.9974921630094044,
+        "ground_truth_boxes": 1595
+      },
+      "header_text_region": {
+        "ap_50_95": 0.7478356434081697,
+        "recall_50": 0.9776536312849162,
+        "ground_truth_boxes": 358
       }
     },
     "total_pages": 2886
   },
   "by_mode": {
     "both": {
-      "ap_50_95": 0.8963196097454007,
-      "ap_50": 0.9975146693246355,
+      "ap_50_95": 0.8556455669340768,
+      "ap_50": 0.9878110192111527,
       "categories": {
         "measure": {
-          "ap_50_95": 0.9918704629869732,
-          "recall_50": 1.0,
+          "ap_50_95": 0.9848699010091432,
+          "recall_50": 0.9998915636521362,
           "ground_truth_boxes": 9222
         },
         "tempo_region": {
-          "ap_50_95": 0.8682873555130675,
+          "ap_50_95": 0.8927209523565973,
           "recall_50": 1.0,
           "ground_truth_boxes": 303
         },
         "clef_region": {
-          "ap_50_95": 0.858804877575901,
+          "ap_50_95": 0.854045957575893,
           "recall_50": 1.0,
           "ground_truth_boxes": 6152
         },
         "annotation_region": {
-          "ap_50_95": 0.8663157429056607,
-          "recall_50": 0.9978287841191067,
+          "ap_50_95": 0.8777417365522396,
+          "recall_50": 0.9982940446650124,
           "ground_truth_boxes": 6448
+        },
+        "title_region": {
+          "ap_50_95": 0.9193435635411218,
+          "recall_50": 1.0,
+          "ground_truth_boxes": 556
+        },
+        "subtitle_region": {
+          "ap_50_95": 0.8380854976694946,
+          "recall_50": 0.995249406175772,
+          "ground_truth_boxes": 421
+        },
+        "credit_region": {
+          "ap_50_95": 0.8060411066549003,
+          "recall_50": 0.9831081081081081,
+          "ground_truth_boxes": 592
+        },
+        "tuning_region": {
+          "ap_50_95": 0.8061454626608408,
+          "recall_50": 0.995085995085995,
+          "ground_truth_boxes": 407
+        },
+        "header_text_region": {
+          "ap_50_95": 0.7218159243864605,
+          "recall_50": 0.9550561797752809,
+          "ground_truth_boxes": 89
         }
       },
       "total_pages": 737,
       "matched_measure_type": {
         "iou": 0.5,
-        "matched_measures": 9222,
-        "correct_measures": 9222,
+        "matched_measures": 9221,
+        "correct_measures": 9221,
         "accuracy": 1.0
       },
       "mode_classification": {
@@ -143,14 +217,14 @@
         },
         "correct_sources": 280
       },
-      "exact_measure_count_pages": 737,
-      "raw_exact_measure_count_pages": 737,
+      "exact_measure_count_pages": 736,
+      "raw_exact_measure_count_pages": 736,
       "changed_count_pages": 0,
-      "exact_measure_count_sources": 280,
+      "exact_measure_count_sources": 279,
       "total_sources": 280,
       "typed_detection": {
-        "ap_50_95": 0.8963196097454007,
-        "ap_50": 0.9975146693246355,
+        "ap_50_95": 0.8556455669340768,
+        "ap_50": 0.9878110192111527,
         "categories": {
           "measure_tab": {
             "ap_50_95": null,
@@ -163,60 +237,110 @@
             "ground_truth_boxes": 0
           },
           "measure_both": {
-            "ap_50_95": 0.9918704629869732,
-            "recall_50": 1.0,
+            "ap_50_95": 0.9848699010091432,
+            "recall_50": 0.9998915636521362,
             "ground_truth_boxes": 9222
           },
           "tempo_region": {
-            "ap_50_95": 0.8682873555130675,
+            "ap_50_95": 0.8927209523565973,
             "recall_50": 1.0,
             "ground_truth_boxes": 303
           },
           "clef_region": {
-            "ap_50_95": 0.858804877575901,
+            "ap_50_95": 0.854045957575893,
             "recall_50": 1.0,
             "ground_truth_boxes": 6152
           },
           "annotation_region": {
-            "ap_50_95": 0.8663157429056607,
-            "recall_50": 0.9978287841191067,
+            "ap_50_95": 0.8777417365522396,
+            "recall_50": 0.9982940446650124,
             "ground_truth_boxes": 6448
+          },
+          "title_region": {
+            "ap_50_95": 0.9193435635411218,
+            "recall_50": 1.0,
+            "ground_truth_boxes": 556
+          },
+          "subtitle_region": {
+            "ap_50_95": 0.8380854976694946,
+            "recall_50": 0.995249406175772,
+            "ground_truth_boxes": 421
+          },
+          "credit_region": {
+            "ap_50_95": 0.8060411066549003,
+            "recall_50": 0.9831081081081081,
+            "ground_truth_boxes": 592
+          },
+          "tuning_region": {
+            "ap_50_95": 0.8061454626608408,
+            "recall_50": 0.995085995085995,
+            "ground_truth_boxes": 407
+          },
+          "header_text_region": {
+            "ap_50_95": 0.7218159243864605,
+            "recall_50": 0.9550561797752809,
+            "ground_truth_boxes": 89
           }
         },
         "total_pages": 737
       }
     },
     "mixed": {
-      "ap_50_95": 0.44295068050111364,
-      "ap_50": 0.5615543232124073,
+      "ap_50_95": 0.6667565913899643,
+      "ap_50": 0.831900084962044,
       "categories": {
         "measure": {
-          "ap_50_95": 0.8952235702076573,
-          "recall_50": 0.9995659722222222,
+          "ap_50_95": 0.9044225454545273,
+          "recall_50": 0.9994574652777778,
           "ground_truth_boxes": 9216
         },
         "tempo_region": {
-          "ap_50_95": 0.0,
-          "recall_50": 0.0,
+          "ap_50_95": 0.15148514851485148,
+          "recall_50": 0.5,
           "ground_truth_boxes": 2
         },
         "clef_region": {
-          "ap_50_95": 0.2941904236051311,
-          "recall_50": 0.9306742640075973,
+          "ap_50_95": 0.31455805218478317,
+          "recall_50": 0.9411206077872745,
           "ground_truth_boxes": 1053
         },
         "annotation_region": {
-          "ap_50_95": 0.582388728191666,
-          "recall_50": 0.8397212543554007,
+          "ap_50_95": 0.6504130024337581,
+          "recall_50": 0.89198606271777,
           "ground_truth_boxes": 287
+        },
+        "title_region": {
+          "ap_50_95": 0.6430108716686814,
+          "recall_50": 1.0,
+          "ground_truth_boxes": 234
+        },
+        "subtitle_region": {
+          "ap_50_95": 0.8361001851186763,
+          "recall_50": 0.9828571428571429,
+          "ground_truth_boxes": 175
+        },
+        "credit_region": {
+          "ap_50_95": 0.8550379916222324,
+          "recall_50": 0.9879032258064516,
+          "ground_truth_boxes": 248
+        },
+        "tuning_region": {
+          "ap_50_95": 0.8785124259454579,
+          "recall_50": 1.0,
+          "ground_truth_boxes": 179
+        },
+        "header_text_region": {
+          "ap_50_95": 0.7672690995667117,
+          "recall_50": 0.9714285714285714,
+          "ground_truth_boxes": 35
         }
       },
       "total_pages": 296,
       "matched_measure_type": {
         "iou": 0.5,
-        "matched_measures": 9212,
-        "correct_measures": 9211,
-        "accuracy": 0.9998914459400782
+        "matched_measures": 9211,
+        "correct_measures": 9210,
+        "accuracy": 0.9998914341548149
       },
       "mode_classification": {
         "correct_pages": 296,
@@ -233,105 +357,154 @@
         },
         "correct_sources": 156
       },
-      "exact_measure_count_pages": 294,
-      "raw_exact_measure_count_pages": 294,
-      "changed_count_pages": 0,
-      "exact_measure_count_sources": 154,
+      "exact_measure_count_pages": 290,
+      "raw_exact_measure_count_pages": 289,
+      "changed_count_pages": 1,
+      "exact_measure_count_sources": 150,
       "total_sources": 156,
       "typed_detection": {
-        "ap_50_95": 0.5983771447329769,
-        "ap_50": 0.7060527171251033,
+        "ap_50_95": 0.7115720602424236,
+        "ap_50": 0.8615606034590908,
         "categories": {
           "measure_tab": {
-            "ap_50_95": 0.896837835117459,
-            "recall_50": 0.9985549132947977,
+            "ap_50_95": 0.9041132727995285,
+            "recall_50": 0.9995183044315993,
             "ground_truth_boxes": 2076
           },
           "measure_notation": {
-            "ap_50_95": 0.873214643366799,
-            "recall_50": 0.9996108949416342,
+            "ap_50_95": 0.8871366567148281,
+            "recall_50": 0.9990272373540856,
             "ground_truth_boxes": 5140
           },
           "measure_both": {
-            "ap_50_95": 0.9436312381168064,
+            "ap_50_95": 0.9396559560971511,
             "recall_50": 1.0,
             "ground_truth_boxes": 2000
           },
           "tempo_region": {
-            "ap_50_95": 0.0,
-            "recall_50": 0.0,
+            "ap_50_95": 0.15148514851485148,
+            "recall_50": 0.5,
             "ground_truth_boxes": 2
           },
           "clef_region": {
-            "ap_50_95": 0.2941904236051311,
-            "recall_50": 0.9306742640075973,
+            "ap_50_95": 0.31455805218478317,
+            "recall_50": 0.9411206077872745,
             "ground_truth_boxes": 1053
           },
           "annotation_region": {
-            "ap_50_95": 0.582388728191666,
-            "recall_50": 0.8397212543554007,
+            "ap_50_95": 0.6504130024337581,
+            "recall_50": 0.89198606271777,
             "ground_truth_boxes": 287
+          },
+          "title_region": {
+            "ap_50_95": 0.6430108716686814,
+            "recall_50": 1.0,
+            "ground_truth_boxes": 234
+          },
+          "subtitle_region": {
+            "ap_50_95": 0.8361001851186763,
+            "recall_50": 0.9828571428571429,
+            "ground_truth_boxes": 175
+          },
+          "credit_region": {
+            "ap_50_95": 0.8550379916222324,
+            "recall_50": 0.9879032258064516,
+            "ground_truth_boxes": 248
+          },
+          "tuning_region": {
+            "ap_50_95": 0.8785124259454579,
+            "recall_50": 1.0,
+            "ground_truth_boxes": 179
+          },
+          "header_text_region": {
+            "ap_50_95": 0.7672690995667117,
+            "recall_50": 0.9714285714285714,
+            "ground_truth_boxes": 35
           }
         },
         "total_pages": 296
       }
     },
     "notation": {
-      "ap_50_95": 0.8807313646625816,
-      "ap_50": 0.9864737596294665,
+      "ap_50_95": 0.8532166847341973,
+      "ap_50": 0.9894506623626516,
       "categories": {
         "measure": {
-          "ap_50_95": 0.9396269875437148,
-          "recall_50": 0.9997421921037124,
+          "ap_50_95": 0.9435465451028165,
+          "recall_50": 0.9993738951090159,
           "ground_truth_boxes": 27152
         },
         "tempo_region": {
-          "ap_50_95": 0.840609298873373,
-          "recall_50": 0.9873150105708245,
+          "ap_50_95": 0.873281707291324,
+          "recall_50": 0.9957716701902748,
           "ground_truth_boxes": 473
         },
         "clef_region": {
-          "ap_50_95": 0.8809903195893383,
-          "recall_50": 0.9953975965226285,
+          "ap_50_95": 0.8781308287651697,
+          "recall_50": 0.9957811301457428,
           "ground_truth_boxes": 7822
         },
         "annotation_region": {
-          "ap_50_95": 0.8616988526439,
-          "recall_50": 0.9939767885999706,
+          "ap_50_95": 0.8708864611565066,
+          "recall_50": 0.9958865873365653,
           "ground_truth_boxes": 6807
+        },
+        "title_region": {
+          "ap_50_95": 0.8785539077143457,
+          "recall_50": 1.0,
+          "ground_truth_boxes": 945
+        },
+        "subtitle_region": {
+          "ap_50_95": 0.840967179294404,
+          "recall_50": 0.9986225895316805,
+          "ground_truth_boxes": 726
+        },
+        "credit_region": {
+          "ap_50_95": 0.818540852644733,
+          "recall_50": 0.9908163265306122,
+          "ground_truth_boxes": 980
+        },
+        "tuning_region": {
+          "ap_50_95": 0.8158367544553492,
+          "recall_50": 0.9970326409495549,
+          "ground_truth_boxes": 674
+        },
+        "header_text_region": {
+          "ap_50_95": 0.7592059261831267,
+          "recall_50": 0.9871794871794872,
+          "ground_truth_boxes": 156
         }
       },
       "total_pages": 1262,
       "matched_measure_type": {
         "iou": 0.5,
-        "matched_measures": 27145,
-        "correct_measures": 27144,
-        "accuracy": 0.9999631608030944
+        "matched_measures": 27135,
+        "correct_measures": 27135,
+        "accuracy": 1.0
       },
       "mode_classification": {
-        "correct_pages": 1261,
+        "correct_pages": 1262,
         "total_pages": 1262,
-        "accuracy": 0.9992076069730587,
+        "accuracy": 1.0,
         "unknown_pages": 0,
         "confusion": {
           "tab": {},
           "notation": {
-            "notation": 1261,
-            "mixed": 1
+            "notation": 1262
           },
           "both": {},
           "mixed": {}
         },
-        "correct_sources": 672
+        "correct_sources": 673
       },
-      "exact_measure_count_pages": 1252,
-      "raw_exact_measure_count_pages": 1252,
+      "exact_measure_count_pages": 1234,
+      "raw_exact_measure_count_pages": 1234,
       "changed_count_pages": 0,
-      "exact_measure_count_sources": 667,
+      "exact_measure_count_sources": 650,
       "total_sources": 673,
       "typed_detection": {
-        "ap_50_95": 0.8807313646625816,
-        "ap_50": 0.9864737596294665,
+        "ap_50_95": 0.8532166847341973,
+        "ap_50": 0.9894506623626516,
         "categories": {
           "measure_tab": {
             "ap_50_95": null,
@@ -339,8 +512,8 @@
             "ground_truth_boxes": 0
           },
           "measure_notation": {
-            "ap_50_95": 0.9396269875437148,
-            "recall_50": 0.9997053624042428,
+            "ap_50_95": 0.9435465451028165,
+            "recall_50": 0.9993738951090159,
             "ground_truth_boxes": 27152
           },
           "measure_both": {
@@ -349,36 +522,61 @@
             "ground_truth_boxes": 0
           },
           "tempo_region": {
-            "ap_50_95": 0.840609298873373,
-            "recall_50": 0.9873150105708245,
+            "ap_50_95": 0.873281707291324,
+            "recall_50": 0.9957716701902748,
             "ground_truth_boxes": 473
           },
           "clef_region": {
-            "ap_50_95": 0.8809903195893383,
-            "recall_50": 0.9953975965226285,
+            "ap_50_95": 0.8781308287651697,
+            "recall_50": 0.9957811301457428,
             "ground_truth_boxes": 7822
           },
           "annotation_region": {
-            "ap_50_95": 0.8616988526439,
-            "recall_50": 0.9939767885999706,
+            "ap_50_95": 0.8708864611565066,
+            "recall_50": 0.9958865873365653,
             "ground_truth_boxes": 6807
+          },
+          "title_region": {
+            "ap_50_95": 0.8785539077143457,
+            "recall_50": 1.0,
+            "ground_truth_boxes": 945
+          },
+          "subtitle_region": {
+            "ap_50_95": 0.840967179294404,
+            "recall_50": 0.9986225895316805,
+            "ground_truth_boxes": 726
+          },
+          "credit_region": {
+            "ap_50_95": 0.818540852644733,
+            "recall_50": 0.9908163265306122,
+            "ground_truth_boxes": 980
+          },
+          "tuning_region": {
+            "ap_50_95": 0.8158367544553492,
+            "recall_50": 0.9970326409495549,
+            "ground_truth_boxes": 674
+          },
+          "header_text_region": {
+            "ap_50_95": 0.7592059261831267,
+            "recall_50": 0.9871794871794872,
+            "ground_truth_boxes": 156
           }
         },
         "total_pages": 1262
       }
     },
     "tab": {
-      "ap_50_95": 0.9043411489808854,
-      "ap_50": 0.9933975623774226,
+      "ap_50_95": 0.8580998041386513,
+      "ap_50": 0.9875296815654923,
       "categories": {
         "measure": {
-          "ap_50_95": 0.9889231017623707,
+          "ap_50_95": 0.9863409892944404,
           "recall_50": 0.9998888147653991,
           "ground_truth_boxes": 8994
         },
         "tempo_region": {
-          "ap_50_95": 0.8616913794538675,
-          "recall_50": 1.0,
+          "ap_50_95": 0.8819511440326913,
+          "recall_50": 0.9966442953020134,
           "ground_truth_boxes": 298
         },
         "clef_region": {
@@ -387,9 +585,34 @@
           "ground_truth_boxes": 0
         },
         "annotation_region": {
-          "ap_50_95": 0.8624089657264181,
-          "recall_50": 0.9994645725504194,
+          "ap_50_95": 0.8761967328438608,
+          "recall_50": 0.997501338568624,
           "ground_truth_boxes": 5603
+        },
+        "title_region": {
+          "ap_50_95": 0.909269714987386,
+          "recall_50": 0.9977924944812362,
+          "ground_truth_boxes": 453
+        },
+        "subtitle_region": {
+          "ap_50_95": 0.8304619280292782,
+          "recall_50": 0.9853372434017595,
+          "ground_truth_boxes": 341
+        },
+        "credit_region": {
+          "ap_50_95": 0.8098527909835843,
+          "recall_50": 0.9866071428571429,
+          "ground_truth_boxes": 448
+        },
+        "tuning_region": {
+          "ap_50_95": 0.8102257212171056,
+          "recall_50": 1.0,
+          "ground_truth_boxes": 335
+        },
+        "header_text_region": {
+          "ap_50_95": 0.7604994117208637,
+          "recall_50": 0.9871794871794872,
+          "ground_truth_boxes": 78
         }
       },
       "total_pages": 591,
@@ -414,17 +637,17 @@
         },
         "correct_sources": 280
       },
-      "exact_measure_count_pages": 589,
-      "raw_exact_measure_count_pages": 589,
+      "exact_measure_count_pages": 590,
+      "raw_exact_measure_count_pages": 590,
       "changed_count_pages": 0,
-      "exact_measure_count_sources": 278,
+      "exact_measure_count_sources": 279,
       "total_sources": 280,
       "typed_detection": {
-        "ap_50_95": 0.9043411489808854,
-        "ap_50": 0.9933975623774226,
+        "ap_50_95": 0.8580998041386513,
+        "ap_50": 0.9875296815654923,
         "categories": {
           "measure_tab": {
-            "ap_50_95": 0.9889231017623707,
+            "ap_50_95": 0.9863409892944404,
             "recall_50": 0.9998888147653991,
             "ground_truth_boxes": 8994
           },
@@ -439,8 +662,8 @@
             "ground_truth_boxes": 0
           },
           "tempo_region": {
-            "ap_50_95": 0.8616913794538675,
-            "recall_50": 1.0,
+            "ap_50_95": 0.8819511440326913,
+            "recall_50": 0.9966442953020134,
             "ground_truth_boxes": 298
           },
           "clef_region": {
@@ -449,9 +672,34 @@
             "ground_truth_boxes": 0
           },
           "annotation_region": {
-            "ap_50_95": 0.8624089657264181,
-            "recall_50": 0.9994645725504194,
+            "ap_50_95": 0.8761967328438608,
+            "recall_50": 0.997501338568624,
             "ground_truth_boxes": 5603
+          },
+          "title_region": {
+            "ap_50_95": 0.909269714987386,
+            "recall_50": 0.9977924944812362,
+            "ground_truth_boxes": 453
+          },
+          "subtitle_region": {
+            "ap_50_95": 0.8304619280292782,
+            "recall_50": 0.9853372434017595,
+            "ground_truth_boxes": 341
+          },
+          "credit_region": {
+            "ap_50_95": 0.8098527909835843,
+            "recall_50": 0.9866071428571429,
+            "ground_truth_boxes": 448
+          },
+          "tuning_region": {
+            "ap_50_95": 0.8102257212171056,
+            "recall_50": 1.0,
+            "ground_truth_boxes": 335
+          },
+          "header_text_region": {
+            "ap_50_95": 0.7604994117208637,
+            "recall_50": 0.9871794871794872,
+            "ground_truth_boxes": 78
           }
         },
         "total_pages": 591
@@ -460,35 +708,60 @@
   },
   "by_instrument": {
     "bass": {
-      "ap_50_95": 0.880527886470463,
-      "ap_50": 0.9949578255343818,
+      "ap_50_95": 0.8496823658061057,
+      "ap_50": 0.9878116000721119,
       "categories": {
         "measure": {
-          "ap_50_95": 0.9827865605885308,
-          "recall_50": 1.0,
+          "ap_50_95": 0.9769335418153376,
+          "recall_50": 0.999821029082774,
           "ground_truth_boxes": 11175
         },
         "tempo_region": {
-          "ap_50_95": 0.8737937139263066,
-          "recall_50": 1.0,
+          "ap_50_95": 0.8794600428797064,
+          "recall_50": 0.9972067039106145,
           "ground_truth_boxes": 358
         },
         "clef_region": {
-          "ap_50_95": 0.8525590765716375,
-          "recall_50": 0.9994653835872761,
+          "ap_50_95": 0.8483571283070851,
+          "recall_50": 1.0,
           "ground_truth_boxes": 3741
         },
         "annotation_region": {
-          "ap_50_95": 0.8129721947953769,
-          "recall_50": 0.9956474428726877,
+          "ap_50_95": 0.8296881803132675,
+          "recall_50": 0.9923830250272034,
           "ground_truth_boxes": 919
+        },
+        "title_region": {
+          "ap_50_95": 0.9148907045478715,
+          "recall_50": 0.9981718464351006,
+          "ground_truth_boxes": 547
+        },
+        "subtitle_region": {
+          "ap_50_95": 0.8423366515726249,
+          "recall_50": 0.9975369458128078,
+          "ground_truth_boxes": 406
+        },
+        "credit_region": {
+          "ap_50_95": 0.8054785536233638,
+          "recall_50": 0.9873188405797102,
+          "ground_truth_boxes": 552
+        },
+        "tuning_region": {
+          "ap_50_95": 0.8097683000961884,
+          "recall_50": 1.0,
+          "ground_truth_boxes": 401
+        },
+        "header_text_region": {
+          "ap_50_95": 0.7402281890995069,
+          "recall_50": 0.9662921348314607,
+          "ground_truth_boxes": 89
         }
       },
       "total_pages": 723,
       "matched_measure_type": {
         "iou": 0.5,
-        "matched_measures": 11175,
-        "correct_measures": 11175,
+        "matched_measures": 11173,
+        "correct_measures": 11173,
         "accuracy": 1.0
       },
       "mode_classification": {
@@ -510,72 +783,122 @@
         },
         "correct_sources": 330
       },
-      "exact_measure_count_pages": 723,
-      "raw_exact_measure_count_pages": 723,
+      "exact_measure_count_pages": 715,
+      "raw_exact_measure_count_pages": 715,
       "changed_count_pages": 0,
-      "exact_measure_count_sources": 330,
+      "exact_measure_count_sources": 322,
       "total_sources": 330,
       "typed_detection": {
-        "ap_50_95": 0.9156612064512627,
-        "ap_50": 0.9966385503562545,
+        "ap_50_95": 0.8727010817753783,
+        "ap_50": 0.9891273348185923,
         "categories": {
           "measure_tab": {
-            "ap_50_95": 0.9976380636649871,
-            "recall_50": 1.0,
+            "ap_50_95": 0.9833331462032565,
+            "recall_50": 0.9997336884154461,
             "ground_truth_boxes": 3755
           },
           "measure_notation": {
-            "ap_50_95": 0.9681792768917388,
+            "ap_50_95": 0.9644913826403496,
             "recall_50": 1.0,
             "ground_truth_boxes": 3629
           },
           "measure_both": {
-            "ap_50_95": 0.9888249128575293,
-            "recall_50": 1.0,
+            "ap_50_95": 0.9816796202459401,
+            "recall_50": 0.9997362173568979,
             "ground_truth_boxes": 3791
           },
           "tempo_region": {
-            "ap_50_95": 0.8737937139263066,
-            "recall_50": 1.0,
+            "ap_50_95": 0.8794600428797064,
+            "recall_50": 0.9972067039106145,
             "ground_truth_boxes": 358
           },
           "clef_region": {
-            "ap_50_95": 0.8525590765716375,
-            "recall_50": 0.9994653835872761,
+            "ap_50_95": 0.8483571283070851,
+            "recall_50": 1.0,
             "ground_truth_boxes": 3741
           },
           "annotation_region": {
-            "ap_50_95": 0.8129721947953769,
-            "recall_50": 0.9956474428726877,
+            "ap_50_95": 0.8296881803132675,
+            "recall_50": 0.9923830250272034,
             "ground_truth_boxes": 919
+          },
+          "title_region": {
+            "ap_50_95": 0.9148907045478715,
+            "recall_50": 0.9981718464351006,
+            "ground_truth_boxes": 547
+          },
+          "subtitle_region": {
+            "ap_50_95": 0.8423366515726249,
+            "recall_50": 0.9975369458128078,
+            "ground_truth_boxes": 406
+          },
+          "credit_region": {
+            "ap_50_95": 0.8054785536233638,
+            "recall_50": 0.9873188405797102,
+            "ground_truth_boxes": 552
+          },
+          "tuning_region": {
+            "ap_50_95": 0.8097683000961884,
+            "recall_50": 1.0,
+            "ground_truth_boxes": 401
+          },
+          "header_text_region": {
+            "ap_50_95": 0.7402281890995069,
+            "recall_50": 0.9662921348314607,
+            "ground_truth_boxes": 89
           }
         },
         "total_pages": 723
       }
     },
     "drums": {
-      "ap_50_95": 0.7513527204104059,
-      "ap_50": 1.0,
+      "ap_50_95": 0.7934030214865536,
+      "ap_50": 0.9988998899889989,
       "categories": {
         "measure": {
-          "ap_50_95": 0.9733291411858755,
+          "ap_50_95": 0.9773877857021113,
           "recall_50": 1.0,
           "ground_truth_boxes": 2419
         },
         "tempo_region": {
-          "ap_50_95": 0.8264780763790665,
+          "ap_50_95": 0.8598615575843299,
           "recall_50": 1.0,
           "ground_truth_boxes": 70
         },
         "clef_region": {
-          "ap_50_95": 0.7808511888291566,
-          "recall_50": 1.0,
+          "ap_50_95": 0.7523539216972538,
+          "recall_50": 0.9975339087546239,
           "ground_truth_boxes": 811
         },
         "annotation_region": {
-          "ap_50_95": 0.42475247524752474,
+          "ap_50_95": 0.4277227722772277,
           "recall_50": 1.0,
           "ground_truth_boxes": 5
+        },
+        "title_region": {
+          "ap_50_95": 0.9168124652224657,
+          "recall_50": 1.0,
+          "ground_truth_boxes": 73
+        },
+        "subtitle_region": {
+          "ap_50_95": 0.845382951372125,
+          "recall_50": 1.0,
+          "ground_truth_boxes": 59
+        },
+        "credit_region": {
+          "ap_50_95": 0.805715621177687,
+          "recall_50": 1.0,
+          "ground_truth_boxes": 79
+        },
+        "tuning_region": {
+          "ap_50_95": 0.7981953988738348,
+          "recall_50": 1.0,
+          "ground_truth_boxes": 49
+        },
+        "header_text_region": {
+          "ap_50_95": 0.7571947194719472,
+          "recall_50": 1.0,
+          "ground_truth_boxes": 10
         }
       },
       "total_pages": 107,
@@ -606,8 +929,8 @@
       "exact_measure_count_sources": 66,
       "total_sources": 66,
       "typed_detection": {
-        "ap_50_95": 0.7513527204104059,
-        "ap_50": 1.0,
+        "ap_50_95": 0.7934030214865536,
+        "ap_50": 0.9988998899889989,
         "categories": {
           "measure_tab": {
             "ap_50_95": null,
@@ -615,7 +938,7 @@
             "ground_truth_boxes": 0
           },
           "measure_notation": {
-            "ap_50_95": 0.9733291411858755,
+            "ap_50_95": 0.9773877857021113,
             "recall_50": 1.0,
             "ground_truth_boxes": 2419
           },
@@ -625,54 +948,104 @@
             "ground_truth_boxes": 0
           },
           "tempo_region": {
-            "ap_50_95": 0.8264780763790665,
+            "ap_50_95": 0.8598615575843299,
             "recall_50": 1.0,
             "ground_truth_boxes": 70
           },
           "clef_region": {
-            "ap_50_95": 0.7808511888291566,
-            "recall_50": 1.0,
+            "ap_50_95": 0.7523539216972538,
+            "recall_50": 0.9975339087546239,
             "ground_truth_boxes": 811
           },
           "annotation_region": {
-            "ap_50_95": 0.42475247524752474,
+            "ap_50_95": 0.4277227722772277,
             "recall_50": 1.0,
             "ground_truth_boxes": 5
+          },
+          "title_region": {
+            "ap_50_95": 0.9168124652224657,
+            "recall_50": 1.0,
+            "ground_truth_boxes": 73
+          },
+          "subtitle_region": {
+            "ap_50_95": 0.845382951372125,
+            "recall_50": 1.0,
+            "ground_truth_boxes": 59
+          },
+          "credit_region": {
+            "ap_50_95": 0.805715621177687,
+            "recall_50": 1.0,
+            "ground_truth_boxes": 79
+          },
+          "tuning_region": {
+            "ap_50_95": 0.7981953988738348,
+            "recall_50": 1.0,
+            "ground_truth_boxes": 49
+          },
+          "header_text_region": {
+            "ap_50_95": 0.7571947194719472,
+            "recall_50": 1.0,
+            "ground_truth_boxes": 10
           }
         },
         "total_pages": 107
       }
     },
     "guitar": {
-      "ap_50_95": 0.8994185416525924,
-      "ap_50": 0.9950413611635713,
+      "ap_50_95": 0.8632027811195172,
+      "ap_50": 0.991067122488671,
       "categories": {
         "measure": {
-          "ap_50_95": 0.9865692566411254,
-          "recall_50": 0.9998755290017426,
+          "ap_50_95": 0.9872438862453469,
+          "recall_50": 1.0,
           "ground_truth_boxes": 16068
         },
         "tempo_region": {
-          "ap_50_95": 0.8573337046240641,
+          "ap_50_95": 0.8953272651980919,
           "recall_50": 1.0,
           "ground_truth_boxes": 546
         },
         "clef_region": {
-          "ap_50_95": 0.8846806333008268,
-          "recall_50": 1.0,
+          "ap_50_95": 0.8798939020186546,
+          "recall_50": 0.99981556621173,
           "ground_truth_boxes": 5422
         },
         "annotation_region": {
-          "ap_50_95": 0.869090572044353,
-          "recall_50": 0.9988013698630137,
+          "ap_50_95": 0.8800124348606687,
+          "recall_50": 0.9984018264840183,
           "ground_truth_boxes": 17520
+        },
+        "title_region": {
+          "ap_50_95": 0.9158298890472311,
+          "recall_50": 1.0,
+          "ground_truth_boxes": 890
+        },
+        "subtitle_region": {
+          "ap_50_95": 0.836712731332496,
+          "recall_50": 0.9911634756995582,
+          "ground_truth_boxes": 679
+        },
+        "credit_region": {
+          "ap_50_95": 0.809731607838602,
+          "recall_50": 0.9882978723404255,
+          "ground_truth_boxes": 940
+        },
+        "tuning_region": {
+          "ap_50_95": 0.806245985271734,
+          "recall_50": 0.9952904238618524,
+          "ground_truth_boxes": 637
+        },
+        "header_text_region": {
+          "ap_50_95": 0.7578273282628302,
+          "recall_50": 0.9862068965517241,
+          "ground_truth_boxes": 145
         }
       },
       "total_pages": 1170,
       "matched_measure_type": {
         "iou": 0.5,
-        "matched_measures": 16066,
-        "correct_measures": 16066,
+        "matched_measures": 16068,
+        "correct_measures": 16068,
         "accuracy": 1.0
       },
       "mode_classification": {
@@ -694,79 +1067,129 @@
         },
         "correct_sources": 510
       },
-      "exact_measure_count_pages": 1166,
-      "raw_exact_measure_count_pages": 1166,
+      "exact_measure_count_pages": 1168,
+      "raw_exact_measure_count_pages": 1168,
       "changed_count_pages": 0,
-      "exact_measure_count_sources": 507,
+      "exact_measure_count_sources": 509,
       "total_sources": 510,
       "typed_detection": {
-        "ap_50_95": 0.9294402595325243,
-        "ap_50": 0.9950440757592126,
+        "ap_50_95": 0.886573041749126,
+        "ap_50": 0.992691060690674,
         "categories": {
           "measure_tab": {
-            "ap_50_95": 0.9900100846853338,
-            "recall_50": 0.9998091238786028,
+            "ap_50_95": 0.9937493227932153,
+            "recall_50": 1.0,
             "ground_truth_boxes": 5239
           },
           "measure_notation": {
-            "ap_50_95": 0.9812429817511965,
-            "recall_50": 0.9998147462022972,
+            "ap_50_95": 0.9826737926720643,
+            "recall_50": 1.0,
             "ground_truth_boxes": 5398
           },
           "measure_both": {
-            "ap_50_95": 0.9942835807893714,
+            "ap_50_95": 0.9942991999447983,
             "recall_50": 1.0,
             "ground_truth_boxes": 5431
           },
           "tempo_region": {
-            "ap_50_95": 0.8573337046240641,
+            "ap_50_95": 0.8953272651980919,
             "recall_50": 1.0,
             "ground_truth_boxes": 546
           },
           "clef_region": {
-            "ap_50_95": 0.8846806333008268,
-            "recall_50": 1.0,
+            "ap_50_95": 0.8798939020186546,
+            "recall_50": 0.99981556621173,
             "ground_truth_boxes": 5422
           },
           "annotation_region": {
-            "ap_50_95": 0.869090572044353,
-            "recall_50": 0.9988013698630137,
+            "ap_50_95": 0.8800124348606687,
+            "recall_50": 0.9984018264840183,
             "ground_truth_boxes": 17520
+          },
+          "title_region": {
+            "ap_50_95": 0.9158298890472311,
+            "recall_50": 1.0,
+            "ground_truth_boxes": 890
+          },
+          "subtitle_region": {
+            "ap_50_95": 0.836712731332496,
+            "recall_50": 0.9911634756995582,
+            "ground_truth_boxes": 679
+          },
+          "credit_region": {
+            "ap_50_95": 0.809731607838602,
+            "recall_50": 0.9882978723404255,
+            "ground_truth_boxes": 940
+          },
+          "tuning_region": {
+            "ap_50_95": 0.806245985271734,
+            "recall_50": 0.9952904238618524,
+            "ground_truth_boxes": 637
+          },
+          "header_text_region": {
+            "ap_50_95": 0.7578273282628302,
+            "recall_50": 0.9862068965517241,
+            "ground_truth_boxes": 145
           }
         },
         "total_pages": 1170
       }
     },
     "pitched": {
-      "ap_50_95": 0.8838187201433982,
-      "ap_50": 0.994898575223376,
+      "ap_50_95": 0.8630529143793051,
+      "ap_50": 0.992117981004669,
       "categories": {
         "measure": {
-          "ap_50_95": 0.9740334023283486,
-          "recall_50": 1.0,
+          "ap_50_95": 0.9710558439313652,
+          "recall_50": 0.9989312433202707,
           "ground_truth_boxes": 2807
         },
         "tempo_region": {
-          "ap_50_95": 0.8551639632048312,
+          "ap_50_95": 0.8803970962567003,
           "recall_50": 1.0,
           "ground_truth_boxes": 94
         },
         "clef_region": {
-          "ap_50_95": 0.9135831879245963,
+          "ap_50_95": 0.9172137186120735,
           "recall_50": 1.0,
           "ground_truth_boxes": 939
         },
         "annotation_region": {
-          "ap_50_95": 0.7924943271158169,
-          "recall_50": 0.988,
+          "ap_50_95": 0.8045409712199959,
+          "recall_50": 0.996,
           "ground_truth_boxes": 250
+        },
+        "title_region": {
+          "ap_50_95": 0.9256181246760596,
+          "recall_50": 1.0,
+          "ground_truth_boxes": 112
+        },
+        "subtitle_region": {
+          "ap_50_95": 0.8577993356144297,
+          "recall_50": 0.9879518072289156,
+          "ground_truth_boxes": 83
+        },
+        "credit_region": {
+          "ap_50_95": 0.8007666264110559,
+          "recall_50": 0.9734513274336283,
+          "ground_truth_boxes": 113
+        },
+        "tuning_region": {
+          "ap_50_95": 0.8114346477055663,
+          "recall_50": 1.0,
+          "ground_truth_boxes": 82
+        },
+        "header_text_region": {
+          "ap_50_95": 0.7986498649864986,
+          "recall_50": 1.0,
+          "ground_truth_boxes": 15
         }
       },
       "total_pages": 153,
       "matched_measure_type": {
         "iou": 0.5,
-        "matched_measures": 2807,
-        "correct_measures": 2807,
+        "matched_measures": 2804,
+        "correct_measures": 2804,
         "accuracy": 1.0
       },
       "mode_classification": {
@@ -784,14 +1207,14 @@
         },
         "correct_sources": 83
       },
-      "exact_measure_count_pages": 153,
-      "raw_exact_measure_count_pages": 153,
+      "exact_measure_count_pages": 150,
+      "raw_exact_measure_count_pages": 150,
       "changed_count_pages": 0,
-      "exact_measure_count_sources": 83,
+      "exact_measure_count_sources": 80,
       "total_sources": 83,
       "typed_detection": {
-        "ap_50_95": 0.8838187201433982,
-        "ap_50": 0.994898575223376,
+        "ap_50_95": 0.8630529143793051,
+        "ap_50": 0.992117981004669,
         "categories": {
           "measure_tab": {
             "ap_50_95": null,
@@ -799,8 +1222,8 @@
             "ground_truth_boxes": 0
           },
           "measure_notation": {
-            "ap_50_95": 0.9740334023283486,
-            "recall_50": 1.0,
+            "ap_50_95": 0.9710558439313652,
+            "recall_50": 0.9989312433202707,
             "ground_truth_boxes": 2807
           },
           "measure_both": {
@@ -809,112 +1232,186 @@
             "ground_truth_boxes": 0
           },
           "tempo_region": {
-            "ap_50_95": 0.8551639632048312,
+            "ap_50_95": 0.8803970962567003,
             "recall_50": 1.0,
             "ground_truth_boxes": 94
           },
           "clef_region": {
-            "ap_50_95": 0.9135831879245963,
+            "ap_50_95": 0.9172137186120735,
             "recall_50": 1.0,
             "ground_truth_boxes": 939
           },
           "annotation_region": {
-            "ap_50_95": 0.7924943271158169,
-            "recall_50": 0.988,
+            "ap_50_95": 0.8045409712199959,
+            "recall_50": 0.996,
             "ground_truth_boxes": 250
+          },
+          "title_region": {
+            "ap_50_95": 0.9256181246760596,
+            "recall_50": 1.0,
+            "ground_truth_boxes": 112
+          },
+          "subtitle_region": {
+            "ap_50_95": 0.8577993356144297,
+            "recall_50": 0.9879518072289156,
+            "ground_truth_boxes": 83
+          },
+          "credit_region": {
+            "ap_50_95": 0.8007666264110559,
+            "recall_50": 0.9734513274336283,
+            "ground_truth_boxes": 113
+          },
+          "tuning_region": {
+            "ap_50_95": 0.8114346477055663,
+            "recall_50": 1.0,
+            "ground_truth_boxes": 82
+          },
+          "header_text_region": {
+            "ap_50_95": 0.7986498649864986,
+            "recall_50": 1.0,
+            "ground_truth_boxes": 15
           }
         },
         "total_pages": 153
       }
     },
     "unknown": {
-      "ap_50_95": 0.548249016954567,
-      "ap_50": 0.6677460290703235,
+      "ap_50_95": 0.7243281340132545,
+      "ap_50": 0.8921535471280658,
       "categories": {
         "measure": {
-          "ap_50_95": 0.8947005906108803,
-          "recall_50": 0.9995478182229256,
+          "ap_50_95": 0.8984817795164469,
+          "recall_50": 0.9991408546235586,
           "ground_truth_boxes": 22115
         },
         "tempo_region": {
-          "ap_50_95": 0.0,
-          "recall_50": 0.0,
+          "ap_50_95": 0.24678217821782178,
+          "recall_50": 0.625,
           "ground_truth_boxes": 8
         },
         "clef_region": {
-          "ap_50_95": 0.7623875660671361,
-          "recall_50": 0.973991249392319,
+          "ap_50_95": 0.7651088264414406,
+          "recall_50": 0.977637335926106,
           "ground_truth_boxes": 4114
         },
         "annotation_region": {
-          "ap_50_95": 0.5359079111402517,
-          "recall_50": 0.8314855875831486,
+          "ap_50_95": 0.6023315636715745,
+          "recall_50": 0.893569844789357,
           "ground_truth_boxes": 451
+        },
+        "title_region": {
+          "ap_50_95": 0.7372312565219579,
+          "recall_50": 1.0,
+          "ground_truth_boxes": 566
+        },
+        "subtitle_region": {
+          "ap_50_95": 0.8340739391225259,
+          "recall_50": 0.9931192660550459,
+          "ground_truth_boxes": 436
+        },
+        "credit_region": {
+          "ap_50_95": 0.8393119535451505,
+          "recall_50": 0.988013698630137,
+          "ground_truth_boxes": 584
+        },
+        "tuning_region": {
+          "ap_50_95": 0.8525660594639886,
+          "recall_50": 0.9976525821596244,
+          "ground_truth_boxes": 426
+        },
+        "header_text_region": {
+          "ap_50_95": 0.7430656496183838,
+          "recall_50": 0.9696969696969697,
+          "ground_truth_boxes": 99
         }
       },
       "total_pages": 733,
       "matched_measure_type": {
         "iou": 0.5,
-        "matched_measures": 22105,
-        "correct_measures": 22103,
-        "accuracy": 0.9999095227324135
+        "matched_measures": 22096,
+        "correct_measures": 22095,
+        "accuracy": 0.9999547429398986
       },
       "mode_classification": {
-        "correct_pages": 732,
+        "correct_pages": 733,
         "total_pages": 733,
-        "accuracy": 0.9986357435197817,
+        "accuracy": 1.0,
         "unknown_pages": 0,
         "confusion": {
           "tab": {},
           "notation": {
-            "notation": 436,
-            "mixed": 1
+            "notation": 437
           },
           "both": {},
           "mixed": {
             "mixed": 296
           }
         },
-        "correct_sources": 399
+        "correct_sources": 400
       },
-      "exact_measure_count_pages": 723,
-      "raw_exact_measure_count_pages": 723,
-      "changed_count_pages": 0,
-      "exact_measure_count_sources": 393,
+      "exact_measure_count_pages": 710,
+      "raw_exact_measure_count_pages": 709,
+      "changed_count_pages": 1,
+      "exact_measure_count_sources": 381,
       "total_sources": 400,
       "typed_detection": {
-        "ap_50_95": 0.6708105615743087,
-        "ap_50": 0.7768471876970474,
+        "ap_50_95": 0.7598236944984283,
+        "ap_50": 0.9108609106472048,
         "categories": {
           "measure_tab": {
-            "ap_50_95": 0.896837835117459,
-            "recall_50": 0.9985549132947977,
+            "ap_50_95": 0.9041132727995285,
+            "recall_50": 0.9995183044315993,
             "ground_truth_boxes": 2076
           },
           "measure_notation": {
-            "ap_50_95": 0.8860988190041992,
-            "recall_50": 0.9995010809911857,
+            "ap_50_95": 0.8938199839831892,
+            "recall_50": 0.9989467265369477,
             "ground_truth_boxes": 18039
           },
           "measure_both": {
-            "ap_50_95": 0.9436312381168064,
+            "ap_50_95": 0.9396559560971511,
             "recall_50": 1.0,
             "ground_truth_boxes": 2000
           },
           "tempo_region": {
-            "ap_50_95": 0.0,
-            "recall_50": 0.0,
+            "ap_50_95": 0.24678217821782178,
+            "recall_50": 0.625,
             "ground_truth_boxes": 8
           },
           "clef_region": {
-            "ap_50_95": 0.7623875660671361,
-            "recall_50": 0.973991249392319,
+            "ap_50_95": 0.7651088264414406,
+            "recall_50": 0.977637335926106,
             "ground_truth_boxes": 4114
           },
           "annotation_region": {
-            "ap_50_95": 0.5359079111402517,
-            "recall_50": 0.8314855875831486,
+            "ap_50_95": 0.6023315636715745,
+            "recall_50": 0.893569844789357,
             "ground_truth_boxes": 451
+          },
+          "title_region": {
+            "ap_50_95": 0.7372312565219579,
+            "recall_50": 1.0,
+            "ground_truth_boxes": 566
+          },
+          "subtitle_region": {
+            "ap_50_95": 0.8340739391225259,
+            "recall_50": 0.9931192660550459,
+            "ground_truth_boxes": 436
+          },
+          "credit_region": {
+            "ap_50_95": 0.8393119535451505,
+            "recall_50": 0.988013698630137,
+            "ground_truth_boxes": 584
+          },
+          "tuning_region": {
+            "ap_50_95": 0.8525660594639886,
+            "recall_50": 0.9976525821596244,
+            "ground_truth_boxes": 426
+          },
+          "header_text_region": {
+            "ap_50_95": 0.7430656496183838,
+            "recall_50": 0.9696969696969697,
+            "ground_truth_boxes": 99
           }
         },
         "total_pages": 733
@@ -923,20 +1420,6 @@
   },
   "split": "test",
   "postprocess": true,
-  "localization_categories": [
-    "measure",
-    "tempo_region",
-    "clef_region",
-    "annotation_region"
-  ],
-  "model_provides_notation_type": true,
-  "threshold": 0.25,
-  "model_dir": "/mnt/data-4/flurry/guitarOCR-external/output/unified-score/layout-complete/best_model/inference",
-  "annotations": "/mnt/data-4/flurry/guitarOCR-external/database/unified_layout_complete/annotations/instance_test.json",
-  "versions": {
-    "paddlex": "3.7.2",
-    "pycocotools": "2.0.8"
-  },
   "small_region_refinement": {
     "views": 4,
     "tile_fraction": 0.55,
@@ -945,7 +1428,74 @@
     "supplements": [
       "clef_region",
       "annotation_region",
-      "tempo_region"
+      "tempo_region",
+      "title_region",
+      "subtitle_region",
+      "credit_region",
+      "tuning_region",
+      "header_text_region"
     ]
+  },
+  "localization_categories": [
+    "measure",
+    "tempo_region",
+    "clef_region",
+    "annotation_region",
+    "title_region",
+    "subtitle_region",
+    "credit_region",
+    "tuning_region",
+    "header_text_region"
+  ],
+  "model_provides_notation_type": true,
+  "threshold": 0.25,
+  "model_dir": "/mnt/data-4/flurry/guitarOCR-external/output/unified-score/layout-headers/best_model/inference",
+  "model_files": {
+    "inference.json": 1222604,
+    "inference.pdiparams": 129240335,
+    "inference.yml": 1374
+  },
+  "annotations": "/mnt/data-4/flurry/guitarOCR-external/database/unified_layout_headers/annotations/instance_test.json",
+  "versions": {
+    "paddlex": "3.7.2",
+    "pycocotools": "2.0.8"
+  },
+  "date": "2026-10-01",
+  "header_supervision": "Native PDF text coordinates and font-bound synthetic headers, with source-disjoint templates and music pages.",
+  "tab_string_count": {
+    "input": "Reference measure crops grouped by held-out source and notation mode; image-derived consensus across measures.",
+    "parts": 954,
+    "outcomes": {
+      "correct": 953,
+      "unresolved": 1
+    },
+    "by_string_count": {
+      "both_6": {
+        "correct": 246
+      },
+      "tab_6": {
+        "correct": 246
+      },
+      "both_4": {
+        "correct": 116,
+        "unresolved": 1
+      },
+      "tab_4": {
+        "correct": 117
+      },
+      "both_7": {
+        "correct": 59
+      },
+      "tab_7": {
+        "correct": 59
+      },
+      "both_5": {
+        "correct": 55
+      },
+      "tab_5": {
+        "correct": 55
+      }
+    },
+    "wrong": []
   }
 }

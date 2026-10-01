@@ -3,7 +3,8 @@
 MODES = ("tab", "notation", "both")
 MEASURE_LABELS = {f"measure_{mode}": mode for mode in MODES}
 PITCH_REGION_LABELS = ("clef_region", "annotation_region", "transposition_region")
-TYPED_CATEGORIES = (*MEASURE_LABELS, "tempo_region", "clef_region", "annotation_region")
+HEADER_REGION_LABELS = ("title_region", "subtitle_region", "credit_region", "tuning_region", "header_text_region")
+TYPED_CATEGORIES = (*MEASURE_LABELS, "tempo_region", "clef_region", "annotation_region", *HEADER_REGION_LABELS)
 
 
 def measure_mode(label: str) -> str | None:

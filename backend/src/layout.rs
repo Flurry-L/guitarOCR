@@ -68,7 +68,17 @@ fn materialize(
         let kind = item["kind"].as_str().ok_or("无效区域类型")?;
         if !matches!(
             kind,
-            "measure" | "header" | "tempo" | "clef" | "transposition" | "annotation"
+            "measure"
+                | "header"
+                | "tempo"
+                | "clef"
+                | "transposition"
+                | "annotation"
+                | "title"
+                | "subtitle"
+                | "credit"
+                | "tuning"
+                | "header_text"
         ) {
             return Err("无效区域类型".into());
         }
@@ -271,7 +281,7 @@ pub fn detect(
             item["page"] = json!(index + 1);
             boxes.push(item);
         }
-        for item in ["tempo_regions", "pitch_regions"]
+        for item in ["tempo_regions", "pitch_regions", "header_regions"]
             .iter()
             .flat_map(|k| found[*k].as_array().into_iter().flatten())
         {
@@ -280,24 +290,14 @@ pub fn detect(
             let kind = match label {
                 "clef_region" => "clef",
                 "annotation_region" | "transposition_region" => "annotation",
-                _ => "tempo",
+                "tempo_region" => "tempo",
+                _ => label.trim_end_matches("_region"),
             };
             boxes.push(json!({"kind":kind,"page":index+1,"bbox":[c[0],c[1],c[2]-c[0],c[3]-c[1]],"score":item["score"]}));
         }
-        if index == 0 {
-            if let Some(top) = boxes
-                .iter()
-                .filter(|b| b["kind"] == "measure" && b["page"] == 1)
-                .filter_map(|b| b["bbox"][1].as_f64())
-                .min_by(f64::total_cmp)
-            {
-                if top >= 2. {
-                    boxes.push(json!({"kind":"header","page":1,"bbox":[0,0,image.width(),top.min(image.height()as f64)]}));
-                }
-            }
-        }
-        progress
-            .update(json!({"done":index+1,"total":pages.len(),"message":"正在检测小节与音轨"}))?;
+        progress.update(
+            json!({"done":index+1,"total":pages.len(),"message":"正在检测小节与谱面信息"}),
+        )?;
     }
     let output = tempfile::Builder::new()
         .prefix("layout_")

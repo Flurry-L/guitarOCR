@@ -1,8 +1,8 @@
 import { ui, endpoint, receiveProject } from "./state.js";
 import { $, el, action, notice } from "./dom.js";
 import { api } from "./api.js";
-const colors = { measure: "#4267c5", header: "#6189ac", tempo: "#b07628", clef: "#7756a4", transposition: "#2468aa", annotation: "#2468aa" };
-const names = { measure: "小节", header: "谱头", tempo: "速度", clef: "谱号", transposition: "标记候选", annotation: "标记候选" };
+const colors = { measure: "#4267c5", header: "#6189ac", title: "#6189ac", subtitle: "#6189ac", credit: "#6189ac", tuning: "#6189ac", header_text: "#6189ac", tempo: "#b07628", clef: "#7756a4", transposition: "#2468aa", annotation: "#2468aa" };
+const names = { measure: "小节", header: "谱头", title: "曲名", subtitle: "副标题", credit: "署名", tuning: "调弦文字", header_text: "其他谱头文字", tempo: "速度", clef: "谱号", transposition: "标记候选", annotation: "标记候选" };
 const modeNames = { tab: "TAB", notation: "五线谱", both: "五线谱 + TAB" };
 function boxName(box) {
   if (["annotation", "transposition"].includes(box.kind)) {
@@ -16,6 +16,11 @@ function boxName(box) {
 
 export function initBoxes({ start, go, render, setBusy }) {
   let undo = [], redo = [], dragStart, savedRevision, pageRequest = 0, imageTimer;
+  $("boxKind").replaceChildren(...Object.entries(names).filter(([kind]) => kind !== "transposition").map(([kind, name]) => {
+    const option = new Option(name, kind);
+    option.hidden = kind === "header";
+    return option;
+  }));
   const snapshot = () => ({boxes:structuredClone(ui.boxes),selected:ui.selected});
   function remember(before = snapshot()) {
     undo.push(before); if(undo.length>50)undo.shift(); redo=[];
@@ -163,6 +168,7 @@ export function initBoxes({ start, go, render, setBusy }) {
     });
     $("coords").hidden = ui.selected < 0;
     const selected = ui.boxes[ui.selected];
+    if (selected) $("boxKind").value = selected.kind === "transposition" ? "annotation" : selected.kind;
     $("boxModeField").hidden = !selected || selected.kind !== "measure";
     if (selected?.kind === "measure") {
       $("boxMode").value = boxMode(selected);
@@ -186,6 +192,7 @@ export function initBoxes({ start, go, render, setBusy }) {
     $("deleteBox").disabled = ui.busy || !selected;
     $("undoBox").disabled = ui.busy || !undo.length;
     $("redoBox").disabled = ui.busy || !redo.length;
+    $("boxKind").disabled = ui.busy;
     $("boxMode").disabled = ui.busy || $("mode").value !== "auto";
     const peers = ui.boxes.map((b, i) => ({ b, i })).filter(({ b }) =>
       selected && b.page === selected.page && b.kind === selected.kind);
@@ -373,6 +380,14 @@ export function initBoxes({ start, go, render, setBusy }) {
   $("mode").onchange = () => {
     ui.boxDirty = true;
     renderBoxList();
+  };
+  $("boxKind").onchange = () => {
+    if (ui.busy || ui.selected < 0) return;
+    remember();
+    ui.boxes[ui.selected].kind = $("boxKind").value;
+    ui.boxDirty = true;
+    renderBoxList();
+    draw();
   };
   $("boxMode").onchange = () => {
     if (ui.selected < 0) return;

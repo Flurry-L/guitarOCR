@@ -440,6 +440,15 @@ fn edited_single(layout: &Value, previous: &Value, values: &Value) -> Result<Val
         .filter(|v| v.is_object())
         .cloned()
         .unwrap_or(json!({}));
+    for (key, limit) in [("subtitle", 500), ("header_notes", 2000)] {
+        if let Some(value) = values.get(key) {
+            let value = value.as_str().ok_or("谱头信息必须是文字")?;
+            if value.chars().count() > limit {
+                return Err("谱头信息过长".into());
+            }
+            metadata[key] = json!(value.trim());
+        }
+    }
     metadata["tempo_quarter"] = json!(tempo);
     metadata.as_object_mut().unwrap().remove("tuning_issue");
     metadata["string_count"] = if fretted {
@@ -603,9 +612,15 @@ fn edited_information(layout: &Value, previous: &Value, values: &Value) -> Resul
             }
         }
     }
+    for key in ["subtitle", "header_notes"] {
+        result["document_metadata"][key] = edited["document_metadata"][key].clone();
+    }
     result["document_metadata"]["tempo_quarter"] =
         edited["document_metadata"]["tempo_quarter"].clone();
     for part in result["parts"].as_array_mut().unwrap() {
+        for key in ["subtitle", "header_notes"] {
+            part["document_metadata"][key] = edited["document_metadata"][key].clone();
+        }
         part["title"] = edited["title"].clone();
         part["artist"] = edited["artist"].clone();
         part["document_metadata"]["tempo_quarter"] =

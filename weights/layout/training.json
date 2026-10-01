@@ -1,27 +1,42 @@
 {
-  "date": "2026-09-30",
+  "date": "2026-10-01",
   "model": "PP-DocLayoutV3",
-  "dataset": "database/unified_layout_complete",
+  "dataset": "database/unified_layout_headers",
   "train_pages": 27182,
   "validation_pages": 2945,
   "test_pages": 2886,
   "boxes": {
-    "train": 842007,
-    "validation": 90510,
-    "test": 89832
+    "train": 918795,
+    "val": 98855,
+    "test": 97904
   },
-  "epochs": 4,
+  "epochs": 6,
+  "best_epoch": 6,
   "batch_size": 4,
-  "learning_rate": 1.2e-05,
-  "initial_weights": "output/unified-score/layout/best_model/best_model.pdparams",
-  "best_validation_ap": 0.905939839341529,
+  "gpus": 7,
+  "global_batch_size": 28,
+  "learning_rate": 8e-05,
+  "warmup_steps": 80,
+  "initial_weights": "output/unified-score/layout-complete/best_model/best_model.pdparams",
+  "class_initialization": "Existing six-class head extended to eleven classes before fine-tuning.",
+  "best_validation_ap": 0.8749076735399629,
   "classes": [
     "measure_tab",
     "measure_notation",
     "measure_both",
     "tempo_region",
     "clef_region",
-    "annotation_region"
+    "annotation_region",
+    "title_region",
+    "subtitle_region",
+    "credit_region",
+    "tuning_region",
+    "header_text_region"
   ],
-  "supervision": "Renderer boxes and transformed source boxes; printed annotation overlays have known geometry. No detector pseudo-labels."
+  "native_header_templates": {
+    "train": 88,
+    "validation": 16,
+    "test": 23
+  },
+  "supervision": "Renderer boxes and transformed source boxes. Header labels use font bounds or native PDF text coordinates, preserving source splits. Unlabelled original headers are removed before composition. No detector pseudo-labels."
 }

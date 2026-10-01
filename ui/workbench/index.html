@@ -179,7 +179,11 @@
               <select id="boxTool">
                 <option value="select">选择 / 移动</option>
                 <option value="measure">＋ 小节框</option>
-                <option value="header">＋ 谱头框</option>
+                <option value="title">＋ 曲名框</option>
+                <option value="subtitle">＋ 副标题框</option>
+                <option value="credit">＋ 署名框</option>
+                <option value="tuning">＋ 调弦文字框</option>
+                <option value="header_text">＋ 其他谱头文字框</option>
                 <option value="tempo">＋ 速度框</option>
                 <option value="clef">＋ 谱号框</option>
                 <option value="annotation">＋ 谱面标记框</option>
@@ -236,6 +240,7 @@
                 <canvas id="cropPreview"></canvas>
               </figure>
               <div class="coords" id="coords" hidden="">
+                <label>区域类型<select id="boxKind"></select></label>
                 <details>
                   <summary>精确位置（像素）</summary>
                   <label>X<input id="boxX" type="number" step="1" /></label
@@ -271,13 +276,15 @@
           <div class="section-head">
             <div>
               <h2>校对谱面信息</h2>
-              <p>从原图核对曲名、作者、乐器和速度。</p>
+              <p>从原图核对谱头文字、乐器和速度。</p>
             </div>
             <button id="readInfo">自动读取信息</button>
           </div>
           <div class="metadata">
             <label>曲名<input id="title" maxlength="500" placeholder="未命名乐谱" /></label
-            ><label>作者<input id="artist" maxlength="500" placeholder="选填" /></label
+            ><label>副标题<input id="subtitle" maxlength="500" placeholder="选填" /></label
+            ><label>署名<textarea id="artist" maxlength="500" rows="2" placeholder="作者、编曲或制谱署名"></textarea></label
+            ><label>其他谱头文字<textarea id="headerNotes" maxlength="2000" rows="2" placeholder="选填"></textarea></label
             ><label>音轨<select id="metadataPart"></select></label
             ><label id="partNameField"
               >音轨名称<input id="partName" maxlength="160" /></label

@@ -180,7 +180,7 @@ export function initWorkspace({ open, resume, refreshConfig }) {
       : "文件在本机处理；退出应用会停止识别。";
     $("settingHint").textContent = editOnly
       ? remote ? "识别暂不可用，请联系管理员。已保存的项目仍可编辑。" : "识别暂不可用，请重新安装应用。已保存的项目仍可编辑。"
-      : ready || cached ? "" : `首次识别需下载约 ${((config.model_download_bytes || 0) / 1e9).toFixed(1)} GB。`;
+      : ready || cached ? "" : `本机识别需下载约 ${((config.model_download_bytes || 0) / 1e9).toFixed(1)} GB。`;
     $("settingHint").hidden = !$("settingHint").textContent;
     $("environmentDetails").hidden = !config.native_runtime_error;
     $("environmentError").textContent = config.native_runtime_error || "";

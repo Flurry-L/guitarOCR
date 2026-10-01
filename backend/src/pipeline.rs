@@ -51,7 +51,7 @@ impl Pipeline {
                 || self.engine.try_lock().is_ok_and(|e| e.is_some()))
     }
     pub fn download_bytes(&self) -> u64 {
-        self.models.total_bytes()
+        self.models.download_bytes()
             + self
                 .acceleration
                 .as_ref()

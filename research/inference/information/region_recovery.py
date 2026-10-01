@@ -15,14 +15,14 @@ def opening_annotations(source, output):
         if not row.get('source_page'):
             continue
         x, y, width, height = row['bbox']
-        # A detected clef bounds the text area without guessing which high
-        # notes or ledger lines are annotations.
+        # Keep recovery above the measure: high notes and slurs can extend
+        # above the clef while still belonging to the music.
         clefs = [r for r in source['regions'] if r['kind'] == 'clef' and r['page'] == row['page']
                  and x - 20 <= r['bbox'][0] <= x + min(120, width / 3)
                  and y <= r['bbox'][1] < y + height]
         if not clefs:
             continue
-        bottom = int(min(r['bbox'][1] for r in clefs)) - 4
+        bottom = int(min(y, min(r['bbox'][1] for r in clefs) - 4))
         top = max(0, int(y) - 80)
         previous = [r for r in source['records'] if r['page'] == row['page']
                     and r['bbox'][1] + r['bbox'][3] < y]
@@ -55,7 +55,7 @@ def opening_annotations(source, output):
             for a, b, w, h in candidates:
                 covered = False
                 for region in source['regions']:
-                    if region['page'] != row['page'] or region['kind'] not in {'annotation', 'transposition', 'tempo'}:
+                    if region['page'] != row['page'] or region['kind'] not in {'annotation', 'transposition', 'tempo', 'title', 'subtitle', 'credit', 'tuning', 'header_text'}:
                         continue
                     u, v, s, t = region['bbox']
                     overlap = max(0, min(a+w, u+s)-max(a,u)) * max(0, min(b+h,v+t)-max(b,v))

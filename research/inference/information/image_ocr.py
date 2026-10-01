@@ -5,6 +5,9 @@ import re
 from pathlib import Path
 from typing import Any
 
+from PIL import Image
+from research.inference.information.prompts import HEADER_FIELDS, HEADER_TEXT_PROMPT, HEADER_TEXT_SCHEMA
+
 from research.inference.information.prompts import HEADER_PROMPT
 from research.inference.information.prompts import TEMPO_PROMPT
 from research.inference.information.prompts import STAFF_PROMPT
@@ -29,6 +32,9 @@ def parse_info_response(raw: str, kind: str, image=None) -> dict[str, Any]:
         return {}
     if not isinstance(value, dict):
         return {}
+    if kind in HEADER_FIELDS:
+        text = value.get("text")
+        return {HEADER_FIELDS[kind]: text.strip() if isinstance(text, str) and text.strip() else None}
     if kind == "clef":
         clef = value.get("clef")
         octave = value.get("clef_octave")
@@ -122,9 +128,17 @@ def recognize_document_info(
         kind = str(region['kind'])
         prompt = {'header': HEADER_PROMPT, 'tempo': TEMPO_PROMPT, 'staff': STAFF_PROMPT,
                   'clef': CLEF_PROMPT, 'transposition': TRANSPOSITION_PROMPT,
-                  'annotation': TRANSPOSITION_PROMPT}[kind]
+                  'annotation': TRANSPOSITION_PROMPT, **dict.fromkeys(HEADER_FIELDS, HEADER_TEXT_PROMPT)}[kind]
+        image = {'type': 'image', 'url': region['image']}
+        if kind in HEADER_FIELDS:
+            with Image.open(region['image']) as source:
+                source = source.convert('RGB')
+                scale = min(4, 144 / source.height, 2048 / source.width)
+                if scale > 1:
+                    source = source.resize((round(source.width * scale), round(source.height * scale)), Image.Resampling.LANCZOS)
+                image = {'type': 'image', 'image': source}
         messages.append([{'role': 'user', 'content': [
-            {'type': 'image', 'url': region['image']}, {'type': 'text', 'text': prompt},
+            image, {'type': 'text', 'text': prompt},
         ]}])
     outputs = []
     batch_size = 32 if getattr(backend, 'supports_ragged_batch', False) else 8
@@ -135,7 +149,7 @@ def recognize_document_info(
             raise Cancelled("已取消谱面信息识别")
         batch = messages[offset:offset + batch_size]
         schemas = [ANNOTATION_SCHEMA if r['kind'] in {'annotation', 'transposition'} else
-                   STAFF_SCHEMA if r['kind'] == 'staff' else None
+                   STAFF_SCHEMA if r['kind'] == 'staff' else HEADER_TEXT_SCHEMA if r['kind'] in HEADER_FIELDS else None
                    for r in regions[offset:offset + batch_size]]
         constrained = getattr(backend, 'supports_json_schema', False)
         if hasattr(backend, 'generate_batch'):
@@ -161,9 +175,19 @@ def recognize_document_info(
 
 def metadata_from_predictions(predictions):
     metadata = {"source": "image_score_ocr"}
+    fields = {}
     for prediction in predictions:
         kind, parsed = prediction['kind'], prediction['parsed']
-        if kind in {"header", "staff"} or (kind == "tempo" and metadata.get("tempo_quarter") is None):
+        if kind in HEADER_FIELDS:
+            key = HEADER_FIELDS[kind]
+            value = parsed.get(key)
+            if value:
+                old = fields.get(key) or ''
+                if not old:
+                    fields[key] = value
+                elif key in {'artist', 'header_notes'} and value not in old.splitlines():
+                    fields[key] = old + '\n' + value
+        elif kind in {"header", "staff"} or (kind == "tempo" and metadata.get("tempo_quarter") is None):
             metadata.update(parsed)
         elif (kind == 'annotation' and parsed.get('kind') == 'tempo'
               and metadata.get('tempo_quarter') is None):
@@ -173,6 +197,7 @@ def metadata_from_predictions(predictions):
             if match and 20 <= int(match[1]) <= 400:
                 metadata['tempo_quarter'] = int(match[1])
 
+    metadata.update(fields)
     tuning = tuning_from_name(metadata.get("tuning_name"))
     if tuning:
         metadata["tuning_midi_high_to_low"] = tuning

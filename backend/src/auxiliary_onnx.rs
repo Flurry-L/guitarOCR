@@ -6,13 +6,18 @@ use ort::{session::Session, value::Tensor};
 use serde_json::{json, Value};
 use std::path::Path;
 
-pub const LAYOUT_LABELS: [&str; 6] = [
+pub const LAYOUT_LABELS: [&str; 11] = [
     "measure_tab",
     "measure_notation",
     "measure_both",
     "tempo_region",
     "clef_region",
     "annotation_region",
+    "title_region",
+    "subtitle_region",
+    "credit_region",
+    "tuning_region",
+    "header_text_region",
 ];
 pub use guitarocr_engine::onnx::initialize_runtime;
 use guitarocr_engine::onnx::session;
@@ -58,6 +63,11 @@ impl LayoutDetector {
                             | "annotation_region"
                             | "transposition_region"
                             | "tempo_region"
+                            | "title_region"
+                            | "subtitle_region"
+                            | "credit_region"
+                            | "tuning_region"
+                            | "header_text_region"
                     )
                 )
             };
@@ -121,11 +131,13 @@ impl LayoutDetector {
             }
             boxes.retain(|b| !is_region(b));
             boxes.extend(kept);
+            boxes = crate::layout_postprocess::deduplicate_pitch_boxes(&boxes)?;
         }
         let mut output = crate::layout_postprocess::process_page(page, &boxes, threshold as f64)?;
         if !include_tempo {
             output["tempo_regions"] = json!([]);
             output["pitch_regions"] = json!([]);
+            output["header_regions"] = json!([]);
         }
         Ok(output)
     }

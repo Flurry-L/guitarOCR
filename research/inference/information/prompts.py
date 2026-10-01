@@ -1,3 +1,13 @@
+HEADER_FIELDS = {'title': 'title', 'subtitle': 'subtitle', 'credit': 'artist',
+                 'tuning': 'tuning_name', 'header_text': 'header_notes'}
+DOCUMENT_HEADER_KINDS = {"header", "title", "subtitle", "credit", "header_text"}
+HEADER_TEXT_PROMPT = (
+    "Transcribe all visible text in this cropped score header, preserving its original "
+    "language, spelling and punctuation. Return one JSON object with text; use null "
+    "if unreadable. Do not infer missing words or identify the song."
+)
+HEADER_TEXT_SCHEMA = {'type': 'object', 'additionalProperties': False,
+                      'required': ['text'], 'properties': {'text': {'anyOf': [{'type': 'string'}, {'type': 'null'}]}}}
 HEADER_PROMPT = (
     "Read only visible song title, artist, and tuning label. Return one JSON object "
     "with title, artist, tuning_name; use null for absent fields."

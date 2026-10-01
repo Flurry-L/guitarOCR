@@ -434,6 +434,24 @@ fn region_image(row: &Value) -> Result<RgbImage> {
     direct_crop(&page, bbox(&region)?)
 }
 
+/// Detector roles determine the destination; OCR only transcribes the crop.
+pub fn header_field(kind: &str) -> Option<&'static str> {
+    match kind {
+        "title" => Some("title"),
+        "subtitle" => Some("subtitle"),
+        "credit" => Some("artist"),
+        "tuning" => Some("tuning_name"),
+        "header_text" => Some("header_notes"),
+        _ => None,
+    }
+}
+pub fn document_header(kind: &str) -> bool {
+    matches!(
+        kind,
+        "header" | "title" | "subtitle" | "credit" | "header_text"
+    )
+}
+pub const HEADER_TEXT_PROMPT: &str = "Transcribe all visible text in this cropped score header, preserving its original language, spelling and punctuation. Return one JSON object with text; use null if unreadable. Do not infer missing words or identify the song.";
 pub const HEADER_PROMPT:&str="Read only visible song title, artist or author credit (including composer, arranger or studio), and tuning label. Preserve the original language and spelling. Return one JSON object with title, artist, tuning_name; use null for absent fields. Tempo, playing techniques and chord names are not titles or author credits.";
 pub const TEMPO_PROMPT:&str="Read the printed quarter-note tempo. Return one JSON object with tempo_quarter; use null if unreadable.";
 pub const STAFF_PROMPT:&str="Read the first staff and its instrument label. Return JSON with instrument (guitar, bass, pitched, drums, or null if unknown) and string_count (number of TAB lines, or null if TAB is absent), and name (the visible instrument label, preserving abbreviations, or null if absent). Use the percussion clef for drums. Use pitched for other melodic instruments or unlabelled melodic notation; use null for unnamed TAB. Do not infer a string count from the five lines of standard notation.";
@@ -445,6 +463,9 @@ fn nullable(kind: &str) -> Value {
 pub fn information_schema(kind: &str) -> Result<Value> {
     let mut properties = Map::new();
     match kind {
+        k if header_field(k).is_some() => {
+            properties.insert("text".into(), nullable("string"));
+        }
         "header" => {
             for key in ["title", "artist", "tuning_name"] {
                 properties.insert(key.into(), nullable("string"));
@@ -715,6 +736,7 @@ pub fn parse_info_response(raw: &str, kind: &str) -> Value {
         return json!({});
     };
     match kind {
+        k if header_field(k).is_some() => json!({header_field(k).unwrap(): cleaned(&v["text"])}),
         "header" => {
             json!({"title":cleaned(&v["title"]),"artist":cleaned(&v["artist"]),"tuning_name":cleaned(&v["tuning_name"])})
         }
@@ -770,9 +792,22 @@ pub fn parse_info_response(raw: &str, kind: &str) -> Value {
 }
 pub fn metadata_from_predictions(predictions: &[Value]) -> Value {
     let mut m = json!({"source":"image_score_ocr"});
+    let mut fields = json!({});
     for p in predictions {
         let kind = text(p, "kind", "");
-        if ["header", "staff"].contains(&kind) || (kind == "tempo" && m["tempo_quarter"].is_null())
+        if let Some(key) = header_field(kind) {
+            if let Some(value) = cleaned(&p["parsed"][key]).as_str() {
+                let old = fields[key].as_str().unwrap_or("");
+                if old.is_empty() {
+                    fields[key] = json!(value);
+                } else if matches!(key, "artist" | "header_notes")
+                    && !old.lines().any(|line| line == value)
+                {
+                    fields[key] = json!(format!("{old}\n{value}"));
+                }
+            }
+        } else if ["header", "staff"].contains(&kind)
+            || (kind == "tempo" && m["tempo_quarter"].is_null())
         {
             merge(&mut m, &p["parsed"]);
         } else if kind == "annotation"
@@ -791,6 +826,7 @@ pub fn metadata_from_predictions(predictions: &[Value]) -> Value {
             }
         }
     }
+    merge(&mut m, &fields);
     // A small header text crop can recover a credit missed in the full header.
     // Only accept these roles inside the header, never from lyrics or staff labels.
     for p in predictions.iter().filter(|p| flag(p, "inside_header")) {
@@ -924,6 +960,7 @@ pub struct InformationOutput {
 }
 fn region_prompt(kind: &str) -> Result<&'static str> {
     match kind {
+        k if header_field(k).is_some() => Ok(HEADER_TEXT_PROMPT),
         "header" => Ok(HEADER_PROMPT),
         "tempo" => Ok(TEMPO_PROMPT),
         "staff" => Ok(STAFF_PROMPT),
@@ -942,7 +979,20 @@ pub fn recognize_regions<G: Generator + ?Sized>(
     for region in regions {
         check(cancelled)?;
         let kind = text(region, "kind", "");
-        let image = region_image(region)?;
+        let mut image = region_image(region)?;
+        if header_field(kind).is_some() {
+            // Small text strips otherwise occupy too few vision patches.
+            let scale = (144. / image.height() as f64)
+                .min(4.)
+                .min(2048. / image.width() as f64);
+            if scale > 1. {
+                image = crate::image_transforms::resize_rgb_lanczos(
+                    &image,
+                    (image.width() as f64 * scale).round() as u32,
+                    (image.height() as f64 * scale).round() as u32,
+                );
+            }
+        }
         let response = engine.generate(
             image_messages(std::slice::from_ref(&image), region_prompt(kind)?, policy)?,
             512,
@@ -1569,7 +1619,7 @@ pub fn recognize_information<G: Generator + ?Sized>(
         regions.extend(opening_annotations(&records, &regions)?);
     }
     for region in &mut regions {
-        if region["kind"] != "header" {
+        if !document_header(text(region, "kind", "")) {
             if let Some(i) = nearest(&records, region) {
                 region["part_id"] = records[i]["part_id"].clone();
             }
@@ -1626,7 +1676,7 @@ pub fn recognize_information<G: Generator + ?Sized>(
         let local_predictions: Vec<Value> = predictions
             .iter()
             .filter(|p| {
-                p["kind"] == "header"
+                document_header(text(p, "kind", ""))
                     || text(p, "part_id", "part-1") == id
                     || (flag(p, "inside_header")
                         && matches!(text(&p["parsed"], "kind", ""), "title" | "credit"))
@@ -3917,8 +3967,8 @@ mod extra_tests {
     }
 }
 
-/// Recover visible opening text only where a detected clef bounds the band;
-/// isolated high notes are excluded, and existing detector regions take priority.
+/// Recover opening text above the measure, with a detected clef as an anchor.
+/// High notes and slurs can extend above the clef but remain inside the measure.
 pub fn opening_annotations(records: &[Value], regions: &[Value]) -> Result<Vec<Value>> {
     let mut first = BTreeMap::new();
     for row in records {
@@ -3946,12 +3996,13 @@ pub fn opening_annotations(records: &[Value], regions: &[Value]) -> Result<Vec<V
         if clefs.is_empty() {
             continue;
         }
-        let bottom = clefs
+        let bottom = (clefs
             .iter()
             .map(|c| c[1])
             .fold(f64::INFINITY, f64::min)
-            .trunc()
-            - 4.;
+            - 4.)
+            .min(b[1])
+            .trunc();
         let mut top = (b[1].trunc() - 80.).max(0.);
         for prev in records.iter().filter(|r| r["page"] == row["page"]) {
             if let Ok(p) = bbox(prev) {
@@ -4028,7 +4079,14 @@ pub fn opening_annotations(records: &[Value], regions: &[Value]) -> Result<Vec<V
                         r["page"] == row["page"]
                             && matches!(
                                 text(r, "kind", ""),
-                                "annotation" | "transposition" | "tempo"
+                                "annotation"
+                                    | "transposition"
+                                    | "tempo"
+                                    | "title"
+                                    | "subtitle"
+                                    | "credit"
+                                    | "tuning"
+                                    | "header_text"
                             )
                     })
                     .filter_map(|r| bbox(r).ok())
