@@ -8,7 +8,7 @@
 
 ```bash
 npm ci --prefix desktop
-cargo build --locked --release -p guitarocr-backend
+npm run native:build --prefix desktop
 ```
 
 推理组件使用 ONNX Runtime 1.23.2、PDFium 5.13.0，以及 `scripts/llamacpp-runtime.json` 固定的 llama.cpp 提交。取自官方发行件或从固定源码构建；资源收集器只提取原生文件及许可证，不安装 wheel 内的 Python 代码。
