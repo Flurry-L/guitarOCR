@@ -35,6 +35,7 @@ export function initMetadata({ start, go, render, setBusy }) {
     $("tuningPreset").value = preset ? $("tuning").value : "custom";
     $("customTuning").hidden = preset;
     instrumentFields();
+    updateMetadataControls();
     const warnings = m?.document_metadata?.warnings || [];
     $("infoWarnings").hidden = !warnings.length;
     $("infoWarnings").textContent = warnings.join("\n");
@@ -63,17 +64,33 @@ export function initMetadata({ start, go, render, setBusy }) {
     $("midiProgram").value = String({guitar:25,bass:33,pitched:0,drums:0}[$("instrument").value]);
     instrumentFields();
     ui.metadataDirty = true;
+    updateMetadataControls();
   };
   $("tuningPreset").onchange = () => {
     $("customTuning").hidden = $("tuningPreset").value !== "custom";
     if ($("tuningPreset").value !== "custom")
       $("tuning").value = $("tuningPreset").value;
     ui.metadataDirty = true;
+    updateMetadataControls();
   };
   for (const id of ["title", "artist", "partName", "midiProgram", "tempo", "capo", "tuning", "transpose"])
     $(id).oninput = () => {
       ui.metadataDirty = true;
+    updateMetadataControls();
     };
+  function updateMetadataControls() {
+    $("discardInfo").hidden = !ui.metadataDirty;
+    $("discardInfo").disabled = ui.busy;
+    $("infoSaveStatus").textContent = ui.metadataDirty
+      ? "有未保存的修改。保存后生效，或放弃修改返回已保存内容。"
+      : "更改乐器、调弦或移调后需重新识别小节。";
+  }
+  $("discardInfo").onclick = () => {
+    if (ui.busy || !confirm("放弃当前音轨未保存的信息修改？")) return;
+    ui.metadataDirty = false;
+    renderMetadata();
+    notice("已恢复保存的谱面信息。");
+  };
   $("readInfo").onclick = action(async () => {
     if (
       (ui.metadataDirty || ui.state.info) &&
@@ -108,6 +125,15 @@ export function initMetadata({ start, go, render, setBusy }) {
           .some((v) => !v.trim()))
     )
       throw new Error("请填写 1 至 12 个弦的 MIDI 音高（0 至 127），用逗号分隔。");
+    const root = ui.state.metadata;
+    const previous = root?.parts?.find(p => p.id === $("metadataPart").value) || root;
+    const transpose = $("transpose").value.trim() ? +$("transpose").value : null;
+    if (ui.state.recognition && (
+      previous?.instrument !== $("instrument").value ||
+      JSON.stringify(previous?.tuning_used || []) !== JSON.stringify(tuning) ||
+      (previous?.transpose ?? null) !== transpose
+    ) && !confirm("更改乐器、调弦或记谱移调后，现有识别和人工校对结果会失效，需要重新识别。仍要保存？")) return;
+    const navigation = ui.navigation;
     setBusy(true);
     try {
       const saved = await api(endpoint("/metadata"), "PUT", {
@@ -127,8 +153,9 @@ export function initMetadata({ start, go, render, setBusy }) {
     } finally {
       setBusy(false);
     }
-    notice("谱面信息已保存。");
-    go(3);
+    go(3, ui.navigation === navigation);
+    if (ui.navigation === navigation)
+      notice(ui.state.recognition ? "谱面信息已保存，音符修改已保留。" : "谱面信息已保存，下一步识别音符与节奏。");
   });
-  return { renderMetadata };
+  return { renderMetadata, updateMetadataControls };
 }

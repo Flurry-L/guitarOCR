@@ -2,6 +2,7 @@ export const ui = {
   state: null,
   sid: null,
   openGeneration: 0,
+  navigation: 0,
   step: 0,
   files: [],
   busy: false,

@@ -1,8 +1,7 @@
 import { setAuth, element } from "./http.js";
-const response = await fetch("/api/auth/me");
-const session = response.ok ? await response.json() : null;
-if (!session?.user) location.replace("/");
-else {
+import { authenticate } from "/static/api.js";
+const session = await authenticate().catch(() => null);
+if (session?.user) {
   setAuth(session);
   const account = element("a", "账号与服务设置", "button");
   account.href = "/#account";

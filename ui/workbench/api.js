@@ -1,5 +1,25 @@
+import { request } from "./http.js";
 const serverMode = location.pathname === "/workbench";
 let csrf;
+let userId;
+let authentication;
+export async function authenticate() {
+  if (!serverMode) return;
+  if (!authentication) authentication = (async () => {
+    const auth = await request("/api/auth/me");
+    const session = auth.ok ? auth.data : null;
+    if (!session?.user || (userId !== undefined && userId !== session.user.id)) {
+      csrf = undefined;
+      window.dispatchEvent(new Event("guitarocr:auth-required"));
+      throw new Error("登录已失效或账号已切换。当前编辑已保留，请在新窗口登录原账号后重试。");
+    }
+    userId = session.user.id;
+    csrf = session.csrf;
+    window.dispatchEvent(new Event("guitarocr:authenticated"));
+    return session;
+  })().finally(() => { authentication = null; });
+  return authentication;
+}
 function requestError(detail) {
   if (typeof detail === "string") return detail;
   if (!Array.isArray(detail)) return "请求失败，请重试。";
@@ -20,15 +40,7 @@ function requestError(detail) {
 }
 export async function api(path, method = "GET", body, revision) {
   const opts = { method };
-  if (serverMode && !csrf) {
-    const auth = await fetch("/api/auth/me");
-    const session = auth.ok ? await auth.json() : null;
-    if (!session?.user) {
-      location.assign("/");
-      throw new Error("会话已过期，请返回首页。");
-    }
-    csrf = session.csrf;
-  }
+  if (serverMode && (!csrf || method !== "GET")) await authenticate();
   if (body instanceof FormData) opts.body = body;
   else if (body !== undefined) {
     opts.body = JSON.stringify(body);
@@ -40,20 +52,16 @@ export async function api(path, method = "GET", body, revision) {
   if (serverMode && method !== "GET") {
     opts.headers = { ...opts.headers, "X-CSRF-Token": csrf };
   }
-  let r;
-  try {
-    r = await fetch(path, opts);
-  } catch {
-    throw new Error(serverMode ? "暂时无法连接服务，请稍后重试。" : "无法连接工作台，请确认启动窗口仍在运行后重试。");
-  }
+  const r = await request(path, opts);
   if (!r.ok) {
-    let data;
-    try {
-      data = await r.json();
-    } catch {
-      data = { detail: "请求失败，请查看启动窗口中的错误后重试。" };
+    if (serverMode && [401, 403].includes(r.status)) {
+      csrf = undefined;
+      if (r.status === 401) {
+        window.dispatchEvent(new Event("guitarocr:auth-required"));
+        throw new Error("登录已失效。当前编辑已保留，请在新窗口登录后重试。");
+      }
     }
-    throw new Error(requestError(data.detail));
+    throw new Error(requestError(r.data?.detail));
   }
-  return r.json();
+  return r.data;
 }

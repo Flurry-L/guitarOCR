@@ -32,7 +32,11 @@ export function initWorkspace({ open, resume, refreshConfig }) {
     navigation = 0,
     refreshing = false;
   function show(name) {
-    if (name !== screen) navigation += 1;
+    if (name !== screen) {
+      navigation += 1;
+      ui.navigation = navigation;
+      notice("");
+    }
     screen = name;
     $("deleteProject").hidden = name !== "workbench" || !ui.state?.pages;
     document.querySelectorAll("[data-screen]").forEach((node) => {
@@ -51,7 +55,11 @@ export function initWorkspace({ open, resume, refreshConfig }) {
       settings: "设置",
     }[name];
     if (["library", "tasks"].includes(name)) refresh();
-    if (name === "settings" && refreshConfig) refreshConfig().catch(error => notice(error.message, true));
+    if (name === "settings" && refreshConfig) {
+      const startedAt = navigation;
+      refreshConfig().catch(error => { if (navigation === startedAt) notice(error.message, true); });
+    }
+    renderJob(ui.state?.job);
     window.dispatchEvent(new Event("resize"));
   }
   document.querySelectorAll("[data-screen-link]").forEach((node) => {
@@ -226,7 +234,7 @@ export function initWorkspace({ open, resume, refreshConfig }) {
     $("newProject").title = active(job)
       ? "当前任务会在后台继续，可新建另一份乐谱"
       : "导入另一份乐谱";
-    $("jobBanner").hidden = !job || (!active(job) && !interrupted(job));
+    $("jobBanner").hidden = screen !== "workbench" || !job || (!active(job) && !interrupted(job));
     $("jobBanner").dataset.status = job?.status || "";
     $("jobTitle").textContent = active(job) ? "正在处理乐谱" : "任务已暂停";
     if (job?.status === "failed") $("jobTitle").textContent = "处理失败";

@@ -8,11 +8,11 @@ const script = (await readFile(new URL('../workbench/workspace.js', import.meta.
 function workspace(pathname = '/') {
   const elements = new Map();
   const $ = id => {
-    if (!elements.has(id)) elements.set(id, { textContent: '', addEventListener() {}, querySelector() { return $(id + '-option'); } });
+    if (!elements.has(id)) elements.set(id, { textContent: '', dataset: {}, removeAttribute() {}, addEventListener() {}, querySelector() { return $(id + '-option'); } });
     return elements.get(id);
   };
   let refreshes = 0;
-  const context = vm.createContext({ $, ui: {}, location: { pathname }, document: { querySelectorAll: () => [] },
+  const context = vm.createContext({ $, notice() {}, ui: {}, location: { pathname }, document: { body: { dataset: {} }, querySelectorAll: () => [] },
     window: { dispatchEvent() {} }, Event, action: fn => fn, setInterval() {},
     refresh: async () => { refreshes++; } });
   vm.runInContext(script + '\nglobalThis.workspace = initWorkspace({ refreshConfig: refresh });', context);

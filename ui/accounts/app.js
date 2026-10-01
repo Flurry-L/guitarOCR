@@ -6,6 +6,9 @@ let config,
   registering = false,
   view = "projects",
   refreshing = false,
+  refreshAgain = false,
+  uploading = false,
+  navigation = 0,
   pendingView = location.hash.slice(1) || "projects";
 const signedIn = () => Boolean(auth?.user && !auth.user.guest);
 function notice(text, error = false) {
@@ -19,8 +22,11 @@ function notice(text, error = false) {
   $("notice").classList.toggle("error", error);
 }
 function action(fn) {
+  let pending = false;
   return async (event) => {
     event?.preventDefault();
+    if (pending) return;
+    pending = true;
     const button = event?.currentTarget;
     if (button?.tagName === "BUTTON") button.disabled = true;
     try {
@@ -28,6 +34,7 @@ function action(fn) {
     } catch (error) {
       notice(error.message || "无法连接服务，请稍后重试。", true);
     } finally {
+      pending = false;
       if (button?.tagName === "BUTTON") button.disabled = false;
     }
   };
@@ -47,6 +54,7 @@ function show(name) {
     return;
   }
   if (name === "admin" && !auth?.user?.admin) name = "projects";
+  if (view !== name) navigation += 1;
   view = name;
   history.replaceState(null, "", name === "projects" ? "/" : `/#${name}`);
   document
@@ -79,7 +87,9 @@ function uploadState() {
   if (!config) return;
   $("uploadButton").textContent = signedIn() ? "上传并识别" : "登录后识别";
   $("uploadButton").disabled =
-    !config.inference_enabled || !$("files").files.length;
+    uploading || !config.inference_enabled || !$("files").files.length;
+  $("files").disabled = uploading;
+  $("recognitionMode").disabled = uploading;
 }
 function openAuth(reason) {
   $("authReason").textContent =
@@ -99,6 +109,12 @@ function renderIdentity() {
     : "登录后可使用服务器识别，并将项目保存在账号中。";
   uploadState();
 }
+window.addEventListener("guitarocr:auth-required", () => {
+  renderIdentity();
+  renderProjects([]);
+  show("projects");
+  openAuth("登录已失效，请重新登录。已选择的文件和填写的内容仍保留。");
+});
 function renderProjects(projects, target = "projects") {
   if (target === "projects") {
     cachedProjects = projects;
@@ -185,7 +201,9 @@ function renderProjects(projects, target = "projects") {
   $(target).replaceChildren(...nodes);
 }
 async function renderUsage() {
+  const session = auth, startedAt = navigation;
   const usage = await api("/api/usage");
+  if (auth !== session || navigation !== startedAt) return;
   $("usage").replaceChildren();
   for (const engine of usage.engines) {
     const n = el("div", undefined, "stat");
@@ -205,11 +223,13 @@ async function renderUsage() {
   $("usage").append(n);
 }
 async function renderAdmin() {
+  const session = auth, startedAt = navigation;
   const [status, users] = await Promise.all([
     api("/api/admin/status"),
     api("/api/admin/users"),
   ]);
-  $("registration").checked = status.registration;
+  if (auth !== session || navigation !== startedAt) return;
+  if (!$("registration").disabled) $("registration").checked = status.registration;
   const userRows = users.map((user) => {
     const tr = el("tr"),
       controls = el("td");
@@ -263,13 +283,19 @@ async function renderAdmin() {
     $("adminJobs").append(el("p", "没有待处理任务。", "muted"));
 }
 async function refresh() {
-  if (!auth || refreshing) return;
+  if (!auth) return;
+  if (refreshing) { refreshAgain = true; return; }
   refreshing = true;
   try {
-    if (["projects", "library", "tasks"].includes(view))
-      renderProjects(await api("/api/sessions"));
-    else if (view === "account") await renderUsage();
-    else if (auth.user.admin) await renderAdmin();
+    do {
+      refreshAgain = false;
+      const session = auth, startedAt = navigation;
+      if (["projects", "library", "tasks"].includes(view)) {
+        const projects = await api("/api/sessions");
+        if (auth === session && navigation === startedAt) renderProjects(projects);
+      } else if (view === "account") await renderUsage();
+      else if (auth?.user.admin) await renderAdmin();
+    } while (refreshAgain && auth);
   } finally {
     refreshing = false;
   }
@@ -331,7 +357,9 @@ $("uploadForm").onsubmit = action(async () => {
     openAuth("登录后可使用服务器识别；已选择的文件会保留。");
     return;
   }
-  $("uploadButton").disabled = true;
+  const startedAt = navigation;
+  uploading = true;
+  uploadState();
   try {
     const form = new FormData();
     for (const file of $("files").files) form.append("files", file);
@@ -353,10 +381,13 @@ $("uploadForm").onsubmit = action(async () => {
     await api("/api/sessions", "POST", form);
     $("files").value = "";
     $("files").onchange();
-    notice("");
-    show("tasks");
+    if (navigation === startedAt) {
+      notice("");
+      show("tasks");
+    } else notice("新项目已提交，可在任务中心查看进度。");
     await refresh();
   } finally {
+    uploading = false;
     uploadState();
   }
 });
@@ -374,10 +405,16 @@ for (const n of document.querySelectorAll("nav [data-view]"))
     await refresh();
   });
 $("registration").onchange = action(async () => {
-  await api(
-    `/api/admin/registration?enabled=${$("registration").checked}`,
-    "PUT",
-  );
+  const desired = $("registration").checked;
+  $("registration").disabled = true;
+  try {
+    await api(`/api/admin/registration?enabled=${desired}`, "PUT");
+  } catch (error) {
+    $("registration").checked = !desired;
+    throw error;
+  } finally {
+    $("registration").disabled = false;
+  }
 });
 (async () => {
   try {

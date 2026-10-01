@@ -35,6 +35,34 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     draftRevision,
     track = "all";
   let selectionScope = "measure";
+  let sourceUrl, sourceRequest = 0, sourceTimer;
+  function loadSource(url) {
+    sourceUrl = url;
+    const request = ++sourceRequest;
+    clearTimeout(sourceTimer);
+    $("measureImage").hidden = true;
+    $("sourceImageStatus").hidden = false;
+    $("sourceImageStatus").textContent = "正在加载原谱…";
+    const image = new Image();
+    const failed = () => {
+      if (request !== sourceRequest) return;
+      clearTimeout(sourceTimer);
+      image.onload = image.onerror = null;
+      $("sourceImageStatus").textContent = "原谱未能加载，点击重试。";
+      $("sourceZoom").setAttribute("aria-label", "重新加载原谱");
+    };
+    image.onload = () => {
+      if (request !== sourceRequest) return;
+      clearTimeout(sourceTimer);
+      $("measureImage").src = url;
+      $("measureImage").hidden = false;
+      $("sourceImageStatus").hidden = true;
+      $("sourceZoom").setAttribute("aria-label", "放大原谱");
+    };
+    image.onerror = failed;
+    sourceTimer = setTimeout(failed, 20000);
+    image.src = url;
+  }
   const histories = new Map();
   const draftKey = () => `guitarocr-draft:${ui.sid}`;
   function persistDraft() {
@@ -332,7 +360,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
   $("confirmNext").onclick = async () => {
     if (!(await save(true))) return;
     const indexes = ui.state.measures.flatMap((m, i) =>
-      m.needs_review && (track === "all" || (m.part_id || "part-1") === track)
+      (m.needs_review || !m.reviewed) && (track === "all" || (m.part_id || "part-1") === track)
         ? [i]
         : [],
     );
@@ -342,7 +370,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
         undefined,
         true,
       );
-    else feedback("当前音轨的待检查小节已全部确认。");
+    else feedback(track === "all" ? "所有小节已确认，可以导出。" : "当前音轨已全部确认，可切换音轨或导出。");
   };
   function renderSummary() {
     const measures = ui.state.measures || [];
@@ -352,6 +380,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     $("reviewEditor").hidden = !measures.length;
     $("recognize").textContent = measures.length ? "重新识别整谱" : "识别乐谱";
     $("recognize").classList.toggle("primary", !measures.length);
+    if (!measures.length) $("recognize").closest("details").open = true;
     const bars = new Set(measures.map((m, i) => m.bar_index ?? i)).size,
       parts = new Set(measures.map((m) => m.part_id || "part-1")).size;
     $("recognitionSummary").textContent =
@@ -512,7 +541,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     $("currentMeasureTitle").textContent =
       `原谱 · ${measureLabel(m, ui.measureIndex)}`;
     $("measureSelect").value = ui.measureIndex;
-    if ($("measureImage").getAttribute("src") !== m.url) $("measureImage").src = m.url;
+    if (sourceUrl !== m.url) loadSource(m.url);
     $("reviewStatus").textContent = m.needs_review
       ? "待检查"
       : m.reviewed
@@ -543,7 +572,10 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     $("nextIssue").disabled = busy || !(ui.state?.measures || []).some((m) =>
       m.needs_review && (track === "all" || (m.part_id || "part-1") === track));
     $("toExport").disabled = busy || !count;
-    $("confirmNext").disabled = busy || !count;
+    const unconfirmed = (ui.state?.measures || []).some(m =>
+      (m.needs_review || !m.reviewed) && (track === "all" || (m.part_id || "part-1") === track));
+    $("confirmNext").disabled = busy || !count || (!ui.measureDirty && !unconfirmed);
+    $("confirmNext").textContent = unconfirmed ? "确认并继续" : ui.measureDirty ? "保存并确认" : "已全部确认";
     $("trackSelect").disabled = busy || !count;
     $("reviewFilter").disabled = busy || !count;
     $("saveMeasure").disabled = busy || !ui.measureDirty;
@@ -1051,6 +1083,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     });
   $("scoreZoom").onchange = () => view.zoom(+$("scoreZoom").value);
   $("sourceZoom").onclick = () => {
+    if ($("measureImage").hidden) { loadSource(current().url); return; }
     $("largeSource").src = current().url;
     $("sourceDialog").showModal();
   };
@@ -1314,7 +1347,8 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     }
   });
   $("toExport").onclick = async () => {
-    if (!ui.measureDirty || (await save(false))) go(4);
+    const navigation = ui.navigation;
+    if (!ui.measureDirty || (await save(false))) go(4, ui.navigation === navigation);
   };
   return { renderMeasures, updateMeasureControls, openIssue };
 }

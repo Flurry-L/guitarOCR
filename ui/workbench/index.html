@@ -77,6 +77,10 @@
       </div>
     </header>
     <main class="app-main">
+      <div id="authRecovery" class="hint" role="alert" hidden>
+        登录已失效，当前编辑仍保留。
+        <a href="/" target="_blank" rel="noopener">在新窗口登录原账号</a>，然后回到此页重试。
+      </div>
       <div id="notice" role="status" aria-live="polite" hidden=""></div>
       <div id="jobBanner" class="job-banner" hidden="">
         <span class="job-spinner" aria-hidden="true"></span>
@@ -162,6 +166,7 @@
               <span id="uploadLimits" class="import-limits"
                 >每个项目最多 100 页 · 200 MB</span
               ><button id="upload" class="primary" disabled="">开始识别</button>
+              <button id="cancelImport" hidden>取消导入，返回原项目</button>
             </div>
           </div>
           <div id="recentProjects" class="recent" hidden="">
@@ -230,6 +235,10 @@
                 >
               </div>
               <div id="canvasScroll">
+                <div id="pageImageStatus" class="hint" role="status" hidden>
+                  <span id="pageImageMessage"></span>
+                  <button id="retryPageImage" hidden>重新加载图片</button>
+                </div>
                 <canvas
                   id="canvas"
                   tabindex="0"
@@ -275,7 +284,8 @@
           <div class="footer">
             <span id="boxSummary" class="muted"
               >点击「自动检测」开始，也可手动添加框。</span
-            ><button id="saveBoxes" class="primary">保存并继续</button>
+            ><div class="row"><button id="discardBoxes" hidden>放弃修改</button>
+            <button id="saveBoxes" class="primary">保存并继续</button></div>
           </div>
         </section>
         <section data-panel="2" class="panel">
@@ -287,8 +297,8 @@
             <button id="readInfo">自动读取信息</button>
           </div>
           <div class="metadata">
-            <label>曲名<input id="title" placeholder="未命名乐谱" /></label
-            ><label>作者<input id="artist" placeholder="选填" /></label
+            <label>曲名<input id="title" maxlength="500" placeholder="未命名乐谱" /></label
+            ><label>作者<input id="artist" maxlength="500" placeholder="选填" /></label
             ><label>音轨<select id="metadataPart"></select></label
             ><label id="partNameField"
               >音轨名称<input id="partName" maxlength="160" /></label
@@ -358,8 +368,9 @@
           </div>
           <div id="infoWarnings" class="hint" hidden=""></div>
           <div class="footer">
-            <span class="muted">更改乐器、调弦或移调后需重新识别小节。</span>
-            <button id="saveInfo" class="primary">保存并继续</button>
+            <span id="infoSaveStatus" class="muted" role="status">更改乐器、调弦或移调后需重新识别小节。</span>
+            <div class="row"><button id="discardInfo" hidden>放弃修改</button>
+            <button id="saveInfo" class="primary">保存并继续</button></div>
           </div>
         </section>
         <section data-panel="3" class="panel">
@@ -783,6 +794,7 @@
                   <button id="retryMeasure" class="quiet">重新识别</button>
                 </div>
                 <button id="sourceZoom" class="crop" aria-label="放大原谱">
+                  <span id="sourceImageStatus" role="status">正在加载原谱…</span>
                   <img id="measureImage" alt="选中小节的原谱" />
                 </button>
                 <div id="fallback" class="hint warning" hidden=""></div>

@@ -6,7 +6,7 @@ const names = { measure: "小节", header: "谱头", tempo: "速度", clef: "谱
 const modeNames = { tab: "TAB", notation: "五线谱", both: "五线谱 + TAB" };
 
 export function initBoxes({ start, go, render, setBusy }) {
-  let undo = [], redo = [], dragStart, savedRevision;
+  let undo = [], redo = [], dragStart, savedRevision, pageRequest = 0, imageTimer;
   const snapshot = () => ({boxes:structuredClone(ui.boxes),selected:ui.selected});
   function remember(before = snapshot()) {
     undo.push(before); if(undo.length>50)undo.shift(); redo=[];
@@ -32,18 +32,43 @@ export function initBoxes({ start, go, render, setBusy }) {
     const p = ui.state.pages[ui.pageIndex];
     $("pageLabel").textContent =
       `第 ${ui.pageIndex + 1} / ${ui.state.pages.length} 页${p.notation_mode ? `，${modeNames[p.notation_mode]}` : ""}`;
+    const request = ++pageRequest;
+    clearTimeout(imageTimer);
     ui.pageImage = null;
+    ui.drag = null;
+    $("canvas").hidden = true;
+    $("boxPreview").hidden = true;
     $("canvas").setAttribute("aria-busy", "true");
+    $("pageImageStatus").hidden = false;
+    $("pageImageMessage").textContent = "正在加载页面图片…";
+    $("retryPageImage").hidden = true;
     const img = new Image();
-    img.onload = () => {
-      if (ui.state.pages[ui.pageIndex] !== p) return;
-      ui.pageImage = img;
+    const current = () => request === pageRequest && ui.state?.pages?.[ui.pageIndex] === p;
+    const failed = () => {
+      if (!current()) return;
+      clearTimeout(imageTimer);
+      img.onload = img.onerror = null;
       $("canvas").setAttribute("aria-busy", "false");
-      resizeCanvas();
+      $("pageImageMessage").textContent = "页面图片未能加载，区域修改仍保留。请检查连接后重试。";
+      $("retryPageImage").hidden = false;
+      updateBoxControls();
     };
+    img.onload = () => {
+      if (!current()) return;
+      clearTimeout(imageTimer);
+      ui.pageImage = img;
+      $("canvas").hidden = false;
+      $("canvas").setAttribute("aria-busy", "false");
+      $("pageImageStatus").hidden = true;
+      resizeCanvas();
+      updateBoxControls();
+    };
+    img.onerror = failed;
+    imageTimer = setTimeout(failed, 20000);
     img.src = p.url;
     renderBoxList();
   }
+  $("retryPageImage").onclick = loadPage;
   function resizeCanvas() {
     if (!ui.pageImage) return;
     const fit = Math.min(
@@ -145,6 +170,10 @@ export function initBoxes({ start, go, render, setBusy }) {
   }
   function updateBoxControls() {
     const selected = ui.boxes[ui.selected];
+    $("applyCoords").disabled = ui.busy || !selected || !ui.pageImage;
+    $("discardBoxes").hidden = !ui.boxDirty;
+    $("discardBoxes").disabled = ui.busy;
+    $("saveBoxes").disabled = ui.busy || !ui.boxes.some(box => box.kind === "measure");
     $("deleteBox").disabled = ui.busy || !selected;
     $("undoBox").disabled = ui.busy || !undo.length;
     $("redoBox").disabled = ui.busy || !redo.length;
@@ -358,12 +387,23 @@ export function initBoxes({ start, go, render, setBusy }) {
       },
     );
   });
+  $("discardBoxes").onclick = () => {
+    if (ui.busy || !confirm("放弃未保存的区域修改，恢复已保存的区域？")) return;
+    ui.boxes = structuredClone(ui.state.boxes || []);
+    ui.selected = -1;
+    ui.boxDirty = false;
+    undo = []; redo = [];
+    $("mode").value = ui.state.mode_setting || ui.state.mode;
+    renderBoxList(); draw();
+    notice("已恢复保存的区域。");
+  };
   $("saveBoxes").onclick = action(async () => {
     if (!ui.boxDirty && ui.state.layout) {
       go(2);
       return;
     }
     if(ui.state.recognition && !confirm("保存区域修改后需要重新读取谱面信息和小节，现有识别及校对结果会失效。继续？"))return;
+    const navigation = ui.navigation;
     setBusy(true);
     try {
       const saved = await api(endpoint("/boxes"), "PUT", {
@@ -375,8 +415,8 @@ export function initBoxes({ start, go, render, setBusy }) {
     } finally {
       setBusy(false);
     }
-    notice("区域已保存。");
-    go(2);
+    go(2, ui.navigation === navigation);
+    if (ui.navigation === navigation) notice("区域已保存，请核对谱面信息。");
   });
   $("canvas").onkeydown=e=>{
     if(ui.busy)return;

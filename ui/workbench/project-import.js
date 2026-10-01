@@ -1,3 +1,4 @@
+import { request } from "./http.js";
 // Import a saved project without discarding the current editor until it succeeds.
 // Navigation remains available; a late result is kept in the library instead of
 // taking the user back to the editor they left.
@@ -42,12 +43,12 @@ export const SAMPLE_ARCHIVE = "/static/examples/Harbor-Light-synthetic-project.z
 export async function readSample(fetchArchive = fetch) {
   let response;
   try {
-    response = await fetchArchive(SAMPLE_ARCHIVE);
+    response = await request(SAMPLE_ARCHIVE, {}, "blob", fetchArchive);
   } catch {
     throw new Error("暂时无法加载示例，请重试。");
   }
   if (!response.ok) throw new Error("示例文件未能加载，请重试或检查安装是否完整。");
-  return new File([await response.blob()], "Harbor-Light-synthetic-project.zip", {
+  return new File([response.data], "Harbor-Light-synthetic-project.zip", {
     type: "application/zip",
   });
 }

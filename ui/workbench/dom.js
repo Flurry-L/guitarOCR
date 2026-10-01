@@ -13,10 +13,11 @@ export function notice(message, error = false) {
 }
 export function action(fn) {
   return async (...args) => {
+    const sid = ui.sid, generation = ui.openGeneration;
     try {
       await fn(...args);
     } catch (e) {
-      notice(e.message, true);
+      if (ui.sid === sid && ui.openGeneration === generation) notice(e.message, true);
     }
   };
 }

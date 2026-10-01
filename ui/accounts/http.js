@@ -1,3 +1,4 @@
+import { request } from "/static/http.js";
 export let auth = null;
 export function setAuth(value) {
   auth = value;
@@ -11,17 +12,12 @@ export async function api(path, method = "GET", body, revision) {
     options.body = JSON.stringify(body);
   }
   if (revision !== undefined) options.headers["If-Match"] = String(revision);
-  const response = await fetch(path, options);
+  const response = await request(path, options);
   if (!response.ok) {
-    let data;
-    try {
-      data = await response.json();
-    } catch {
-      data = {};
-    }
+    const data = response.data || {};
     if (response.status === 401 && auth && path !== "/api/auth/login") {
       setAuth(null);
-      location.assign("/");
+      window.dispatchEvent(new Event("guitarocr:auth-required"));
     }
     throw new Error(
       typeof data.detail === "string"
@@ -29,7 +25,7 @@ export async function api(path, method = "GET", body, revision) {
         : "填写的内容有误，请检查后重试。",
     );
   }
-  return response.json();
+  return response.data;
 }
 export function element(tag, text, className) {
   const node = document.createElement(tag);
