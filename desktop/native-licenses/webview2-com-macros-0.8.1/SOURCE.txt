@@ -1,0 +1,3 @@
+webview2-com-macros-0.8.1
+https://github.com/wravery/webview2-rs/blob/dffa41a8a46d3f5565eefbff2de57d38d399f158/LICENSE
+Revision from the published crate's .cargo_vcs_info.json.
