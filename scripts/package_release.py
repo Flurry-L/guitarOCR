@@ -28,7 +28,7 @@ def build(resources, output):
         raise ValueError('Native distribution contains unexpected Python or model files')
     if platform.system() == 'Windows':
         destination = output / (name + '.zip')
-        with zipfile.ZipFile(destination, 'w', zipfile.ZIP_DEFLATED) as archive:
+        with zipfile.ZipFile(destination, 'w', zipfile.ZIP_DEFLATED, strict_timestamps=False) as archive:
             for p in paths:
                 archive.write(p, Path(name) / p.relative_to(resources))
     else:

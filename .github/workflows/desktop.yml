@@ -41,8 +41,17 @@ jobs:
           cache-dependency-path: desktop/package-lock.json
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+          cache-workspace-crates: true
+      - uses: actions/cache/restore@v4
+        if: inputs.include_inference
+        id: runtime-cache
+        with:
+          path: output/runtime-artifacts
+          key: native-runtime-${{ matrix.platform }}-${{ inputs.acceleration }}-${{ hashFiles('scripts/build_llamacpp_runtime.py', 'scripts/package_llamacpp_runtime.py', 'scripts/llamacpp_runtime.py', 'scripts/llamacpp-runtime.json') }}
       - uses: Jimver/cuda-toolkit@v0.2.24
-        if: inputs.include_inference && inputs.acceleration == 'cuda' && runner.os != 'macOS'
+        if: inputs.include_inference && inputs.acceleration == 'cuda' && runner.os != 'macOS' && steps.runtime-cache.outputs.cache-hit != 'true'
         with:
           cuda: '12.8.1'
           method: network
@@ -57,7 +66,7 @@ jobs:
         with:
           python-version: '3.11'
       - uses: actions/checkout@v4
-        if: inputs.include_inference
+        if: inputs.include_inference && steps.runtime-cache.outputs.cache-hit != 'true'
         with:
           repository: ggml-org/llama.cpp
           ref: 8019dc563b1ecbae6b161a70c3a1359f1b206c1e
@@ -80,15 +89,21 @@ jobs:
           backend = 'cuda' if os.environ['NATIVE_ACCELERATION'] == 'cuda' and not platform.startswith('macos') else 'metal' if platform == 'macos-arm64' else 'cpu'
           target = platform + '-' + backend
           run = lambda *args: subprocess.run([sys.executable, *map(str, args)], check=True)
-          run('scripts/build_llamacpp_runtime.py', '--source', '.runtime-source',
-              '--build', 'output/runtime-build', '--output', 'output/runtime-artifacts', '--target', target)
           wheels = Path('output/native-wheels')
           artifacts = Path('output/runtime-artifacts')
+          if not (artifacts / (target + '.json')).is_file():
+              run('scripts/build_llamacpp_runtime.py', '--source', '.runtime-source',
+                  '--build', 'output/runtime-build', '--output', artifacts, '--target', target)
           run('scripts/collect_native_assets.py', '--target', target,
               '--ort-archive', next(wheels.glob('onnxruntime-*.whl')),
               '--pdfium-wheel', next(wheels.glob('pypdfium2-*.whl')),
               '--llama-archive', next(artifacts.glob('*.zip')),
               '--llama-manifest', artifacts / (target + '.json'), '--output', 'output/native-components')
+      - uses: actions/cache/save@v4
+        if: inputs.include_inference && steps.runtime-cache.outputs.cache-hit != 'true'
+        with:
+          path: output/runtime-artifacts
+          key: ${{ steps.runtime-cache.outputs.cache-primary-key }}
       - run: npm run native:build
         working-directory: desktop
       - name: Stage native application
@@ -108,6 +123,7 @@ jobs:
         if: inputs.include_inference
         run: python scripts/package_release.py
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: GuitarOCR-${{ inputs.include_inference && 'native' || 'editor' }}-${{ matrix.platform }}-${{ inputs.acceleration }}
           if-no-files-found: error
