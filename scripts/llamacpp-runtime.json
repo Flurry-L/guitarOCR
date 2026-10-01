@@ -6,24 +6,34 @@
   "artifacts": {
     "windows-x64-cpu": {
       "url": "https://github.com/Flurry-L/guitarOCR/releases/download/v0.1.0-resources/llamacpp-8019dc563b1e-windows-x64-cpu.zip",
-      "bytes": 3909388,
-      "sha256": "b9b39ad39fb8a6bda6475ed0a2051c06a4b69293a1f0809c51b8867b268d3fe1",
+      "bytes": 4269813,
+      "sha256": "6fc0832a5bd0801facc54b10c332038dbf4884f46e48568512dac0016a8beb98",
       "executable": "llama-server.exe",
       "files": [
-        {
-          "name": "build.json",
-          "bytes": 1131,
-          "sha256": "5574b4c3cad95f179559bfe310afaca935294f279764d439dbb2b39d038934f2"
-        },
         {
           "name": "LICENSE",
           "bytes": 1099,
           "sha256": "bcd8ec749126d45cb06737d0690295d73df4b6e7e194205bcf91190368f27285"
         },
         {
+          "name": "LICENSE-Microsoft-Visual-Cpp.html",
+          "bytes": 236931,
+          "sha256": "f48e1ee4e7f4cc300fe0859eb3ebff53aaa51dd6ac0da304c7548f239cd444dc"
+        },
+        {
+          "name": "build.json",
+          "bytes": 1302,
+          "sha256": "ef51deb5dddc559d91c693e3d635119b167f3562a522712fc5255f07b7a12504"
+        },
+        {
           "name": "llama-server.exe",
           "bytes": 9335808,
           "sha256": "749e5301652b855471880dd80b3098d83782317af715c048f970cf4a46621897"
+        },
+        {
+          "name": "msvcp140.dll",
+          "bytes": 643512,
+          "sha256": "7c26614e1d733892c2deac7e245ce115504b1d80592dd0a01b08e3e5a55f89ca"
         },
         {
           "name": "notices/licenses/LICENSE-jsonhpp",
@@ -49,6 +59,16 @@
           "name": "notices/vendor/hash/xxhash/LICENSE",
           "bytes": 1415,
           "sha256": "a2973411d278045bde3c7161b911e0680d53e2d73d6457c77068d2e55d816d67"
+        },
+        {
+          "name": "vcruntime140.dll",
+          "bytes": 178616,
+          "sha256": "d1f4225df2cd877dbf130d5668a021dce3f94118455ff5ec952061c30afc9ce7"
+        },
+        {
+          "name": "vcruntime140_1.dll",
+          "bytes": 50112,
+          "sha256": "a7146c08f89fe5b04541ab507cdb59ff7b44534d4ba3c668a426c6450a03434e"
         }
       ]
     },
@@ -99,6 +119,185 @@
           "sha256": "6ffedbc0f7878612d2b23589f1ff2ab15633e1df7963a5d9fc750ec5500c7e7a"
         }
       ]
+    },
+    "windows-x64-cuda": {
+      "url": "https://github.com/Flurry-L/guitarOCR/releases/download/v0.1.0-resources/llamacpp-8019dc563b1e-windows-x64-cuda.zip",
+      "bytes": 665812170,
+      "sha256": "9d85fdda652ed0f4c727881aff2083adab48c2fa9748059472e246f36c77be31",
+      "executable": "llama-server.exe",
+      "files": [
+        {
+          "name": "CUDA-EULA.html",
+          "bytes": 85051,
+          "sha256": "c0e213c4c53fbc9b29dc3e8cea0fb06b0498a28eca01858d3611d975dd70f585"
+        },
+        {
+          "name": "LICENSE",
+          "bytes": 1078,
+          "sha256": "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d"
+        },
+        {
+          "name": "LICENSE-LLVM-OpenMP",
+          "bytes": 19741,
+          "sha256": "fdad1758a9e1f9d5a81e18879b3406772115edc92c24bfa36b70c654f325e8e4"
+        },
+        {
+          "name": "LICENSE-Microsoft-Visual-Cpp.html",
+          "bytes": 236931,
+          "sha256": "f48e1ee4e7f4cc300fe0859eb3ebff53aaa51dd6ac0da304c7548f239cd444dc"
+        },
+        {
+          "name": "build.json",
+          "bytes": 683,
+          "sha256": "7886d2b8c6ffb8f056f709d31973cc7fa6155628970c31b945656042b1ab36bf"
+        },
+        {
+          "name": "cublas64_12.dll",
+          "bytes": 100033536,
+          "sha256": "e40202fe4223c1cd2d2dce7beec59e1ed61c7801bd827309183be9b50e358f4c"
+        },
+        {
+          "name": "cublasLt64_12.dll",
+          "bytes": 473551360,
+          "sha256": "2a896460bef60ed57ef32b0875812f355a6984e671d638bb632f5e8c1d7a831f"
+        },
+        {
+          "name": "cudart64_12.dll",
+          "bytes": 553984,
+          "sha256": "d28e42265da7462162a54da6b7a99ea4fa2caf8139d862bb500db875d0b32dfc"
+        },
+        {
+          "name": "ggml-base.dll",
+          "bytes": 800768,
+          "sha256": "1b9987488648b4d244799f894d7808c97d592ec63048583e0656d78e62297c75"
+        },
+        {
+          "name": "ggml-cpu-alderlake.dll",
+          "bytes": 1424384,
+          "sha256": "634f4d2a5502b92fb651942d7efb78aeffb73c4dd141501b718f66ea56b4c61f"
+        },
+        {
+          "name": "ggml-cpu-cannonlake.dll",
+          "bytes": 1649664,
+          "sha256": "e72284c08efd4429c05ef3faace468738ffebbd99b23f55e348013b2bed55478"
+        },
+        {
+          "name": "ggml-cpu-cascadelake.dll",
+          "bytes": 1634304,
+          "sha256": "6dcdbafd51971ea6bce45a8b0dfca90a711ff632c4e03a30ad08c509eed41b55"
+        },
+        {
+          "name": "ggml-cpu-cooperlake.dll",
+          "bytes": 1634816,
+          "sha256": "d1ebf628c29e9163609aedd462162ab8b04d48e9bdf03295a7a263154f769bc7"
+        },
+        {
+          "name": "ggml-cpu-haswell.dll",
+          "bytes": 1428992,
+          "sha256": "2f8f330071d64f4dfeb327351f7c0b3becdc51a7930e6a419a44b531319ff4c3"
+        },
+        {
+          "name": "ggml-cpu-icelake.dll",
+          "bytes": 1640448,
+          "sha256": "1a914b9bdf1f3bbef46a825288dd8e5b33a004b082f66f954a1c6542f032abfd"
+        },
+        {
+          "name": "ggml-cpu-ivybridge.dll",
+          "bytes": 1298944,
+          "sha256": "20806c403921ba0238d7aad5ea271b361adffc8cb89a1fd4809404beae538d22"
+        },
+        {
+          "name": "ggml-cpu-piledriver.dll",
+          "bytes": 1303040,
+          "sha256": "ca205efc658083c792c9d8d2809c465310ea21bc4662733cdb7bc4ca31a3d8ef"
+        },
+        {
+          "name": "ggml-cpu-sandybridge.dll",
+          "bytes": 1278976,
+          "sha256": "2b0a8033b5edb23c96ce245ab32e3e78036aff71927f8decebb9d3e3bade08d1"
+        },
+        {
+          "name": "ggml-cpu-sapphirerapids.dll",
+          "bytes": 1911296,
+          "sha256": "8bb22cab9afc913506647a0a99f34b6dacd505994a57e23330ffb99351d92d56"
+        },
+        {
+          "name": "ggml-cpu-skylakex.dll",
+          "bytes": 1643008,
+          "sha256": "833c1c5023d531fe52423e82c81b43736c6d7f17ffcec7d18254a2230c602431"
+        },
+        {
+          "name": "ggml-cpu-sse42.dll",
+          "bytes": 909312,
+          "sha256": "f4fd59b1ac6f998796a672417a8625636178314b964c310f7625aacb32262291"
+        },
+        {
+          "name": "ggml-cpu-x64.dll",
+          "bytes": 901632,
+          "sha256": "4969ea3f7d27026636d9a3364d1f04a2ba8618844b0276e936057d74fce3184e"
+        },
+        {
+          "name": "ggml-cpu-zen4.dll",
+          "bytes": 1641472,
+          "sha256": "08a820e1c361ed9ffb96051f4db8d0b17f7900b506945318b9d512110d052b97"
+        },
+        {
+          "name": "ggml-cuda.dll",
+          "bytes": 569357824,
+          "sha256": "bac8576f5252751af78bb62b07997e3ce808b080b3efcaf27ed189a8ed5893f1"
+        },
+        {
+          "name": "ggml.dll",
+          "bytes": 79872,
+          "sha256": "3788faa996d7cd0a3ee872b5e1e8a4b5a1fa213fb2f022ab02e364f124442dc7"
+        },
+        {
+          "name": "libomp.dll",
+          "bytes": 768000,
+          "sha256": "a12116ba72d1d6820407cf30be23da04ce79d6bb8a71a5ee71759c5a1faa6f1c"
+        },
+        {
+          "name": "llama-common.dll",
+          "bytes": 7848960,
+          "sha256": "6d864047d8c0d22a936609fbea08a8fdbc09cfe5271976127691efc34b8b0613"
+        },
+        {
+          "name": "llama-server-impl.dll",
+          "bytes": 8919040,
+          "sha256": "8d65344dc36a31218063f538ee0d2c719646178b1112c2dd39edb4330ffad210"
+        },
+        {
+          "name": "llama-server.exe",
+          "bytes": 9216,
+          "sha256": "c7f827841724ba278900bda184a266ac2526ee5dd2b72cb4f016a43604341c42"
+        },
+        {
+          "name": "llama.dll",
+          "bytes": 3203072,
+          "sha256": "a686f9bbccc640e4e86ef3ac57f480a37891d73ba19f805349a2604cb2e125d6"
+        },
+        {
+          "name": "msvcp140.dll",
+          "bytes": 643512,
+          "sha256": "7c26614e1d733892c2deac7e245ce115504b1d80592dd0a01b08e3e5a55f89ca"
+        },
+        {
+          "name": "mtmd.dll",
+          "bytes": 1787904,
+          "sha256": "f6f82313ad9b8a51ebbf00402ec70c34f829ab3a1b40ae084dea7c0f2851644d"
+        },
+        {
+          "name": "vcruntime140.dll",
+          "bytes": 178616,
+          "sha256": "d1f4225df2cd877dbf130d5668a021dce3f94118455ff5ec952061c30afc9ce7"
+        },
+        {
+          "name": "vcruntime140_1.dll",
+          "bytes": 50112,
+          "sha256": "a7146c08f89fe5b04541ab507cdb59ff7b44534d4ba3c668a426c6450a03434e"
+        }
+      ],
+      "cuda_driver": 12040
     }
   }
 }

@@ -204,6 +204,11 @@ export async function prepare(options = {}) {
         const target = path.join(staging, 'native', component.name, file.path);
         await mkdir(path.dirname(target), { recursive: true });
         await writeFile(target, bytes);
+        // ONNX Runtime also needs the C++ runtime in the backend's DLL search
+        // directory. Keep the inventoried copy beside llama-server as well.
+        if (process.platform === 'win32' && ['msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll'].includes(path.basename(file.path).toLowerCase())) {
+          await writeFile(path.join(staging, 'native', path.basename(file.path)), bytes);
+        }
         if (file.role === 'executable' && process.platform !== 'win32') await chmod(target, 0o755);
       }
     }

@@ -39,8 +39,12 @@ jobs:
           --output output/runtime-artifacts --target ${{ inputs.target }}
           --release-tag v0.1.0-resources
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: GuitarOCR-runtime-${{ inputs.target }}
           if-no-files-found: error
           compression-level: 0
-          path: output/runtime-artifacts/*
+          path: |
+            output/runtime-artifacts/*
+            output/runtime-build/bin/Release/*.exe
+            output/runtime-build/bin/Release/*.dll

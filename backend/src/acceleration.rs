@@ -26,15 +26,16 @@ impl Acceleration {
             return None;
         }
         let budget = MemoryBudget::estimate(sizes[0], sizes[1], 8192, slots.clamp(1, 4)).ok()?;
-        if !guitarocr_engine::cuda::available(budget.required_bytes) {
-            return None;
-        }
         let runtimes: Value =
             serde_json::from_str(include_str!("../../scripts/llamacpp-runtime.json")).ok()?;
         if runtimes["commit"] != PINNED_COMMIT {
             return None;
         }
         let entry = runtimes["artifacts"]["windows-x64-cuda"].as_object()?;
+        let minimum_driver = entry.get("cuda_driver")?.as_i64()? as i32;
+        if !guitarocr_engine::cuda::available(budget.required_bytes, minimum_driver) {
+            return None;
+        }
         Some(Self {
             root: models
                 .runtime_root

@@ -48,6 +48,8 @@ def package(source, staging, output, key, url):
             bundle.write(path, name)
     entry = dict(url=url, bytes=archive.stat().st_size, sha256=sha256(archive.read_bytes()).hexdigest(),
                  executable=executable, files=files)
+    if key == 'windows-x64-cuda':
+        entry['cuda_driver'] = 12080
     validate_entry(entry)
     manifest = output / f'{key}.json'
     manifest.write_text(json.dumps({key: entry}, indent=2) + '\n', encoding='utf-8')

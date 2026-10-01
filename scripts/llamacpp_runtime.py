@@ -37,7 +37,7 @@ def probe(executable):
     version = result.stdout + result.stderr
     revisions = re.findall(r'(?<![0-9a-f])[0-9a-f]{7,40}(?![0-9a-f])', version.lower())
     if result.returncode or not any(COMMIT.startswith(revision) for revision in revisions):
-        raise ValueError(f'llama-server 必须来自固定提交 {COMMIT}；检测结果：{version[-800:]}')
+        raise ValueError(f'llama-server 必须来自固定提交 {COMMIT}；退出码：{result.returncode}；检测结果：{version[-800:]}')
     return str(Path(executable).absolute())
 
 

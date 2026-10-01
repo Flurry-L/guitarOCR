@@ -1,7 +1,7 @@
 //! Probe the installed Windows driver before downloading CUDA libraries.
 #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
-pub fn available(required_bytes: u64) -> bool {
-    unsafe fn detect(required_bytes: u64) -> Option<bool> {
+pub fn available(required_bytes: u64, minimum_driver: i32) -> bool {
+    unsafe fn detect(required_bytes: u64, minimum_driver: i32) -> Option<bool> {
         // LOAD_LIBRARY_SEARCH_SYSTEM32: never load a DLL from the project or PATH.
         let driver: libloading::Library =
             libloading::os::windows::Library::load_with_flags("nvcuda.dll", 0x00000800)
@@ -27,7 +27,7 @@ pub fn available(required_bytes: u64) -> bool {
         let (mut driver_version, mut devices) = (0, 0);
         if init(0) != 0
             || version(&mut driver_version) != 0
-            || driver_version < 12080
+            || driver_version < minimum_driver
             || count(&mut devices) != 0
         {
             return Some(false);
@@ -44,10 +44,10 @@ pub fn available(required_bytes: u64) -> bool {
         }
         Some(false)
     }
-    unsafe { detect(required_bytes).unwrap_or(false) }
+    unsafe { detect(required_bytes, minimum_driver).unwrap_or(false) }
 }
 
 #[cfg(not(all(target_os = "windows", target_arch = "x86_64")))]
-pub fn available(_required_bytes: u64) -> bool {
+pub fn available(_required_bytes: u64, _minimum_driver: i32) -> bool {
     false
 }

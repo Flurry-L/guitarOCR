@@ -15,7 +15,7 @@
 | Linux、Intel Mac | [从源码构建](native-packaging.md) |
 | 手机 | 浏览器连接[自托管服务](server.md) |
 
-应用自动选择可用设备，可在「设置」查看。Windows 只下载当前设备需要的加速组件，CPU 与 GPU 共用模型；下载失败可使用 CPU。NVIDIA 加速要求 CUDA 12.8 兼容驱动、计算能力至少 7.5，并有足够显存；无需安装 CUDA Toolkit。其他 Windows 显卡使用 CPU。Windows 需要 WebView2，macOS 要求 13.4 或更新版本。
+应用自动选择可用设备，可在「设置」查看。Windows 只下载当前设备需要的加速组件，CPU 与 GPU 共用模型；下载失败可使用 CPU。NVIDIA 加速要求 CUDA 12.4 兼容驱动、计算能力至少 7.5，并有足够显存；无需安装 CUDA Toolkit。其他 Windows 显卡使用 CPU。Windows 需要 WebView2，macOS 要求 13.4 或更新版本。
 
 已有服务器时，在启动页展开「连接服务器」，填写服务地址。乐谱在服务器处理，本机无需下载模型；关闭网页后任务仍会继续。
 

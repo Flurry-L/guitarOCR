@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.request
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -58,11 +59,32 @@ def configure(source, build, key):
             options[f'GGML_{feature}'] = 'OFF'
     if system == 'windows':
         options['CMAKE_MSVC_RUNTIME_LIBRARY'] = 'MultiThreaded'
+        if backend == 'cuda':
+            # Avoid a load-time nvcuda.dll dependency on CPU-only build hosts.
+            options['GGML_CUDA_NO_VMM'] = 'ON'
     if system == 'macos':
         options['CMAKE_OSX_DEPLOYMENT_TARGET'] = '12.3'
         options['GGML_ACCELERATE'] = 'OFF'  # New LAPACK symbols require macOS 13.3.
     return ['cmake', '-S', str(source), '-B', str(build),
             *[f'-D{name}={value}' for name, value in options.items()]]
+
+
+def stage_windows_crt(staging):
+    # The backend's ONNX Runtime needs these even when llama is linked statically.
+    vswhere = Path(os.environ['ProgramFiles(x86)']) / 'Microsoft Visual Studio/Installer/vswhere.exe'
+    installs = subprocess.check_output([str(vswhere), '-latest', '-products', '*',
+        '-requires', 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64',
+        '-property', 'installationPath'], text=True).strip()
+    root = Path(installs) / 'VC/Redist/MSVC'
+    candidates = sorted(root.glob('*/x64/Microsoft.VC*.CRT'),
+                        key=lambda p: tuple(map(int, p.parts[-3].split('.'))), reverse=True)
+    names = ('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')
+    crt = next((p for p in candidates if all((p / n).is_file() for n in names)), None)
+    if crt is None:
+        raise ValueError('Visual C++ x64 redistributable DLLs are missing from Visual Studio')
+    for name in names:
+        shutil.copy2(crt / name, staging / name)
+    urllib.request.urlretrieve('https://aka.ms/VCRedistLicense', staging / 'LICENSE-Microsoft-Visual-Cpp.html')
 
 
 def build_runtime(source, build, output, key, release_tag, jobs):
@@ -90,6 +112,8 @@ def build_runtime(source, build, output, key, release_tag, jobs):
         staging = Path(temp)
         shutil.copy2(binary, staging / executable)
         shutil.copy2(source / 'LICENSE', staging / 'LICENSE')
+        if key.startswith('windows-'):
+            stage_windows_crt(staging)
         if key.endswith('-cuda'):
             toolkit = Path(os.environ.get('CUDA_PATH') or os.environ.get('CUDA_HOME') or '/usr/local/cuda')
             license = next((p for p in (toolkit / 'EULA.txt', toolkit / 'doc/EULA.txt') if p.is_file()), None)
