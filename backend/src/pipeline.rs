@@ -322,7 +322,15 @@ impl Pipeline {
             .collect::<Result<Vec<_>>>()?;
         let context = json!({"native_context":1,"layout":fingerprint(&layout_path)?,"info":fingerprint(&info_path)?,"images":images,"models":self.models.catalog_identity(),"policy":self.models.policy,"capabilities":self.models.capabilities,"retry":state["ocr_task"]["measures"],"initial":initial,"options":[selected_device,8192,config.max_tokens,config.max_tokens_ceiling,config.maximum_attempts]});
         let context_file = output.join("recognition_context.json");
-        let context_matches = view::read_json(&context_file).ok().as_ref() == Some(&context);
+        let context_matches = view::read_json(&context_file)
+            .ok()
+            .map(|mut previous| {
+                // Relocating downloads does not change the model or completed measures.
+                previous["models"] = Models::content_identity(&previous["models"]);
+                previous
+            })
+            .as_ref()
+            == Some(&context);
         if resume
             && !context_matches
             && output

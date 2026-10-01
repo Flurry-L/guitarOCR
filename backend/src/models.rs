@@ -103,7 +103,22 @@ impl Models {
         self.root.join("weights/score_ocr/gguf/vision-F16.gguf")
     }
     pub fn catalog_identity(&self) -> Value {
-        self.catalog.clone()
+        Self::content_identity(&self.catalog)
+    }
+    pub fn content_identity(catalog: &Value) -> Value {
+        let mut identity = catalog.clone();
+        if let Some(object) = identity.as_object_mut() {
+            object.remove("repository");
+            object.remove("release");
+            if let Some(groups) = object.get_mut("files").and_then(Value::as_object_mut) {
+                for files in groups.values_mut().filter_map(Value::as_array_mut) {
+                    for file in files.iter_mut().filter_map(Value::as_object_mut) {
+                        file.remove("asset");
+                    }
+                }
+            }
+        }
+        identity
     }
     pub fn total_bytes(&self) -> u64 {
         self.files()
