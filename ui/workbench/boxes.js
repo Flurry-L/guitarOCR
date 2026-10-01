@@ -4,6 +4,15 @@ import { api } from "./api.js";
 const colors = { measure: "#4267c5", header: "#6189ac", tempo: "#b07628", clef: "#7756a4", transposition: "#2468aa", annotation: "#2468aa" };
 const names = { measure: "小节", header: "谱头", tempo: "速度", clef: "谱号", transposition: "标记候选", annotation: "标记候选" };
 const modeNames = { tab: "TAB", notation: "五线谱", both: "五线谱 + TAB" };
+function boxName(box) {
+  if (["annotation", "transposition"].includes(box.kind)) {
+    const [x, y, w, h] = box.bbox;
+    if (ui.boxes.some(b => b.kind === "header" && b.page === box.page &&
+      x >= b.bbox[0] && y >= b.bbox[1] && x+w <= b.bbox[0]+b.bbox[2] && y+h <= b.bbox[1]+b.bbox[3]))
+      return "谱头文字";
+  }
+  return names[box.kind];
+}
 
 export function initBoxes({ start, go, render, setBusy }) {
   let undo = [], redo = [], dragStart, savedRevision, pageRequest = 0, imageTimer;
@@ -105,7 +114,7 @@ export function initBoxes({ start, go, render, setBusy }) {
       ctx.strokeRect(x, y, w, h);
       ctx.font = "12px system-ui";
       const text =
-        box.kind === "measure" ? `小节 ${numberOf(i)}` : names[box.kind];
+        box.kind === "measure" ? `小节 ${numberOf(i)}` : boxName(box);
       const tw = ctx.measureText(text).width + 10;
       ctx.fillStyle = colors[box.kind];
       ctx.fillRect(x, Math.max(0, y - 20), tw, 20);
@@ -142,7 +151,7 @@ export function initBoxes({ start, go, render, setBusy }) {
       if (box.page !== ui.pageIndex + 1) return;
       const b = el(
         "button",
-        box.kind === "measure" ? `小节 ${numberOf(i)}，${modeNames[boxMode(box)] || "待识别"}` : names[box.kind],
+        box.kind === "measure" ? `小节 ${numberOf(i)}，${modeNames[boxMode(box)] || "待识别"}` : boxName(box),
         i === ui.selected ? "active" : "",
       );
       b.onclick = () => {

@@ -434,11 +434,11 @@ fn region_image(row: &Value) -> Result<RgbImage> {
     direct_crop(&page, bbox(&region)?)
 }
 
-pub const HEADER_PROMPT:&str="Read only visible song title, artist, and tuning label. Return one JSON object with title, artist, tuning_name; use null for absent fields.";
+pub const HEADER_PROMPT:&str="Read only visible song title, artist or author credit (including composer, arranger or studio), and tuning label. Preserve the original language and spelling. Return one JSON object with title, artist, tuning_name; use null for absent fields. Tempo, playing techniques and chord names are not titles or author credits.";
 pub const TEMPO_PROMPT:&str="Read the printed quarter-note tempo. Return one JSON object with tempo_quarter; use null if unreadable.";
 pub const STAFF_PROMPT:&str="Read the first staff and its instrument label. Return JSON with instrument (guitar, bass, pitched, drums, or null if unknown) and string_count (number of TAB lines, or null if TAB is absent), and name (the visible instrument label, preserving abbreviations, or null if absent). Use the percussion clef for drums. Use pitched for other melodic instruments or unlabelled melodic notation; use null for unnamed TAB. Do not infer a string count from the five lines of standard notation.";
 pub const CLEF_PROMPT:&str="Read the visible clef. Return JSON with clef (G2, F4, C3, C4, percussion, tab, or null) and clef_octave (0, -12, 12, -24, 24, or null if unreadable). A small 8 or 15 below the clef lowers its pitches; above raises them. Use tab with clef_octave 0 for a TAB symbol.";
-pub const ANNOTATION_PROMPT:&str="Classify and read the visible score annotation. Return JSON with kind (instrument, ottava, capo, chord, chord_diagram, technique, tempo, other, or null if unreadable), semitones (sounding minus written pitch, or null), capo (fret number, or null), and text (visible words, or null). A chord name such as Bb or F# and a chord fingering diagram are NOT transposition instructions. Let ring, P.M., vibrato and their continuation lines are techniques, NOT ottava. Use null pitch fields for non-pitch annotations. For ottava use 12 for 8va, -12 for 8vb, 24 for 15ma, -24 for 15mb. For instrument transposition use only an explicit instruction or an unambiguous instrument label. Do not treat a key signature or tuning as an instrument transposition. For chord_diagram also return diagram with base_fret, frets (absolute fret numbers, 0 open, \"x\" muted, LOW to HIGH string), fingers (visible numbers or null per string), barres ([absolute fret, zero-based low string index, high string index]). Preserve chord accidentals and slash bass. Read only visible dots and finger numbers; never derive a fingering from the chord name. Transcribe the evidence; do not invent missing words.";
+pub const ANNOTATION_PROMPT:&str="Classify and read the visible score annotation. Return JSON with kind (instrument, ottava, capo, chord, chord_diagram, technique, tempo, title, credit, other, or null if unreadable), semitones (sounding minus written pitch, or null), capo (fret number, or null), and text (visible words, or null). A chord name such as Bb or F# and a chord fingering diagram are NOT transposition instructions. Let ring, P.M., vibrato and their continuation lines are techniques, NOT ottava. Use title for a song title and credit for a composer, arranger, artist or studio credit; preserve the original language. Use null pitch fields for non-pitch annotations. For ottava use 12 for 8va, -12 for 8vb, 24 for 15ma, -24 for 15mb. For instrument transposition use only an explicit instruction or an unambiguous instrument label. Do not treat a key signature or tuning as an instrument transposition. For chord_diagram also return diagram with base_fret, frets (absolute fret numbers, 0 open, \"x\" muted, LOW to HIGH string), fingers (visible numbers or null per string), barres ([absolute fret, zero-based low string index, high string index]). Preserve chord accidentals and slash bass. Read only visible dots and finger numbers; never derive a fingering from the chord name. Transcribe the evidence; do not invent missing words.";
 fn nullable(kind: &str) -> Value {
     json!({"anyOf":[{"type":kind},{"type":"null"}]})
 }
@@ -475,7 +475,7 @@ pub fn information_schema(kind: &str) -> Result<Value> {
             properties.insert("clef_octave".into(), json!({"enum":[0,-12,12,-24,24,null]}));
         }
         "annotation" | "transposition" => {
-            properties.insert("kind".into(),json!({"enum":["instrument","ottava","capo","chord","chord_diagram","technique","tempo","other",null]}));
+            properties.insert("kind".into(),json!({"enum":["instrument","ottava","capo","chord","chord_diagram","technique","tempo","title","credit","other",null]}));
             properties.insert(
                 "semitones".into(),
                 json!({"anyOf":[{"type":"integer","minimum":-36,"maximum":36},{"type":"null"}]}),
@@ -736,7 +736,17 @@ pub fn parse_info_response(raw: &str, kind: &str) -> Value {
             let kind = text(&v, "kind", "");
             let words = cleaned(&v["text"]);
             let words_str = words.as_str().unwrap_or("");
-            if ["chord", "chord_diagram", "technique", "tempo", "other"].contains(&kind) {
+            if [
+                "chord",
+                "chord_diagram",
+                "technique",
+                "tempo",
+                "title",
+                "credit",
+                "other",
+            ]
+            .contains(&kind)
+            {
                 let mut r = json!({"kind":kind,"semitones":null,"capo":null,"text":words});
                 if kind == "chord_diagram" {
                     r["diagram"] = normalize_diagram(&v["diagram"]);
@@ -779,6 +789,18 @@ pub fn metadata_from_predictions(predictions: &[Value]) -> Value {
                     }
                 }
             }
+        }
+    }
+    // A small header text crop can recover a credit missed in the full header.
+    // Only accept these roles inside the header, never from lyrics or staff labels.
+    for p in predictions.iter().filter(|p| flag(p, "inside_header")) {
+        let key = match text(&p["parsed"], "kind", "") {
+            "title" => "title",
+            "credit" => "artist",
+            _ => continue,
+        };
+        if cleaned(&m[key]).is_null() && !cleaned(&p["parsed"]["text"]).is_null() {
+            m[key] = p["parsed"]["text"].clone();
         }
     }
     if let Some(t) = tuning_from_name(text(&m, "tuning_name", ""), "guitar", None) {
@@ -952,6 +974,9 @@ pub fn recognize_regions<G: Generator + ?Sized>(
             kind
         };
         let mut p = region.clone();
+        p["inside_header"] = json!(regions
+            .iter()
+            .any(|header| { header["kind"] == "header" && region_inside(region, header) }));
         merge(
             &mut p,
             &json!({"kind":resolved,"candidate_kind":kind,"raw":response.content.trim(),"parsed":parsed,"generated_token_count":response.completion_tokens}),
@@ -959,6 +984,16 @@ pub fn recognize_regions<G: Generator + ?Sized>(
         result.push(p);
     }
     Ok(result)
+}
+
+fn region_inside(region: &Value, container: &Value) -> bool {
+    if region["page"] != container["page"] {
+        return false;
+    }
+    let (Ok(a), Ok(b)) = (bbox(region), bbox(container)) else {
+        return false;
+    };
+    a[0] >= b[0] && a[1] >= b[1] && a[0] + a[2] <= b[0] + b[2] && a[1] + a[3] <= b[1] + b[3]
 }
 
 /// Keep printed names legible next to a full-width first staff row.
@@ -1590,7 +1625,12 @@ pub fn recognize_information<G: Generator + ?Sized>(
         let id = text(part, "id", "part-1");
         let local_predictions: Vec<Value> = predictions
             .iter()
-            .filter(|p| p["kind"] == "header" || text(p, "part_id", "part-1") == id)
+            .filter(|p| {
+                p["kind"] == "header"
+                    || text(p, "part_id", "part-1") == id
+                    || (flag(p, "inside_header")
+                        && matches!(text(&p["parsed"], "kind", ""), "title" | "credit"))
+            })
             .cloned()
             .collect();
         let mut metadata = metadata_from_predictions(&local_predictions);
@@ -1607,6 +1647,22 @@ pub fn recognize_information<G: Generator + ?Sized>(
                 text(r, "mode", text(layout, "mode", "notation")),
                 "tab" | "both"
             )
+        });
+        // The native port must preserve the multi-measure line-count evidence
+        // used by research/inference/information, ahead of a VLM's answer.
+        let visible_count = crate::staff_classifier::part_tab_strings(&rows)?;
+        let count = if has_tab {
+            visible_count
+                .or_else(|| metadata["string_count"].as_u64().map(|n| n as usize))
+                .or_else(|| part["strings"].as_u64().map(|n| n as usize))
+        } else {
+            None
+        };
+        metadata["string_count"] = json!(count);
+        metadata["string_count_source"] = json!(if visible_count.is_some() {
+            "staff_lines"
+        } else {
+            "model"
         });
         let named: HashSet<i64> = local_predictions
             .iter()
@@ -1641,19 +1697,16 @@ pub fn recognize_information<G: Generator + ?Sized>(
         if !["guitar", "bass", "pitched", "drums"].contains(&instrument.as_str()) {
             return Err(format!("Unsupported instrument: {instrument}"));
         }
-        let count = if has_tab {
-            metadata["string_count"]
-                .as_u64()
-                .or_else(|| part["strings"].as_u64())
-                .map(|v| v as usize)
-        } else {
-            None
-        };
         let tuning_override = if index == 0 {
             config.tuning.clone()
         } else {
             None
         };
+        if tuning_override.as_ref().is_some_and(|t| t.is_empty())
+            && matches!(instrument.as_str(), "guitar" | "bass")
+        {
+            return Err("Tuning must contain 1..12 MIDI open pitches".into());
+        }
         let named_tuning = tuning_from_name(text(&metadata, "tuning_name", ""), &instrument, count);
         let tuning = if matches!(instrument.as_str(), "pitched" | "drums") {
             vec![]
@@ -1667,15 +1720,17 @@ pub fn recognize_information<G: Generator + ?Sized>(
                         .and_then(|_| integers(&part["tuning"]).ok())
                 })
                 .map(Ok)
-                .unwrap_or_else(|| standard_tuning(&instrument, count))?
+                .unwrap_or_else(|| standard_tuning(&instrument, count))
+                .unwrap_or_default()
         };
-        if tuning.len() > 12
-            || tuning.iter().any(|n| !(0..=127).contains(n))
-            || (!matches!(instrument.as_str(), "pitched" | "drums") && tuning.is_empty())
-        {
+        if tuning.len() > 12 || tuning.iter().any(|n| !(0..=127).contains(n)) {
             return Err("Tuning must contain 1..12 MIDI open pitches".into());
         }
-        let tuning_source = if tuning_override.is_some() {
+        let unresolved_tuning =
+            matches!(instrument.as_str(), "guitar" | "bass") && tuning.is_empty();
+        let tuning_source = if unresolved_tuning {
+            "unresolved"
+        } else if tuning_override.is_some() {
             "manual"
         } else if named_tuning.is_some() {
             "printed"
@@ -1683,13 +1738,23 @@ pub fn recognize_information<G: Generator + ?Sized>(
             "default"
         };
         let mut warnings: Vec<Value> = vec![];
+        if unresolved_tuning {
+            metadata["tuning_issue"] = json!(format!(
+                "弦数识别为 {}，无法确定调弦。请对照谱面选择调弦，或填写各弦音高；曲名、作者和速度已保留。",
+                count.map(|n| n.to_string()).unwrap_or_else(|| "未知".into())
+            ));
+        }
         if !text(&metadata, "tuning_name", "").is_empty()
             && named_tuning.is_none()
             && tuning_override.is_none()
         {
             warnings.push(json!(format!("Could not resolve the printed {} tuning for this instrument; check open-string pitches",text(&metadata,"tuning_name",""))));
         }
-        let mut candidates = vec![tuning.clone()];
+        let mut candidates = if unresolved_tuning {
+            vec![]
+        } else {
+            vec![tuning.clone()]
+        };
         if !has_tab
             && tuning_override.is_none()
             && count.is_none()
@@ -1775,6 +1840,7 @@ pub fn recognize_information<G: Generator + ?Sized>(
             r["instrument"] = json!(instrument);
             r["midi_program"] = json!(program);
             r["tuning"] = json!(tuning);
+            r["string_count"] = json!(count);
             r["capo"] = json!(capo);
         }
         let mut local = apply_pitch_regions(
@@ -1829,7 +1895,7 @@ pub fn recognize_information<G: Generator + ?Sized>(
             metadata["warnings"] = json!(warnings);
         }
         for r in &local {
-            let mut profile = json!({"instrument":instrument,"midi_program":program,"tuning":tuning,"capo":capo,"tuning_source":tuning_source,"tuning_explicit":tuning_source!="default","fingering_tunings":candidates});
+            let mut profile = json!({"instrument":instrument,"midi_program":program,"tuning":tuning,"string_count":count,"capo":capo,"tuning_source":tuning_source,"tuning_explicit":matches!(tuning_source,"manual"|"printed"),"fingering_tunings":candidates});
             for key in [
                 "measure_number",
                 "part_id",
@@ -1971,6 +2037,12 @@ pub fn prepare_records(layout: &Value, information: &Value) -> Result<Vec<Value>
             row["tuning"] = information["tuning_used"].clone();
         }
         let tuning = integers(&row["tuning"])?;
+        if tuning.is_empty() && matches!(text(row, "instrument", ""), "guitar" | "bass") {
+            return Err(format!(
+                "请先在“校对谱面信息”中填写“{}”的调弦，再识别小节。",
+                text(row, "part_name", "当前音轨")
+            ));
+        }
         if tuning.len() > 12 || tuning.iter().any(|n| !(0..=127).contains(n)) {
             return Err("Invalid tuning".into());
         }
@@ -3653,6 +3725,63 @@ mod tests {
             CANCELLED
         );
         assert!(engine.requests.is_empty());
+    }
+    #[test]
+    fn incorrect_string_count_does_not_discard_header_information() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("staff.png");
+        for lines in [6, 2] {
+            let mut image = RgbImage::from_pixel(500, 200, Rgb([255; 3]));
+            for line in 0..lines {
+                for x in 20..480 {
+                    image.put_pixel(x, 100 + line * 12, Rgb([20; 3]));
+                }
+            }
+            image.save(&path).unwrap();
+            let layout = json!({"schema_version":"1.0","stage":"layout","mode":"tab","records":[
+                {"measure_number":1,"page":1,"bbox":[20,80,460,120],"image":path,"source_page":path,"mode":"tab"}
+            ],"regions":[
+                {"kind":"header","page":1,"bbox":[0,0,500,80],"image":path},
+                {"kind":"annotation","page":1,"bbox":[300,20,150,30],"image":path},
+                {"kind":"tempo","page":1,"bbox":[20,60,60,20],"image":path}
+            ]});
+            let mut engine = scripted(&[
+                (r#"{"title":"示例曲","artist":null,"tuning_name":null}"#, 20),
+                (
+                    r#"{"kind":"credit","text":"示例工作室","semitones":null,"capo":null}"#,
+                    20,
+                ),
+                (r#"{"tempo_quarter":96}"#, 8),
+                (
+                    r#"{"instrument":"guitar","string_count":2,"name":null}"#,
+                    20,
+                ),
+            ]);
+            let config = InformationConfig {
+                score_structure: false,
+                pitch_context: true,
+                ..Default::default()
+            };
+            let out = recognize_information(&mut engine, &layout, &config, &|| false).unwrap();
+            assert_eq!(out.manifest["title"], "示例曲");
+            assert_eq!(out.manifest["artist"], "示例工作室");
+            assert_eq!(out.manifest["document_metadata"]["tempo_quarter"], 96);
+            if lines == 6 {
+                assert_eq!(out.manifest["tuning_used"], json!([64, 59, 55, 50, 45, 40]));
+                assert_eq!(
+                    out.manifest["document_metadata"]["string_count_source"],
+                    "staff_lines"
+                );
+                assert!(prepare_records(&layout, &out.manifest).is_ok());
+            } else {
+                assert_eq!(out.manifest["tuning_source"], "unresolved");
+                assert_eq!(out.manifest["tuning_used"], json!([]));
+                assert!(out.manifest["document_metadata"]["tuning_issue"].is_string());
+                assert!(prepare_records(&layout, &out.manifest)
+                    .unwrap_err()
+                    .contains("校对谱面信息"));
+            }
+        }
     }
     #[test]
     fn metadata_generates_real_requests_and_schema_one_manifest() {

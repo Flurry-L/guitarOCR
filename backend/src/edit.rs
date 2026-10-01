@@ -441,6 +441,13 @@ fn edited_single(layout: &Value, previous: &Value, values: &Value) -> Result<Val
         .cloned()
         .unwrap_or(json!({}));
     metadata["tempo_quarter"] = json!(tempo);
+    metadata.as_object_mut().unwrap().remove("tuning_issue");
+    metadata["string_count"] = if fretted {
+        json!(strings.len())
+    } else {
+        Value::Null
+    };
+    metadata["string_count_source"] = json!("manual");
     let contexts = if previous["instrument"].as_str().unwrap_or("guitar") == instrument
         && previous["transpose"] == json!(transpose)
     {
@@ -573,6 +580,7 @@ fn edited_information(layout: &Value, previous: &Value, values: &Value) -> Resul
         }
         profile["tuning_explicit"] = json!(true);
         profile["tuning_source"] = json!("manual");
+        profile["string_count"] = edited["document_metadata"]["string_count"].clone();
         profile["fingering_tunings"] = json!([edited["tuning_used"]]);
         profile["part_name"] = name.clone();
     }

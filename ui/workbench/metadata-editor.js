@@ -36,7 +36,7 @@ export function initMetadata({ start, go, render, setBusy }) {
     $("customTuning").hidden = preset;
     instrumentFields();
     updateMetadataControls();
-    const warnings = m?.document_metadata?.warnings || [];
+    const warnings = [...(m?.document_metadata?.warnings || []), m?.document_metadata?.tuning_issue].filter(Boolean);
     $("infoWarnings").hidden = !warnings.length;
     $("infoWarnings").textContent = warnings.join("\n");
   }
@@ -103,6 +103,7 @@ export function initMetadata({ start, go, render, setBusy }) {
   });
   $("saveInfo").onclick = action(async () => {
     if (!ui.metadataDirty && ui.state.info) {
+      if (showPendingTuning()) return;
       go(3);
       return;
     }
@@ -153,9 +154,21 @@ export function initMetadata({ start, go, render, setBusy }) {
     } finally {
       setBusy(false);
     }
+    if (ui.navigation === navigation && showPendingTuning()) return;
     go(3, ui.navigation === navigation);
     if (ui.navigation === navigation)
       notice(ui.state.recognition ? "谱面信息已保存，音符修改已保留。" : "谱面信息已保存，下一步识别音符与节奏。");
   });
+  function showPendingTuning() {
+    const root = ui.state.metadata;
+    const pending = (root?.parts?.length ? root.parts : [root]).find(p => p?.document_metadata?.tuning_issue);
+    if (!pending) return false;
+    if (pending.id) $("metadataPart").value = pending.id;
+    renderMetadata();
+    go(2);
+    $("tuningPreset").focus();
+    notice(`请先确认${pending.name ? `“${pending.name}”的` : ""}调弦，再继续识别。`);
+    return true;
+  }
   return { renderMetadata, updateMetadataControls };
 }
