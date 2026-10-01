@@ -19,6 +19,19 @@ pub const CANCELLED: &str = "Recognition cancelled; completed records can be ret
 
 /// Injection point for a native engine, also allowing model-free contract tests.
 pub trait Generator {
+    fn report(&mut self, _message: &str) -> Result<()> {
+        Ok(())
+    }
+    fn generate_batch(
+        &mut self,
+        messages: Vec<(Value, Option<Value>)>,
+        max_tokens: usize,
+    ) -> Result<Vec<llama::Generation>> {
+        messages
+            .into_iter()
+            .map(|(m, s)| self.generate(m, max_tokens, s, None))
+            .collect()
+    }
     fn generate(
         &mut self,
         messages: Value,
@@ -28,6 +41,16 @@ pub trait Generator {
     ) -> Result<llama::Generation>;
 }
 impl Generator for guitarocr_engine::runtime::Session<'_> {
+    fn report(&mut self, message: &str) -> Result<()> {
+        guitarocr_engine::runtime::Session::report(self, message)
+    }
+    fn generate_batch(
+        &mut self,
+        messages: Vec<(Value, Option<Value>)>,
+        max_tokens: usize,
+    ) -> Result<Vec<llama::Generation>> {
+        guitarocr_engine::runtime::Session::generate_batch(self, messages, max_tokens)
+    }
     fn generate(
         &mut self,
         messages: Value,
@@ -976,63 +999,107 @@ pub fn recognize_regions<G: Generator + ?Sized>(
     cancelled: &dyn Fn() -> bool,
 ) -> Result<Vec<Value>> {
     let mut result = vec![];
-    for region in regions {
+    for (batch_index, batch) in regions.chunks(4).enumerate() {
         check(cancelled)?;
-        let kind = text(region, "kind", "");
-        let mut image = region_image(region)?;
-        if header_field(kind).is_some() {
-            // Small text strips otherwise occupy too few vision patches.
-            let scale = (144. / image.height() as f64)
-                .min(4.)
-                .min(2048. / image.width() as f64);
-            if scale > 1. {
-                image = crate::image_transforms::resize_rgb_lanczos(
-                    &image,
-                    (image.width() as f64 * scale).round() as u32,
-                    (image.height() as f64 * scale).round() as u32,
-                );
+        engine.report(&format!(
+            "正在读取谱面文字与和弦：{} / {}",
+            batch_index * 4,
+            regions.len()
+        ))?;
+        let images = batch.iter().map(region_image).collect::<Result<Vec<_>>>()?;
+        let mut messages = Vec::new();
+        for (region, source) in batch.iter().zip(&images) {
+            let kind = text(region, "kind", "");
+            let mut schema = information_schema(kind)?;
+            if matches!(kind, "annotation" | "transposition") {
+                if let Some(count) = crate::pixel_refinement::diagram_strings(source) {
+                    schema["properties"]["kind"] = json!({"const":"chord_diagram"});
+                    let diagram = &mut schema["properties"]["diagram"]["anyOf"][1];
+                    for key in ["frets", "fingers"] {
+                        diagram["properties"][key]["minItems"] = json!(count);
+                        diagram["properties"][key]["maxItems"] = json!(count);
+                    }
+                    if crate::pixel_refinement::diagram_has_nut(source) {
+                        diagram["properties"]["base_fret"] = json!({"const":1});
+                    }
+                    schema["properties"]["diagram"] = diagram.clone();
+                    schema["required"]
+                        .as_array_mut()
+                        .unwrap()
+                        .push(json!("diagram"));
+                }
             }
-        }
-        let response = engine.generate(
-            image_messages(std::slice::from_ref(&image), region_prompt(kind)?, policy)?,
-            512,
-            Some(information_schema(kind)?),
-            None,
-        )?;
-        check(cancelled)?;
-        let mut parsed = parse_info_response(response.content.trim(), kind);
-        if matches!(kind, "annotation" | "transposition") && parsed["kind"] == "chord_diagram" {
-            let raw_diagram = json_response(&response.content)
-                .ok()
-                .and_then(|v| v.get("diagram").cloned())
-                .unwrap_or(Value::Null);
-            if let Some(refined) =
-                crate::pixel_refinement::refine_diagram_image(&image, &raw_diagram)?
+            let mut image = source.clone();
+            if header_field(kind).is_some()
+                || schema["properties"]["kind"]["const"] == "chord_diagram"
             {
-                parsed["diagram"] = normalize_diagram(&refined);
+                let height = if header_field(kind).is_some() {
+                    144.
+                } else {
+                    288.
+                };
+                let scale = (height / image.height() as f64)
+                    .min(4.)
+                    .min(2048. / image.width() as f64);
+                if scale > 1. {
+                    image = crate::image_transforms::resize_rgb_lanczos(
+                        &image,
+                        (image.width() as f64 * scale).round() as u32,
+                        (image.height() as f64 * scale).round() as u32,
+                    );
+                }
             }
+            messages.push((
+                image_messages(&[image], region_prompt(kind)?, policy)?,
+                Some(schema),
+            ));
         }
-        let confirmed = ["instrument", "ottava", "capo"].contains(&text(&parsed, "kind", ""))
-            && (!parsed["semitones"].is_null() || !parsed["capo"].is_null());
-        let resolved = if ["annotation", "transposition"].contains(&kind) {
-            if confirmed {
-                "transposition"
-            } else {
-                "annotation"
+        let responses = engine.generate_batch(messages, 512)?;
+        if responses.len() != batch.len() {
+            return Err("Incomplete information batch".into());
+        }
+        for ((region, image), response) in batch.iter().zip(&images).zip(responses) {
+            let kind = text(region, "kind", "");
+            check(cancelled)?;
+            let mut parsed = parse_info_response(response.content.trim(), kind);
+            if matches!(kind, "annotation" | "transposition") && parsed["kind"] == "chord_diagram" {
+                let raw_diagram = json_response(&response.content)
+                    .ok()
+                    .and_then(|v| v.get("diagram").cloned())
+                    .unwrap_or(Value::Null);
+                if let Some(refined) =
+                    crate::pixel_refinement::refine_diagram_image(&image, &raw_diagram)?
+                {
+                    parsed["diagram"] = normalize_diagram(&refined);
+                }
             }
-        } else {
-            kind
-        };
-        let mut p = region.clone();
-        p["inside_header"] = json!(regions
-            .iter()
-            .any(|header| { header["kind"] == "header" && region_inside(region, header) }));
-        merge(
-            &mut p,
-            &json!({"kind":resolved,"candidate_kind":kind,"raw":response.content.trim(),"parsed":parsed,"generated_token_count":response.completion_tokens}),
-        );
-        result.push(p);
+            let confirmed = ["instrument", "ottava", "capo"].contains(&text(&parsed, "kind", ""))
+                && (!parsed["semitones"].is_null() || !parsed["capo"].is_null());
+            let resolved = if ["annotation", "transposition"].contains(&kind) {
+                if confirmed {
+                    "transposition"
+                } else {
+                    "annotation"
+                }
+            } else {
+                kind
+            };
+            let mut p = region.clone();
+            p["inside_header"] = json!(regions
+                .iter()
+                .any(|header| { header["kind"] == "header" && region_inside(region, header) }));
+            merge(
+                &mut p,
+                &json!({"kind":resolved,"candidate_kind":kind,"raw":response.content.trim(),"parsed":parsed,"generated_token_count":response.completion_tokens}),
+            );
+            result.push(p);
+        }
     }
+    engine.report(&format!(
+        "谱面文字与和弦读取完成：{} / {}",
+        regions.len(),
+        regions.len()
+    ))?;
     Ok(result)
 }
 
@@ -1300,6 +1367,7 @@ pub fn recognize_structure<G: Generator + ?Sized>(
     let mut predictions = vec![];
     for (page, rows) in pages {
         check(cancelled)?;
+        engine.report(&format!("正在读取第 {page} 页的声部与谱表结构"))?;
         let path = rows[0][0]["source_page"]
             .as_str()
             .ok_or("Structure requires source_page images")?;
@@ -1382,6 +1450,97 @@ fn nearest(records: &[Value], region: &Value) -> Option<usize> {
         .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
         .map(|(i, _)| i)
 }
+/// Assign evidence to one measure before cropping. Header diagrams remain a
+/// library: proximity to a first staff never creates an event at beat zero.
+fn prepare_chord_regions(
+    records: &mut [Value],
+    predictions: &mut [Value],
+    output: Option<&Path>,
+) -> Result<()> {
+    for p in predictions
+        .iter_mut()
+        .filter(|p| matches!(text(&p["parsed"], "kind", ""), "chord" | "chord_diagram"))
+    {
+        let a = bbox(p)?;
+        let owner = records
+            .iter()
+            .enumerate()
+            .filter_map(|(i, r)| {
+                if r["page"] != p["page"] {
+                    return None;
+                }
+                let b = bbox(r).ok()?;
+                let x = a[0] + a[2] / 2.;
+                if x < b[0] - 8.
+                    || x >= b[0] + b[2] + 8.
+                    || a[1] + a[3] < b[1] - 48f64.max(b[3] * 0.2)
+                    || a[1] + a[3] > b[1] + b[3]
+                {
+                    return None;
+                }
+                Some((
+                    i,
+                    (b[1] - a[1] - a[3]).max(0.),
+                    (x - b[0] - b[2] / 2.).abs(),
+                ))
+            })
+            .min_by(|a, b| a.1.total_cmp(&b.1).then(a.2.total_cmp(&b.2)))
+            .map(|v| v.0);
+        if let Some(i) = owner {
+            p["scope"] = json!("measure");
+            p["measure_number"] = records[i]["measure_number"].clone();
+            p["part_id"] = records[i]["part_id"].clone();
+        } else {
+            p["scope"] = json!("library");
+        }
+    }
+    let mut page_cache = None;
+    for r in records {
+        let annotations: Vec<Value> = predictions
+            .iter()
+            .filter(|p| p["scope"] == "measure" && p["measure_number"] == r["measure_number"])
+            .cloned()
+            .collect();
+        if annotations.is_empty() {
+            continue;
+        }
+        r["chord_annotations"] = json!(annotations);
+        let b = bbox(r)?;
+        let mut bounds = [b[0], b[1], b[0] + b[2], b[1] + b[3]];
+        for p in &annotations {
+            let a = bbox(p)?;
+            bounds[0] = bounds[0].min(a[0]);
+            bounds[1] = bounds[1].min(a[1]);
+            bounds[2] = bounds[2].max(a[0] + a[2]);
+            bounds[3] = bounds[3].max(a[1] + a[3]);
+        }
+        let Some(output) = output else {
+            continue;
+        };
+        if bounds == [b[0], b[1], b[0] + b[2], b[1] + b[3]] {
+            continue;
+        }
+        let source = PathBuf::from(text(r, "source_page", ""));
+        if page_cache.as_ref().is_none_or(|(path, _)| path != &source) {
+            page_cache = Some((source.clone(), image_boundary::open_rgb(&source)?));
+        }
+        let crop = [
+            bounds[0],
+            bounds[1],
+            bounds[2] - bounds[0],
+            bounds[3] - bounds[1],
+        ];
+        std::fs::create_dir_all(output).map_err(|e| e.to_string())?;
+        let path = output.join(format!("measure-{}-chords.png", r["measure_number"]));
+        image_boundary::crop_measure(&page_cache.as_ref().unwrap().1, crop)?
+            .save(&path)
+            .map_err(|e| e.to_string())?;
+        r["image"] = json!(path);
+        r["content_bbox"] = json!(crop);
+    }
+    Ok(())
+}
+
 fn staff_key(row: &Value) -> String {
     format!(
         "{}\u{0}{}\u{0}{}",
@@ -1644,6 +1803,10 @@ pub fn recognize_information<G: Generator + ?Sized>(
                 .collect();
             if let Some((mut region, image)) = staff_image(&rows)? {
                 check(cancelled)?;
+                engine.report(&format!(
+                    "正在读取乐器：{}",
+                    text(part, "name", "未命名声部")
+                ))?;
                 let response = engine.generate(
                     image_messages(&[image], STAFF_PROMPT, config.image_policy.as_ref())?,
                     512,
@@ -1667,6 +1830,11 @@ pub fn recognize_information<G: Generator + ?Sized>(
             },
         )?;
     }
+    prepare_chord_regions(
+        &mut records,
+        &mut predictions,
+        config.structure_output.as_deref(),
+    )?;
     let mut values = vec![];
     let mut profiles = vec![];
     let mut contexts = vec![];
@@ -2371,7 +2539,15 @@ pub fn measure_messages(record: &Value, policy: Option<&ImagePolicy>) -> Result<
             target.clone()
         });
     }
-    image_messages(&images, &state_prompt(record)?, policy)
+    let mut prompt = state_prompt(record)?;
+    let names: Vec<&str> = list(record, "chord_annotations")
+        .iter()
+        .filter_map(|p| p["parsed"]["text"].as_str())
+        .collect();
+    if !names.is_empty() {
+        prompt += &format!(" Visible chord candidates in the FIRST measure: {}. Read their actual onsets from the image, including repeated names; do not invent notes or evenly spaced chord timing.", json!(names));
+    }
+    image_messages(&images, &prompt, policy)
 }
 const MAJOR_KEYS: [&str; 17] = [
     "FMajorFlat",
@@ -2914,8 +3090,20 @@ pub fn recognize_measure<G: Generator + ?Sized>(
             errors.push("Generation reached the output limit; return the complete measure".into());
         }
         if errors.is_empty() {
-            let chord_errors =
-                chord_recognition_errors(parsed.as_ref().expect("validated measure"));
+            let parsed = parsed.as_ref().expect("validated measure");
+            let mut chord_errors = chord_recognition_errors(parsed);
+            let names: HashSet<String> = list(parsed, "voices")
+                .iter()
+                .flat_map(|v| list(v, "events"))
+                .filter_map(event_chord_name)
+                .map(|s| chord_key(&s))
+                .collect();
+            for p in list(&row, "chord_annotations") {
+                let name = text(&p["parsed"], "text", "");
+                if !name.is_empty() && !names.contains(&chord_key(name)) {
+                    chord_errors.push(format!("Check the visible chord {name:?} in this measure and attach it to its actual musical onset. Preserve all notes, rests, voices and timing; change annotations only"));
+                }
+            }
             if !chord_errors.is_empty() {
                 annotation_only.get_or_insert_with(|| model_target.clone());
                 errors.extend(chord_errors);
@@ -3483,6 +3671,12 @@ pub fn attach_chord_annotations(records: &mut [Value], predictions: &[Value]) ->
             .iter()
             .copied()
             .filter(|p| {
+                if p["scope"] == "library" {
+                    return false;
+                }
+                if p["scope"] == "measure" {
+                    return p["measure_number"] == row["measure_number"];
+                }
                 if p["page"] != row["page"] {
                     return false;
                 }
@@ -3534,7 +3728,13 @@ pub fn attach_chord_annotations(records: &mut [Value], predictions: &[Value]) ->
                 };
                 let candidates = matching(&local);
                 let candidates = if candidates.is_empty() {
-                    matching(&part)
+                    matching(
+                        &part
+                            .iter()
+                            .copied()
+                            .filter(|p| p["scope"] != "measure")
+                            .collect::<Vec<_>>(),
+                    )
                 } else {
                     candidates
                 };
@@ -3996,11 +4196,7 @@ pub fn opening_annotations(records: &[Value], regions: &[Value]) -> Result<Vec<V
         if clefs.is_empty() {
             continue;
         }
-        let bottom = (clefs
-            .iter()
-            .map(|c| c[1])
-            .fold(f64::INFINITY, f64::min)
-            - 4.)
+        let bottom = (clefs.iter().map(|c| c[1]).fold(f64::INFINITY, f64::min) - 4.)
             .min(b[1])
             .trunc();
         let mut top = (b[1].trunc() - 80.).max(0.);

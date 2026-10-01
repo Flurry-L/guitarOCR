@@ -189,6 +189,7 @@ pub struct Engine {
     endpoint: String,
     key: String,
     request_timeout: Duration,
+    parallel: usize,
     async_client: reqwest::Client,
     runtime: Option<tokio::runtime::Runtime>,
 }
@@ -245,6 +246,7 @@ impl Engine {
             endpoint: format!("http://127.0.0.1:{port}"),
             key,
             request_timeout: config.request_timeout,
+            parallel: config.parallel,
             async_client: reqwest::Client::builder()
                 .no_proxy()
                 .redirect(reqwest::redirect::Policy::none())
@@ -320,47 +322,83 @@ impl Engine {
         grammar: Option<&str>,
         cancelled: &dyn Fn() -> bool,
     ) -> Result<Generation, String> {
-        if self
-            .child
-            .lock()
-            .map_err(|_| "Engine process lock failed")?
-            .try_wait()
-            .map_err(|e| e.to_string())?
-            .is_some()
-        {
+        let body = generation_body(messages, max_tokens, schema, grammar)?;
+        self.generate_bodies(vec![body], cancelled)?
+            .pop()
+            .ok_or("Empty model response".into())
+    }
+    pub fn generate_batch_cancellable(
+        &self,
+        messages: Vec<(Value, Option<Value>)>,
+        max_tokens: usize,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<Vec<Generation>, String> {
+        let bodies = messages
+            .into_iter()
+            .map(|(m, s)| generation_body(m, max_tokens, s, None))
+            .collect::<Result<Vec<_>, _>>()?;
+        self.generate_bodies(bodies, cancelled)
+    }
+    fn generate_bodies(
+        &self,
+        bodies: Vec<Value>,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<Vec<Generation>, String> {
+        if !self.alive() {
             return Err("llama-server is no longer running".into());
         }
-        let body = generation_body(messages, max_tokens, schema, grammar)?;
-        let result: Value = self.runtime.as_ref().unwrap().block_on(async {
-            let request = async {
-                let response = self
-                    .async_client
-                    .post(format!("{}/v1/chat/completions", self.endpoint))
-                    .bearer_auth(&self.key)
-                    .timeout(self.request_timeout)
-                    .json(&body)
-                    .send()
-                    .await
-                    .map_err(|e| format!("Local model request failed: {}", e.without_url()))?;
-                if !response.status().is_success() {
-                    return Err(format!("Local model returned HTTP {}", response.status()));
+        self.runtime.as_ref().unwrap().block_on(async {
+            let mut results = Vec::with_capacity(bodies.len());
+            // The model's slots bound memory and continuous batching. Dropping
+            // the task set on cancellation aborts every request in this batch.
+            for batch in bodies.chunks(self.parallel) {
+                let mut pending = tokio::task::JoinSet::new();
+                let mut ordered: Vec<Option<Generation>> = (0..batch.len()).map(|_| None).collect();
+                for (index, body) in batch.iter().enumerate() {
+                    let request = self
+                        .async_client
+                        .post(format!("{}/v1/chat/completions", self.endpoint))
+                        .bearer_auth(&self.key)
+                        .timeout(self.request_timeout)
+                        .json(body);
+                    pending.spawn(async move {
+                        let response = request.send().await.map_err(|e| {
+                            format!("Local model request failed: {}", e.without_url())
+                        })?;
+                        if !response.status().is_success() {
+                            return Err(format!("Local model returned HTTP {}", response.status()));
+                        }
+                        let value = response
+                            .json()
+                            .await
+                            .map_err(|_| "Invalid local model response".to_string())?;
+                        Ok((index, Self::parse_generation(value)?))
+                    });
                 }
-                response
-                    .json()
-                    .await
-                    .map_err(|_| "Invalid local model response".to_string())
-            };
-            tokio::pin!(request);
-            loop {
-                if cancelled() {
-                    return Err("Inference cancelled".to_string());
+                while !pending.is_empty() {
+                    if cancelled() {
+                        return Err("Inference cancelled".into());
+                    }
+                    tokio::select! {
+                        completed = pending.join_next() => {
+                            let (index, output) = completed.ok_or("Missing batch result")?
+                                .map_err(|e| format!("Local model request task failed: {e}"))??;
+                            ordered[index] = Some(output);
+                        }
+                        _ = tokio::time::sleep(Duration::from_millis(50)) => {}
+                    }
                 }
-                tokio::select! {
-                    result = &mut request => return result,
-                    _ = tokio::time::sleep(Duration::from_millis(50)) => {}
-                }
+                results.extend(
+                    ordered
+                        .into_iter()
+                        .map(|v| v.ok_or("Missing batch response"))
+                        .collect::<Result<Vec<_>, _>>()?,
+                );
             }
-        })?;
+            Ok(results)
+        })
+    }
+    fn parse_generation(result: Value) -> Result<Generation, String> {
         let message = result
             .pointer("/choices/0/message")
             .ok_or("Missing model response choice")?;

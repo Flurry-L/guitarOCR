@@ -86,6 +86,10 @@ def measure_messages(record, state=None):
     prompt = state_prompt(record["mode"], record.get("instrument", "guitar"), state,
                           record.get("pitch_context"), first=int(record.get("bar_index", record.get("measure_index", record.get("measure_number", 1) - 1))) == 0,
                           visual_pitch=record.get('visual_pitch', False))
+    names = [p['parsed']['text'] for p in record.get('chord_annotations', []) if p.get('parsed', {}).get('text')]
+    if names:
+        import json
+        prompt += f" Visible chord candidates in the FIRST measure: {json.dumps(names, ensure_ascii=False)}. Read their actual onsets from the image, including repeated names; do not invent notes or evenly spaced chord timing."
     return [{"role": "user", "content": [*({"type": "image", "url": path} for path in images),
                                             {"type": "text", "text": prompt}]}]
 

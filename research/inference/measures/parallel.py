@@ -277,9 +277,9 @@ def recognize_independent(
                     elif hit_limit:
                         errors.append('Generation reached the output limit; return the complete measure')
                     if not errors:
-                        from scorelib.chords import chord_recognition_errors
+                        from scorelib.chords import chord_recognition_errors, missing_chord_errors
 
-                        chord_errors = chord_recognition_errors(parsed)
+                        chord_errors = chord_recognition_errors(parsed) + missing_chord_errors(parsed, row.get("chord_annotations", []))
                         if chord_errors:
                             annotation_only.setdefault(i, text)
                             errors += chord_errors

@@ -12,26 +12,13 @@ def _runs(mask):
     return [group for group in np.split(values, np.flatnonzero(np.diff(values) > 1) + 1) if len(group)]
 
 
-def refine_diagram(path, diagram):
-    """Keep the model's printed base/fingers; read positions from visible ink.
-
-    Skewed, incomplete or ambiguous grids retain the model prediction. Chord
-    names never supply fret positions, and an absent dot is not assumed open.
-    """
-    if not isinstance(diagram, dict) or not isinstance(diagram.get('frets'), list):
-        return None
-    base = diagram.get('base_fret')
-    count = len(diagram['frets'])
-    if type(base) is not int or not 1 <= base <= 36 or not 3 <= count <= 12:
-        return None
-    with Image.open(path) as image:
-        ink = (np.asarray(image.convert('L')) < 175).astype(np.uint8)
+def _diagram_grid(ink):
     height, width = ink.shape
     vertical = cv2.morphologyEx(ink, cv2.MORPH_OPEN, np.ones((max(12, round(height * .23)), 1), np.uint8))
     strength = vertical.sum(0)
     columns = _runs(strength >= max(12, strength.max() * .7))
     xs = [float(np.average(c, weights=strength[c])) for c in columns]
-    if len(xs) != count:
+    if not 3 <= len(xs) <= 12:
         return None
     gap = float(np.median(np.diff(xs)))
     if np.max(np.abs(np.diff(xs) - gap)) > max(1.5, gap * .12):
@@ -45,6 +32,53 @@ def refine_diagram(path, diagram):
     top, bottom = np.median(bands, axis=0)
     if max(abs(a - top) for a, b in bands) > 2 or max(abs(b - bottom) for a, b in bands) > 2:
         return None
+    horizontal = cv2.morphologyEx(ink, cv2.MORPH_OPEN, np.ones((1, max(12, round((xs[-1] - xs[0]) * .7))), np.uint8))
+    if len(_runs(horizontal[:, round(xs[0]):round(xs[-1]) + 1].sum(1) > (xs[-1] - xs[0]) * .7)) < 4:
+        return None
+    return xs, gap, top, bottom
+
+
+def _has_nut(ink, xs, gap, top, bottom):
+    strokes = _runs(ink[:, round(xs[0]):round(xs[-1]) + 1].mean(1) > .8)
+    nut = next((r for r in strokes if abs(r[0] - top) <= 2), None)
+    thin = [len(r) for r in strokes if r[0] > top + gap]
+    if nut is None or len(nut) < 3 or not thin or len(nut) < np.median(thin) * 2:
+        return False
+    band = ink[max(0, int(top - 2)):min(len(ink), int(top + (bottom - top) / 3))]
+    return int(band[:, :max(0, int(xs[0] - gap * .65))].sum()) + int(band[:, int(xs[-1] + gap * .65):].sum()) < 4
+
+
+def diagram_has_nut(image):
+    ink = (np.asarray(image.convert('L')) < 175).astype(np.uint8)
+    grid = _diagram_grid(ink)
+    return bool(grid and _has_nut(ink, *grid))
+
+
+def diagram_strings(image):
+    grid = _diagram_grid((np.asarray(image.convert('L')) < 175).astype(np.uint8))
+    return len(grid[0]) if grid else None
+
+
+def refine_diagram(path, diagram):
+    """Read positions from visible ink; a thick nut establishes first position.
+
+    Skewed, incomplete or ambiguous grids retain the model prediction. Chord
+    names never supply fret positions, and an absent dot is not assumed open.
+    """
+    if not isinstance(diagram, dict):
+        return None
+    base = diagram.get('base_fret')
+    if type(base) is not int or not 1 <= base <= 36:
+        return None
+    with Image.open(path) as image:
+        ink = (np.asarray(image.convert('L')) < 175).astype(np.uint8)
+    height, width = ink.shape
+    grid = _diagram_grid(ink)
+    if grid is None:
+        return None
+    xs, gap, top, bottom = grid
+    if _has_nut(ink, xs, gap, top, bottom):
+        base = 1
     horizontal = cv2.morphologyEx(ink, cv2.MORPH_OPEN, np.ones((1, max(12, round((xs[-1] - xs[0]) * .7))), np.uint8))
     strength = horizontal[:, round(xs[0]):round(xs[-1]) + 1].sum(1)
     strokes = [(float(np.average(c, weights=strength[c])), len(c))
@@ -110,4 +144,7 @@ def refine_diagram(path, diagram):
                            and float(patch.mean()) > .7 and float(center.mean()) > .7)
         for group in _runs(bridges):
             barres.append([base + fret, int(group[0]), int(group[-1] + 1)])
-    return normalize_diagram({**diagram, 'frets': positions, 'barres': barres})
+    fingers = diagram.get('fingers')
+    if not isinstance(fingers, list) or len(fingers) != len(xs):
+        fingers = [None] * len(xs)
+    return normalize_diagram({**diagram, 'base_fret': base, 'frets': positions, 'fingers': fingers, 'barres': barres})

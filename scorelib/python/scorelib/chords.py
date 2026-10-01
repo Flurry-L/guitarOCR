@@ -183,6 +183,12 @@ def attach_chord_annotations(records, predictions):
         x, y, w, h = row.get('bbox', [0, 0, 0, 0])
         local = []
         for p in page_annotations:
+            if p.get('scope') == 'library':
+                continue
+            if p.get('scope') == 'measure':
+                if p.get('measure_number') == row.get('measure_number'):
+                    local.append(p)
+                continue
             a, b, c, d = p.get('bbox', [0, 0, 0, 0])
             if x - 8 <= a + c / 2 <= x + w + 8 and y - max(50, h * .65) <= b + d <= y + h:
                 local.append(p)
@@ -198,7 +204,7 @@ def attach_chord_annotations(records, predictions):
                             if chord_key(p['parsed'].get('text')) == chord_key(name)
                             and (shape := normalize_diagram(p['parsed'].get('diagram')))
                             and (not row.get('tuning') or len(shape['frets']) == len(row['tuning']))]
-                candidates = matching(local) or matching(part_annotations)
+                candidates = matching(local) or matching([p for p in part_annotations if p.get('scope') != 'measure'])
                 diagrams = {diagram_effect(p['parsed']['diagram']) for p in candidates}
                 if len(diagrams) == 1:
                     event['effects'].append(diagrams.pop())
@@ -206,3 +212,10 @@ def attach_chord_annotations(records, predictions):
         if changed:
             row['target'] = format_measure_target(measure, row['mode'], preserve_playback=True)
     return records
+
+
+def missing_chord_errors(measure, annotations):
+    names = {chord_key(name) for voice in measure['voices'] for event in voice['events']
+             if (name := event_chord(event)[0])}
+    return [f"Check the visible chord {name!r} in this measure and attach it to its actual musical onset. Preserve all notes, rests, voices and timing; change annotations only"
+            for p in annotations if (name := p.get('parsed', {}).get('text')) and chord_key(name) not in names]

@@ -42,12 +42,12 @@ CLEF_PROMPT = (
 )
 ANNOTATION_PROMPT = (
     'Classify and read the visible score annotation. Return JSON with kind '
-    '(instrument, ottava, capo, chord, chord_diagram, technique, tempo, other, '
+    '(instrument, ottava, capo, chord, chord_diagram, technique, tempo, title, credit, other, '
     'or null if unreadable), semitones (sounding minus written pitch, or null), '
     'capo (fret number, or null), and text (visible words, or null). '
     'A chord name such as Bb or F# and a chord fingering diagram are NOT '
     'transposition instructions. Let ring, P.M., vibrato and their continuation '
-    'lines are techniques, NOT ottava. Use null pitch fields for non-pitch annotations. '
+    'lines are techniques, NOT ottava. Use title for a song title and credit for a composer, arranger, artist or studio credit; preserve the original language. Use null pitch fields for non-pitch annotations. '
     'For ottava use 12 for 8va, -12 for 8vb, 24 for 15ma, -24 for 15mb. '
     'For instrument transposition use only an explicit instruction or an '
     'unambiguous instrument label. Do not treat a key signature or tuning as '
@@ -64,7 +64,7 @@ ANNOTATION_SCHEMA = {
     'type': 'object', 'additionalProperties': False,
     'required': ['kind', 'semitones', 'capo', 'text'],
     'properties': {
-        'kind': {'enum': ['instrument', 'ottava', 'capo', 'chord', 'chord_diagram', 'technique', 'tempo', 'other', None]},
+        'kind': {'enum': ['instrument', 'ottava', 'capo', 'chord', 'chord_diagram', 'technique', 'tempo', 'title', 'credit', 'other', None]},
         'semitones': {'anyOf': [{'type': 'integer', 'minimum': -36, 'maximum': 36}, {'type': 'null'}]},
         'capo': {'anyOf': [{'type': 'integer', 'minimum': 0, 'maximum': 24}, {'type': 'null'}]},
         'text': {'anyOf': [{'type': 'string'}, {'type': 'null'}]},

@@ -70,3 +70,52 @@ def opening_annotations(source, output):
                 regions.append({'kind': 'annotation', 'page': row['page'], 'bbox': [a,b,w,h],
                                 'part_id': part, 'image': str(path.resolve()), 'source': 'opening_text_line'})
     return regions
+
+
+def prepare_chord_regions(records, predictions, output):
+    """Keep header libraries separate and retain local chord evidence in crops."""
+    from research.common.crops import crop_measure
+
+    for p in predictions:
+        if p.get('parsed', {}).get('kind') not in {'chord', 'chord_diagram'}:
+            continue
+        a, b, c, d = p['bbox']
+        candidates = []
+        for r in records:
+            x, y, w, h = r['bbox']
+            if (r['page'] == p['page'] and x - 8 <= a + c / 2 < x + w + 8
+                    and y - max(48, h * .2) <= b + d <= y + h):
+                candidates.append((max(0, y - b - d), abs(a + c / 2 - x - w / 2), r['measure_number'], r))
+        if candidates:
+            row = min(candidates, key=lambda v: v[:3])[-1]
+            p.update(scope='measure', measure_number=row['measure_number'], part_id=row['part_id'])
+        else:
+            p['scope'] = 'library'
+    page = None
+    source = None
+    try:
+        for row in records:
+            local = [p for p in predictions if p.get('scope') == 'measure' and p['measure_number'] == row['measure_number']]
+            if not local:
+                continue
+            row['chord_annotations'] = local
+            x, y, w, h = row['bbox']
+            left, top, right, bottom = x, y, x + w, y + h
+            for p in local:
+                a, b, c, d = p['bbox']
+                left, top, right, bottom = min(left, a), min(top, b), max(right, a + c), max(bottom, b + d)
+            if (left, top, right, bottom) == (x, y, x + w, y + h):
+                continue
+            if source != row['source_page']:
+                if page is not None:
+                    page.close()
+                source = row['source_page']
+                page = Image.open(source).convert('RGB')
+            bounds = [left, top, right - left, bottom - top]
+            output.mkdir(parents=True, exist_ok=True)
+            path = output / f"measure-{row['measure_number']}-chords.png"
+            crop_measure(page, bounds).save(path)
+            row.update(image=str(path.resolve()), content_bbox=bounds)
+    finally:
+        if page is not None:
+            page.close()

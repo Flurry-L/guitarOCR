@@ -1,6 +1,6 @@
 //! Conservative chord-diagram raster refinement from research/inference/information/chord_geometry.py.
-//! Grid/dot/barre evidence may correct fret positions, never chord names or
-//! printed base/fingers. None means retain the model prediction unchanged.
+//! Grid, dot, barre and nut evidence correct visible geometry. Chord names
+//! never supply fret positions. None retains the model prediction unchanged.
 use crate::image_boundary::{check_dimensions, open_rgb, round_even, Result};
 use image::RgbImage;
 use serde_json::{json, Value};
@@ -191,21 +191,7 @@ pub fn refine_diagram(path: &Path, diagram: &Value) -> Result<Option<Value>> {
     }
     refine_diagram_image(&open_rgb(path)?, diagram)
 }
-/// Return corrected raw fields for the caller's shared normalize_diagram. Extra
-/// fields, printed base_fret and fingers remain unchanged. Rejection is None.
-pub fn refine_diagram_image(image: &RgbImage, diagram: &Value) -> Result<Option<Value>> {
-    let Some(frets) = diagram["frets"].as_array() else {
-        return Ok(None);
-    };
-    let Some(base) = diagram["base_fret"].as_i64() else {
-        return Ok(None);
-    };
-    let count = frets.len();
-    if !(1..=36).contains(&base) || !(3..=12).contains(&count) {
-        return Ok(None);
-    }
-    check_dimensions(image.width(), image.height())?;
-    let ink = Ink::new(image);
+fn diagram_grid(ink: &Ink) -> Option<(Vec<f64>, f64, f64, f64)> {
     let (h, w) = (ink.h, ink.w);
     let vertical = ink.opening(12.max(round_even(h as f64 * 0.23) as usize), true);
     let strength: Vec<usize> = (0..w)
@@ -222,15 +208,16 @@ pub fn refine_diagram_image(image: &RgbImage, diagram: &Value) -> Result<Option<
                 / c.iter().map(|&x| strength[x]).sum::<usize>() as f64
         })
         .collect();
-    if xs.len() != count {
-        return Ok(None);
+    let count = xs.len();
+    if !(3..=12).contains(&count) {
+        return None;
     }
     let gap = median(xs.windows(2).map(|a| a[1] - a[0]).collect());
     if xs
         .windows(2)
         .any(|a| ((a[1] - a[0]) - gap).abs() > 1.5f64.max(gap * 0.12))
     {
-        return Ok(None);
+        return None;
     }
     let mut bands = vec![];
     for &x in &xs {
@@ -238,7 +225,7 @@ pub fn refine_diagram_image(image: &RgbImage, diagram: &Value) -> Result<Option<
             .filter(|&y| vertical.at(rounded(x) as usize, y) != 0)
             .collect();
         if ys.is_empty() {
-            return Ok(None);
+            return None;
         }
         bands.push((ys[0] as f64, *ys.last().unwrap() as f64));
     }
@@ -248,8 +235,87 @@ pub fn refine_diagram_image(image: &RgbImage, diagram: &Value) -> Result<Option<
         .iter()
         .any(|&(a, b)| (a - top).abs() > 2. || (b - bottom).abs() > 2.)
     {
+        return None;
+    }
+    let horizontal = ink.opening(
+        ((xs[count - 1] - xs[0]) * 0.7).round().max(12.) as usize,
+        false,
+    );
+    let lines = runs((0..h).filter(|&y| {
+        (rounded(xs[0]) as usize..=rounded(xs[count - 1]) as usize)
+            .filter(|&x| horizontal.at(x, y) != 0)
+            .count() as f64
+            > (xs[count - 1] - xs[0]) * 0.7
+    }));
+    (lines.len() >= 4).then_some((xs, gap, top, bottom))
+}
+fn has_nut(ink: &Ink, xs: &[f64], gap: f64, top: f64, bottom: f64) -> bool {
+    // A thick nut is positive evidence for first position. Blank margins alone
+    // cannot establish the base of a cropped or unusually printed diagram.
+    let strokes = runs((0..ink.h).filter(|&y| {
+        let left = rounded(xs[0]) as usize;
+        let right = rounded(xs[xs.len() - 1]) as usize;
+        (left..=right).filter(|&x| ink.at(x, y) != 0).count() as f64
+            > (right - left + 1) as f64 * 0.8
+    }));
+    let Some(nut) = strokes.iter().find(|r| (r[0] as f64 - top).abs() <= 2.) else {
+        return false;
+    };
+    let thin: Vec<_> = strokes
+        .iter()
+        .filter(|r| r[0] as f64 > top + gap)
+        .map(|r| r.len() as f64)
+        .collect();
+    if thin.is_empty() {
+        return false;
+    }
+    let thin = median(thin);
+    if nut.len() < 3 || (nut.len() as f64) < thin * 2. {
+        return false;
+    }
+    let left = (xs[0] - gap * 0.65).max(0.) as usize;
+    let right = (xs[xs.len() - 1] + gap * 0.65).min(ink.w as f64) as usize;
+    let start = (top - 2.).max(0.) as usize;
+    let end = (top + (bottom - top) / 3.).min(ink.h as f64) as usize;
+    (start..end)
+        .map(|y| {
+            (0..left)
+                .chain(right..ink.w)
+                .filter(|&x| ink.at(x, y) != 0)
+                .count()
+        })
+        .sum::<usize>()
+        < 4
+}
+pub fn diagram_has_nut(image: &RgbImage) -> bool {
+    let ink = Ink::new(image);
+    diagram_grid(&ink).is_some_and(|(xs, gap, top, bottom)| has_nut(&ink, &xs, gap, top, bottom))
+}
+pub fn diagram_strings(image: &RgbImage) -> Option<usize> {
+    diagram_grid(&Ink::new(image)).map(|(xs, _, _, _)| xs.len())
+}
+
+/// Return corrected raw fields for the caller's shared normalize_diagram. Extra
+/// fields and compatible fingers remain unchanged; a visible nut fixes base 1.
+pub fn refine_diagram_image(image: &RgbImage, diagram: &Value) -> Result<Option<Value>> {
+    let Some(base) = diagram["base_fret"].as_i64() else {
+        return Ok(None);
+    };
+    if !(1..=36).contains(&base) {
         return Ok(None);
     }
+    check_dimensions(image.width(), image.height())?;
+    let ink = Ink::new(image);
+    let (h, w) = (ink.h, ink.w);
+    let Some((xs, gap, top, bottom)) = diagram_grid(&ink) else {
+        return Ok(None);
+    };
+    let count = xs.len();
+    let base = if has_nut(&ink, &xs, gap, top, bottom) {
+        1
+    } else {
+        base
+    };
     let horizontal = ink.opening(
         12.max(round_even((xs[count - 1] - xs[0]) * 0.7) as usize),
         false,
@@ -401,7 +467,14 @@ pub fn refine_diagram_image(image: &RgbImage, diagram: &Value) -> Result<Option<
         }
     }
     let mut corrected = diagram.clone();
+    corrected["base_fret"] = json!(base);
     corrected["frets"] = json!(positions);
+    if corrected["fingers"]
+        .as_array()
+        .is_none_or(|v| v.len() != count)
+    {
+        corrected["fingers"] = json!(vec![Value::Null; count]);
+    }
     corrected["barres"] = json!(barres);
     Ok(Some(corrected))
 }

@@ -49,6 +49,8 @@ fn annotations(value: &Value) -> Value {
                                 "page",
                                 "bbox",
                                 "part_id",
+                                "scope",
+                                "measure_number",
                             ],
                         )
                     })
@@ -164,6 +166,24 @@ pub fn project(root: &Path, sid: &str) -> Result<Value> {
                     p
                 })
                 .collect::<Vec<_>>());
+        }
+        if let Some(path) = info["predictions"].as_str() {
+            let predictions = read_json(Path::new(path))?;
+            if let Some(boxes) = state["boxes"].as_array_mut() {
+                for b in boxes
+                    .iter_mut()
+                    .filter(|b| matches!(b["kind"].as_str(), Some("annotation" | "transposition")))
+                {
+                    if let Some(p) = predictions.as_array().and_then(|items| {
+                        items
+                            .iter()
+                            .find(|p| p["page"] == b["page"] && p["bbox"] == b["bbox"])
+                    }) {
+                        b["annotation_type"] = p["parsed"]["kind"].clone();
+                        b["annotation_text"] = p["parsed"]["text"].clone();
+                    }
+                }
+            }
         }
         state["metadata"] = meta;
     }

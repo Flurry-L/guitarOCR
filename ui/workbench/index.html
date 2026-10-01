@@ -222,11 +222,14 @@
                   <span id="pageImageMessage"></span>
                   <button id="retryPageImage" hidden>重新加载图片</button>
                 </div>
-                <canvas
+                <div id="pageSurface" hidden>
+                <img id="pageSource" alt="" />
+                <svg
                   id="canvas"
                   tabindex="0"
                   aria-label="页面框选编辑器"
-                ></canvas>
+                ></svg>
+                </div>
               </div>
             </div>
             <aside class="box-sidebar">
@@ -237,7 +240,7 @@
               <div id="boxList"></div>
               <figure id="boxPreview" hidden="">
                 <figcaption>区域预览</figcaption>
-                <canvas id="cropPreview"></canvas>
+                <svg id="cropPreview" role="img" aria-label="选中区域预览"><image id="cropPreviewImage" /></svg>
               </figure>
               <div class="coords" id="coords" hidden="">
                 <label>区域类型<select id="boxKind"></select></label>

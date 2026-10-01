@@ -142,7 +142,7 @@ impl Pipeline {
         };
         engine.run(
             &|| progress.cancelled(),
-            &|message| progress.update(json!({"message":message})),
+            &|message| progress.update(json!({"message":message,"done":0,"total":0})),
             run,
         )
     }

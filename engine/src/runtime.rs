@@ -57,8 +57,20 @@ impl Drop for Permit<'_> {
 pub struct Session<'a> {
     engine: Arc<Engine>,
     cancelled: &'a dyn Fn() -> bool,
+    report: &'a dyn Fn(&str) -> Result<()>,
 }
 impl Session<'_> {
+    pub fn report(&self, message: &str) -> Result<()> {
+        (self.report)(message)
+    }
+    pub fn generate_batch(
+        &mut self,
+        messages: Vec<(Value, Option<Value>)>,
+        max_tokens: usize,
+    ) -> Result<Vec<llama::Generation>> {
+        self.engine
+            .generate_batch_cancellable(messages, max_tokens, self.cancelled)
+    }
     pub fn generate(
         &mut self,
         messages: Value,
@@ -219,7 +231,11 @@ impl Runtime {
             }
             state.engine.as_ref().unwrap().clone()
         };
-        operation(&mut Session { engine, cancelled })
+        operation(&mut Session {
+            engine,
+            cancelled,
+            report,
+        })
     }
     pub fn shutdown(&self) {
         self.stopping.store(true, Ordering::Relaxed);

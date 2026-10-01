@@ -149,7 +149,7 @@ fn materialize(
                 }
             }
             let path = output.join(format!("region_{}.png", regions.len()));
-            rectangle(
+            let crop = rectangle(
                 &image,
                 b,
                 if automatic && kind != "header" {
@@ -157,10 +157,16 @@ fn materialize(
                 } else {
                     0.
                 },
-            )?
-            .save(&path)
-            .map_err(|e| e.to_string())?;
+            )?;
+            crop.save(&path).map_err(|e| e.to_string())?;
             let mut region = item.clone();
+            region.as_object_mut().unwrap().remove("annotation_type");
+            region.as_object_mut().unwrap().remove("annotation_text");
+            if matches!(kind, "annotation" | "transposition")
+                && crate::pixel_refinement::diagram_strings(&crop).is_some()
+            {
+                region["annotation_type"] = json!("chord_diagram");
+            }
             region["image"] = json!(path);
             regions.push(region);
         }
@@ -225,7 +231,7 @@ fn publish(
                 .as_array()
                 .unwrap()
                 .iter()
-                .map(|r| json!({"kind":r["kind"],"page":r["page"],"bbox":r["bbox"]}))
+                .map(|r| json!({"kind":r["kind"],"page":r["page"],"bbox":r["bbox"],"annotation_type":r["annotation_type"]}))
         )
         .collect::<Vec<_>>());
     for key in ["info", "recognition", "export"] {

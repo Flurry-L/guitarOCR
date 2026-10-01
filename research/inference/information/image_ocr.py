@@ -45,7 +45,7 @@ def parse_info_response(raw: str, kind: str, image=None) -> dict[str, Any]:
     if kind in {"annotation", "transposition"}:
         instruction = value.get("kind")
         semitones, capo, text = value.get("semitones"), value.get("capo"), value.get("text")
-        if isinstance(instruction, str) and instruction in {"chord", "chord_diagram", "technique", "tempo", "other"}:
+        if isinstance(instruction, str) and instruction in {"chord", "chord_diagram", "technique", "tempo", "title", "credit", "other"}:
             result = {"kind": instruction, "semitones": None, "capo": None,
                       "text": text.strip() if isinstance(text, str) and text.strip() else None}
             if instruction == 'chord_diagram':
@@ -124,19 +124,35 @@ def recognize_document_info(
 
     predictions = []
     messages = []
+    schemas = []
     for region in regions:
         kind = str(region['kind'])
         prompt = {'header': HEADER_PROMPT, 'tempo': TEMPO_PROMPT, 'staff': STAFF_PROMPT,
                   'clef': CLEF_PROMPT, 'transposition': TRANSPOSITION_PROMPT,
                   'annotation': TRANSPOSITION_PROMPT, **dict.fromkeys(HEADER_FIELDS, HEADER_TEXT_PROMPT)}[kind]
         image = {'type': 'image', 'url': region['image']}
-        if kind in HEADER_FIELDS:
+        schema = ANNOTATION_SCHEMA if kind in {'annotation', 'transposition'} else STAFF_SCHEMA if kind == 'staff' else HEADER_TEXT_SCHEMA if kind in HEADER_FIELDS else None
+        if kind in HEADER_FIELDS or kind in {'annotation', 'transposition'}:
             with Image.open(region['image']) as source:
                 source = source.convert('RGB')
-                scale = min(4, 144 / source.height, 2048 / source.width)
-                if scale > 1:
+                from copy import deepcopy
+                from research.inference.information.chord_geometry import diagram_strings, diagram_has_nut
+                count = diagram_strings(source) if kind in {'annotation', 'transposition'} else None
+                if count:
+                    schema = deepcopy(schema)
+                    schema['properties']['kind'] = {'const': 'chord_diagram'}
+                    diagram = schema['properties']['diagram']['anyOf'][1]
+                    for field in ('frets', 'fingers'):
+                        diagram['properties'][field].update(minItems=count, maxItems=count)
+                    if diagram_has_nut(source):
+                        diagram['properties']['base_fret'] = {'const': 1}
+                    schema['properties']['diagram'] = diagram
+                    schema['required'].append('diagram')
+                scale = min(4, (288 if count else 144) / source.height, 2048 / source.width)
+                if scale > 1 and (kind in HEADER_FIELDS or count):
                     source = source.resize((round(source.width * scale), round(source.height * scale)), Image.Resampling.LANCZOS)
                 image = {'type': 'image', 'image': source}
+        schemas.append(schema)
         messages.append([{'role': 'user', 'content': [
             image, {'type': 'text', 'text': prompt},
         ]}])
@@ -148,15 +164,13 @@ def recognize_document_info(
 
             raise Cancelled("已取消谱面信息识别")
         batch = messages[offset:offset + batch_size]
-        schemas = [ANNOTATION_SCHEMA if r['kind'] in {'annotation', 'transposition'} else
-                   STAFF_SCHEMA if r['kind'] == 'staff' else HEADER_TEXT_SCHEMA if r['kind'] in HEADER_FIELDS else None
-                   for r in regions[offset:offset + batch_size]]
+        batch_schemas = schemas[offset:offset + batch_size]
         constrained = getattr(backend, 'supports_json_schema', False)
         if hasattr(backend, 'generate_batch'):
-            outputs.extend(backend.generate_batch(batch, 512, **({'json_schema': schemas} if constrained else {})))
+            outputs.extend(backend.generate_batch(batch, 512, **({'json_schema': batch_schemas} if constrained else {})))
         else:
             outputs.extend(backend.generate(message, 512, **({'json_schema': schema} if constrained and schema else {}))
-                           for message, schema in zip(batch, schemas, strict=True))
+                           for message, schema in zip(batch, batch_schemas, strict=True))
     for region, (raw, _count) in zip(regions, outputs, strict=True):
         kind = str(region["kind"])
         if cancelled and cancelled():

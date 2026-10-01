@@ -2,10 +2,12 @@ import { ui, endpoint, receiveProject } from "./state.js";
 import { $, el, action, notice } from "./dom.js";
 import { api } from "./api.js";
 const colors = { measure: "#4267c5", header: "#6189ac", title: "#6189ac", subtitle: "#6189ac", credit: "#6189ac", tuning: "#6189ac", header_text: "#6189ac", tempo: "#b07628", clef: "#7756a4", transposition: "#2468aa", annotation: "#2468aa" };
-const names = { measure: "小节", header: "谱头", title: "曲名", subtitle: "副标题", credit: "署名", tuning: "调弦文字", header_text: "其他谱头文字", tempo: "速度", clef: "谱号", transposition: "标记候选", annotation: "标记候选" };
+const names = { measure: "小节", header: "谱头", title: "曲名", subtitle: "副标题", credit: "署名", tuning: "调弦文字", header_text: "其他谱头文字", tempo: "速度", clef: "谱号", transposition: "谱面标记", annotation: "谱面标记" };
 const modeNames = { tab: "TAB", notation: "五线谱", both: "五线谱 + TAB" };
 function boxName(box) {
   if (["annotation", "transposition"].includes(box.kind)) {
+    const role = { chord: "和弦", chord_diagram: "和弦按法", technique: "演奏记号", ottava: "八度记号", capo: "变调夹", instrument: "乐器标注", tempo: "速度", title: "曲名", credit: "署名" }[box.annotation_type];
+    if (role) return box.annotation_text ? `${role} · ${box.annotation_text}` : role;
     const [x, y, w, h] = box.bbox;
     if (ui.boxes.some(b => b.kind === "header" && b.page === box.page &&
       x >= b.bbox[0] && y >= b.bbox[1] && x+w <= b.bbox[0]+b.bbox[2] && y+h <= b.bbox[1]+b.bbox[3]))
@@ -50,14 +52,16 @@ export function initBoxes({ start, go, render, setBusy }) {
     clearTimeout(imageTimer);
     ui.pageImage = null;
     ui.drag = null;
-    $("canvas").hidden = true;
+    $("pageSurface").hidden = true;
     $("boxPreview").hidden = true;
     $("canvas").setAttribute("aria-busy", "true");
     $("pageImageStatus").hidden = false;
     $("pageImageMessage").textContent = "正在加载页面图片…";
     $("retryPageImage").hidden = true;
     const img = new Image();
-    const current = () => request === pageRequest && ui.state?.pages?.[ui.pageIndex] === p;
+    const project = ui.sid, pageIndex = ui.pageIndex;
+    const current = () => request === pageRequest && ui.sid === project &&
+      ui.pageIndex === pageIndex && ui.state?.pages?.[pageIndex]?.url === p.url;
     const failed = () => {
       if (!current()) return;
       clearTimeout(imageTimer);
@@ -71,10 +75,13 @@ export function initBoxes({ start, go, render, setBusy }) {
       if (!current()) return;
       clearTimeout(imageTimer);
       ui.pageImage = img;
-      $("canvas").hidden = false;
-      $("canvas").setAttribute("aria-busy", "false");
+      img.id = "pageSource";
+      img.alt = `原谱第 ${pageIndex + 1} 页`;
+      $("pageSource").replaceWith(img);
+      $("pageSurface").hidden = false;
       $("pageImageStatus").hidden = true;
       resizeCanvas();
+      $("canvas").setAttribute("aria-busy", "false");
       updateBoxControls();
     };
     img.onerror = failed;
@@ -87,11 +94,15 @@ export function initBoxes({ start, go, render, setBusy }) {
     if (!ui.pageImage) return;
     const fit = Math.min(
       1,
-      Math.max(200, $("canvasScroll").clientWidth - 32) / ui.pageImage.width,
+      Math.max(200, $("canvasScroll").clientWidth - 32) / ui.pageImage.naturalWidth,
     );
     ui.scale = fit * (+$("zoom").value / 100);
-    $("canvas").width = Math.round(ui.pageImage.width * ui.scale);
-    $("canvas").height = Math.round(ui.pageImage.height * ui.scale);
+    const width = Math.round(ui.pageImage.naturalWidth * ui.scale);
+    const height = Math.round(ui.pageImage.naturalHeight * ui.scale);
+    $("canvas").setAttribute("width", width);
+    $("canvas").setAttribute("height", height);
+    $("pageSource").style.width = `${width}px`;
+    $("pageSource").style.height = `${height}px`;
     $("zoomValue").textContent = `${$("zoom").value}%`;
     draw();
   }
@@ -104,48 +115,40 @@ export function initBoxes({ start, go, render, setBusy }) {
       .length;
   }
   function draw() {
-    const canvas = $("canvas"),
-      ctx = canvas.getContext("2d");
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const surface = $("canvas");
+    surface.replaceChildren();
     if (!ui.pageImage) return;
-    ctx.drawImage(ui.pageImage, 0, 0, canvas.width, canvas.height);
+    const svg = (tag, attrs, text) => {
+      const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+      for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
+      if (text) node.textContent = text;
+      surface.append(node);
+      return node;
+    };
     ui.boxes.forEach((box, i) => {
       if (box.page !== ui.pageIndex + 1) return;
-      const [x, y, w, h] = box.bbox.map((v) => v * ui.scale);
-      ctx.strokeStyle = colors[box.kind];
-      ctx.fillStyle = colors[box.kind] + (i === ui.selected ? "24" : "0b");
-      ctx.lineWidth = i === ui.selected ? 2.5 : 1.5;
-      ctx.fillRect(x, y, w, h);
-      ctx.strokeRect(x, y, w, h);
-      ctx.font = "12px system-ui";
-      const text =
-        box.kind === "measure" ? `小节 ${numberOf(i)}` : boxName(box);
-      const tw = ctx.measureText(text).width + 10;
-      ctx.fillStyle = colors[box.kind];
-      ctx.fillRect(x, Math.max(0, y - 20), tw, 20);
-      ctx.fillStyle = "white";
-      ctx.fillText(text, x + 5, Math.max(14, y - 5));
-      if (i === ui.selected) {
-        ctx.fillStyle = "white";
-        for (const [cx, cy] of [
-          [x, y],
-          [x + w, y],
-          [x, y + h],
-          [x + w, y + h],
-        ]) {
-          ctx.fillRect(cx - 4, cy - 4, 8, 8);
-          ctx.strokeRect(cx - 4, cy - 4, 8, 8);
-        }
-      }
+      const [x, y, w, h] = box.bbox.map(v => v * ui.scale), color = colors[box.kind];
+      svg("rect", { x, y, width: w, height: h, fill: color,
+        "fill-opacity": i === ui.selected ? 0.14 : 0.04,
+        stroke: color, "stroke-width": i === ui.selected ? 2.5 : 1.5 });
+      const label = box.kind === "measure" ? `小节 ${numberOf(i)}` : boxName(box);
+      svg("text", { x: x + 5, y: Math.max(14, y - 5), fill: "white", stroke: color,
+        "stroke-width": 5, "stroke-linejoin": "round", "paint-order": "stroke",
+        "font-size": 12, "font-family": "system-ui" }, label);
+      if (i === ui.selected)
+        for (const [cx, cy] of [[x,y], [x+w,y], [x,y+h], [x+w,y+h]])
+          svg("rect", { x: cx-4, y: cy-4, width: 8, height: 8, fill: "white", stroke: color, "stroke-width": 2.5 });
     });
     const selected=ui.boxes[ui.selected];
     $("boxPreview").hidden=!selected;
     if(selected && selected.page===ui.pageIndex+1){
       const [x,y,w,h]=selected.bbox;
       if(w>1&&h>1){
-        const preview=$("cropPreview"),scale=Math.min(1,360/w);
-        preview.width=Math.max(1,Math.round(w*scale));preview.height=Math.max(1,Math.round(h*scale));
-        preview.getContext("2d").drawImage(ui.pageImage,x,y,w,h,0,0,preview.width,preview.height);
+        $("cropPreview").setAttribute("viewBox", `${x} ${y} ${w} ${h}`);
+        const source = $("cropPreviewImage");
+        source.setAttribute("href", ui.pageImage.src);
+        source.setAttribute("width", ui.pageImage.naturalWidth);
+        source.setAttribute("height", ui.pageImage.naturalHeight);
       }
     }
   }
@@ -204,11 +207,11 @@ export function initBoxes({ start, go, render, setBusy }) {
     return [
       Math.max(
         0,
-        Math.min(ui.pageImage.width, (e.clientX - r.left) / ui.scale),
+        Math.min(ui.pageImage.naturalWidth, (e.clientX - r.left) / ui.scale),
       ),
       Math.max(
         0,
-        Math.min(ui.pageImage.height, (e.clientY - r.top) / ui.scale),
+        Math.min(ui.pageImage.naturalHeight, (e.clientY - r.top) / ui.scale),
       ),
     ];
   }
@@ -279,8 +282,8 @@ export function initBoxes({ start, go, render, setBusy }) {
       const [bx, by, w, h] = ui.drag.old;
       if (ui.drag.corner < 0)
         b.bbox = [
-          Math.max(0, Math.min(ui.pageImage.width - w, bx + x - ui.drag.x)),
-          Math.max(0, Math.min(ui.pageImage.height - h, by + y - ui.drag.y)),
+          Math.max(0, Math.min(ui.pageImage.naturalWidth - w, bx + x - ui.drag.x)),
+          Math.max(0, Math.min(ui.pageImage.naturalHeight - h, by + y - ui.drag.y)),
           w,
           h,
         ];
@@ -343,8 +346,8 @@ export function initBoxes({ start, go, render, setBusy }) {
       b[1] < 0 ||
       b[2] < 2 ||
       b[3] < 2 ||
-      b[0] + b[2] > ui.pageImage.width ||
-      b[1] + b[3] > ui.pageImage.height
+      b[0] + b[2] > ui.pageImage.naturalWidth ||
+      b[1] + b[3] > ui.pageImage.naturalHeight
     )
       throw new Error("框需要在页面内，宽高至少为 2 像素。");
     remember();ui.boxes[ui.selected].bbox = b;

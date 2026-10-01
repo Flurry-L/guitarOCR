@@ -598,7 +598,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     if !server && !address.is_loopback() {
         return Err("Use --server and --public-url for network access".into());
     }
-    let slots = slots.unwrap_or(if server { 4 } else { 1 });
+    let slots = slots.unwrap_or(if server { 4 } else { 2 });
     if !(1..=4).contains(&slots) {
         return Err("--slots must be between 1 and 4".into());
     }

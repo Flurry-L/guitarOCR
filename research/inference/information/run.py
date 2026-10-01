@@ -292,6 +292,9 @@ def run(layout: Path, output: Path, **kwargs) -> Path:
         for prediction in predictions:
             if part_id := assignments.get(prediction['image']):
                 prediction['part_id'] = part_id
+    if predictions is not None:
+        from research.inference.information.region_recovery import prepare_chord_regions
+        prepare_chord_regions(source['records'], predictions, output)
     for index, part in enumerate(parts):
         local = deepcopy(source)
         local['records'] = [r for r in local['records'] if r['part_id'] == part['id']]

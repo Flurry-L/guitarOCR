@@ -34,11 +34,15 @@ aside {
   margin: 3px 4px 12px;
 }
 .page-thumb {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
   width: 100%;
   padding: 5px;
   margin: 0 0 7px;
   font-size: 11px;
 }
+.page-thumb span { display: block; width: 100%; line-height: 1.5; }
 .page-thumb img {
   width: 100%;
   max-height: 110px;
@@ -74,6 +78,9 @@ canvas {
   touch-action: none;
   background: white;
 }
+#pageSurface { position: relative; width: max-content; }
+#pageSource { display: block; box-shadow: 0 3px 10px #18181b12; }
+#pageSurface > svg { position: absolute; inset: 0; background: transparent; box-shadow: none; touch-action: none; }
 .legend {
   font-size: 10px;
   display: flex;

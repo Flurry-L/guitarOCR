@@ -19,6 +19,7 @@ export function initPages(loadPage) {
       img.src = p.url;
       img.loading = "lazy";
       img.alt = `第 ${i + 1} 页`;
+      b.setAttribute("aria-label", `打开第 ${i + 1} 页`);
       b.append(img, el("span", `第 ${i + 1} 页`));
       b.onclick = () => selectPage(i);
       list.append(b);
@@ -31,13 +32,18 @@ export function initPages(loadPage) {
       ui.busy || !ui.state?.pages || ui.pageIndex >= ui.state.pages.length - 1;
     $("pageSelect").disabled = ui.busy || !ui.state?.pages;
     $("pageSelect").value = ui.pageIndex;
+    [...$("pageList").children].forEach((button, i) => {
+      button.classList.toggle("active", i === ui.pageIndex);
+      button.setAttribute("aria-current", i === ui.pageIndex ? "page" : "false");
+      button.disabled = ui.busy;
+    });
   }
   function selectPage(index) {
     if (ui.busy || !ui.state?.pages) return;
     ui.pageIndex = Math.max(0, Math.min(ui.state.pages.length - 1, index));
     ui.selected = -1;
     $("canvasScroll").scrollTop = 0;
-    renderPages();
+    updatePageNavigation();
     loadPage();
     $("pageList").children[ui.pageIndex]?.scrollIntoView({ block: "nearest" });
   }
