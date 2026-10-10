@@ -220,7 +220,7 @@ pub fn duration_ticks(duration: &Value) -> ScoreResult<Rational> {
     Rational::new(numerator, denominator)
 }
 
-fn duration_token(duration: &Value) -> ScoreResult<String> {
+pub fn duration_token(duration: &Value) -> ScoreResult<String> {
     known_fields(
         duration,
         &[
@@ -1254,7 +1254,7 @@ pub fn score_document(result: &Value) -> ScoreResult<Value> {
         if measures.iter().any(|m| m["index"] == index) {
             return Err(format!("Duplicate bar in {part_id}/{staff_id}: {index}"));
         }
-        let mut parsed = parse_measure_target(text_field(record, "target")?)?;
+        let mut parsed = record_measure(record)?;
         if truthy(&record["written_target"]) && !truthy(&record["manually_edited"]) {
             if let Some(target) = record["written_target"].as_str() {
                 if let Ok(written) = parse_measure_target(target) {
@@ -1323,7 +1323,10 @@ pub fn score_document(result: &Value) -> ScoreResult<Value> {
             parsed["chord_diagram_choices"] = choices.clone();
         }
         parsed["pitch_reference"] = json!(pitch_reference(instrument));
-        if let Some(overlay) = record.get("visual_techniques").filter(|v| !v.is_null()) {
+        if let Some(overlay) = record
+            .get("visual_techniques")
+            .filter(|v| !v.is_null() && parsed["incomplete"] != true)
+        {
             crate::visual_techniques::validate_overlay(&parsed, overlay)?;
             parsed["visual_techniques"] = overlay.clone();
         }
@@ -1351,7 +1354,7 @@ pub fn score_document(result: &Value) -> ScoreResult<Value> {
         }
     }
     let mut timeline = Vec::new();
-    let mut signature = json!("4/4");
+    let mut signature = Value::Null;
     for index in 0..=last_index {
         let mut conflicts = json!({});
         if let Some(values) = signatures.get(&index) {
@@ -1406,4 +1409,22 @@ pub fn score_document(result: &Value) -> ScoreResult<Value> {
         "instructions": result["document_metadata"].get("header_notes").cloned().unwrap_or(json!("")),
         "timeline":timeline, "parts":parts, "annotations":annotations}),
     )
+}
+
+/// A missing IR remains an observation, never an invented rest. Keep its place
+/// in the document so saving/reopening cannot shift the following measures.
+pub fn record_measure(record: &Value) -> ScoreResult<Value> {
+    if let Some(target) = record["target"].as_str() {
+        return parse_measure_target(target);
+    }
+    if !record["target"].is_null() || !record["unresolved"].is_array() {
+        return Err("Incomplete measure requires observation issues".into());
+    }
+    Ok(json!({
+        "voices": [], "incomplete": true,
+        "time_signature": record["score_state"]["time"],
+        "observation": record["observation"],
+        "resolved": record["resolved"],
+        "unresolved": record["unresolved"]
+    }))
 }

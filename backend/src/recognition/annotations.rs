@@ -74,13 +74,42 @@ fn record_name_evidence(
     prediction["chord_evidence"]["name_needs_review"] = json!(candidates.len() != 1);
     if candidates.len() == 1 {
         prediction["parsed"]["text"] = json!(candidates.first().unwrap());
-    } else {
-        prediction["chord_evidence"]["review_required"] = json!(true);
     }
 }
 
 /// Geometry selects context only; musical ownership requires an existing
 /// recognized event or an explicit manual association.
+fn visible_context(record: &Value, annotation: &Value) -> bool {
+    if record["page"] != annotation["page"]
+        || (!annotation["part_id"].is_null() && record["part_id"] != annotation["part_id"])
+    {
+        return false;
+    }
+    let Ok(a) = bbox(annotation) else {
+        return false;
+    };
+    let Ok(b) = bbox(record) else {
+        return false;
+    };
+    // Include annotations already entering the crop's existing 1.5 mm / 4 mm
+    // margins. This selects visible context, never a beat or a duration.
+    let px = 1.5 * f64::from(image_boundary::MODEL_RENDER_DPI) / 25.4;
+    let py = 4. * f64::from(image_boundary::MODEL_RENDER_DPI) / 25.4;
+    (b[0] + b[2] + px).min(a[0] + a[2]) > (b[0] - px).max(a[0])
+        && (b[1] + b[3] + py).min(a[1] + a[3]) > (b[1] - py).max(a[1])
+}
+
+fn staff_system(record: &Value) -> Option<(i64, String, String, i64)> {
+    Some((
+        record["page"].as_i64()?,
+        record["part_id"].as_str()?.to_owned(),
+        record["staff_id"].as_str()?.to_owned(),
+        record["system_index"]
+            .as_i64()
+            .or(record["row_index"].as_i64())?,
+    ))
+}
+
 pub(super) fn prepare_regions(
     records: &mut [Value],
     predictions: &mut [Value],
@@ -90,39 +119,66 @@ pub(super) fn prepare_regions(
         .iter_mut()
         .filter(|p| matches!(text(&p["parsed"], "kind", ""), "chord" | "chord_diagram"))
     {
-        if p["scope"] == "measure" && p["scope_source"] == "manual" {
-            continue;
-        }
         let a = bbox(p)?;
-        let candidates = records
+        // A margin may touch the next staff's diagrams. Establish the staff
+        // from unpadded boxes and the recognized score structure first. If
+        // those boxes disagree or supply no owner, retain the original crop
+        // and the separate annotation instead of expanding into another row.
+        let groups: Option<HashSet<_>> = records
             .iter()
-            .enumerate()
-            .filter_map(|(i, r)| {
-                if r["page"] != p["page"]
-                    || (!p["part_id"].is_null() && p["part_id"] != r["part_id"])
-                {
-                    return None;
-                }
-                let b = bbox(r).ok()?;
-                Some((
-                    i,
-                    (b[1] - a[1] - a[3]).max(a[1] - b[1] - b[3]).max(0.),
-                    (b[0] - a[0] - a[2]).max(a[0] - b[0] - b[2]).max(0.),
-                ))
+            .filter(|r| {
+                visible_context(r, p)
+                    && bbox(r).is_ok_and(|b| {
+                        (b[0] + b[2]).min(a[0] + a[2]) > b[0].max(a[0])
+                            && (b[1] + b[3]).min(a[1] + a[3]) > b[1].max(a[1])
+                    })
             })
-            .collect::<Vec<_>>();
-        let nearest = candidates
+            .map(staff_system)
+            .collect();
+        let owner = groups
+            .filter(|groups| groups.len() == 1)
+            .and_then(|groups| groups.into_iter().next());
+        if !(p["scope"] == "measure" && p["scope_source"] == "manual") {
+            p["scope"] = json!("library");
+            p["scope_source"] = json!("unresolved");
+            p.as_object_mut().unwrap().remove("measure_number");
+        }
+        p["context_measures"] = json!(records
             .iter()
-            .min_by(|a, b| a.1.total_cmp(&b.1).then(a.2.total_cmp(&b.2)));
-        p["scope"] = json!("library");
-        p["scope_source"] = json!("unresolved");
-        p["context_measures"] = json!(candidates
-            .iter()
-            .filter(|candidate| nearest
-                .is_some_and(|best| candidate.1 == best.1 && candidate.2 == best.2))
-            .map(|candidate| records[candidate.0]["measure_number"].clone())
+            .filter(|record| owner.is_some()
+                && staff_system(record) == owner
+                && visible_context(record, p))
+            .filter(|record| {
+                let Ok(b) = bbox(record) else { return false };
+                let px = 1.5 * f64::from(image_boundary::MODEL_RENDER_DPI) / 25.4;
+                let py = 4. * f64::from(image_boundary::MODEL_RENDER_DPI) / 25.4;
+                let top = b[1].min(a[1]) - py;
+                let bottom = (b[1] + b[3]).max(a[1] + a[3]) + py;
+                records.iter().all(|other| {
+                    if other["page"] != record["page"] || staff_system(other) == owner {
+                        return true;
+                    }
+                    let Some([staff_top, staff_bottom]) =
+                        crate::layout_postprocess::staff_band(other)
+                    else {
+                        return true;
+                    };
+                    let Ok(other_box) = bbox(other) else {
+                        return true;
+                    };
+                    if (b[0] + b[2] + px).min(other_box[0] + other_box[2])
+                        <= (b[0] - px).max(other_box[0])
+                    {
+                        return true;
+                    }
+                    // Completing a diagram must not introduce another staff's
+                    // actual music into a crop that did not contain it before.
+                    bottom.min(staff_bottom) <= top.max(staff_top)
+                        || (b[1] + b[3] + py).min(staff_bottom) > (b[1] - py).max(staff_top)
+                })
+            })
+            .map(|record| record["measure_number"].clone())
             .collect::<Vec<_>>());
-        p.as_object_mut().unwrap().remove("measure_number");
     }
     attach_technique_regions(records, predictions)?;
     let mut page_cache = None;
@@ -133,13 +189,16 @@ pub(super) fn prepare_regions(
                 p["scope"] == "measure"
                     && p["scope_source"] == "manual"
                     && p["measure_number"] == r["measure_number"]
+                    && text(p, "part_id", "part-1") == text(r, "part_id", "part-1")
                     && matches!(text(&p["parsed"], "kind", ""), "chord" | "chord_diagram")
             })
             .cloned()
             .collect();
         let context: Vec<Value> = predictions
             .iter()
-            .filter(|p| list(p, "context_measures").contains(&r["measure_number"]))
+            .filter(|p| {
+                list(p, "context_measures").contains(&r["measure_number"]) && visible_context(r, p)
+            })
             .cloned()
             .collect();
         r["chord_annotations"] = json!(annotations);
@@ -150,22 +209,13 @@ pub(super) fn prepare_regions(
         }
         let b = bbox(r)?;
         let mut bounds = [b[0], b[1], b[0] + b[2], b[1] + b[3]];
-        // Complete text already intersecting the crop, while standalone grids
-        // retain their separate images and cannot shrink the first bar's music.
-        let local = context
-            .iter()
-            .filter(|p| p["parsed"]["kind"] == "chord" && p["chord_evidence"]["kind"] != "diagram")
-            .filter(|p| {
-                bbox(p).is_ok_and(|a| {
-                    (b[0] + b[2]).min(a[0] + a[2]) > b[0].max(a[0])
-                        && (b[1] + b[3]).min(a[1] + a[3]) > b[1].max(a[1])
-                })
-            });
-        for p in annotations.iter().chain(local) {
+        // Keep the music and the full height of names/grids already entering
+        // this measure. Preserve its left/right boundaries: expanding them
+        // would pull in neighbouring notes. The separate annotation crop
+        // retains a grid's complete geometry when it crosses a bar boundary.
+        for p in &context {
             let a = bbox(p)?;
-            bounds[0] = bounds[0].min(a[0]);
             bounds[1] = bounds[1].min(a[1]);
-            bounds[2] = bounds[2].max(a[0] + a[2]);
             bounds[3] = bounds[3].max(a[1] + a[3]);
         }
         // Include the printed technique above/below the staff, but do not
@@ -203,19 +253,42 @@ pub(super) fn prepare_regions(
 }
 
 pub fn attach_chord_annotations(records: &mut [Value], predictions: &[Value]) -> Result<()> {
+    // Read beat evidence before updating any record. A diagram can enter two
+    // crop margins while only one measure actually prints its chord event.
+    let mut chord_owners = Vec::new();
+    for row in records.iter() {
+        let Some(target) = row["target"].as_str() else {
+            continue;
+        };
+        let measure = score::parse_measure_target(target)?;
+        let names = list(&measure, "voices")
+            .iter()
+            .flat_map(|voice| list(voice, "events"))
+            .filter_map(event_chord_name)
+            .map(|name| chord_key(&name))
+            .collect::<HashSet<_>>();
+        chord_owners.push((
+            json!({"part_id":row["part_id"],"page":row["page"],
+                "measure_number":row["measure_number"],"bbox":row["bbox"]}),
+            names,
+        ));
+    }
     let annotations: Vec<&Value> = predictions
         .iter()
         .filter(|p| scorelib::chords::decision(p) != Some("rejected"))
         .filter(|p| matches!(text(&p["parsed"], "kind", ""), "chord" | "chord_diagram"))
         .collect();
     for row in records {
+        if flag(row, "manually_edited") {
+            continue;
+        }
         let part: Vec<&Value> = annotations
             .iter()
             .copied()
             .filter(|p| text(p, "part_id", "part-1") == text(row, "part_id", "part-1"))
             .collect();
-        // Legacy automatic scope=measure records were proximity guesses.
-        // Only explicit manual scope may choose a local diagram over a library.
+        // Geometry limits the candidate set. Only the measure reader's
+        // visible chord event establishes musical timing.
         let manual = |p: &&Value| p["scope"] == "measure" && p["scope_source"] == "manual";
         let local: Vec<&Value> = part
             .iter()
@@ -223,12 +296,35 @@ pub fn attach_chord_annotations(records: &mut [Value], predictions: &[Value]) ->
             .filter(|p| manual(p) && p["measure_number"] == row["measure_number"])
             .collect();
         row["chord_annotations"] = json!(local);
+        let visible: Vec<&Value> = part
+            .iter()
+            .copied()
+            .filter(|p| !manual(p))
+            .filter(|p| {
+                list(p, "context_measures").contains(&row["measure_number"])
+                    && visible_context(row, p)
+            })
+            .collect();
         let mut choices = Vec::new();
-        let mut m = score::parse_measure_target(text(row, "target", ""))?;
+        let Some(target) = row["target"].as_str() else {
+            row["chord_diagram_choices"] = json!([]);
+            continue;
+        };
+        let mut m = score::parse_measure_target(target)?;
         let mut changed = false;
         for voice in m["voices"].as_array_mut().unwrap() {
             let voice_number = voice["voice"].clone();
             for event in voice["events"].as_array_mut().unwrap() {
+                // Diagrams are supplied by the dedicated reader. Recompute
+                // automatic attachments so an old guess cannot survive a
+                // changed or ambiguous local candidate set.
+                if let Some(effects) = event["effects"].as_array_mut() {
+                    let before = effects.len();
+                    effects.retain(|effect| {
+                        !effect.as_str().is_some_and(|s| s.starts_with("diagram:"))
+                    });
+                    changed |= before != effects.len();
+                }
                 let name = list(event, "effects")
                     .iter()
                     .filter_map(Value::as_str)
@@ -237,77 +333,69 @@ pub fn attach_chord_annotations(records: &mut [Value], predictions: &[Value]) ->
                 let Some(name) = name else {
                     continue;
                 };
-                let has_diagram = list(event, "effects")
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .any(|s| s.starts_with("diagram:"));
-                let matching = |values: &[&Value]| -> (HashSet<String>, bool) {
-                    let matched = values
-                        .iter()
-                        .filter(|p| chord_key(text(&p["parsed"], "text", "")) == chord_key(&name))
-                        .collect::<Vec<_>>();
-                    let pending = matched.iter().any(|p| scorelib::chords::pending(p));
-                    let diagrams = matched
-                        .into_iter()
-                        .flat_map(|p| {
-                            let evidence = &p["chord_evidence"];
-                            let pending = scorelib::chords::pending(p);
-                            let mut shapes = vec![&p["parsed"]["diagram"]];
-                            if pending {
-                                for key in [
-                                    "proposed_diagram",
-                                    "diagram",
-                                    "secondary_diagram",
-                                    "original_diagram",
-                                    "rejected_diagram_candidate",
-                                ] {
-                                    shapes.push(&evidence[key]);
-                                }
-                            }
-                            shapes
-                                .into_iter()
-                                .filter_map(|shape| {
-                                    let d = normalize_diagram(shape);
-                                    if d.is_null()
-                                        || (!list(row, "tuning").is_empty()
-                                            && list(&d, "frets").len() != list(row, "tuning").len())
-                                    {
-                                        None
-                                    } else {
-                                        diagram_effect(&d).ok()
-                                    }
-                                })
-                                .collect::<Vec<_>>()
-                        })
-                        .collect();
-                    (diagrams, pending)
-                };
-                let candidates = matching(&local);
-                let (diagrams, pending) = if candidates.0.is_empty() && !candidates.1 {
-                    matching(
-                        &part
-                            .iter()
-                            .copied()
-                            .filter(|p| !manual(p))
-                            .collect::<Vec<_>>(),
-                    )
-                } else {
-                    candidates
-                };
-                if has_diagram && (row["manually_edited"] == true || !pending) {
-                    continue;
+                let same_name =
+                    |p: &&Value| chord_key(text(&p["parsed"], "text", "")) == chord_key(&name);
+                let mut matched = local.iter().copied().filter(same_name).collect::<Vec<_>>();
+                if matched.is_empty() {
+                    matched = visible.iter().copied().filter(same_name).collect();
                 }
-                if diagrams.len() > 1 || pending {
+                let pending = matched.iter().any(|p| scorelib::chords::pending(p));
+                let ambiguous = matched.iter().any(|p| {
+                    !manual(p)
+                        && p["parsed"]["diagram"].is_object()
+                        && chord_owners
+                            .iter()
+                            .filter(|(owner, names)| {
+                                text(owner, "part_id", "part-1") == text(row, "part_id", "part-1")
+                                    && list(p, "context_measures")
+                                        .contains(&owner["measure_number"])
+                                    && visible_context(owner, p)
+                                    && names.contains(&chord_key(&name))
+                            })
+                            .count()
+                            != 1
+                });
+                let diagrams: HashSet<String> = matched
+                    .into_iter()
+                    .flat_map(|p| {
+                        let evidence = &p["chord_evidence"];
+                        let mut shapes = vec![&p["parsed"]["diagram"]];
+                        if scorelib::chords::pending(p) {
+                            for key in [
+                                "proposed_diagram",
+                                "diagram",
+                                "secondary_diagram",
+                                "original_diagram",
+                                "rejected_diagram_candidate",
+                            ] {
+                                shapes.push(&evidence[key]);
+                            }
+                        }
+                        shapes
+                            .into_iter()
+                            .filter_map(|shape| {
+                                let d = normalize_diagram(shape);
+                                if d.is_null()
+                                    || (!list(row, "tuning").is_empty()
+                                        && list(&d, "frets").len() != list(row, "tuning").len())
+                                {
+                                    None
+                                } else {
+                                    diagram_effect(&d).ok()
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .collect();
+                if diagrams.len() > 1 || pending || ambiguous {
                     let mut candidates = diagrams.iter().cloned().collect::<Vec<_>>();
                     candidates.sort();
                     choices.push(json!({"voice":voice_number,"start":event["start"],"name":name,"diagrams":candidates,
                         "source":if pending {"chord_evidence"} else {"library"},
-                        "reason":if pending {"图示识别尚有未决或冲突的指法，请对照原谱选择候选并确认小节。"} else {"同名和弦存在多种指法，已完整保留在指法库，请按原谱选择当前拍的按法。"}}));
-                    if pending {
-                        row["needs_review"] = json!(true);
-                    }
+                        "reason":if pending {"图示识别尚有未决或冲突的指法，请对照原谱选择候选并确认小节。"} else if ambiguous {"指法图同时进入多个小节，尚不能确定归属，请按原谱选择当前拍的按法。"} else {"当前小节的同名和弦存在多种指法，请按原谱选择当前拍的按法。"}}));
+                    row["needs_review"] = json!(true);
                 }
-                if diagrams.len() == 1 && !pending {
+                if diagrams.len() == 1 && !pending && !ambiguous {
                     event["effects"]
                         .as_array_mut()
                         .unwrap()
@@ -350,26 +438,28 @@ fn attach_technique_regions(records: &mut [Value], predictions: &[Value]) -> Res
                 if (a[0] + a[2]).min(b[0] + b[2]) <= a[0].max(b[0]) {
                     return None;
                 }
-                let gap = (b[1] - a[1] - a[3]).max(a[1] - b[1] - b[3]).max(0.);
-                if gap > 48f64.max(b[3] * 0.2) {
+                // Chord diagrams can make the content box much taller than
+                // its musical staff. Locate technique marks against measured
+                // staff lines whenever that geometry is available.
+                let [top, bottom] =
+                    crate::layout_postprocess::staff_band(r).unwrap_or([b[1], b[1] + b[3]]);
+                let gap = (top - a[1] - a[3]).max(a[1] - bottom).max(0.);
+                if gap > 48f64.max((bottom - top) * 0.2) {
                     return None;
                 }
-                Some((i, gap, (a[1] + a[3] / 2. - b[1] - b[3] / 2.).abs()))
+                Some((i, gap, (a[1] + a[3] / 2. - (top + bottom) / 2.).abs()))
             })
             .min_by(|a, b| a.1.total_cmp(&b.1).then(a.2.total_cmp(&b.2)))
             .map(|x| x.0);
         let Some(owner) = owner else {
             continue;
         };
-        let staff = records[owner].clone();
-        let b = bbox(&staff)?;
-        for r in records.iter_mut() {
+        let system = staff_system(&records[owner]);
+        for (index, r) in records.iter_mut().enumerate() {
             let c = bbox(r)?;
-            if r["page"] != staff["page"]
-                || r["part_id"] != staff["part_id"]
-                || r["staff_id"] != staff["staff_id"]
-                || (c[1] + c[3] / 2. - b[1] - b[3] / 2.).abs() > 0.35 * b[3].min(c[3])
-                || (a[0] + a[2]).min(c[0] + c[2]) <= a[0].max(c[0])
+            if !system.as_ref().map_or(index == owner, |system| {
+                staff_system(r).as_ref() == Some(system)
+            }) || (a[0] + a[2]).min(c[0] + c[2]) <= a[0].max(c[0])
             {
                 continue;
             }
@@ -384,4 +474,236 @@ fn attach_technique_regions(records: &mut [Value], predictions: &[Value]) -> Res
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn chord_context_preserves_music_and_attaches_only_local_evidence() {
+        let output = tempfile::tempdir().unwrap();
+        let page_path = output.path().join("page.png");
+        let page = RgbImage::from_fn(600, 700, |x, y| {
+            Rgb([(x % 251) as u8, (y % 251) as u8, ((x + y) % 251) as u8])
+        });
+        page.save(&page_path).unwrap();
+        let measure = |number, b: [i32; 4], name: &str| {
+            json!({"measure_number":number,"part_id":"guitar","staff_id":"tab",
+                "page":1,"system_index":b[1],"source_page":page_path,"bbox":b,"mode":"tab",
+                "tuning":[64,59,55,50,45,40],
+                "target":format!("M | V0{{@0:q:s1f0{}}}",
+                    if name.is_empty() {String::new()} else {format!("<chord:{name}>")})})
+        };
+        let shape = |base| {
+            json!({"base_fret":base,"frets":["x",base,base+2,base+2,base+2,"x"],
+                "fingers":[null,1,3,3,3,null],"barres":[]})
+        };
+        let diagram = |b: [i32; 4], name, base| {
+            json!({"page":1,"part_id":"guitar","bbox":b,
+                "parsed":{"kind":"chord_diagram","text":name,"diagram":shape(base)}})
+        };
+        let mut named = diagram([120, 155, 55, 70], "?", 7);
+        named["chord_evidence"] = json!({"accepted":{"geometry":true,"full":true},
+            "review_required":false});
+        record_name_evidence(&mut named, vec![], Default::default());
+        assert!(scorelib::chords::pending(&named));
+        record_name_evidence(&mut named, vec![], ["E".to_owned()].into());
+        assert!(!scorelib::chords::pending(&named));
+        named["chord_evidence"]["review_required"] = json!(true);
+        record_name_evidence(&mut named, vec![], ["E".to_owned()].into());
+        assert!(scorelib::chords::pending(&named));
+        let mut records = vec![
+            measure(1, [100, 200, 160, 100], "E"),
+            measure(2, [320, 200, 160, 100], "E"),
+            measure(3, [100, 450, 160, 100], "G"),
+            measure(4, [320, 450, 160, 100], ""),
+        ];
+        let mut predictions = vec![
+            diagram([120, 155, 55, 70], "E", 7),
+            diagram([350, 155, 55, 70], "E", 2),
+            diagram([500, 20, 55, 70], "G", 3),
+            // A margin alone does not establish a diagram's owning staff.
+            diagram([210, 150, 40, 25], "F#", 9),
+            // Complete geometry stays in its separate crop; the measure
+            // must not widen rightwards to include neighbouring notes.
+            diagram([240, 165, 45, 60], "E", 7),
+            json!({"page":1,"part_id":"guitar","bbox":[135,150,35,25],
+                "parsed":{"kind":"technique","text":"P.M."}}),
+        ];
+        prepare_regions(&mut records, &mut predictions, Some(output.path())).unwrap();
+        assert_eq!(predictions[0]["context_measures"], json!([1]));
+        assert_eq!(predictions[1]["context_measures"], json!([2]));
+        assert_eq!(predictions[2]["context_measures"], json!([]));
+        assert_eq!(predictions[3]["context_measures"], json!([]));
+        assert_eq!(records[0]["content_bbox"], json!([100., 150., 160., 150.]));
+        assert_eq!(records[0]["bbox"], json!([100, 200, 160, 100]));
+        let crop = record_image(&records[0]).unwrap();
+        let old =
+            image_boundary::measure_crop_bounds(600, 700, [100., 200., 160., 100.], 1.5).unwrap();
+        let new =
+            image_boundary::measure_crop_bounds(600, 700, [100., 150., 160., 150.], 1.5).unwrap();
+        assert_eq!((old[0], old[2]), (new[0], new[2]));
+        for y in old[1]..old[3] {
+            for x in old[0]..old[2] {
+                assert_eq!(crop.get_pixel(x - new[0], y - new[1]), page.get_pixel(x, y));
+            }
+        }
+        for (x, y) in [(120, 155), (174, 224), (140, 160), (210, 150)] {
+            assert_eq!(crop.get_pixel(x - new[0], y - new[1]), page.get_pixel(x, y));
+        }
+        attach_chord_annotations(&mut records, &predictions).unwrap();
+        assert!(text(&records[0], "target", "").contains(&diagram_effect(&shape(7)).unwrap()));
+        assert!(text(&records[1], "target", "").contains(&diagram_effect(&shape(2)).unwrap()));
+        assert!(!text(&records[2], "target", "").contains("diagram:"));
+        assert!(!text(&records[3], "target", "").contains("chord:"));
+
+        // A second local fingering makes the association unresolved; an old
+        // automatically attached shape must not survive that ambiguity.
+        let mut alternative = diagram([180, 155, 30, 70], "E", 2);
+        alternative["context_measures"] = json!([1]);
+        predictions.push(alternative);
+        attach_chord_annotations(&mut records, &predictions).unwrap();
+        assert!(!text(&records[0], "target", "").contains("diagram:"));
+        assert_eq!(
+            records[0]["chord_diagram_choices"][0]["diagrams"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        assert!(text(&records[1], "target", "").contains(&diagram_effect(&shape(2)).unwrap()));
+
+        // A grid crossing two crops cannot acquire ownership from proximity.
+        predictions.push(diagram([250, 165, 80, 60], "E", 7));
+        prepare_regions(&mut records, &mut predictions, None).unwrap();
+        assert_eq!(
+            predictions.last().unwrap()["context_measures"],
+            json!([1, 2])
+        );
+        let crossing = vec![predictions.last().unwrap().clone()];
+        let mut owners = vec![
+            measure(1, [100, 200, 160, 100], ""),
+            measure(2, [320, 200, 160, 100], "E"),
+        ];
+        attach_chord_annotations(&mut owners, &crossing).unwrap();
+        assert!(!text(&owners[0], "target", "").contains("diagram:"));
+        assert!(text(&owners[1], "target", "").contains(&diagram_effect(&shape(7)).unwrap()));
+        owners[0]["target"] = measure(1, [100, 200, 160, 100], "E")["target"].clone();
+        attach_chord_annotations(&mut owners, &crossing).unwrap();
+        assert!(owners
+            .iter()
+            .all(|row| !text(row, "target", "").contains("diagram:")));
+        attach_chord_annotations(&mut records, &predictions).unwrap();
+        assert!(!text(&records[1], "target", "").contains("diagram:"));
+        assert_eq!(
+            records[1]["chord_diagram_choices"][0]["diagrams"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+
+        // An explicit local association overrides automatic context choices.
+        let mut manual = diagram([500, 20, 55, 70], "E", 5);
+        merge(
+            &mut manual,
+            &json!({"scope":"measure","scope_source":"manual","measure_number":1}),
+        );
+        predictions.push(manual);
+        attach_chord_annotations(&mut records, &predictions).unwrap();
+        assert!(text(&records[0], "target", "").contains(&diagram_effect(&shape(5)).unwrap()));
+        assert_eq!(records[0]["chord_diagram_choices"], json!([]));
+
+        // The upper crop's bottom margin touches the next row's diagram.
+        // Its actual staff identity prevents an expansion into that row.
+        let mut vertical = vec![
+            measure(1, [100, 200, 160, 100], "E"),
+            measure(2, [100, 440, 160, 100], "E"),
+        ];
+        let mut lower_diagram = vec![diagram([120, 310, 55, 150], "E", 7)];
+        prepare_regions(&mut vertical, &mut lower_diagram, Some(output.path())).unwrap();
+        assert_eq!(lower_diagram[0]["context_measures"], json!([2]));
+        assert!(vertical[0]["content_bbox"].is_null());
+        assert_eq!(vertical[1]["content_bbox"], json!([100., 310., 160., 230.]));
+        vertical[0]["staff_band"] = json!([230., 295.]);
+        prepare_regions(&mut vertical, &mut lower_diagram, None).unwrap();
+        assert_eq!(lower_diagram[0]["context_measures"], json!([]));
+        vertical[0]["bbox"] = json!([100, 200, 160, 160]);
+        prepare_regions(&mut vertical, &mut lower_diagram, None).unwrap();
+        assert_eq!(lower_diagram[0]["context_measures"], json!([]));
+
+        // A tall chord area must neither split a technique within one system
+        // nor make a neighbouring system appear to own a mark below the staff.
+        let mut techniques = vec![
+            measure(1, [100, 100, 160, 300], ""),
+            measure(2, [260, 280, 160, 120], ""),
+            measure(3, [100, 370, 160, 180], ""),
+        ];
+        for row in &mut techniques[..2] {
+            row["system_index"] = json!(0);
+            row["staff_band"] = json!([300., 360.]);
+        }
+        techniques[2]["system_index"] = json!(1);
+        techniques[2]["staff_band"] = json!([470., 530.]);
+        let marks = vec![
+            json!({"page":1,"part_id":"guitar","bbox":[120,270,300,18],
+                "parsed":{"kind":"technique","text":"P.M."}}),
+            json!({"page":1,"part_id":"guitar","bbox":[120,375,30,15],
+                "parsed":{"kind":"technique","text":"let ring"}}),
+        ];
+        attach_technique_regions(&mut techniques, &marks).unwrap();
+        assert_eq!(list(&techniques[0], "technique_annotations").len(), 2);
+        assert_eq!(list(&techniques[1], "technique_annotations").len(), 1);
+        assert!(list(&techniques[2], "technique_annotations").is_empty());
+
+        // Editing the library updates both stored copies and recomputes an
+        // automatic beat attachment without replacing user-edited music.
+        let sid = "11111111111111111111111111111111";
+        let directory = output.path().join(sid);
+        std::fs::create_dir(&directory).unwrap();
+        let mut row = measure(1, [100, 200, 160, 100], "E");
+        merge(
+            &mut row,
+            &json!({"source_id":"score","bar_index":0,"instrument":"guitar",
+            "capo":0,"tuning_source":"manual","tuning_explicit":true,
+            "observation":{"state":{"time":{"status":"observed","value":"4/4"}},
+                "voices":[{"voice":0,"events":[{"start":0,"duration":"q","status":"normal",
+                    "notes":[{"string":1,"fret":0}],"effects":["chord:E"]}]}],"relations":[]}}),
+        );
+        let mut source = json!({"mode":"tab","instrument":"guitar","tuning_used":[64,59,55,50,45,40],
+            "parts":[{"id":"guitar","document_metadata":{"score_annotations":[predictions[0]]}}],
+            "document_metadata":{},"records":[row]});
+        reassemble(&mut source).unwrap();
+        let info_path = directory.join("info.json");
+        crate::edit::json_file(&info_path, &source).unwrap();
+        let manifest = crate::edit::save_recognition(&directory, &source).unwrap();
+        let mut state = json!({"id":sid,"revision":0,"info":info_path,"recognition":manifest});
+        crate::project::write_session_atomic(output.path(), sid, &state).unwrap();
+        let body = json!({"part_id":"guitar","decision":"confirm","name":"E","diagram":shape(5)});
+        crate::edit::chord_library::edit(output.path(), sid, 0, &body, Some("0")).unwrap();
+        state = crate::project::load_session(output.path(), sid).unwrap();
+        source = crate::view::read_json(Path::new(state["recognition"].as_str().unwrap())).unwrap();
+        let info = crate::view::read_json(Path::new(state["info"].as_str().unwrap())).unwrap();
+        assert_eq!(
+            info["parts"][0]["document_metadata"],
+            source["parts"][0]["document_metadata"]
+        );
+        assert!(
+            text(&source["records"][0], "target", "").contains(&diagram_effect(&shape(5)).unwrap())
+        );
+        source["records"][0]["manually_edited"] = json!(true);
+        let manual_target = source["records"][0]["target"].clone();
+        state["recognition"] = json!(crate::edit::save_recognition(&directory, &source).unwrap());
+        crate::project::write_session_atomic(output.path(), sid, &state).unwrap();
+        let body = json!({"part_id":"guitar","decision":"confirm","name":"E","diagram":shape(9)});
+        crate::edit::chord_library::edit(output.path(), sid, 0, &body, Some("1")).unwrap();
+        state = crate::project::load_session(output.path(), sid).unwrap();
+        source = crate::view::read_json(Path::new(state["recognition"].as_str().unwrap())).unwrap();
+        assert_eq!(source["records"][0]["target"], manual_target);
+        assert_eq!(
+            source["parts"][0]["document_metadata"]["score_annotations"][0]["parsed"]["diagram"],
+            shape(9)
+        );
+    }
 }

@@ -20,8 +20,6 @@ pub mod score_grid;
 pub mod score_structure;
 pub mod structure_relation;
 pub mod tasks;
-pub mod technique_grounding;
-pub mod technique_span;
 pub mod text_regions;
 pub mod uploads;
 pub mod view;
@@ -378,8 +376,8 @@ async fn score_text(
         .as_array()
         .ok_or_else(|| bad("识别结果缺少小节"))?
         .iter()
-        .filter_map(|r| r["target"].as_str())
-        .collect::<Vec<_>>()
+        .map(|r| r["target"].as_str().ok_or_else(|| bad("还有未补全的小节，请先校对再下载小节文本")))
+        .collect::<Result<Vec<_>, _>>()?
         .join("\n")
         + "\n";
     Ok((

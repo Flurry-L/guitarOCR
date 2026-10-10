@@ -176,3 +176,60 @@ def group_glyphs_by_owner(
                 )
         grouped[key].append(glyph)
     return dict(grouped)
+
+
+def validate_relation_geometry(layout: Mapping, score: Mapping | None = None) -> list[dict]:
+    """Validate draw-time connector evidence without turning hidden state into labels."""
+    payload = layout.get("relation_geometry")
+    if payload is None:
+        return []
+    if payload.get("schema") != "gpomr.relation-geometry":
+        raise ValueError("invalid native relation geometry schema")
+    errors = payload.get("errors")
+    if not isinstance(errors, list) or any(not isinstance(error, str) for error in errors):
+        raise ValueError("invalid native relation geometry errors")
+    if payload.get("status") != ("unresolved" if errors else "complete"):
+        raise ValueError("native relation geometry status disagrees with errors")
+    relations = payload.get("relations")
+    if not isinstance(relations, list):
+        raise ValueError("native relation geometry must contain a list")
+    systems = {system["system_index"]: system for system in layout["systems"]}
+    notes = index_official_owners(score)[1] if score is not None else None
+    point_counts = {"note_slur": 4, "hopo_slur": 4, "beat_slur": 4, "slide": 2, "slide_mark": 0}
+    for relation in relations:
+        count = point_counts.get(relation.get("view_kind"))
+        if count is None or len(relation.get("points_mm", [])) != count:
+            raise ValueError("native connector has an unsupported kind or point count")
+        if relation.get("bounds_source") != "native_band_element_view_render":
+            raise ValueError("native connector must come from a rendered band element")
+        system = systems.get(relation.get("system_index"))
+        if system is None or relation.get("page") != system["page"]:
+            raise ValueError("native connector has no matching rendered system")
+        bbox = _numbers(relation.get("bbox_mm"), 4, "connector bounds")
+        if min(bbox[2:]) <= 0:
+            raise ValueError("native connector must have nonempty rendered bounds")
+        for point in relation["points_mm"]:
+            _numbers(point, 2, "connector point")
+        for field in ("start_owner", "end_owner"):
+            owner = relation.get(field)
+            if owner is None:
+                continue
+            key = tuple(owner.get(name) for name in OWNER_FIELDS)
+            if any(type(value) is not int or value < 0 for value in key):
+                raise ValueError("native connector endpoint needs an exact note owner")
+            if notes is not None and (
+                key not in notes
+                or notes[key]["native_string_index"] != owner.get("native_string_index")
+            ):
+                raise ValueError("native connector endpoint refers to a different official note")
+            if owner.get("visibility_code") not in (0, 1, 2):
+                raise ValueError("invalid native connector endpoint visibility")
+            if owner["visibility_code"] != 0 and owner.get("fret_text") is not None:
+                raise ValueError("hidden native connector fret text must remain unknown")
+            if owner.get("render_origin_mm") is not None:
+                _numbers(owner["render_origin_mm"], 2, "endpoint render origin")
+                _numbers(owner.get("layout_bbox_mm"), 4, "endpoint layout bounds")
+                owner_system = systems.get(owner.get("system_index"))
+                if owner_system is None or owner.get("page") != owner_system["page"]:
+                    raise ValueError("native connector endpoint has no matching rendered system")
+    return relations

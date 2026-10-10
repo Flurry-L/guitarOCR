@@ -19,13 +19,13 @@ def strip_source_paths(message):
                 strip_source_paths(child)
 
 
-def export(output, paddle_python, layout_model=None, score_model=None, only=None):
+def export(output, paddle_python, layout_model=None, signature_model=None, only=None):
     import onnx
 
-    from research.defaults import LAYOUT_MODEL, SCORE_ADAPTER
+    from research.defaults import LAYOUT_MODEL, WEIGHTS_ROOT
 
     layout_model = layout_model or LAYOUT_MODEL
-    score_model = score_model or SCORE_ADAPTER / 'merged'
+    signature_model = signature_model or WEIGHTS_ROOT / 'checkpoints/signature'
 
     output.mkdir(parents=True, exist_ok=True)
     if only != 'signature':
@@ -43,7 +43,7 @@ def export(output, paddle_python, layout_model=None, score_model=None, only=None
         from research.common.signature_image import signature_config
         from research.models.auxiliary import make_signature_network
 
-        state_root = score_model if (score_model / 'state.safetensors').is_file() else score_model / 'state_reader'
+        state_root = signature_model
         config = signature_config(state_root)
         model = make_signature_network(config).eval()
         model.load_state_dict(load_file(str(state_root / 'state.safetensors')))
@@ -89,7 +89,8 @@ if __name__ == '__main__':
     parser.add_argument('--output', type=Path, default=ROOT / 'output/distribution/auxiliary')
     parser.add_argument('--paddle-python', type=Path, required=True)
     parser.add_argument('--layout-model', type=Path)
-    parser.add_argument('--score-model', type=Path)
+    parser.add_argument('--signature-model', type=Path,
+                        help='Signature training directory containing state.safetensors and config.json')
     parser.add_argument('--only', choices=['layout', 'signature'])
     args = parser.parse_args()
-    export(args.output.resolve(), args.paddle_python.absolute(), args.layout_model, args.score_model, args.only)
+    export(args.output.resolve(), args.paddle_python.absolute(), args.layout_model, args.signature_model, args.only)

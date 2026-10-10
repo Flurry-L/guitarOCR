@@ -43,20 +43,22 @@ def install_cubic_resize() -> None:
 
 
 @contextmanager
-def cubic_training_worker(runner):
-    """Route PaddleX's single/distributed launch through our explicit worker."""
+def cubic_training_worker(runner, entry="tools/train.py", output=None):
+    """Route PaddleX training and evaluation through the shared image transform."""
     original = runner.run_cmd
     worker = Path(__file__).with_name("layout_worker.py").resolve()
 
     def run_cmd(cmd, **kwargs):
         cmd = list(cmd)
-        indices = [i for i, value in enumerate(cmd) if value == "tools/train.py"]
+        indices = [i for i, value in enumerate(cmd) if value == entry]
         if len(indices) != 1:
             raise ValueError("Unrecognized Paddle layout training command")
-        upstream = Path(runner.runner_root_path).resolve() / "tools/train.py"
+        upstream = Path(runner.runner_root_path).resolve() / entry
         if not upstream.is_file():
             raise ValueError(f"Missing Paddle training entry point: {upstream}")
         cmd[indices[0]] = str(worker)
+        if output is not None:
+            cmd.extend(["--output_eval", str(output), "--classwise"])
         env = dict(os.environ if kwargs.get("env") is None else kwargs["env"])
         env["GUITAROCR_LAYOUT_UPSTREAM_TRAIN"] = str(upstream)
         kwargs["env"] = env
@@ -97,10 +99,15 @@ def letterbox_reader_updates(config, size: int = 800) -> dict:
         transforms = reader[field]
         indices = [i for i, transform in enumerate(transforms)
                    if next(iter(transform)) in {"Resize", "BatchRandomResize"}]
-        if len(indices) != 1:
+        if len(indices) == 2 and transforms[indices[0]:indices[-1] + 1] == letterbox_transforms(size):
+            # A fine-tuned checkpoint brings its saved training reader into
+            # PaddleX evaluation. Keep that same, already-applied geometry.
+            i, end = indices[0], indices[-1] + 1
+        elif len(indices) == 1:
+            i, end = indices[0], indices[0] + 1
+        else:
             raise ValueError(f"Expected one resize in {name}, got {len(indices)}")
-        i = indices[0]
-        reader[field] = transforms[:i] + letterbox_transforms(size) + transforms[i + 1:]
+        reader[field] = transforms[:i] + letterbox_transforms(size) + transforms[end:]
         if name == "TestReader":
             reader.setdefault("inputs_def", {})["image_shape"] = [3, size, size]
         if name == "TrainReader":
@@ -120,6 +127,25 @@ def main() -> None:
 
     args = parse_args()
     config = get_config(args.config, overrides=args.override, show=False)
+    if config.Global.mode == "evaluate" and config.Global.model == "PP-DocLayoutV3":
+        import json
+        from paddlex.modules.base.evaluator import build_evaluator
+        disable_pir_bydefault()
+        evaluator = build_evaluator(config)
+        evaluator.update_config()
+        evaluator.pdx_config.update({"target_metrics": "bbox", "num_classes": config.Train.num_classes,
+                                     "classwise": True, "output_eval": str(config.Global.output)})
+        evaluator.pdx_config.update(letterbox_reader_updates(
+            evaluator.pdx_config, int(config.Train.get("input_size", 800))))
+        Path(config.Global.output).mkdir(parents=True, exist_ok=True)
+        evaluator.dump_config()
+        with cubic_training_worker(evaluator.pdx_model.runner, "tools/eval.py", config.Global.output):
+            result = evaluator.pdx_model.evaluate(**evaluator.get_eval_kwargs())
+        if result.returncode != 0:
+            raise RuntimeError(f"Layout evaluation failed with exit code {result.returncode}")
+        Path(config.Global.output, "metrics.json").write_text(json.dumps(result.metrics, indent=2) + "\n")
+        print(json.dumps(result.metrics))
+        return
     if config.Global.mode != "train" or config.Global.model != "PP-DocLayoutV3":
         Engine().run()
         return
@@ -132,6 +158,7 @@ def main() -> None:
     trainer.pdx_config.update(
         {
             "target_metrics": "bbox",
+            "classwise": True,
             "TrainDataset": {
                 "data_fields": [
                     "image",

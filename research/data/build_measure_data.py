@@ -22,13 +22,8 @@ from research.data.native_supervision import (
     source_profile,
     visible_text_box,
 )
-from research.data.prompts import attach_neighbours, key_fifths
+from research.data.prompts import key_fifths
 from research.data.technique_visibility import prepare_visual_techniques
-from research.data.training_samples import (
-    dataset_entry,
-    iter_training_samples,
-    visual_measure_sample,
-)
 
 
 def measure_semantic_tags(measure: dict[str, Any]) -> list[str]:
@@ -205,8 +200,6 @@ def _crop_source(job):
                     "bar_index": index,
                 }
             ))
-    for mode in modes:
-        attach_neighbours([row for row in rows if row['mode'] == mode])
     return label["source_id"], rows, failures
 
 
@@ -286,22 +279,6 @@ def crop_and_manifest(
         manifests[split_name] = str(path.resolve())
     write_json(output / "crop_failures.json", failures)
 
-    llama_root = output / "llamafactory"
-    llama_root.mkdir(parents=True, exist_ok=True)
-    visibility_review = {}
-    for split_name in ("train", "validation", "test"):
-        split_rows = [row for row in rows if row["split"] == split_name]
-        values = list(iter_training_samples(split_rows, serializer=visual_measure_sample,
-                      review_path=output / 'manifests' / f'visibility_review_{split_name}.jsonl'))
-        visibility_review[split_name] = len(split_rows) - len(values)
-        write_json(llama_root / f"gp8_measure_sequence_{split_name}.json", values)
-    dataset_info = {
-        f"gp8_measure_sequence_{split_name}": dataset_entry(
-            f"gp8_measure_sequence_{split_name}.json"
-        )
-        for split_name in ("train", "validation", "test")
-    }
-    write_json(llama_root / "dataset_info.json", dataset_info)
     split_sources = {
         name: sorted({row["source_id"] for row in rows if row["split"] == name})
         for name in ("train", "validation", "test")
@@ -318,7 +295,7 @@ def crop_and_manifest(
     summary = {
         "sources": len({row["source_id"] for row in rows}),
         "samples": len(rows),
-        "visibility_review_rows": visibility_review,
+        "supervision": "source_manifest_only",
         "source_formats": dict(sorted(source_formats.items())),
         "multi_voice_sources": multi_voice_sources,
         "technique_occurrences": dict(sorted(technique_counts.items())),
@@ -335,12 +312,153 @@ def crop_and_manifest(
             (row["target_utf8_bytes"] for row in rows), default=0
         ),
         "manifests": manifests,
-        "llamafactory": str(llama_root.resolve()),
         "failures": len(failures),
         "scope": (
             "Official Guitar Pro 8 TAB, notation and score+TAB measure crops paired with source-GP "
-            "multi-voice event sequences. Splits follow the grouped source catalog."
+            "source event sequences. These are assembly references, not local OCR answers. "
+            "Training requires renderer-observed labels from research.data.observations. "
+            "Splits follow the grouped source catalog."
         ),
     }
+    if 'tab' in modes:
+        documents = []
+        for label_path, label in zip(label_paths, label_values):
+            if 'tab' not in label.get('modes', modes):
+                continue
+            _, layout_path = native_layout(label_path, 'tab')
+            documents.append({'folder': str(Path(layout_path).parent),
+                'source_id': 'guitarpro-' + label['source_id'],
+                'family': catalog[label['source_id']]['family'],
+                'split': source_splits[label['source_id']]})
+        summary['observations'] = build_native_observations(documents, output / 'observations', dpi)
     write_json(output / "summary.json", summary)
     return summary
+
+def build_native_observations(documents, output, dpi=180, *, scopes_only=False):
+    """Build GP observation data directly from native export triplets.
+
+    documents declares folder/source_id/family/split. Unsupported measures stay
+    in rejections.jsonl and never become empty-technique training negatives.
+    """
+    from research.common.pdf import open_pdf
+    from research.data.native_supervision import native_tab_observations
+    from research.data.observations import write_dataset
+
+    output = Path(output)
+    rows, rejected, families = [], [], {}
+    for source_number, source in enumerate(documents, 1):
+        if source['split'] not in ('train', 'validation', 'test'):
+            raise ValueError('Native source requires an explicit dataset split')
+        if families.setdefault(source['family'], source['split']) != source['split']:
+            raise ValueError(f"Native source family crosses splits: {source['family']}")
+        folder = Path(source['folder'])
+        try:
+            layout = json.loads((folder / 'layout.json').read_text())
+            score = json.loads((folder / 'official-score.json').read_text())
+            with open_pdf(folder / 'score.pdf') as document:
+                observations = native_tab_observations(layout, score, document, dpi)
+                pages = {}
+                for system in layout['systems']:
+                    for box in system['measure_boxes']:
+                        index = box['measure_index']
+                        observed = observations[index]
+                        identity = {k: source[k] for k in ('source_id', 'family', 'split')}
+                        identity.update(id=f"{source['source_id']}-tab-{index}", bar_index=index,
+                            part_id=f"part-{score['source_track_index']}", staff_id='staff-0',
+                            mode='tab', renderer='guitarpro')
+                        if 'error' in observed:
+                            rejected.append({**identity, 'reason': observed['error']})
+                            continue
+                        if scopes_only and not any(r.get('kind') in ('pm', 'let') or r.get('shape') == 'extension'
+                                                   for r in observed['observation']['relations']):
+                            continue
+                        page = system['page']
+                        if page not in pages:
+                            pages[page] = document[page - 1].render(dpi, grayscale=False)
+                        image = pages[page]
+                        crop = observed['bbox']
+                        path = output / 'images' / source['source_id'] / f'm{index + 1:04d}.png'
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        image.crop(crop).save(path)
+                        rows.append({**identity, **observed, 'image': str(path.resolve()),
+                            'page': page, 'system_index': system['system_index'], 'bbox': list(crop),
+                            'source_pdf': str((folder / 'score.pdf').resolve()),
+                            'native_layout': str((folder / 'layout.json').resolve()),
+                            'native_official_score': str((folder / 'official-score.json').resolve()),
+                            'supervision': 'native_drawn_glyphs_connections_rhythm_and_scopes'})
+        except (ValueError, KeyError, OSError) as error:
+            rejected.append({**source, 'folder': str(folder), 'reason': str(error)})
+        if source_number % 10 == 0:
+            print(f"[native {source_number}/{len(documents)}] accepted={len(rows)}", flush=True)
+    counts = write_dataset(output, rows)
+    kept_images = {Path(row['image']) for row in rows}
+    for path in (output / 'images').glob('guitarpro-*/*.png'):
+        if path.resolve() not in kept_images:
+            path.unlink()
+    write_jsonl(output / 'rejections.jsonl', rejected)
+    coverage = {split: Counter() for split in counts}
+    for row in rows:
+        counted, observation = coverage[row['split']], row['observation']
+        counted['measures'] += 1
+        counted['multiple_voices'] += len(observation['voices']) > 1
+        counted['with_diagram_marks'] += row.get('visible_diagram_marks', 0) > 0
+        counted['clipped_chord_names'] += sum(not c['complete'] for c in row.get('visible_chords', []))
+        for voice in observation['voices']:
+            for event in voice['events']:
+                duration = event.get('duration') or ''
+                counted['tuplets'] += '[' in duration
+                counted['dotted_rhythm'] += '.' in duration
+                counted['unknown_rhythm'] += event.get('duration') is None
+                counted['rests'] += event.get('status') == 'rest'
+                counted['chord_names'] += sum(e.startswith('chord:') for e in event.get('effects', []))
+                for note in event.get('notes') or []:
+                    counted['hidden_frets'] += note.get('fret') is None
+                    counted['visible_frets'] += note.get('fret') is not None
+                    counted.update('effect_' + effect for effect in note.get('effects', []))
+        ranges = []
+        for relation in observation['relations']:
+            kind = relation.get('kind') or 'unknown'
+            counted['relation_' + kind] += 1
+            counted['entering_' + kind] += relation['start'] == 'left'
+            counted['leaving_' + kind] += relation['end'] == 'right'
+            if kind in ('pm', 'let') or relation.get('shape') == 'extension':
+                ranges.append(relation)
+                counted['label_only_' + kind] += relation['end'] is None
+                counted['ambiguous_scope_owner'] += relation.get('voice') is None and relation['start'] is None
+        counted['parallel_scopes'] += len(ranges) > 1
+    summary = {'renderer': 'guitarpro', 'sources': len(documents), 'accepted': counts,
+               'rejected': dict(Counter(row['reason'] for row in rejected)),
+               'visible_coverage': {split: dict(values) for split, values in coverage.items()},
+               'scope': 'Single-staff TAB; labels use actual fret/rest drawing, connected curves and slides, '
+                        'printed rhythmic evidence and PM/let scopes. Invisible values and ambiguous owners remain null.'}
+    write_json(output / 'native_summary.json', summary)
+    return summary
+
+
+if __name__ == '__main__':
+    import argparse
+
+    parser = argparse.ArgumentParser(description='Compile visible GP TAB observations from native exports')
+    parser.add_argument('--native-manifest', nargs='+', type=Path, required=True,
+                        help='Native document manifests; each lives beside its documents directory')
+    parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--limit-per-split', type=int, default=0)
+    parser.add_argument('--scopes-only', action='store_true', help='Keep only measures with a traced PDF PM/let scope')
+    args = parser.parse_args()
+    documents, counts = [], Counter()
+    for manifest in args.native_manifest:
+        for line in manifest.read_text().splitlines():
+            source = json.loads(line)
+            split = 'validation' if source['split'] == 'dev' else source['split']
+            if args.limit_per_split and counts[split] >= args.limit_per_split:
+                continue
+            folder = manifest.parent / 'documents' / source['document_id']
+            tracks = sorted((folder / 'tracks').glob('*/official-score.json'))
+            if not tracks:
+                raise ValueError(f'Native export missing for {source["document_id"]}')
+            for track in tracks:
+                documents.append({'folder': str(track.parent),
+                    'source_id': 'guitarpro-' + source['document_id'] + '-' + track.parent.name,
+                    'family': source['source_family_id'], 'split': split})
+            counts[split] += 1
+    print(json.dumps(build_native_observations(documents, args.output, scopes_only=args.scopes_only), indent=2))

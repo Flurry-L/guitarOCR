@@ -2,7 +2,6 @@
 
 import argparse
 import json
-import os
 from pathlib import Path
 import shutil
 
@@ -28,18 +27,20 @@ def install(cache):
             files.append((source, destination / relative))
     for source, target in files:
         target.parent.mkdir(parents=True, exist_ok=True)
-        if target.exists() and os.path.samefile(source, target):
-            continue
         temporary = target.with_name(target.name + ".installing")
         temporary.unlink(missing_ok=True)
         try:
-            try:
-                os.link(source, temporary)
-            except OSError:
-                shutil.copyfile(source, temporary)
+            shutil.copyfile(source, temporary)
             temporary.replace(target)
         finally:
             temporary.unlink(missing_ok=True)
+    expected = {target for _, target in files}
+    for directory in (destination / "auxiliary", destination / "weights/score_ocr/gguf",
+                      destination / "weights/information/gguf"):
+        if directory.is_dir():
+            for target in directory.iterdir():
+                if target.is_file() and target not in expected:
+                    target.unlink()
     return {"directory": str(destination), "files": len(files)}
 
 

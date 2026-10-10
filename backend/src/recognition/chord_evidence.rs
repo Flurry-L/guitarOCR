@@ -181,8 +181,10 @@ impl ChordEvidenceReader {
                     evidence["secondary_confidence"] = secondary["confidence"].clone();
                     evidence["accepted"]["geometry"] =
                         json!(geometry && evidence["accepted"]["geometry"] == true);
-                    evidence["accepted"]["full"] =
-                        json!(full && evidence["accepted"]["full"] == true);
+                    evidence["accepted"]["full"] = json!(
+                        full && evidence["accepted"]["geometry"] == true
+                            && evidence["accepted"]["full"] == true
+                    );
                     if evidence["kind"] != secondary["kind"] {
                         evidence["accepted"]["kind"] = json!(false);
                     }
@@ -195,7 +197,6 @@ impl ChordEvidenceReader {
             })
             .collect()
     }
-
 }
 
 /// Exactly the same contain geometry and Pillow-compatible resampling as training.
@@ -326,7 +327,8 @@ fn decode(outputs: &[&[f32]], contract: &Value) -> Result<Value> {
             .map(|key| confidence[*key].as_f64().unwrap())
             .fold(1f64, f64::min);
         let ok = keys.iter().all(|key| accepted[*key] == true)
-            && joint >= contract["joint_thresholds"][name].as_f64().unwrap_or(0.);
+            && joint >= contract["joint_thresholds"][name].as_f64().unwrap_or(0.)
+            && (name != "full" || accepted["geometry"] == true);
         confidence[name] = json!(joint);
         accepted.insert(name.into(), json!(ok));
     }
@@ -358,7 +360,8 @@ fn decode(outputs: &[&[f32]], contract: &Value) -> Result<Value> {
     )
 }
 
-/// Merge accepted neural structures; unresolved geometry retains the source.
+/// Accepted diagram geometry takes precedence over text-model geometry.
+/// Text-model differences remain in the audit; unresolved geometry retains the source.
 /// The caller persists both returned evidence and the original model response.
 pub fn apply_evidence(parsed: &Value, source_evidence: &Value) -> Result<(Value, Value)> {
     let mut parsed = parsed.clone();
@@ -397,10 +400,8 @@ pub fn apply_evidence(parsed: &Value, source_evidence: &Value) -> Result<(Value,
             evidence["proposed_diagram"] = diagram.clone();
             if !original.is_null() && !changes.is_empty() {
                 evidence["conflict_fields"] = json!(changes);
-                parsed["diagram"] = original.clone();
-            } else if original.is_null()
-                && (accepted["full"] == false || accepted["fingers"] != true)
-            {
+            }
+            if original.is_null() && (accepted["full"] == false || accepted["fingers"] != true) {
                 evidence["review_required"] = json!(true);
             } else {
                 parsed["kind"] = json!("chord_diagram");
@@ -420,7 +421,7 @@ pub fn apply_evidence(parsed: &Value, source_evidence: &Value) -> Result<(Value,
     } else if !original.is_null() && accepted["kind"] != true {
         evidence["review_required"] = json!(true);
     }
-    if !changes.is_empty() && !original.is_null() {
+    if !changes.is_empty() && !original.is_null() && accepted["full"] != true {
         evidence["review_required"] = json!(true);
     }
     evidence["proposed_changed_fields"] = json!(changes);
@@ -431,7 +432,84 @@ pub fn apply_evidence(parsed: &Value, source_evidence: &Value) -> Result<(Value,
         })
     {
         evidence["name_needs_review"] = json!(true);
-        evidence["review_required"] = json!(true);
     }
     Ok((parsed, evidence))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accepted_diagram_replaces_conflicting_text_model_geometry() {
+        let parsed = json!({"kind":"chord_diagram","text":"E","diagram":{
+            "base_fret":7,"frets":["x",7,9,9,9,7],
+            "fingers":[null,1,3,3,3,null],"barres":[[7,1,5],[9,2,4]]
+        }});
+        let mut evidence = json!({"kind":"diagram","strings":6,"diagram":{
+            "base_fret":7,"frets":["x",7,9,9,9,"x"],
+            "fingers":[null,1,3,3,3,null],"barres":[[9,2,4]]
+        },"accepted":{"kind":true,"strings":true,"base":true,"frets":true,
+            "fingers":true,"barres":true,"geometry":true,"full":true},
+            "review_required":false});
+        let (resolved, audit) = apply_evidence(&parsed, &evidence).unwrap();
+        assert_eq!(resolved["diagram"], evidence["diagram"]);
+        assert_eq!(resolved["text"], "E");
+        assert_eq!(audit["original_diagram"], parsed["diagram"]);
+        assert_eq!(audit["changed_fields"], json!(["frets", "barres"]));
+        assert_eq!(audit["conflict_fields"], audit["changed_fields"]);
+        assert_eq!(audit["review_required"], false);
+
+        let annotation = json!({"page":1,"part_id":"part-1","bbox":[120,155,55,70],
+            "context_measures":[1],"parsed":resolved,"chord_evidence":audit});
+        assert!(!scorelib::chords::pending(&annotation));
+        let mut records = vec![
+            json!({"measure_number":1,"part_id":"part-1","staff_id":"tab",
+            "page":1,"bbox":[100,200,160,100],"mode":"tab","tuning":[64,59,55,50,45,40],
+            "target":"M time=4/4 | V0{@0:w:s1f0<chord:E>}"}),
+        ];
+        crate::recognition::attach_chord_annotations(&mut records, &[annotation.clone()]).unwrap();
+        let effect = scorelib::chords::diagram_effect(&evidence["diagram"]).unwrap();
+        assert!(records[0]["target"].as_str().unwrap().contains(&effect));
+        assert_eq!(records[0]["chord_diagram_choices"], json!([]));
+        let output = tempfile::tempdir().unwrap();
+        let exported = scorelib::music_exports::write_gp5(
+            &json!({"records":records,"document_metadata":{"score_annotations":[annotation]}}),
+            &output.path().join("accepted.gp5"),
+        )
+        .unwrap();
+        assert_eq!(exported["report"]["readback_verified"], true);
+        assert!(exported["report"]["chord_library_omissions"].is_null());
+
+        // Recovering a unique name must not leave a stale geometry review flag.
+        let mut unnamed = parsed.clone();
+        unnamed["text"] = json!("unreadable chord");
+        let (resolved, audit) = apply_evidence(&unnamed, &evidence).unwrap();
+        let mut recovered = json!({"parsed":resolved,"chord_evidence":audit});
+        assert!(scorelib::chords::pending(&recovered));
+        assert_eq!(recovered["chord_evidence"]["review_required"], false);
+        recovered["parsed"]["text"] = json!("E");
+        recovered["chord_evidence"]["name_needs_review"] = json!(false);
+        assert!(!scorelib::chords::pending(&recovered));
+
+        // An accepted geometry does not clear a separate name or reader issue.
+        for flag in ["name_needs_review", "review_required"] {
+            let mut uncertain = evidence.clone();
+            uncertain[flag] = json!(true);
+            let (parsed, audit) = apply_evidence(&parsed, &uncertain).unwrap();
+            assert!(scorelib::chords::pending(
+                &json!({"parsed":parsed,"chord_evidence":audit})
+            ));
+        }
+
+        evidence["accepted"]["geometry"] = json!(false);
+        let (unresolved, audit) = apply_evidence(&parsed, &evidence).unwrap();
+        assert_eq!(unresolved["diagram"], parsed["diagram"]);
+        assert_eq!(audit["changed_fields"], json!([]));
+        let mut annotation = json!({"parsed":unresolved,"chord_evidence":audit,
+            "chord_review":{"source":"model","status":"confirmed"}});
+        assert!(scorelib::chords::pending(&annotation));
+        annotation["chord_review"]["source"] = json!("manual");
+        assert!(!scorelib::chords::pending(&annotation));
+    }
 }

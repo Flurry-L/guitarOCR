@@ -3,7 +3,7 @@
   "alpha_pattern": {},
   "arrow_config": null,
   "auto_mapping": null,
-  "base_model_name_or_path": "weights/score_ocr/merged",
+  "base_model_name_or_path": "weights/information/merged",
   "bias": "none",
   "corda_config": null,
   "ensure_weight_tying": false,

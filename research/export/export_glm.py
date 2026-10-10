@@ -7,7 +7,6 @@ import tempfile
 from pathlib import Path
 
 from research.common.ocr import load_task_adapter
-from research.common.signature_image import signature_config
 
 
 def checkpoint_files(folder: Path) -> list[Path]:
@@ -70,43 +69,36 @@ def _asset(root, relative, field):
 def plan_capability_assets(base, adapter, output):
     """Validate all dependencies before an expensive model merge or any copy."""
     base, output = Path(base), Path(output).resolve()
-    root = (
-        Path(adapter)
-        if adapter and (Path(adapter) / "capabilities.json").is_file()
-        else base
-    )
-    manifest = root / "capabilities.json"
-    if not manifest.is_file():
+    roots = [base] + ([Path(adapter)] if adapter else [])
+    roots = [root for root in roots if (root / "capabilities.json").is_file()]
+    if not roots:
         return None, []
-    capabilities = json.loads(manifest.read_text())
-    if not isinstance(capabilities, dict):
-        raise ValueError("Model capabilities must be an object")
+    capabilities, declared_at = {}, {}
+    for root in roots:
+        values = json.loads((root / "capabilities.json").read_text())
+        if not isinstance(values, dict):
+            raise ValueError("Model capabilities must be an object")
+        # A task adapter overrides its own declarations while retaining the
+        # base checkpoint's inference settings and auxiliary readers.
+        capabilities.update(values)
+        declared_at.update({field: root for field in values})
+    # This is product routing, not an asset of the measure checkpoint being
+    # merged. The information model is maintained and packaged separately.
+    capabilities.pop("information_model", None)
     copies = []
     for field, relative in list(capabilities.items()):
-        if relative is None or not (
-            field == "state_reader" or field.endswith(("_model", "_calibration"))
-        ):
+        if relative is None or not field.endswith(("_model", "_calibration")):
             continue
-        source = _asset(root, relative, field)
-        if field == "state_reader" and source.suffix.lower() != ".onnx":
-            signature_config(source)
-        destination = (
-            output
-            / ("state_reader" if field == "state_reader" else "auxiliary")
-            / source.name
-        )
+        source = _asset(declared_at[field], relative, field)
+        destination = output / "auxiliary" / source.name
         copies.append((source, destination))
         capabilities[field] = destination.relative_to(output).as_posix()
-        if field == "state_reader":
-            for name in ("config.json", "calibration.json"):
-                companion = source.parent / name
-                if companion.is_file():
-                    copies.append((companion.resolve(), destination.parent / name))
 
     declaration = capabilities.get("information_adapter")
     if declaration is not None:
         # Reuse the runtime's task and file validation. Both runtimes must be
         # present; exporting only the PEFT half breaks the desktop backend.
+        root = declared_at["information_adapter"]
         peft = load_task_adapter(root, "peft").path
         gguf = load_task_adapter(root, "gguf").path
         copies.extend(
@@ -183,10 +175,6 @@ def export_model(base, adapter, output):
     model.config.save_pretrained(output)
     model.generation_config.save_pretrained(output)
     AutoProcessor.from_pretrained(base).save_pretrained(output)
-    if (base / "music_vocabulary.json").is_file():
-        shutil.copyfile(
-            base / "music_vocabulary.json", output / "music_vocabulary.json"
-        )
     if (base / "score_image_policy.json").is_file():
         shutil.copyfile(
             base / "score_image_policy.json", output / "score_image_policy.json"

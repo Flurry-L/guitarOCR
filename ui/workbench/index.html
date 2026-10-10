@@ -359,7 +359,7 @@
           <div id="infoWarnings" class="hint" hidden=""></div>
           <details id="libraryChordReview" class="measure-settings library-chord-review" hidden open>
             <summary>谱面指法库</summary>
-            <p class="small muted">对照原谱确认指法。未用于正文的指法图会保存在 GP 的静音参考轨中。</p>
+            <p class="small muted">对照原谱确认指法。独立指法图保存在项目中；添加到对应拍后，会随该拍导出到 GP。</p>
             <label>图示<select id="libraryChordEntry"></select></label>
             <div class="library-chord-images">
               <div><p id="libraryChordSourceLabel" class="small muted"></p><canvas id="libraryChordSource" hidden aria-label="指法原谱裁图"></canvas></div>
@@ -825,7 +825,12 @@
                   <span id="sourceImageStatus" role="status">正在加载原谱…</span>
                   <img id="measureImage" alt="选中小节的原谱" />
                 </button>
-                <div id="fallback" class="hint warning" hidden=""></div>
+                <div id="reviewHint" class="hint warning" hidden=""></div>
+                <details id="incompleteObservation" hidden>
+                  <summary>补全已识别的音符</summary>
+                  <p class="muted small">留空表示尚未确定。对照原谱补全后保存，软件会重新连接相邻小节。</p>
+                  <div id="observationFields"></div>
+                </details>
                 <p id="editHint" class="muted small"></p>
                 <section id="trackProperties" class="track-properties" aria-labelledby="trackPropertiesTitle" hidden>
                   <h3 id="trackPropertiesTitle">音轨属性</h3>

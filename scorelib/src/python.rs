@@ -1,5 +1,5 @@
 //! Python bindings use JSON only at the language boundary; Rust owns semantics.
-use crate::{chords, music_exports, score};
+use crate::{chords, music_exports, observation, score};
 use pyo3::{exceptions::PyValueError, prelude::*};
 use serde_json::Value;
 fn value(text: &str) -> PyResult<Value> {
@@ -82,8 +82,63 @@ fn parse_diagram_effect(effect: &str) -> String {
         .unwrap_or(Value::Null)
         .to_string()
 }
+#[pyfunction]
+fn parse_observation(input: &str) -> PyResult<String> {
+    result(observation::parse_observation(&value(input)?))
+}
+#[pyfunction]
+fn observation_schema() -> String {
+    observation::observation_schema().to_string()
+}
+#[pyfunction]
+fn observation_prompt(mode: &str) -> PyResult<String> {
+    observation::observation_prompt(mode).map_err(error)
+}
+#[pyfunction]
+fn range_relation(input: &str) -> PyResult<bool> {
+    Ok(observation::range_relation(&value(input)?))
+}
+#[pyfunction]
+fn relation_voice(input: &str) -> PyResult<Option<i64>> {
+    Ok(observation::relation_voice(&value(input)?))
+}
+#[pyfunction]
+fn relation_problem(input: &str, relation: &str) -> PyResult<Option<String>> {
+    Ok(observation::relation_problem(
+        &value(input)?,
+        &value(relation)?,
+    ))
+}
+#[pyfunction]
+#[pyo3(signature = (records, auxiliary=None))]
+fn assemble_observations(
+    py: Python<'_>,
+    records: &str,
+    auxiliary: Option<&str>,
+) -> PyResult<String> {
+    let records = value(records)?;
+    let records = records
+        .as_array()
+        .ok_or_else(|| error("Records must be an array"))?;
+    let auxiliary = auxiliary.map(value).transpose()?;
+    let auxiliary = auxiliary
+        .as_ref()
+        .map(|v| {
+            v.as_array()
+                .ok_or_else(|| error("Auxiliary observations must be an array"))
+        })
+        .transpose()?;
+    result(py.allow_threads(|| observation::assemble(records, auxiliary.map(Vec::as_slice))))
+}
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(parse_observation, m)?)?;
+    m.add_function(wrap_pyfunction!(observation_schema, m)?)?;
+    m.add_function(wrap_pyfunction!(observation_prompt, m)?)?;
+    m.add_function(wrap_pyfunction!(range_relation, m)?)?;
+    m.add_function(wrap_pyfunction!(relation_voice, m)?)?;
+    m.add_function(wrap_pyfunction!(relation_problem, m)?)?;
+    m.add_function(wrap_pyfunction!(assemble_observations, m)?)?;
     m.add_function(wrap_pyfunction!(parse_measure_target, m)?)?;
     m.add_function(wrap_pyfunction!(duration_ticks, m)?)?;
     m.add_function(wrap_pyfunction!(rest_target, m)?)?;

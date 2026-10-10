@@ -1,12 +1,134 @@
-"""Recognize documents through the same native backend used by the application."""
+"""Read research observations, or run the application's native baseline."""
 
 import argparse
 from contextlib import ExitStack
+from itertools import zip_longest
 import json
 from pathlib import Path
 import time
 
 import httpx
+
+IDENTITY = ("source_id", "part_id", "staff_id", "bar_index", "mode")
+
+
+def read_rows(path):
+    with Path(path).open() as stream:
+        return [json.loads(line) for line in stream if line.strip()]
+
+
+def select_rows(rows, limit=0):
+    """Alternate modes while selecting whole documents and every observed staff."""
+    if limit < 0:
+        raise ValueError("Limit must be nonnegative")
+    documents = {}
+    for row in rows:
+        documents.setdefault(row['mode'], {}).setdefault(row.get('family', row['source_id']), []).append(row)
+    selected = []
+    for round_robin in zip_longest(*(mode.values() for mode in documents.values())):
+        for document in round_robin:
+            if document is None:
+                continue
+            selected.extend(document)
+            if limit and len(selected) >= limit:
+                return selected
+    return selected
+
+
+def base_messages(row):
+    from research.data.training_samples import visual_measure_inputs
+
+    sample = visual_measure_inputs(row)
+    if len(sample['images']) != 1:
+        raise ValueError("Observation recognition requires exactly one measure image")
+    prompt = sample['messages'][0]['content'].replace('<image>', '')
+    return [{'role': 'user', 'content': [
+        {'type': 'image', 'url': sample['images'][0]}, {'type': 'text', 'text': prompt}]}]
+
+
+def observation_record(row, raw, tokens=None):
+    from research.inference.assembly import LAYOUT_FIELDS, parse_observation
+
+    record = {key: row[key] for key in ('id', *IDENTITY)}
+    record.update({key: row[key] for key in LAYOUT_FIELDS if key in row})
+    for key in ('family', 'renderer'):
+        if key in row:
+            record[key] = row[key]
+    if 'image' in row:
+        record['image'] = row['image']
+    record.update(raw=raw, tokens=tokens)
+    try:
+        record['observation'] = parse_observation(raw)
+    except (ValueError, TypeError, KeyError) as error:
+        record.update(observation=None, error=str(error))
+    return record
+
+
+def predict_observations(rows, model, device='cuda:0', batch_size=16, max_tokens=4096,
+                         *, gpu_memory_utilization=.40):
+    from research.inference.assembly import observation_schema
+    from research.inference.vllm import VllmBackend
+
+    if batch_size < 1 or max_tokens < 1:
+        raise ValueError("Batch size and token budget must be positive")
+    schema = observation_schema()
+    backend = VllmBackend(model, device, options={
+        'max_num_seqs': batch_size, 'max_model_len': 8192,
+        'limit_mm_per_prompt': {'image': 1, 'video': 0},
+        'gpu_memory_utilization': gpu_memory_utilization,
+    })
+    try:
+        for start in range(0, len(rows), batch_size):
+            batch = rows[start:start + batch_size]
+            outputs = backend.generate_batch([base_messages(row) for row in batch], max_tokens,
+                                             schema=schema)
+            for row, (raw, tokens) in zip(batch, outputs, strict=True):
+                yield observation_record(row, raw, tokens)
+    finally:
+        backend.close()
+
+
+def read_auxiliary(path, rows):
+    values = {row['id']: row for row in read_rows(path)}
+    return [{key: values.get(row['id'], {}).get(key, {}) for key in ('state', 'voice_map')}
+            for row in rows]
+
+
+def assemble_predictions(predictions, auxiliary=None):
+    from research.inference.assembly import LAYOUT_FIELDS, assemble
+
+    indexes = [i for i, row in enumerate(predictions) if row.get('observation') is not None]
+    inputs = [{**{key: predictions[i][key] for key in (*IDENTITY, 'observation')},
+               **{key: predictions[i][key] for key in LAYOUT_FIELDS if key in predictions[i]}}
+              for i in indexes]
+    accepted = [auxiliary[i] for i in indexes] if auxiliary is not None else None
+    assembled = assemble(inputs, auxiliary=accepted)
+    by_index = dict(zip(indexes, assembled['records'], strict=True))
+    records = []
+    for index, prediction in enumerate(predictions):
+        row = by_index.get(index)
+        records.append({**prediction, **(row or {
+            'resolved': None, 'ir': None, 'unresolved': ['invalid_observation'],
+        })})
+    # The assembler indexes accepted inputs; reports index all observations,
+    # including malformed JSON that remains a failed measure.
+    relations = []
+    for relation in assembled['relations']:
+        relation = dict(relation)
+        for field in ('start', 'end'):
+            if isinstance(relation.get(field), list):
+                relation[field] = [indexes[relation[field][0]], *relation[field][1:]]
+        relation['segments'] = [{**segment, 'record': indexes[segment['record']]}
+                                for segment in relation.get('segments', [])]
+        relation['coverage'] = [[indexes[point[0]], *point[1:]] for point in relation.get('coverage', [])]
+        if 'voice_links' in relation:
+            relation['voice_links'] = [{
+                'from': [indexes[link['from'][0]], link['from'][1]],
+                'to': [indexes[link['to'][0]], link['to'][1]],
+                'evidence': [[indexes[point[0]], point[1]] for point in link['evidence']],
+            } for link in relation['voice_links']]
+        relations.append(relation)
+    return {'records': records, 'relations': relations}
 
 
 class NativeClient:
@@ -85,7 +207,46 @@ def main():
     parser.add_argument("--mode", choices=("auto", "tab", "notation", "both"), default="auto")
     parser.add_argument("--session", help="Continue an existing native project")
     parser.add_argument("--action", choices=("process", "detect"), default="process")
+    parser.add_argument('--manifest', type=Path,
+                        help='Measure images and layout; pair with --model or saved --observations')
+    parser.add_argument('--observations', type=Path, help='Assemble previously predicted observations')
+    parser.add_argument('--model', type=Path, help='Merged observation OCR model')
+    parser.add_argument('--auxiliary', type=Path, help='Explicit predicted state/voice mappings, keyed by id')
+    parser.add_argument('--device', default='cuda:0')
+    parser.add_argument('--batch-size', type=int, default=16)
+    parser.add_argument('--max-tokens', type=int, default=4096)
+    parser.add_argument('--limit', type=int, default=0, help='Soft measure limit; whole documents are retained')
     args = parser.parse_args()
+    if args.manifest or args.observations:
+        if args.inputs or args.session:
+            parser.error('Research input cannot be combined with native files or session')
+        if args.manifest and args.observations is None and args.model is None:
+            parser.error('--manifest requires --model or --observations')
+        rows = select_rows(read_rows(args.manifest or args.observations), args.limit)
+        if not rows:
+            parser.error('No observations to process')
+        args.output.mkdir(parents=True, exist_ok=False)
+        predictions = []
+        if args.observations:
+            saved = {row['id']: row for row in read_rows(args.observations)}
+            stream = (observation_record(row, saved.get(row['id'], {}).get('raw',
+                          saved.get(row['id'], {}).get('observation')),
+                          saved.get(row['id'], {}).get('tokens')) for row in rows)
+        else:
+            stream = predict_observations(rows, args.model, args.device, args.batch_size, args.max_tokens)
+        with (args.output / 'predictions.jsonl').open('w') as handle:
+            for prediction in stream:
+                predictions.append(prediction)
+                handle.write(json.dumps(prediction, ensure_ascii=False) + '\n')
+                handle.flush()
+        auxiliary = read_auxiliary(args.auxiliary, predictions) if args.auxiliary else None
+        result = assemble_predictions(predictions, auxiliary)
+        result['scope'] = 'research_observation_assembly'
+        result['auxiliary'] = 'predicted' if auxiliary is not None else 'none'
+        (args.output / 'assembled.json').write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n')
+        print(json.dumps({'records': len(predictions), 'auxiliary': result['auxiliary'],
+                          'invalid_observations': sum(row.get('observation') is None for row in predictions)}))
+        return
     if bool(args.inputs) == bool(args.session):
         parser.error("Supply input files or --session")
     with NativeClient(args.endpoint) as client:

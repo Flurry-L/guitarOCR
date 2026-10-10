@@ -195,6 +195,12 @@ fn validate_projection(score: &Value) -> R<()> {
             let mut seen = std::collections::HashSet::new();
             for m in arr(staff, "measures")? {
                 let index = num(m, "index", -1);
+                if m["incomplete"] == true {
+                    return Err(format!(
+                        "第 {} 小节还有未识别的音符或节奏，请补全后再导出",
+                        index + 1
+                    ));
+                }
                 if index < 0 || index as usize >= timeline.len() || !seen.insert(index) {
                     return Err("Duplicate/out-of-range score measure; refusing note loss".into());
                 }

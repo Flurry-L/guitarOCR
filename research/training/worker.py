@@ -2,39 +2,10 @@
 
 import math
 import random
-from collections import defaultdict, deque
-from contextvars import ContextVar
 from functools import wraps
 from pathlib import Path
 
 from research.training.measures import load_training_config
-
-
-def neighbour_chunks(images, maximum=8):
-    """Keep every sample; follow actual context links, including repeated scores."""
-    available = defaultdict(deque)
-    for index, paths in enumerate(images):
-        if paths:
-            available[paths[0]].append(index)
-    used, chunks = bytearray(len(images)), []
-    for start in range(len(images)):
-        if used[start]:
-            continue
-        index, chunk = start, []
-        while True:
-            chunk.append(index)
-            used[index] = 1
-            paths = images[index]
-            if len(chunk) == maximum or len(paths) != 3 or paths[2] == paths[0]:
-                break
-            following = available.get(paths[2])
-            while following and used[following[0]]:
-                following.popleft()
-            if not following:
-                break
-            index = following.popleft()
-        chunks.append(chunk)
-    return chunks
 
 
 class Epoch:
@@ -48,18 +19,18 @@ class TokenBatchSampler:
     batch_size = None
     drop_last = False
 
-    def __init__(self, lengths, world, budget, maximum, seed, chunks=None):
+    def __init__(self, lengths, world, budget, maximum, seed):
         self.world, self.budget, self.maximum, self.seed = world, budget, maximum, seed
         self.sampler = Epoch()
         self.buckets = {}
-        for chunk in chunks if chunks is not None else ([i] for i in range(len(lengths))):
-            ceiling = max(128, math.ceil(max(lengths[i] for i in chunk) / 128) * 128)
-            self.buckets.setdefault((ceiling, len(chunk)), []).append(chunk)
-        self.steps = sum(math.ceil(len(rows) / (self.local_size(ceiling, size) * world))
-                         for (ceiling, size), rows in self.buckets.items())
+        for index, length in enumerate(lengths):
+            ceiling = max(128, math.ceil(length / 128) * 128)
+            self.buckets.setdefault(ceiling, []).append(index)
+        self.steps = sum(math.ceil(len(rows) / (self.local_size(ceiling) * world))
+                         for ceiling, rows in self.buckets.items())
 
-    def local_size(self, ceiling, size=1):
-        return max(1, min(self.maximum // size, self.budget // (ceiling * size)))
+    def local_size(self, ceiling):
+        return max(1, min(self.maximum, self.budget // ceiling))
 
     def __len__(self):
         return self.steps * self.world
@@ -67,12 +38,12 @@ class TokenBatchSampler:
     def __iter__(self):
         rng = random.Random(self.seed + self.sampler.value)
         steps = []
-        for (ceiling, chunk_size), values in self.buckets.items():
+        for ceiling, values in self.buckets.items():
             rows = list(values)
             rng.shuffle(rows)
-            size = self.local_size(ceiling, chunk_size) * self.world
+            size = self.local_size(ceiling) * self.world
             for offset in range(0, len(rows), size):
-                batch = [index for chunk in rows[offset:offset + size] for index in chunk]
+                batch = rows[offset:offset + size]
                 # At most world-1 repeated examples per length bucket. Never
                 # drop a rare long measure to equalize distributed ranks.
                 padding = (-len(batch)) % self.world
@@ -85,7 +56,7 @@ class TokenBatchSampler:
                 yield batch[rank * size:(rank + 1) * size]
 
 
-def install_token_batching(budget, maximum=128, context_chunk_size=1):
+def install_token_batching(budget, maximum=128):
     from torch.utils.data import DataLoader
     from transformers import Trainer
 
@@ -102,13 +73,7 @@ def install_token_batching(budget, maximum=128, context_chunk_size=1):
             if dataset._indices is not None:
                 lengths = pc.take(lengths, dataset._indices.column(0))
             lengths = lengths.to_pylist()
-        chunks = None
-        if context_chunk_size > 1:
-            images = dataset.data.column('images')
-            if dataset._indices is not None:
-                images = pc.take(images, dataset._indices.column(0))
-            chunks = neighbour_chunks(images.to_pylist(), context_chunk_size)
-        sampler = TokenBatchSampler(lengths, self.accelerator.num_processes, budget, maximum, self.args.seed, chunks)
+        sampler = TokenBatchSampler(lengths, self.accelerator.num_processes, budget, maximum, self.args.seed)
         dataset = self._remove_unused_columns(dataset, description=description)
         loader = DataLoader(dataset, batch_sampler=sampler, collate_fn=self.data_collator,
                             num_workers=self.args.dataloader_num_workers,
@@ -130,68 +95,6 @@ def install_token_batching(budget, maximum=128, context_chunk_size=1):
             configuration.even_batches, configuration.split_batches = previous
 
     Trainer._get_dataloader = dataloader
-
-
-def install_shared_vision():
-    import torch
-    from llamafactory.data.collator import MultiModalDataCollatorForSeq2Seq
-    from transformers.models.glm_ocr.modeling_glm_ocr import GlmOcrModel
-
-    original_collate = MultiModalDataCollatorForSeq2Seq.__call__
-    original_forward = GlmOcrModel.forward
-    original_features = GlmOcrModel.get_image_features
-    current_images = ContextVar('shared_training_images', default=None)
-
-    @wraps(original_collate)
-    def collate(self, features):
-        paths = [path for row in features for path in (row.get('images') or [])]
-        first, inverse, lookup = [], [], {}
-        if paths and all(isinstance(path, str) for path in paths):
-            for index, path in enumerate(paths):
-                if path not in lookup:
-                    lookup[path] = len(first)
-                    first.append(index)
-                inverse.append(lookup[path])
-        batch = original_collate(self, features)
-        if inverse and len(first) < len(paths):
-            batch['image_unique_indices'] = torch.tensor(first, dtype=torch.long)
-            batch['image_inverse_indices'] = torch.tensor(inverse, dtype=torch.long)
-        return batch
-
-    @wraps(original_forward)
-    def forward(self, *args, **kwargs):
-        first = kwargs.pop('image_unique_indices', None)
-        inverse = kwargs.pop('image_inverse_indices', None)
-        context = current_images.set((first, inverse) if first is not None else None)
-        try:
-            return original_forward(self, *args, **kwargs)
-        finally:
-            current_images.reset(context)
-
-    @wraps(original_features)
-    def features(self, pixel_values, image_grid_thw=None, **kwargs):
-        shared = current_images.get()
-        if shared is None:
-            return original_features(self, pixel_values, image_grid_thw, **kwargs)
-        first, inverse = shared
-        first, inverse = first.tolist(), inverse.tolist()
-        if len(inverse) != len(image_grid_thw):
-            raise ValueError('Shared image map does not match the image grid')
-        chunks = torch.split(pixel_values, image_grid_thw.prod(-1).tolist())
-        unique_pixels = torch.cat([chunks[i] for i in first])
-        unique_grid = image_grid_thw[first]
-        result = original_features(self, unique_pixels, unique_grid, **kwargs)
-        # Repeated tensors stay attached to the same graph: all measure losses
-        # contribute to the gradient of their shared image representation.
-        unique_features = tuple(value.float() for value in result.pooler_output)
-        # Accumulate contributions from repeated uses in FP32 before casting
-        # their combined gradient back to the vision tower's compute dtype.
-        result.pooler_output = tuple(unique_features[i] for i in inverse)
-        return result
-
-    MultiModalDataCollatorForSeq2Seq.__call__ = collate
-    GlmOcrModel.forward = forward
-    GlmOcrModel.get_image_features = features
 
 
 def stage_adapter_weights_on_cpu():
@@ -240,7 +143,7 @@ def materialize_sampler_lengths():
     LengthGroupedSampler.__init__ = initialize
 
 
-def enable_fused_loss(field_weights=None):
+def enable_fused_loss():
     from liger_kernel.transformers import LigerFusedLinearCrossEntropyLoss
     from transformers.models.glm_ocr.modeling_glm_ocr import (
         GlmOcrCausalLMOutputWithPast,
@@ -249,7 +152,6 @@ def enable_fused_loss(field_weights=None):
 
     original = GlmOcrForConditionalGeneration.forward
     cross_entropy = LigerFusedLinearCrossEntropyLoss()
-    weighted = {}
 
     @wraps(original)
     def forward(self, *args, **kwargs):
@@ -264,17 +166,7 @@ def enable_fused_loss(field_weights=None):
         selected = labels[:, 1:] != -100
         hidden = outputs.last_hidden_state[:, :-1][selected].contiguous()
         target = labels[:, 1:][selected].contiguous()
-        criterion = cross_entropy
-        if field_weights:
-            import torch
-            key = (hidden.device, self.lm_head.weight.shape[0])
-            if key not in weighted:
-                weights = torch.ones(key[1], device=hidden.device, dtype=torch.float32)
-                for token, weight in field_weights.items():
-                    weights[int(token)] = float(weight)
-                weighted[key] = LigerFusedLinearCrossEntropyLoss(ce_weight=weights)
-            criterion = weighted[key]
-        loss = criterion(self.lm_head.weight, hidden, target)
+        loss = cross_entropy(self.lm_head.weight, hidden, target)
         return GlmOcrCausalLMOutputWithPast(
             loss=loss, logits=None, past_key_values=outputs.past_key_values,
             hidden_states=outputs.hidden_states, attentions=outputs.attentions,
@@ -315,26 +207,17 @@ def train_music_vocabulary(first_new_token, learning_rate, freeze_original=True)
     Trainer.create_optimizer = create_optimizer
 
 
-def main():
+def configure_training(config, options):
+    """Install the same hooks for training and the CPU readiness check."""
     import os
-    import sys
 
-    config, options = load_training_config(Path(sys.argv[1]), sys.argv[2:])
     from research.common.ocr import install_training_policy
     install_training_policy(config['model_name_or_path'])
-    if options['share_context_images']:
-        install_shared_vision()
-    context_chunk_size = int(options['context_chunk_size'])
     if token_budget := options['batch_token_budget']:
-        install_token_batching(int(token_budget), int(options['maximum_batch_examples']), context_chunk_size)
+        install_token_batching(int(token_budget), int(options['maximum_batch_examples']))
     needs_logits = any(config.get(key) for key in ('compute_accuracy', 'use_dft_loss', 'use_eaft_loss', 'use_asft_loss'))
-    field_weights = None
-    if options['music_field_loss']:
-        import json
-        path = Path(config['model_name_or_path']) / 'music_vocabulary.json'
-        field_weights = json.loads(path.read_text()).get('loss_weights')
     if not needs_logits and os.environ.get('GUITAROCR_DENSE_LOSS') != '1':
-        enable_fused_loss(field_weights)
+        enable_fused_loss()
     materialize_sampler_lengths()
     exact_linear_targets()
     stage_adapter_weights_on_cpu()
@@ -342,6 +225,13 @@ def main():
     if first_new_token is not None:
         train_music_vocabulary(int(first_new_token), float(options['vocab_learning_rate']),
                                bool(options['vocab_freeze_original']))
+
+
+def main():
+    import sys
+
+    config, options = load_training_config(Path(sys.argv[1]), sys.argv[2:])
+    configure_training(config, options)
     from llamafactory.train.tuner import run_exp
     from transformers import TrainerCallback
 
@@ -366,6 +256,13 @@ def main():
                 control.should_training_stop = True
 
         def on_train_end(self, args, state, control, **kwargs):
+            if state.is_world_process_zero:
+                import json
+                dataset = Path(config["dataset_dir"]) / "dataset.json"
+                if dataset.is_file() and json.loads(dataset.read_text()).get("supervision") == "visible_observation":
+                    (Path(args.output_dir) / "capabilities.json").write_text(json.dumps({
+                        "measure_output": "observation", "measure_images": 1,
+                    }, indent=2) + "\n")
             latest_is_best = (not args.load_best_model_at_end or
                               state.best_model_checkpoint and
                               state.best_model_checkpoint.endswith(f'checkpoint-{state.global_step}'))
@@ -376,8 +273,6 @@ def main():
                 args.do_eval = False
                 if state.is_world_process_zero:
                     import json
-                    from pathlib import Path
-
                     (Path(args.output_dir) / 'eval_results.json').write_text(json.dumps(self.last_evaluation_metrics, indent=2))
 
     run_exp(args=config, callbacks=[ResumeSchedule()])

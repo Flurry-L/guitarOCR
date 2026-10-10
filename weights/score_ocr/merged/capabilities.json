@@ -1,11 +1,5 @@
 {
   "pitch_context": true,
-  "written_pitch": true,
-  "ottava": true,
-  "batch_size": 64,
-  "capo_pitch": true,
-  "state_reader": "state_reader/state.safetensors",
-  "visual_pitch": true,
   "measure_constraints": true,
   "staff_profile": true,
   "score_structure": true,
@@ -14,20 +8,20 @@
   "staff_evidence_model": "../../auxiliary/staff_evidence.onnx",
   "text_regions_model": "../../auxiliary/text_regions.onnx",
   "chord_text_roles_model": "../../auxiliary/chord_text_roles.onnx",
-  "technique_grounding_model": "../../auxiliary/technique_grounding.onnx",
-  "technique_relation_model": "../../auxiliary/technique_relation.onnx",
-  "technique_relation_calibration": "../../auxiliary/technique_relation_calibration.json",
   "staff_label_model": "../../auxiliary/staff_label.onnx",
   "instrument_text_model": "../../auxiliary/instrument_text.onnx",
   "part_continuation_model": "../../auxiliary/part_continuation.onnx",
   "clef_spatial_model": "../../auxiliary/clef_spatial.onnx",
-  "information_adapter": {
-    "gguf": "../gguf/information-adapter.gguf",
-    "peft": "information_adapter",
-    "tasks": [
+  "layout_quality_model": "../../auxiliary/layout_quality.onnx",
+  "measure_output": "observation",
+  "measure_images": 1,
+  "information_model": {
+    "model": "../../information/gguf/model-Q8_0.gguf",
+    "projector": "../../information/gguf/vision-F16.gguf",
+    "adapter": "../../information/gguf/information-adapter.gguf",
+    "adapter_tasks": [
       "staff",
       "clef"
     ]
-  },
-  "layout_quality_model": "../../auxiliary/layout_quality.onnx"
+  }
 }

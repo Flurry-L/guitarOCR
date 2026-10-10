@@ -19,10 +19,16 @@ use std::{
     sync::{Arc, Mutex},
 };
 type Result<T> = std::result::Result<T, String>;
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum EngineRole {
+    Information,
+    Measures,
+}
+
 pub struct Pipeline {
     pub native: NativeAssets,
     pub models: Arc<Models>,
-    engine: Mutex<Option<Arc<Runtime>>>,
+    engine: Mutex<Option<(EngineRole, Arc<Runtime>)>>,
     acceleration: Option<crate::acceleration::Acceleration>,
     slots: usize,
 }
@@ -63,7 +69,7 @@ impl Pipeline {
             .map(|engine| {
                 engine
                     .as_ref()
-                    .map_or(json!({"device":"auto"}), |engine| engine.device())
+                    .map_or(json!({"device":"auto"}), |(_, engine)| engine.device())
             })
             .unwrap_or(json!({"device":"auto","loading":true}))
     }
@@ -71,18 +77,19 @@ impl Pipeline {
         self.engine
             .try_lock()
             .ok()
-            .and_then(|engine| engine.as_ref().map(|e| e.stats()))
+            .and_then(|engine| engine.as_ref().map(|(_, e)| e.stats()))
             .unwrap_or(Value::Null)
     }
     pub fn shutdown(&self) {
         if let Ok(engine) = self.engine.lock() {
-            if let Some(engine) = engine.as_ref() {
+            if let Some((_, engine)) = engine.as_ref() {
                 engine.shutdown();
             }
         }
     }
     fn with_engine<T>(
         &self,
+        role: EngineRole,
         allow_download: bool,
         progress: &Progress,
         run: impl FnOnce(&mut Session<'_>) -> Result<T>,
@@ -92,7 +99,20 @@ impl Pipeline {
             let mut engine = loop {
                 progress.checkpoint()?;
                 match self.engine.try_lock() {
-                    Ok(engine) => break engine,
+                    Ok(mut engine) => {
+                        if let Some((loaded_role, runtime)) = engine.as_ref() {
+                            if *loaded_role != role {
+                                if Arc::strong_count(runtime) > 1 {
+                                    drop(engine);
+                                    std::thread::sleep(std::time::Duration::from_millis(100));
+                                    continue;
+                                }
+                                runtime.shutdown();
+                                *engine = None;
+                            }
+                        }
+                        break engine;
+                    }
                     Err(std::sync::TryLockError::WouldBlock) => {
                         std::thread::sleep(std::time::Duration::from_millis(100))
                     }
@@ -112,24 +132,39 @@ impl Pipeline {
                     },
                     None => None,
                 };
-                *engine = Some(Arc::new(Runtime::new(Options {
-                    executable: self
-                        .native
-                        .llama
-                        .clone()
-                        .ok_or("识别组件未准备，请重新安装应用")?,
-                    accelerator,
-                    model: self.models.model(),
-                    projector: self.models.projector(),
-                    adapter: self.models.information_adapter(),
-                    adapter_tasks: self.models.information_adapter_tasks(),
-                    log: self.models.root.join("inference.log"),
-                    capabilities: self.native.capabilities.clone(),
-                    slots: self.slots,
-                    context: 8192,
-                })));
+                *engine = Some((
+                    role,
+                    Arc::new(Runtime::new(Options {
+                        executable: self
+                            .native
+                            .llama
+                            .clone()
+                            .ok_or("识别组件未准备，请重新安装应用")?,
+                        accelerator,
+                        model: match role {
+                            EngineRole::Information => self.models.information_model(),
+                            EngineRole::Measures => self.models.model(),
+                        },
+                        projector: match role {
+                            EngineRole::Information => self.models.information_projector(),
+                            EngineRole::Measures => self.models.projector(),
+                        },
+                        adapter: match role {
+                            EngineRole::Information => self.models.information_adapter(),
+                            EngineRole::Measures => None,
+                        },
+                        adapter_tasks: match role {
+                            EngineRole::Information => self.models.information_adapter_tasks(),
+                            EngineRole::Measures => vec![],
+                        },
+                        log: self.models.root.join("inference.log"),
+                        capabilities: self.native.capabilities.clone(),
+                        slots: self.slots,
+                        context: 8192,
+                    })),
+                ));
             }
-            engine.as_ref().unwrap().clone()
+            engine.as_ref().unwrap().1.clone()
         };
         engine.run(
             &|| progress.cancelled(),
@@ -207,9 +242,16 @@ impl Pipeline {
             ..Default::default()
         };
         progress.update(json!({"message":"正在读取乐器与谱面信息","done":0,"total":0}))?;
-        let mut info = self.with_engine(allow_download, progress, |engine| {
-            recognition::recognize_information(engine, &layout, &config, &|| progress.cancelled())
-        })?;
+        let mut info = self.with_engine(
+            EngineRole::Information,
+            allow_download,
+            progress,
+            |engine| {
+                recognition::recognize_information(engine, &layout, &config, &|| {
+                    progress.cancelled()
+                })
+            },
+        )?;
         if let Some(title) = state["manual_title"].as_str() {
             recognition::headers::preserve_manual_title(
                 &json!({"title":title,"document_metadata":{"title_source":"manual"}}),
@@ -333,37 +375,25 @@ impl Pipeline {
         } else {
             Value::Null
         };
-        let technique_models = self.models.technique_relations()?;
         let config = MeasureConfig {
             image_policy: Some(ImagePolicy::from_value(&self.models.policy)?),
-            visual_pitch: self.models.capabilities["visual_pitch"] == true,
-            pitch_context: self.models.capabilities["pitch_context"] == true,
-            written_pitch: self.models.capabilities["written_pitch"] == true,
             constrained_decoding: self.models.capabilities["measure_constraints"] == true,
             ..Default::default()
         };
         self.models.ensure(allow_download, progress)?;
         initialize_runtime(self.native.ort.as_ref().ok_or("缺少原生ONNX组件")?)?;
-        let mut technique_reader = technique_models
-            .as_ref()
-            .map(|paths| {
-                recognition::technique_relation::CalibratedTechniqueReader::new(
-                    &paths[0], &paths[1], &paths[2],
-                )
-            })
-            .transpose()?;
         let states_file = output.join("state_predictions.json");
-        let states = if resume && states_file.is_file() {
+        if resume && states_file.is_file() {
             let states = view::read_json(&states_file)?;
-            recognition::signature_state::resolve(&mut records, &states)?;
-            states
+            for row in &mut records {
+                row["printed_state"] = states[row["measure_number"].to_string()].clone();
+            }
         } else {
             let mut reader = SignatureReader::new(&self.models.signature())?;
             let states = recognition::read_score_states(&mut reader, &mut records, &|| {
                 progress.cancelled()
             })?;
             edit::json_file(&states_file, &states)?;
-            states
         };
         let journal = output.join("recognition.jsonl");
         let mut completed = if resume {
@@ -379,13 +409,7 @@ impl Pipeline {
                 }
             }
         }
-        seed_accepted_states(&mut records, &states, &completed)?;
-        if technique_reader.is_some() {
-            recognition::technique_relation::prepare_contexts(&mut records, &|| {
-                progress.cancelled()
-            })?;
-        }
-        self.with_engine(allow_download, progress, |engine| {
+        self.with_engine(EngineRole::Measures, allow_download, progress, |engine| {
             let mut log = OpenOptions::new()
                 .create(true)
                 .append(true)
@@ -394,26 +418,10 @@ impl Pipeline {
             for record in &records {
                 progress.checkpoint()?;
                 let number = record["measure_number"].as_u64().ok_or("小节编号缺失")? as usize;
-                if let Some(saved) = completed.get_mut(&number) {
-                    if let Some(reader) = &mut technique_reader {
-                        let before = saved.clone();
-                        recognition::technique_relation::refresh_context(saved, record);
-                        reader.recognize(saved, &|| progress.cancelled())?;
-                        if *saved != before {
-                            progress.checkpoint()?;
-                            serde_json::to_writer(&mut log, saved).map_err(|e| e.to_string())?;
-                            log.write_all(b"\n").map_err(|e| e.to_string())?;
-                            log.flush().map_err(|e| e.to_string())?;
-                        }
-                    }
-                } else {
-                    let mut result =
-                        recognition::recognize_measure(engine, record, &config, &|| {
-                            progress.cancelled()
-                        })?;
-                    if let Some(reader) = &mut technique_reader {
-                        reader.recognize(&mut result, &|| progress.cancelled())?;
-                    }
+                if !completed.contains_key(&number) {
+                    let result = recognition::recognize_measure(engine, record, &config, &|| {
+                        progress.cancelled()
+                    })?;
                     progress.checkpoint()?;
                     serde_json::to_writer(&mut log, &result).map_err(|e| e.to_string())?;
                     log.write_all(b"\n").map_err(|e| e.to_string())?;
@@ -435,26 +443,7 @@ impl Pipeline {
                     .ok_or("识别结果不完整".into())
             })
             .collect::<Result<Vec<_>>>()?;
-        finalize_selected(&mut finished, &mut info, retry.as_ref())?;
-        if retry.is_some() {
-            // A local retry is not permission to change the accepted score's
-            // shared instrument/tuning/tempo context beneath untouched records.
-            for key in [
-                "title",
-                "artist",
-                "instrument",
-                "midi_program",
-                "tuning_used",
-                "capo",
-                "transpose",
-                "parts",
-                "document_metadata",
-            ] {
-                if let Some(value) = initial.get(key) {
-                    info[key] = value.clone();
-                }
-            }
-        }
+        recognition::finalize_records(&mut finished, &mut info)?;
         let mut result = info;
         result["records"] = json!(finished);
         result["layout"] = json!(layout_path);
@@ -539,9 +528,13 @@ fn read_journal(path: &Path) -> Result<BTreeMap<usize, Value>> {
         let number = row["measure_number"]
             .as_u64()
             .ok_or("Invalid checkpoint row")? as usize;
-        scorelib::score::parse_measure_target(
-            row["target"].as_str().ok_or("Invalid checkpoint music")?,
-        )?;
+        if !row["observation"].is_null() {
+            scorelib::observation::parse_observation(&row["observation"])?;
+        } else if !row["raw_observation_text"].is_string() {
+            return Err(
+                "Checkpoint does not contain a visible observation; restart recognition".into(),
+            );
+        }
         result.insert(number, row);
     }
     if end < bytes.len() {
@@ -553,52 +546,4 @@ fn read_journal(path: &Path) -> Result<BTreeMap<usize, Value>> {
             .map_err(|e| e.to_string())?;
     }
     Ok(result)
-}
-
-fn seed_accepted_states(
-    records: &mut [Value],
-    predictions: &Value,
-    accepted: &BTreeMap<usize, Value>,
-) -> Result<()> {
-    if accepted.is_empty() {
-        return Ok(());
-    }
-    let mut seeded = predictions.clone();
-    for (number, row) in accepted {
-        seeded[number.to_string()] = recognition::signature_state::seed_accepted_context(
-            &predictions[number.to_string()],
-            row,
-        )?;
-    }
-    recognition::signature_state::resolve(records, &seeded)
-}
-
-fn finalize_selected(
-    records: &mut [Value],
-    information: &mut Value,
-    retry: Option<&HashSet<usize>>,
-) -> Result<()> {
-    let preserved: BTreeMap<usize, Value> = records
-        .iter()
-        .filter_map(|row| {
-            let number = row["measure_number"].as_u64()? as usize;
-            if retry.is_some_and(|selected| !selected.contains(&number)) {
-                Some((number, row.clone()))
-            } else {
-                None
-            }
-        })
-        .collect();
-    recognition::finalize_records(records, information)?;
-    // A partial retry may use accepted neighbours as context, but never writes
-    // their tempo, annotations, tuning, playback fields, or review decisions.
-    for row in records {
-        if let Some(original) = row["measure_number"]
-            .as_u64()
-            .and_then(|n| preserved.get(&(n as usize)))
-        {
-            *row = original.clone();
-        }
-    }
-    Ok(())
 }

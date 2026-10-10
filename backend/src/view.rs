@@ -1,6 +1,6 @@
 //! HTTP projection of persisted stages. Filesystem paths never leave this layer.
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
-use scorelib::score::parse_measure_target;
+use scorelib::score::record_measure;
 use serde_json::{json, Value};
 use std::{
     fs,
@@ -236,7 +236,9 @@ pub fn project(root: &Path, sid: &str) -> Result<Value> {
             state["metadata"]["document_metadata"] = metadata(&data["document_metadata"]);
         }
         state["review_measures"] = data.get("review_measures").cloned().unwrap_or(json!([]));
-        state["score_text_url"] = json!(format!("/api/sessions/{sid}/score.txt"));
+        if data["score_text"].is_string() {
+            state["score_text_url"] = json!(format!("/api/sessions/{sid}/score.txt"));
+        }
         state["score_document_url"] = json!(asset(&root, sid, &data["score_document"])?);
         if data["musicxml"].is_string() {
             state["musicxml_url"] = json!(asset(&root, sid, &data["musicxml"])?);
@@ -264,42 +266,12 @@ pub fn project(root: &Path, sid: &str) -> Result<Value> {
             for key in ["image", "source_page", "source_pdf"] {
                 object.remove(key);
             }
-            let target = row["target"].as_str().ok_or("小节缺少target")?;
-            measure["parsed"] = parse_measure_target(target).map_err(|e| e.to_string())?;
-            measure["score_text"] = json!(target);
-            measure["context_text"] = row
-                .get("previous_context")
-                .filter(|v| v.is_string())
-                .cloned()
-                .unwrap_or(json!(""));
-            let reasons = row["fallback_reason"]
-                .as_array()
-                .cloned()
-                .unwrap_or_default();
-            measure["annotation_review"] = json!(
-                !reasons.is_empty()
-                    && reasons.iter().all(|r| r
-                        .as_str()
-                        .is_some_and(|r| r.starts_with("Uncertain chord symbol")
-                            || r.starts_with("Annotation review failed")))
-                    && [
-                        "timing_errors",
-                        "fingering_errors",
-                        "export_errors",
-                        "pitch_needs_review",
-                        "state_needs_review"
-                    ]
-                    .iter()
-                    .all(|key| match &row[*key] {
-                        Value::Null | Value::Bool(false) => true,
-                        Value::Array(v) => v.is_empty(),
-                        _ => false,
-                    })
-            );
-            measure["fallback_reason"] = json!(reasons
-                .iter()
-                .map(|r| r.as_str().unwrap_or_default())
-                .collect::<Vec<_>>());
+            measure["parsed"] = record_measure(row)?;
+            if measure["parsed"]["incomplete"] == true {
+                // An empty editing voice has no beat, note, or rest.
+                measure["parsed"]["voices"] = json!([{"voice":0,"events":[]}]);
+            }
+            measure["score_text"] = json!(row["target"].as_str().unwrap_or(""));
             measure["url"] = json!(asset(&root, sid, &row["image"])?);
             measure["chord_annotations"] = annotations(&row["chord_annotations"]);
             measure["technique_annotations"] = annotations(&row["technique_annotations"]);

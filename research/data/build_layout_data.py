@@ -74,7 +74,58 @@ def coco_pages(source):
             raise ValueError(f"Annotations reference missing images: {path}")
 
 
-def build_dataset(sources, output_root, *, coco_sources=(), include_test=False):
+def observation_pages(source):
+    """Use complete rendered pages, preserving separate diagrams and music bounds."""
+    from PIL import Image
+    source = Path(source).resolve()
+    skipped = 0
+    for split in SPLITS:
+        manifest = source / f"manifest_{split}.jsonl"
+        if not manifest.exists():
+            continue
+        pages = {}
+        for line in manifest.read_text().splitlines():
+            row = json.loads(line)
+            pages.setdefault(Path(row['source_page']), row)
+        for image, row in pages.items():
+            geometry = json.loads(image.with_name('geometry.json').read_text())
+            if 'layout_annotations' not in geometry:
+                skipped += 1
+                continue
+            with Image.open(image) as page:
+                width, height = page.size
+            regions = [{'label': f"measure_{row['mode']}", 'bbox': box}
+                       for box in geometry['boxes']]
+            regions.extend(item for item in geometry['layout_annotations'] if item.get('kind') != 'technique')
+            # Continuation augmentation may erase a label or extend a line
+            # after engraving. Use the commands retained in the final image.
+            for span in geometry['techniqueSpans']:
+                boxes = [c['bbox'] for c in span['commands']
+                         if c['type'] != 'text' or span.get('label_visible', True)]
+                if not boxes:
+                    continue
+                x, y = min(b[0] for b in boxes), min(b[1] for b in boxes)
+                regions.append({'label': 'annotation_region', 'bbox': [x, y,
+                    max(b[0] + b[2] for b in boxes) - x, max(b[1] + b[3] for b in boxes) - y]})
+            annotations = []
+            for item in sorted(regions, key=lambda r: (r['bbox'][1], r['bbox'][0])):
+                x, y, w, h = item['bbox']
+                x0, y0 = max(0., x), max(0., y)
+                x1, y1 = min(width, x + w), min(height, y + h)
+                if x1 <= x0 or y1 <= y0:
+                    continue
+                annotations.append({'category_id': CATEGORY_IDS[item['label']],
+                    'bbox': [x0, y0, x1-x0, y1-y0], 'area': (x1-x0)*(y1-y0),
+                    'segmentation': [[x0,y0,x1,y0,x1,y1,x0,y1]], 'iscrowd': 0,
+                    'read_order': len(annotations)})
+            yield split, image, {'width': width, 'height': height,
+                'family': row['family'], 'source_id': row['source_id'],
+                'mode': row['mode'], 'renderer': row['renderer'], 'page_index': row['page'] - 1}, annotations
+    if skipped:
+        print(f"Skipped {skipped} pages without complete layout drawing labels: {source}")
+
+
+def build_dataset(sources, output_root, *, coco_sources=(), observation_sources=(), include_test=False):
     output_root = Path(output_root)
     output_root.mkdir(parents=True, exist_ok=False)
     splits = {split: {"images": [], "annotations": [], "categories": CATEGORIES}
@@ -84,6 +135,7 @@ def build_dataset(sources, output_root, *, coco_sources=(), include_test=False):
     pages = chain.from_iterable([
         *(inventory_pages(source) for source in sources),
         *(coco_pages(source) for source in coco_sources),
+        *(observation_pages(source) for source in observation_sources),
     ])
     for split, source, metadata, annotations in pages:
         source = source.resolve(strict=True)
@@ -128,12 +180,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, nargs="+", default=[], help="Native inventory directories")
     parser.add_argument("--coco", type=Path, nargs="+", default=[], help="Prepared layout dataset directories")
+    parser.add_argument("--observations", type=Path, nargs="+", default=[], help="Rendered observation manifests with layout geometry")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--include-test", action="store_true")
     args = parser.parse_args()
-    if not args.source and not args.coco:
-        parser.error("Provide --source inventories or --coco datasets")
+    if not args.source and not args.coco and not args.observations:
+        parser.error("Provide --source inventories, --coco datasets or --observations")
     print(json.dumps(build_dataset(args.source, args.output, coco_sources=args.coco,
+                                   observation_sources=args.observations,
                                    include_test=args.include_test), ensure_ascii=False))
 
 

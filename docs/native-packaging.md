@@ -22,7 +22,7 @@ python scripts/install_local_models.py
 desktop/src-tauri/resources/native/guitarocr-backend --models tools/model-cache --resources desktop/src-tauri/resources/native
 ```
 
-安装脚本优先使用硬链接，避免复制模型；替换 `weights/` 中的文件后重新运行。发布下载资源时再生成文件大小和校验值。公开下载的完整性检查与本地模型的更新机制分别由清单声明。
+安装脚本按职责复制当前文件并清理不再分发的缓存；替换 `weights/` 中的文件后重新运行，避免源文件与运行缓存共用硬链接。发布下载资源时再生成文件大小和校验值。公开下载的完整性检查与本地模型的更新机制分别由清单声明。
 
 推理组件使用 ONNX Runtime 1.23.2、PDFium 5.13.0，以及 llama.cpp。前两者取自官方发行件，llama.cpp 使用提供的源码构建，不锁定 Git 提交。`scripts/llamacpp-runtime.json` 记录已发布运行组件的下载地址、大小和归档 SHA-256。资源收集器只提取原生文件及许可证，不安装 wheel 内的 Python 代码。
 
@@ -63,7 +63,7 @@ licenses/  原生依赖、Cargo 依赖与源代码适配的授权
 
 Tauri 只启动 `guitarocr-backend`，读取其 `GUITAROCR_READY` 回环地址；关闭应用时结束拥有的子进程组。后端组合 `engine` 和 `scorelib`。engine 拥有一个 llama-server，使用短期密钥访问回环接口，独立取消单个生成请求。ONNX Runtime 负责辅助模型，PDFium 负责 PDF 栅格化。用户的模型、项目和日志保存到应用数据目录。Windows 通过系统 NVIDIA 驱动判断是否需要加速组件，按需下载到同一数据目录的 `runtimes/`；模型与设备无关，继续共用已有缓存。
 
-若模型清单声明 `information_adapter`，同一 llama-server 额外载入约 15 MB 的语言 LoRA；视觉编码器和主模型继续共享。调用方明确指定乐器、谱号或带参考页的结构任务，音符和其他任务使用 base。每个请求独立设置 adapter scale，禁止全局切换；空 LoRA 列表会恢复服务端默认状态，因此已加载 adapter 时，base 请求显式发送 scale=0。GGUF adapter 与 base 一起进入模型清单和校验；声明缺文件、任务合同不支持或二进制元信息不一致均在识别前报错。Python 研究端的 Transformers/vLLM 使用同一语言 PEFT 资产，桌面只需要 GGUF。
+产品有两个明确的模型职责：`weights/score_ocr` 读取单个小节的可见观察；`weights/information` 读取标题、乐器、谱号和其他谱面信息。新观察模型在信息任务上有遗忘，因此信息职责保留经对照验证的底座及约 15 MB 的谱表／谱号适配器。后端按阶段切换模型，等当前请求结束后释放旧进程，同一时刻只加载一个角色。信息模型的视觉编码器和适配器与该底座配套，小节请求不加载信息适配器。能力声明通过 `information_model` 指定这套资源及适配任务；缺文件或不符合输入输出约定时在识别前报错。研究训练使用 HF 权重，产品只需 GGUF 和 ONNX。
 
 下载归档整体校验 SHA-256；解包及准备资源时检查路径、文件大小、目标平台和所需组件，不再维护逐文件 SHA。模型、Pillow／OpenCV 适配及 Cargo 补充许可集中在根目录 `THIRD_PARTY_NOTICES.md`，随包复制到 `licenses/`；缺少自带许可文件的 Cargo 包列在 `desktop/license-supplements.json`。其余依赖的许可由打包器直接收集，界面的 alphaTab／Bravura 许可随 `ui/workbench/vendor/README.md` 提供。
 

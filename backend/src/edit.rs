@@ -63,22 +63,57 @@ pub fn save_recognition(output: &Path, source: &Value) -> Result<PathBuf> {
     write_recognition(output, result)
 }
 
+#[cfg(test)]
+mod observation_edit_tests {
+    use super::*;
+
+    #[test]
+    fn incomplete_measure_survives_save_and_becomes_exportable_after_edit() {
+        let output = tempfile::tempdir().unwrap();
+        let mut source = json!({"mode":"tab","instrument":"guitar","tuning_used":[64,59,55,50,45,40],
+            "records":[{"source_id":"score","part_id":"guitar","staff_id":"tab","bar_index":0,
+                "measure_number":1,"mode":"tab","instrument":"guitar","capo":0,"tuning":[64,59,55,50,45,40],
+                "observation":{"state":{"time":{"status":"observed","value":"4/4"}},
+                    "voices":[{"voice":0,"events":[{"start":0,"duration":null,"status":"normal",
+                        "notes":[{"string":1,"fret":5}]}]}],"relations":[]}}]});
+        crate::recognition::reassemble(&mut source).unwrap();
+        let manifest = save_recognition(output.path(), &source).unwrap();
+        let mut saved: Value = serde_json::from_slice(&fs::read(manifest).unwrap()).unwrap();
+        assert!(saved["records"][0]["target"].is_null());
+        assert!(saved["score_text"].is_null());
+        assert!(saved["musicxml"].is_null());
+        let document = score_document(&saved).unwrap();
+        let measure = &document["parts"][0]["staves"][0]["measures"][0];
+        assert_eq!(measure["incomplete"], true);
+        assert_eq!(measure["voices"], json!([]));
+        assert_eq!(measure["observation"]["voices"][0]["events"][0]["notes"][0]["fret"], 5);
+        assert!(scorelib::music_exports::score_document(&document).is_err());
+        assert!(correct_record(&mut saved, 1, &json!({"reviewed":true})).is_err());
+
+        let mut observed = saved["records"][0]["observation"].clone();
+        observed["voices"][0]["events"][0]["duration"] = json!("w");
+        correct_record(&mut saved, 1, &json!({"observation":observed})).unwrap();
+        crate::recognition::reassemble(&mut saved).unwrap();
+        assert!(saved["records"][0]["target"].as_str().unwrap().contains("@0:w:s1f5"));
+        correct_record(&mut saved, 1, &json!({"reviewed":true})).unwrap();
+        crate::recognition::reassemble(&mut saved).unwrap();
+        assert_eq!(saved["records"][0]["reviewed"], true);
+        assert_eq!(saved["records"][0]["needs_review"], false);
+        let manifest = save_recognition(output.path(), &saved).unwrap();
+        let saved: Value = serde_json::from_slice(&fs::read(manifest).unwrap()).unwrap();
+        assert!(saved["musicxml"].is_string());
+        assert!(saved["score_text"].is_string());
+    }
+}
+
 /// Persist projections without changing musical records for annotation-only edits.
 fn write_recognition(output: &Path, mut result: Value) -> Result<PathBuf> {
     let rows = result["records"].as_array().ok_or("识别结果缺少小节")?;
-    let text = rows
-        .iter()
-        .map(|r| {
-            r["target"]
-                .as_str()
-                .ok_or_else(|| "无效的小节target".to_string())
-        })
-        .collect::<Result<Vec<_>>>()?
-        .join("\n")
-        + "\n";
+    let text = rows.iter().map(|r| r["target"].as_str())
+        .collect::<Option<Vec<_>>>().map(|lines| lines.join("\n") + "\n");
     let review: Vec<_> = rows
         .iter()
-        .filter(|r| r["needs_review"] == true)
+        .filter(|r| r["needs_review"] == true || r["target"].is_null())
         .map(|r| r["measure_number"].clone())
         .collect();
     result["measures"] = json!(rows.len());
@@ -88,8 +123,13 @@ fn write_recognition(output: &Path, mut result: Value) -> Result<PathBuf> {
         "needs_review"
     });
     result["review_measures"] = json!(review);
-    fs::write(output.join("score.txt"), &text).map_err(|e| e.to_string())?;
-    result["score_text"] = json!(output.join("score.txt"));
+    if let Some(text) = text {
+        fs::write(output.join("score.txt"), &text).map_err(|e| e.to_string())?;
+        result["score_text"] = json!(output.join("score.txt"));
+    } else {
+        result["score_text"] = Value::Null;
+        let _ = fs::remove_file(output.join("score.txt"));
+    }
     let document = score_document(&result)?;
     json_file(&output.join("score.json"), &document)?;
     result["score_document"] = json!(output.join("score.json"));
@@ -127,6 +167,7 @@ pub fn correct(
         serde_json::from_slice(&fs::read(path).map_err(|e| (400, e.to_string()))?)
             .map_err(|e| (400, e.to_string()))?;
     correct_record(&mut source, number, body).map_err(|e| (400, e))?;
+    crate::recognition::reassemble(&mut source).map_err(|e| (400, e))?;
     let directory = root.join(sid);
     let output = tempfile::Builder::new()
         .prefix("correction_")
@@ -158,15 +199,23 @@ fn correct_record(source: &mut Value, number: usize, body: &Value) -> Result<()>
         return Err("无效的小节编号".into());
     }
     let row = &mut rows[number - 1];
+    if let Some(observation) = body.get("observation") {
+        row["observation"] = scorelib::observation::parse_observation(observation)?;
+        row["observation_manually_edited"] = json!(true);
+        row["manually_edited"] = json!(false);
+        row["reviewed"] = json!(false);
+        row["needs_review"] = json!(true);
+        return Ok(());
+    }
     let mode = row["mode"].as_str().unwrap_or(&source_mode);
     let reviewed = body["reviewed"].as_bool().unwrap_or(false);
-    let old = row["target"].as_str().ok_or("小节缺少target")?.to_owned();
+    let old = row["target"].as_str().map(str::to_owned);
     let target = if let Some(measure) = body.get("measure").filter(|v| !v.is_null()) {
         format_measure_target(measure, mode, true)?
     } else if let Some(text) = body["target"].as_str() {
         text.to_owned()
     } else if reviewed || body.get("visual_techniques").is_some() {
-        old.clone()
+        old.clone().ok_or("该小节还有未识别的音符或节奏，请先补全内容")?
     } else {
         return Err("请输入小节内容或核对标记".into());
     };
@@ -186,7 +235,7 @@ fn correct_record(source: &mut Value, number: usize, body: &Value) -> Result<()>
         return Err(errors.join("；"));
     }
     let parsed = parsed.ok_or("无效的小节")?;
-    let previous = scorelib::score::parse_measure_target(&old)?;
+    let previous = scorelib::score::record_measure(row)?;
     let global_changes = ["time_signature", "tempo_quarter"]
         .into_iter()
         .filter_map(|field| {
@@ -220,7 +269,7 @@ fn correct_record(source: &mut Value, number: usize, body: &Value) -> Result<()>
             return Err(errors.join("；"));
         }
     }
-    let changed = target != old;
+    let changed = Some(target.as_str()) != old.as_deref();
     let previous_overlay = row.get("visual_techniques").cloned().unwrap_or(Value::Null);
     let overlay = if let Some(value) = body.get("visual_techniques") {
         if !value.is_null() {
@@ -262,9 +311,20 @@ fn correct_record(source: &mut Value, number: usize, body: &Value) -> Result<()>
             if bars[&peer["measure_number"].to_string()] != bar {
                 continue;
             }
-            let mut measure = scorelib::score::parse_measure_target(
-                peer["target"].as_str().ok_or("小节缺少target")?,
-            )?;
+            if peer["target"].is_null() {
+                // A shared meter edit is useful evidence even before this
+                // staff's notes can be assembled. It does not create notes.
+                if let Some((_, value)) = global_changes.iter().find(|(field, _)| *field == "time_signature") {
+                    if !peer["score_state"].is_object() { peer["score_state"] = json!({}); }
+                    if !peer["score_state_evidence"].is_object() { peer["score_state_evidence"] = json!({}); }
+                    if !peer["manual_state"].is_object() { peer["manual_state"] = json!({}); }
+                    peer["manual_state"]["time"] = json!({"status":if value.is_null() {"absent"} else {"observed"},"value":value,"source":"manual"});
+                    peer["score_state"]["time"] = value.clone();
+                    peer["score_state_evidence"]["time"] = json!({"status":"observed","value":value,"source":"manual"});
+                }
+                continue;
+            }
+            let mut measure = scorelib::score::parse_measure_target(peer["target"].as_str().unwrap())?;
             for (field, value) in &global_changes {
                 measure[*field] = value.clone();
                 if *field == "time_signature" {
@@ -308,6 +368,8 @@ fn correct_record(source: &mut Value, number: usize, body: &Value) -> Result<()>
                         "value": previous_time, "source":"manual",
                         "observation":{"status":"absent","value":null,"source":"manual"}
                     });
+                    if !peer["manual_state"].is_object() { peer["manual_state"] = json!({}); }
+                    peer["manual_state"]["time"] = json!({"status":"absent","value":null,"source":"manual"});
                 }
                 // Do not accept a peer's unrelated key evidence as a side
                 // effect of a shared meter edit.
@@ -441,17 +503,9 @@ pub fn export(
     let gp5 = output.path().join(filename);
     let report = scorelib::music_exports::write_gp5(&source, &gp5).map_err(|e| (400, e))?;
     let mut exported = json!({"schema_version":"1.0","stage":"gp5_export","recognition":recognition,"gp5":gp5,"encoding_report":report["report_path"]});
-    if report["report"]["chord_library_projection"]
-        .as_array()
-        .is_some_and(|rows| !rows.is_empty())
-    {
-        exported["warnings"] = json!([
-            "未关联到正文的和弦按法已完整保存在静音的“指法参考”轨，供谱首查阅；这些按法不表示实际演奏位置。"
-        ]);
-    }
     for field in [
         "visual_techniques_projection",
-        "chord_library_review",
+        "chord_library_omissions",
         "chord_label_projection",
         "encoding_compatibility",
     ] {

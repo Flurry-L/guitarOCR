@@ -1,0 +1,18 @@
+{
+  "tasks": [
+    "header",
+    "tempo",
+    "staff",
+    "clef",
+    "annotation",
+    "structure"
+  ],
+  "information_adapter": {
+    "gguf": "../gguf/information-adapter.gguf",
+    "peft": "information_adapter",
+    "tasks": [
+      "staff",
+      "clef"
+    ]
+  }
+}

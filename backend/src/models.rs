@@ -45,9 +45,6 @@ fn parse_catalog(contents: &str) -> Result<Value, String> {
                 "auxiliary/clef_spatial.onnx",
                 "auxiliary/text_regions.onnx",
                 "auxiliary/chord_text_roles.onnx",
-                "auxiliary/technique_grounding.onnx",
-                "auxiliary/technique_relation.onnx",
-                "auxiliary/technique_relation_calibration.json",
             ][..],
         ),
         (
@@ -55,8 +52,11 @@ fn parse_catalog(contents: &str) -> Result<Value, String> {
             &[
                 "weights/score_ocr/gguf/model-Q8_0.gguf",
                 "weights/score_ocr/gguf/vision-F16.gguf",
+                "weights/information/gguf/model-Q8_0.gguf",
+                "weights/information/gguf/vision-F16.gguf",
+                "weights/information/gguf/information-adapter.gguf",
             ][..],
-            &["weights/score_ocr/gguf/information-adapter.gguf"][..],
+            &[][..],
         ),
     ] {
         let files = catalog["files"][group]
@@ -110,60 +110,26 @@ fn auxiliary_asset(value: &Value) -> Option<&str> {
     }
 }
 
-fn technique_assets(capabilities: &Value) -> Result<Option<[&'static str; 3]>, String> {
-    let declarations = [
-        (
-            "technique_grounding_model",
-            "auxiliary/technique_grounding.onnx",
-        ),
-        (
-            "technique_relation_model",
-            "auxiliary/technique_relation.onnx",
-        ),
-        (
-            "technique_relation_calibration",
-            "auxiliary/technique_relation_calibration.json",
-        ),
-    ];
-    if declarations
-        .iter()
-        .all(|(field, _)| capabilities[*field].is_null())
-    {
-        return Ok(None);
-    }
-    for (field, path) in declarations {
-        if auxiliary_asset(&capabilities[field]) != Some(path) {
-            return Err(format!(
-                "Unsupported technique capability: {field}; expected {path}. \
-                 Declare all three technique assets with supported paths, or omit all three."
-            ));
-        }
-    }
-    Ok(Some(declarations.map(|(_, path)| path)))
-}
-
-fn information_adapter_declared(capabilities: &Value) -> Result<bool, String> {
-    let declaration = &capabilities["information_adapter"];
-    if declaration.is_null() {
-        return Ok(false);
-    }
-    let tasks: std::collections::BTreeSet<_> = declaration["tasks"]
+fn validate_information_model(capabilities: &Value) -> Result<(), String> {
+    let declaration = &capabilities["information_model"];
+    let tasks: std::collections::BTreeSet<_> = declaration["adapter_tasks"]
         .as_array()
         .into_iter()
         .flatten()
         .filter_map(Value::as_str)
         .collect();
-    if declaration["gguf"] != "../gguf/information-adapter.gguf"
-        || declaration["peft"] != "information_adapter"
+    if declaration["model"] != "../../information/gguf/model-Q8_0.gguf"
+        || declaration["projector"] != "../../information/gguf/vision-F16.gguf"
+        || declaration["adapter"] != "../../information/gguf/information-adapter.gguf"
         || tasks.is_empty()
         || !tasks.is_subset(&["staff", "clef"].into_iter().collect())
-        || declaration["tasks"]
+        || declaration["adapter_tasks"]
             .as_array()
             .is_none_or(|v| v.len() != tasks.len())
     {
-        return Err("Unsupported information adapter contract: expected a nonempty unique subset of staff/clef tasks and matching GGUF/PEFT paths".into());
+        return Err("Information recognition requires its model, projector and staff/clef adapter".into());
     }
-    Ok(true)
+    Ok(())
 }
 
 /// Validate the complete compiled metadata before opening a cache or starting
@@ -183,7 +149,9 @@ fn parse_metadata(
     let declarations = capabilities
         .as_object()
         .ok_or("Invalid capabilities.json: expected an object")?;
-    technique_assets(&capabilities)?;
+    if capabilities["measure_output"] != "observation" || capabilities["measure_images"] != 1 {
+        return Err("Measure recognition requires single-image observation weights".into());
+    }
     if auxiliary_asset(&capabilities["layout_quality_model"])
         != Some("auxiliary/layout_quality.onnx")
     {
@@ -215,7 +183,7 @@ fn parse_metadata(
             return Err(format!("Unsupported {description} model declaration"));
         }
     }
-    let has_information_adapter = information_adapter_declared(&capabilities)?;
+    validate_information_model(&capabilities)?;
     if capabilities["staff_label_model"].is_null()
         != capabilities["instrument_text_model"].is_null()
     {
@@ -231,11 +199,6 @@ fn parse_metadata(
         .flat_map(|group| catalog["files"][*group].as_array().unwrap())
         .filter_map(|file| file["path"].as_str())
         .collect();
-    if has_information_adapter
-        && !assets.contains("weights/score_ocr/gguf/information-adapter.gguf")
-    {
-        return Err("Model catalog omits declared information adapter".into());
-    }
     for (capability, asset) in declarations {
         let Some(asset) = auxiliary_asset(asset) else {
             continue;
@@ -392,35 +355,23 @@ impl Models {
     pub fn text_regions(&self) -> Option<PathBuf> {
         self.optional_auxiliary("auxiliary/text_regions.onnx")
     }
-    pub fn technique_relations(&self) -> Result<Option<[PathBuf; 3]>, String> {
-        let Some(paths) = technique_assets(&self.capabilities)? else {
-            return Ok(None);
-        };
-        let mut result = Vec::new();
-        for path in paths {
-            result.push(self.optional_auxiliary(path).ok_or_else(|| {
-                format!("Technique capability has no verified catalog asset: {path}")
-            })?);
-        }
-        Ok(Some(result.try_into().unwrap()))
-    }
     pub fn model(&self) -> PathBuf {
         self.root.join("weights/score_ocr/gguf/model-Q8_0.gguf")
     }
     pub fn projector(&self) -> PathBuf {
         self.root.join("weights/score_ocr/gguf/vision-F16.gguf")
     }
+    pub fn information_model(&self) -> PathBuf {
+        self.root.join("weights/information/gguf/model-Q8_0.gguf")
+    }
+    pub fn information_projector(&self) -> PathBuf {
+        self.root.join("weights/information/gguf/vision-F16.gguf")
+    }
     pub fn information_adapter(&self) -> Option<PathBuf> {
-        self.capabilities
-            .get("information_adapter")
-            .filter(|v| !v.is_null())
-            .map(|_| {
-                self.root
-                    .join("weights/score_ocr/gguf/information-adapter.gguf")
-            })
+        Some(self.root.join("weights/information/gguf/information-adapter.gguf"))
     }
     pub fn information_adapter_tasks(&self) -> Vec<String> {
-        self.capabilities["information_adapter"]["tasks"]
+        self.capabilities["information_model"]["adapter_tasks"]
             .as_array()
             .into_iter()
             .flatten()

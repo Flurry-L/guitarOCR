@@ -17,6 +17,50 @@ from research.data.technique_visibility import (
 )
 
 
+def pdf_spans(page):
+    anchors = []
+    words = page.words()
+    for index, word in enumerate(words):
+        left, top, right, bottom, text = word
+        text = text.strip().lower().replace(" ", "")
+        if text == "let" and index + 1 < len(words):
+            x0, y0, x1, y1, following = words[index + 1]
+            if following.casefold() == "ring" and abs(top - y0) < 1 and 0 <= x0 - right <= 6:
+                right, bottom, text = x1, max(bottom, y1), "letring"
+        kind = "pm" if text in ("p.m.", "pm") else "let" if text == "letring" else None
+        if kind:
+            anchors.append({"kind": kind, "text_bbox": [left, top, right, bottom]})
+    dashes = page.dashed_lines()
+    spans = []
+    for anchor in anchors:
+        left, top, right, bottom = anchor["text_bbox"]
+        matching = [
+            line
+            for line in dashes
+            # Text bounds include italic overhang and need not end before the
+            # actual dash begins. Accept overlap with the label's trailing box.
+            if left <= line[0] <= right + 6 and line[2] > right and top <= line[1] <= bottom
+        ]
+        if len(matching) == 1:
+            spans.append(
+                {
+                    **anchor,
+                    "start_x": (left + right) / 2,
+                    "end_x": matching[0][2],
+                    "line_y": matching[0][1],
+                    "style": "labelled_dash",
+                }
+            )
+        else:
+            # A visible word supplies technique identity but no scope endpoint.
+            # Multiple plausible strokes are also unresolved; never discard
+            # the actual word or choose a line from source-effect switches.
+            spans.append({**anchor, 'start_x': (left+right)/2,
+                          'end_x': right, 'line_y': (top+bottom)/2,
+                          'style': 'label_only'})
+    return spans
+
+
 @lru_cache(maxsize=2048)
 def native_layout(label_path, mode):
     matches = list((native_document(label_path, mode) / 'tracks').glob('*/layout.json'))
@@ -300,3 +344,919 @@ def native_pitch_annotations(page, page_number, layout, score, assignment):
                                      semitones=None if capo else track['view_transposition_offset'],
                                      capo=assignment['capo'] if capo else None, text=instruction)))
     return rows
+
+def native_scope_evidence(page, spans, grouped, staff_index, system, index, crop_mm, strings=None):
+    """Preserve drawn scopes even when their endpoint or voice is not visible.
+
+    ``effects`` contains only owner/kind coverage proved by drawn endpoints. It
+    is deliberately incomplete for label-only or ambiguous multivoice scopes;
+    it must not be used as a full semantic reference or an absence annotation.
+    """
+    left, top, right, bottom = [v * 72 / 25.4 for v in crop_mm]
+    glyphs_by_owner = {}
+    for key, glyphs in grouped.items():
+        if key[:2] != (staff_index, index):
+            continue
+        visible = []
+        for glyph in glyphs:
+            x, y, width, height = glyph['bbox_mm']
+            if (glyph.get('kind') != 'hidden_fret'
+                    and crop_mm[0] <= x and x + width <= crop_mm[2]
+                    and crop_mm[1] <= y and y + height <= crop_mm[3]):
+                visible.append(glyph)
+        if visible:
+            glyphs_by_owner.setdefault(key[:4], []).extend(visible)
+    # An endpoint outside this crop cannot select between simultaneous voices
+    # inside it. Cross-measure voice continuity belongs to the later assembler.
+    local_voices = {key[2] for key in glyphs_by_owner}
+
+    def candidates(position):
+        x = position * 25.4 / 72
+        matches = [(key, glyph) for key, glyphs in glyphs_by_owner.items() for glyph in glyphs
+                   if glyph['bbox_mm'][0] - 1e-4 <= x
+                   <= glyph['bbox_mm'][0] + glyph['bbox_mm'][2] + 1e-4]
+        # A two-digit fret can reach a dash endpoint that a simultaneous
+        # one-digit fret does not. Their shared drawing origin keeps both
+        # voices possible; glyph width is not evidence of scope ownership.
+        origins = [glyph['render_origin_mm'][0] for _, glyph in matches
+                   if glyph.get('render_origin_mm')]
+        return {key for key, _ in matches} | {
+            key for key, glyphs in glyphs_by_owner.items()
+            if any(glyph.get('render_origin_mm')
+                   and any(abs(glyph['render_origin_mm'][0] - origin) <= 1e-4 for origin in origins)
+                   for glyph in glyphs)}
+
+    # Native glyph origins supply the actual TAB string spacing. This is PDF
+    # annotation geometry, not a raster line detector or inference heuristic.
+    origins = {}
+    for glyphs in glyphs_by_owner.values():
+        for glyph in glyphs:
+            if glyph.get('native_string_index') is not None and glyph.get('render_origin_mm'):
+                origins.setdefault(glyph['native_string_index'], []).append(glyph['render_origin_mm'][1])
+    origin_y = {string: sum(ys) / len(ys) for string, ys in origins.items()}
+    staff_geometry = None
+    if strings and len(origin_y) >= 2:
+        lo, hi = min(origin_y), max(origin_y)
+        spacing = (origin_y[lo] - origin_y[hi]) / (hi - lo)
+        if spacing > 0 and all(abs(origin_y[n] - (origin_y[lo] - (n - lo) * spacing)) < 1e-3
+                               for n in origin_y):
+            staff_geometry = (origin_y[lo] - (strings - 1 - lo) * spacing, (strings - 1) * spacing)
+
+    relations, effects, labels, paths = [], {}, [], []
+    for span in spans:
+        x0, y0, x1, y1 = span['text_bbox']
+        label_intersects = x0 < right and x1 > left and y0 < bottom and y1 > top
+        line_visible = (span['style'] == 'labelled_dash' and top <= span['line_y'] <= bottom
+                        and span['start_x'] < right and span['end_x'] > left)
+        if not label_intersects and not line_visible:
+            continue
+        label_visible = left <= x0 and x1 <= right and top <= y0 and y1 <= bottom
+        if label_intersects:
+            labels.append(span['text_bbox'])
+        start_candidates = candidates(span['start_x'])
+        end_candidates = candidates(span['end_x']) if span['style'] == 'labelled_dash' else set()
+        start_voices = {owner[2] for owner in start_candidates}
+        end_voices = {owner[2] for owner in end_candidates}
+        possible_voices = start_voices & end_voices if start_voices and end_voices else start_voices or end_voices
+        voice = next(iter(possible_voices)) if len(possible_voices) == 1 else None
+        if voice is None and not possible_voices and len(local_voices) == 1:
+            voice = next(iter(local_voices))
+        if voice is not None:
+            start_candidates = {owner for owner in start_candidates if owner[2] == voice}
+            end_candidates = {owner for owner in end_candidates if owner[2] == voice}
+        start = next(iter(start_candidates)) if len(start_candidates) == 1 else None
+        end = next(iter(end_candidates)) if len(end_candidates) == 1 else None
+        if start and end and (start[2] != end[2] or (start[1], start[3]) > (end[1], end[3])):
+            start = end = voice = None
+        lines = [line for line in page.dashed_lines()
+                 if abs(line[1] - span['line_y']) < 1e-6 and abs(line[2] - span['end_x']) < 1e-6]
+        line = lines[0] if len(lines) == 1 and span['style'] == 'labelled_dash' else None
+        relation = {'kind': span['kind'] if label_visible else None,
+                    'start': [start[2], start[3]] if start and start[1] == index and label_visible
+                             else 'left' if line and line[0] < left < line[2] else None,
+                    'end': [end[2], end[3]] if end and end[1] == index
+                           else 'right' if line and line[0] < right < line[2] else None}
+        if voice is not None:
+            relation['voice'] = voice
+        if relation['kind'] is None:
+            relation['shape'] = 'extension'
+        if staff_geometry:
+            staff_top, staff_height = staff_geometry
+            relation['lane'] = round((span['line_y'] * 25.4 / 72 - staff_top) / staff_height, 3)
+        relations.append(relation)
+        if start and (end or span['style'] == 'label_only'):
+            last = end or start
+            for owner in glyphs_by_owner:
+                if (owner[1] == index and owner[2] == start[2]
+                        and (start[1], start[3]) <= (owner[1], owner[3]) <= (last[1], last[3])):
+                    effects.setdefault(owner, set()).add(span['kind'])
+        if line:
+            paths.append((line[0], line[1], line[2], line[1]))
+            for stroke in page._text_page().lines:
+                if (abs(stroke['x0'] - span['end_x']) < 1e-6 and abs(stroke['x1'] - span['end_x']) < 1e-6
+                        and (abs(stroke['top'] - span['line_y']) < 1e-6
+                             or abs(stroke['bottom'] - span['line_y']) < 1e-6)
+                        and y0 <= stroke['top'] <= stroke['bottom'] <= y1):
+                    paths.append((stroke['x0'], stroke['top'], stroke['x1'], stroke['bottom']))
+    return relations, effects, labels, paths
+
+
+def native_slide_owners(points_mm, grouped, staff_index, system):
+    """Join a drawn slide to its visibly adjacent fret glyphs.
+
+    GP leaves space between the stroke and digits. Read adjacency within the
+    stroke endpoint's vertical band instead of assuming that spacing in mm.
+    Multiple owners at the same visible position remain unresolved; a stroke
+    that runs to the system edge has no invented owner on the next system.
+    """
+    if len(points_mm) != 2:
+        return None, None
+    measures = {box['measure_index'] for box in system['measure_boxes']}
+    visible = [(owner, glyph) for owner, glyphs in grouped.items()
+               if owner[0] == staff_index and owner[1] in measures
+               for glyph in glyphs]
+
+    def adjacent(point, before):
+        px, py = point
+        candidates = []
+        for owner, glyph in visible:
+            x, y, width, height = glyph['bbox_mm']
+            if not y - 1e-5 <= py <= y + height + 1e-5:
+                continue
+            distance = px - x - width if before else x - px
+            if distance >= -1e-5:
+                candidates.append((max(0, distance), owner, glyph))
+        if not candidates:
+            return None
+        nearest = min(candidate[0] for candidate in candidates)
+        neighbors = [(owner, glyph) for distance, owner, glyph in candidates
+                     if abs(distance - nearest) <= 1e-5]
+        owners = {owner for owner, glyph in neighbors if glyph['kind'] == 'fret'}
+        if len(owners) != 1 or any(glyph['kind'] != 'fret' for _, glyph in neighbors):
+            return None
+        # Different digit widths at one printed onset cannot distinguish
+        # overlapping voice owners. Compare their actual drawing anchors too.
+        anchor = neighbors[0][1]
+        origin_x = anchor.get('render_origin_mm', [anchor['bbox_mm'][0] + anchor['bbox_mm'][2] / 2])[0]
+        coincident = {owner for owner, glyph in visible if glyph['kind'] == 'fret'
+                      and glyph['bbox_mm'][1] - 1e-5 <= py <= glyph['bbox_mm'][1] + glyph['bbox_mm'][3] + 1e-5
+                      and abs(glyph.get('render_origin_mm', [glyph['bbox_mm'][0] + glyph['bbox_mm'][2] / 2])[0]
+                              - origin_x) <= 1e-5}
+        if len(coincident) != 1:
+            return None
+        return next(iter(owners))
+
+    start, end = sorted(points_mm, key=lambda point: point[0])
+    return adjacent(start, True), adjacent(end, False)
+
+
+def native_single_slides(page, grouped, staff_index, system, index, crop_mm, consumed_lines):
+    """Read GP's short, single-ended diagonal slide symbols from printed ink.
+
+    The native symbol is a square diagonal beside one fret, with an open other
+    end. Paired slide strokes have already been consumed by draw-time tracing.
+    Contact is measured in the symbol's own extent, so scaling or font size
+    cannot change a label through a fixed pixel or millimetre cutoff.
+    """
+    effects, consumed, unknown = {}, set(), []
+    scale = 25.4 / 72
+    left, top, right, bottom = crop_mm
+    for li, line in enumerate(page._text_page().lines):
+        if li in consumed_lines or not line.get('stroke'):
+            continue
+        points = sorted([[x * scale, y * scale] for x, y in line.get('pts', [])])
+        if len(points) != 2:
+            continue
+        (x0, y0), (x1, y1) = points
+        width, height = x1 - x0, abs(y1 - y0)
+        if width <= 1e-5 or height <= 1e-5:
+            continue
+        if not (x0 < right and x1 > left and min(y0, y1) < bottom and max(y0, y1) > top):
+            continue
+        complete = left <= x0 < x1 <= right and top <= min(y0, y1) and max(y0, y1) <= bottom
+        owners = native_slide_owners(points, grouped, staff_index, system)
+        contacts = []
+        visible_sides = []
+        for before, owner in zip((True, False), owners):
+            px, py = points[0 if before else 1]
+            near = [g for key, glyphs in grouped.items() if key[:2] == (staff_index, index)
+                    for g in glyphs if g['kind'] == 'fret'
+                    and g['bbox_mm'][1] <= py <= g['bbox_mm'][1] + g['bbox_mm'][3]
+                    and -1e-5 <= (px - g['bbox_mm'][0] - g['bbox_mm'][2] if before
+                                  else g['bbox_mm'][0] - px) <= min(width, g['bbox_mm'][3])]
+            if near:
+                visible_sides.append(before)
+            if owner is None or owner[1] != index:
+                continue
+            glyphs = [g for g in grouped[owner] if g['kind'] == 'fret']
+            if any((x0 - g['bbox_mm'][0] - g['bbox_mm'][2] if before
+                    else g['bbox_mm'][0] - x1) <= min(width, g['bbox_mm'][3]) for g in glyphs):
+                contacts.append((before, owner))
+        single = (complete and abs(width - height) <= 1e-4 and len(contacts) == 1
+                  and len(visible_sides) == 1
+                  and any(width <= g['bbox_mm'][3] for g in grouped[contacts[0][1]]))
+        if not single:
+            if visible_sides:
+                unknown.append({'kind': None, 'shape': 'diagonal',
+                                'start': list(owners[0][2:]) if owners[0] is not None
+                                         and owners[0][1] == index and True in visible_sides else None,
+                                'end': list(owners[1][2:]) if owners[1] is not None
+                                       and owners[1][1] == index and False in visible_sides else None})
+                consumed.add(li)
+            continue
+        outgoing, owner = contacts[0]
+        effect = ('sod' if y1 > y0 else 'sou') if outgoing else ('sia' if y1 > y0 else 'sib')
+        effects.setdefault(owner, set()).add(effect)
+        consumed.add(li)
+    return effects, consumed, unknown
+
+
+def native_tuplet_evidence(page, grouped, staff_index, system, index, crop_mm):
+    """Return drawn tuplet counts, consumed bracket paths and number boxes.
+
+    Counts come from the printed number between two actual bracket halves;
+    owners come from bracket endpoints inside draw-time fret/rest bounds. The
+    caller checks the native rhythmic ratio against this visible count before
+    using it. No source tuplet switch can create evidence here.
+    """
+    left, top, right, bottom = [v * 72 / 25.4 for v in crop_mm]
+    drawing = page._text_page()
+    measures = {box['measure_index'] for box in system['measure_boxes']}
+    owners = {key[:4] for key in grouped if key[0] == staff_index and key[1] in measures}
+
+    def candidates(position):
+        x = position * 25.4 / 72
+        return {key[:4] for key, glyphs in grouped.items()
+                if key[0] == staff_index and key[1] in measures
+                and any(g['bbox_mm'][0] - 1e-4 <= x <= g['bbox_mm'][0] + g['bbox_mm'][2] + 1e-4
+                        for g in glyphs)}
+
+    halves = []
+    for ci, curve in enumerate(drawing.curves):
+        path = curve.get('path', [])
+        if ''.join(command[0] for command in path) != 'mll' or not curve.get('stroke'):
+            continue
+        a, b, c = [command[1] for command in path]
+        if abs(a[0] - b[0]) < 1e-5 or abs(b[0] - c[0]) > 1e-5 or abs(b[1] - c[1]) < 1e-5:
+            continue
+        if not (left <= min(a[0], b[0]) and max(a[0], b[0]) <= right
+                and top <= min(a[1], b[1], c[1]) and max(a[1], b[1], c[1]) <= bottom):
+            continue
+        halves.append((ci, a, b, c))
+    counts, consumed, labels = {}, set(), []
+    for li, la, lb, lc in halves:
+        if lb[0] >= la[0]:
+            continue
+        for ri, ra, rb, rc in halves:
+            slope = (la[1] - lb[1]) / (la[0] - lb[0])
+            if not (ra[0] < rb[0] and la[0] < ra[0]
+                    and abs((rb[1] - ra[1]) / (rb[0] - ra[0]) - slope) < 1e-5
+                    and abs(ra[1] - (la[1] + slope * (ra[0] - la[0]))) < 1e-5
+                    and (lc[1] - lb[1]) * (rc[1] - rb[1]) > 0):
+                continue
+            if any(la[0] < other_a[0] < ra[0]
+                   and abs(other_a[1] - (la[1] + slope * (other_a[0] - la[0]))) < 1e-5
+                   for _, other_a, _, _ in halves):
+                continue
+            digits = [char for char in drawing.chars
+                      if char['text'].isascii() and char['text'].isdigit()
+                      and la[0] <= (char['x0'] + char['x1']) / 2 <= ra[0]
+                      and char['top'] <= la[1] + slope * ((char['x0'] + char['x1']) / 2 - la[0]) <= char['bottom']
+                      and left <= char['x0'] and char['x1'] <= right
+                      and top <= char['top'] and char['bottom'] <= bottom]
+            digits.sort(key=lambda char: char['x0'])
+            printed = ''.join(char['text'] for char in digits)
+            if not printed or int(printed) < 2:
+                continue
+            starts, ends = candidates(lb[0]), candidates(rb[0])
+            pairs = [(a, b) for a in starts for b in ends if a[2] == b[2]
+                     and (a[1], a[3]) <= (b[1], b[3])]
+            if len(pairs) != 1:
+                continue
+            first, last = pairs[0]
+            covered = {owner for owner in owners if owner[1] == index and owner[2] == first[2]
+                       and (first[1], first[3]) <= (owner[1], owner[3]) <= (last[1], last[3])}
+            count = int(printed)
+            if any(owner in counts and counts[owner] != count for owner in covered):
+                raise ValueError('overlapping_native_tuplet_brackets')
+            counts.update(dict.fromkeys(covered, count))
+            consumed.update((li, ri))
+            labels.append([min(char['x0'] for char in digits), min(char['top'] for char in digits),
+                           max(char['x1'] for char in digits), max(char['bottom'] for char in digits)])
+    return counts, consumed, labels
+
+
+def native_dynamic_evidence(drawing, grouped, staff_index, index, crop_mm):
+    """Place a printed staff dynamic at its visible horizontal event anchor."""
+    from research.data.observations import DYNAMIC_SYMBOLS
+
+    left, top, right, bottom = crop_mm
+    effects, boxes = {}, []
+    for char in drawing.chars:
+        if len(char['text']) != 1 or ord(char['text']) not in DYNAMIC_SYMBOLS:
+            continue
+        x0, y0, x1, y1 = [char[k] * 25.4 / 72 for k in ('x0', 'top', 'x1', 'bottom')]
+        if not (left <= x0 <= x1 <= right and top <= y0 <= y1 <= bottom):
+            continue
+        candidates = {key[:4] for key, glyphs in grouped.items()
+                      if key[:2] == (staff_index, index)
+                      and any(x0 <= g['render_origin_mm'][0] <= x1 for g in glyphs)}
+        # A dynamic applies to the staff at this onset. Simultaneous voices
+        # use the first local voice as its serialization anchor.
+        events = {(key[1], key[3]) for key in candidates}
+        if not candidates or len(events) != 1:
+            raise ValueError('printed_dynamic_without_visible_onset')
+        owner = min(candidates)
+        effects.setdefault(owner, []).append(f"dyn:{DYNAMIC_SYMBOLS[ord(char['text'])]}")
+        boxes.append([char[k] for k in ('x0', 'top', 'x1', 'bottom')])
+    return effects, boxes
+
+
+def native_connection_evidence(page, layout, grouped, staff_index, system, index, crop_mm):
+    """Read note connections from actual draw paths and local PDF lettering.
+
+    Native owner pointers locate notes; class names and hidden fret strings do
+    not supply visual technique labels. Hidden anchors contain no fret value.
+    """
+    import re
+
+    drawing = page._text_page()
+    factor = 72 / 25.4
+    left, top, right, bottom = [v * factor for v in crop_mm]
+    measures = {box['measure_index'] for box in system['measure_boxes']}
+    geometry = layout.get('relation_geometry', {})
+    relations, effects, hidden, curves, lines, labels = [], {}, {}, set(), set(), []
+
+    def owner_key(owner):
+        if owner is None or owner.get('staff_index') != staff_index or owner.get('note_index') is None:
+            return None
+        return tuple(owner[field] for field in ('staff_index', 'measure_index', 'voice_index', 'event_index', 'note_index'))
+
+    def intersects(box):
+        return box[0] < right and box[2] > left and box[1] < bottom and box[3] > top
+
+    def bbox_of(points):
+        return [min(p[0] for p in points), min(p[1] for p in points),
+                max(p[0] for p in points), max(p[1] for p in points)]
+
+    def matching_points(a, b):
+        # Both exports serialize the same painter coordinates. This tolerance
+        # covers numerical serialization, less than 0.001 pixel at training DPI.
+        return len(a) == len(b) and all(abs(x - y) < 1e-4 for p, q in zip(a, b) for x, y in zip(p, q))
+
+    drawn = []
+    for raw in geometry.get('relations', []) if geometry.get('status') == 'complete' else []:
+        if raw.get('page') != system['page'] or raw.get('system_index') != system['system_index']:
+            continue
+        points = [[x * factor, y * factor] for x, y in raw.get('points_mm', [])]
+        if len(points) not in (2, 4):
+            continue
+        matched = []
+        if len(points) == 4:
+            for ci, curve in enumerate(drawing.curves):
+                path = curve.get('path', [])
+                if len(path) >= 2 and path[0][0] == 'm' and path[1][0] == 'c':
+                    actual = [path[0][1], *path[1][1:]]
+                    if matching_points(points, actual) or matching_points(points, list(reversed(actual))):
+                        matched.append(ci)
+        else:
+            for li, line in enumerate(drawing.lines):
+                actual = line.get('pts', [])
+                if matching_points(points, actual) or matching_points(points, list(reversed(actual))):
+                    matched.append(li)
+        if len(matched) != 1:
+            continue
+        start, end = owner_key(raw.get('start_owner')), owner_key(raw.get('end_owner'))
+        if len(points) == 2 and start is None and end is None:
+            start, end = native_slide_owners(raw['points_mm'], grouped, staff_index, system)
+        record = dict(raw=raw, points=points, box=bbox_of(points), start=start, end=end,
+                      shape='curve' if len(points) == 4 else 'diagonal', primitive=matched[0])
+        drawn.append(record)
+        for owner in (raw.get('start_owner'), raw.get('end_owner')):
+            key = owner_key(owner)
+            if (key is not None and key not in grouped and owner.get('visibility_code') == 1
+                    and owner.get('render_origin_mm') and owner.get('layout_bbox_mm')
+                    and owner.get('page') == system['page']):
+                hidden[key] = {**{field: value for field, value in owner.items() if field != 'fret_text'},
+                               'kind': 'hidden_fret', 'text': '',
+                               'bbox_mm': list(owner['layout_bbox_mm'])}
+
+    local_glyphs = {key: glyphs[0] for key, glyphs in grouped.items() if len(glyphs) == 1}
+    local_glyphs.update(hidden)
+    system_x = [glyph['render_origin_mm'][0] * factor for key, glyph in local_glyphs.items()
+                if key[0] == staff_index and key[1] in measures and glyph.get('render_origin_mm')]
+
+    def visible_text(key):
+        glyph = local_glyphs.get(key)
+        if glyph is None or glyph.get('kind') == 'hidden_fret':
+            return None
+        x, y, w, h = glyph['bbox_mm']
+        if not (crop_mm[0] <= x and x + w <= crop_mm[2] and crop_mm[1] <= y and y + h <= crop_mm[3]):
+            return None
+        return glyph.get('text', '').strip()
+
+    def numeric(text):
+        match = re.fullmatch(r'\(?([0-9]+)\)?', text or '')
+        return int(match[1]) if match else None
+
+    # A diagonal and a curved arc with the same visible note owners form one
+    # legato slide. Keep the accompanying ink, rather than two duplicate marks.
+    merged, used = [], set()
+    for di, item in enumerate(drawn):
+        if di in used:
+            continue
+        members = [item]
+        if item['start'] is not None or item['end'] is not None:
+            companions = [(oi, other) for oi, other in enumerate(drawn) if oi != di and oi not in used
+                          and other['shape'] != item['shape']
+                          and (other['start'], other['end']) == (item['start'], item['end'])]
+            if len(companions) == 1:
+                oi, other = companions[0]
+                members.append(other)
+                used.add(oi)
+        used.add(di)
+        merged.append(members)
+    sy = system['bbox_mm'][1] * factor
+    sb = (system['bbox_mm'][1] + system['bbox_mm'][3]) * factor
+    word_owners = {}
+    for word in page.words():
+        if word[4] not in ('H', 'P', 'sl.', 'sl') or not sy <= word[1] <= word[3] <= sb:
+            continue
+        center = (word[0] + word[2]) / 2
+        matches = [gi for gi, members in enumerate(merged)
+                   if any(min([item['box'][0], *(local_glyphs[key]['render_origin_mm'][0] * factor
+                              for key in (item['start'], item['end']) if key in local_glyphs)]) <= center
+                          <= max([item['box'][2], *(local_glyphs[key]['render_origin_mm'][0] * factor
+                                  for key in (item['start'], item['end']) if key in local_glyphs)])
+                          for item in members)]
+        if len(matches) == 1:
+            word_owners.setdefault(matches[0], []).append(word)
+
+    for gi, members in enumerate(merged):
+        visible = [item for item in members if intersects(item['box'])]
+        if not visible:
+            continue
+        main = next((item for item in members if item['shape'] == 'diagonal'), members[0])
+        start, end = main['start'], main['end']
+        for item in visible:
+            (curves if item['shape'] == 'curve' else lines).add(item['primitive'])
+        words = word_owners.get(gi, [])
+        printed = [word[4] for word in words if left <= word[0] and word[2] <= right
+                   and top <= word[1] and word[3] <= bottom]
+        labels.extend(list(word[:4]) for word in words if intersects(word[:4]))
+        has_line = any(item['shape'] == 'diagonal' for item in visible)
+        has_curve = any(item['shape'] == 'curve' for item in visible)
+        kind = None
+        if has_line:
+            kind = 'sl' if has_curve else None if any(item['shape'] == 'curve' for item in members) else 'ss'
+        elif any(text in ('H', 'P') for text in printed):
+            kind = 'hammer'
+        elif 'sl.' in printed or 'sl' in printed:
+            kind = 'sl'
+        elif end is not None and end[1] == index:
+            a, b = visible_text(start), visible_text(end)
+            if (local_glyphs.get(end, {}).get('kind') == 'hidden_fret' or (b and b.startswith('(') and b.endswith(')'))
+                    or (a is not None and numeric(a) is not None and numeric(a) == numeric(b)
+                        and local_glyphs[start].get('native_string_index') == local_glyphs[end].get('native_string_index'))):
+                kind = 'tie'
+        local_start = start is not None and start[1] == index
+        local_end = end is not None and end[1] == index
+        if kind in ('hammer', 'sl', 'ss') and local_start and local_end:
+            effects.setdefault(start, set()).add(kind)
+            continue
+        # At a system edge the painter can expose only one owner. Its open
+        # segment is still visible even when it starts after the clef margin.
+        minimum_x = min(item['box'][0] for item in visible)
+        maximum_x = max(item['box'][2] for item in visible)
+        enters = minimum_x < left or (index == min(measures) and system_x and minimum_x < min(system_x))
+        leaves = maximum_x > right or (index == max(measures) and system_x and maximum_x > max(system_x))
+        relation = {'kind': kind,
+                    'start': list(start[2:]) if local_start else 'left'
+                             if start is not None and start[1] < index or start is None and enters else None,
+                    'end': list(end[2:]) if local_end else 'right'
+                           if end is not None and end[1] > index or end is None and leaves else None,
+                    'shape': 'curve' if has_curve else 'diagonal'}
+        if start is None and end is None:
+            # Unavailable ownership does not itself imply a crop crossing.
+            # A fully visible unattached slur keeps unknown local endpoints.
+            relation['start'] = 'left' if any(item['box'][0] < left for item in visible) else None
+            relation['end'] = 'right' if any(item['box'][2] > right for item in visible) else None
+        if not local_start and not local_end:
+            voices = {key[2] for key in local_glyphs if key[:2] == (staff_index, index)
+                      and visible_text(key) is not None}
+            if len(voices) == 1:
+                relation['voice'] = next(iter(voices))
+        relations.append(relation)
+    single_effects, single_lines, unknown_diagonals = native_single_slides(
+        page, grouped, staff_index, system, index, crop_mm, lines)
+    for owner, visible_effects in single_effects.items():
+        effects.setdefault(owner, set()).update(visible_effects)
+    lines.update(single_lines)
+    relations.extend(unknown_diagonals)
+    return relations, effects, hidden, curves, lines, labels
+
+
+def native_chord_evidence(pdf_page, grouped, staff, measure, page, crop):
+    """Read printed chord names and bind their centres to native beat origins.
+
+    Source chord flags identify possible owners, never the answer's spelling.
+    Page-header dictionaries have no beat anchor and stay outside this task.
+    A partly cropped name is accounted for as print, but is not guessed.
+    """
+    from urllib.parse import quote
+    from research.data.native_alignment import chord_words
+
+    left, top, right, bottom = crop
+    index = measure['measure_index']
+    candidates = []
+    for other in staff['measures']:
+        for voice in other['voices']:
+            for event in voice['events']:
+                if not event.get('chord_present') or event['placeholder']:
+                    continue
+                owner = (staff['staff_index'], other['measure_index'], voice['voice_index'], event['event_index'])
+                anchors = [g for key, glyphs in grouped.items() if key[:4] == owner
+                           for g in glyphs if g['page'] == page]
+                if anchors:
+                    candidates.append((owner, sum(g['render_origin_mm'][0] for g in anchors) / len(anchors),
+                                       min(g['bbox_mm'][1] for g in anchors)))
+    effects, labels, evidence, diagram_labels, assigned = {}, [], [], [], set()
+    for word in chord_words(pdf_page):
+        x0, y0, x1, y1 = [v * 25.4 / 72 for v in word[:4]]
+        if not (y0 < bottom and y1 > top):
+            continue
+        inside = x0 < right and x1 > left
+        owners = [(owner, origin, note_y) for owner, origin, note_y in candidates
+                  if abs(origin - (x0 + x1) / 2) <= .75 and note_y > y1]
+        # Repeated x coordinates on later systems are not competing owners.
+        if owners:
+            nearest_y = min(v[2] for v in owners)
+            owners = [v for v in owners if v[2] == nearest_y]
+        if len(owners) != 1:
+            if inside:
+                raise ValueError('printed_chord_without_unique_native_beat')
+            continue
+        owner, origin, _ = owners[0]
+        diagram_labels.append(list(word[:4]))
+        if not inside:
+            continue
+        labels.append(list(word[:4]))
+        # A neighbour's full name may overlap this rectangular crop. It stays
+        # context; its event belongs to the neighbour's own observation.
+        if owner[1] != index:
+            continue
+        if owner in assigned:
+            raise ValueError('multiple_printed_chords_for_native_beat')
+        assigned.add(owner)
+        complete = left <= x0 and x1 <= right and top <= y0 and y1 <= bottom
+        if complete:
+            effects[owner] = ['chord:' + quote(word[4], safe='')]
+        evidence.append({'voice': owner[2], 'event': owner[3],
+                         'name': word[4] if complete else None,
+                         'bbox_mm': [x0, y0, x1 - x0, y1 - y0],
+                         'beat_origin_mm': origin, 'complete': complete})
+    return effects, labels, evidence, diagram_labels
+
+
+def native_barre_path(curve):
+    """A painted rounded horizontal bar has a vertical edge at both ends.
+
+    GP ties can also be filled paths, but taper to a single point at their
+    endpoints; fill/stroke flags alone cannot distinguish them from barres.
+    """
+    points = curve.get('pts', [])
+    if (not curve.get('fill') or curve.get('stroke') or not points
+            or not 0 < curve['bottom'] - curve['top'] < curve['x1'] - curve['x0']):
+        return False
+    return all(len({round(y, 6) for x, y in points if abs(x - edge) < 1e-5}) >= 2
+               for edge in (curve['x0'], curve['x1']))
+
+
+def native_tab_observations(layout, score, document, dpi=180):
+    """Compile drawn TAB notes, rhythm and connections, retaining visible unknowns.
+
+    Numeric frets come only from FretView draw text. The rendered native score
+    supplies the owning event and its rhythm, never an invisible fret or effect.
+    A missing glyph needs an actually hidden FretView attached to a drawn
+    connector; note_geometry.complete alone does not prove invisibility.
+    """
+    from fractions import Fraction
+    import math
+    from gpbridge.score_native_note_geometry import group_glyphs_by_owner
+    from scorelib.score import _duration_token, duration_ticks
+
+    if not layout.get('tab_only') or layout.get('display_mode', 'tab') != 'tab':
+        raise ValueError('native_observation_requires_tab_only')
+    if not layout.get('pdf_ok') or not score.get('pdf_ok'):
+        raise ValueError('native_pdf_export_incomplete')
+    if len(score['tracks']) != 1 or len(score['tracks'][0]['staves']) != 1:
+        raise ValueError('native_observation_requires_one_staff')
+    grouped = group_glyphs_by_owner(score, layout, require_complete=True)
+    track = score['tracks'][0]
+    staff = track['staves'][0]
+    strings = staff['string_count']
+    if not 4 <= strings <= 8:
+        raise ValueError('unsupported_tab_string_count')
+    systems = {box['measure_index']: system for system in layout['systems']
+               for box in system['measure_boxes']}
+    masters = {m['master_measure_index']: m for m in score['document']['master_measures']}
+    note_marks = ('bend', 'harmonic', 'trill_present', 'vibrato_present',
+        'accent_flags', 'anti_accent', 'tapped', 'left_hand_tapped', 'pizzicato',
+        'show_string_number', 'sustain_pedal', 'ornament_present', 'left_fingering_code',
+        'right_fingering_code')
+    event_marks = ('grace', 'ottavia_present', 'barre_present', 'fade_present', 'hairpin_present',
+        'golpe_present', 'wah_present', 'slashed', 'timer_present', 'free_text_present',
+        'lyrics',
+        'is_brushed', 'has_arpeggio', 'pick_stroke_present', 'slapped', 'popped',
+        'rasgueado_present', 'tremolo', 'whammy', 'whammy_extend', 'tremolo_bar_vibrato_present',
+        'dead_slapped', 'sustain_pedal')
+    page_objects, page_spans, result = {}, {}, {}
+    for measure in staff['measures']:
+        index = measure['measure_index']
+        try:
+            if track.get('let_ring_throughout'):
+                raise ValueError('untraced_track_let_ring')
+            if measure.get('simile_present') or measure.get('ottavia_present'):
+                raise ValueError('untraced_measure_mark')
+            master = masters[measure['master_measure_index']]
+            if master.get('fermata_present') or master.get('section_present'):
+                raise ValueError('untraced_master_mark')
+            system = systems[index]
+            box = next(b['bbox_mm'] for b in system['measure_boxes'] if b['measure_index'] == index)
+            x, y, w, h = box
+            page = system['page']
+            pdf_page = document[page - 1]
+            if page not in page_objects:
+                page_objects[page] = pdf_page._text_page()
+                page_spans[page] = pdf_spans(pdf_page)
+            drawing = page_objects[page]
+            factor = dpi / 25.4
+            crop = [max(0, round(x * factor)), max(0, round((y - 4) * factor)),
+                    min(math.ceil(pdf_page.width * dpi / 72), round((x + w) * factor)),
+                    min(math.ceil(pdf_page.height * dpi / 72), round((y + h + 4) * factor))]
+            for indication in layout.get('tempo_indications', []):
+                tx, ty, tw, th = indication['bbox_mm']
+                if (indication['page'] == page and indication['master_measure_index'] == index
+                        and x <= tx and tx + tw <= x + w):
+                    crop[1] = min(crop[1], math.floor(ty * factor))
+            for neighbour in layout['systems']:
+                if neighbour['page'] != page or neighbour['system_index'] == system['system_index']:
+                    continue
+                _, ny, _, nh = neighbour['bbox_mm']
+                if ny + nh <= y:
+                    crop[1] = max(crop[1], round((ny + nh + y) / 2 * factor))
+                elif ny >= y + h:
+                    crop[3] = min(crop[3], round((y + h + ny) / 2 * factor))
+            # Padding is not score content. Stop it before unrelated text
+            # below the native system, including a page counter/footer.
+            system_bottom = (system['bbox_mm'][1] + system['bbox_mm'][3]) * 72 / 25.4
+            external_text = [char['top'] for char in drawing.chars
+                             if char['top'] >= system_bottom
+                             and char['x0'] < (x + w) * 72 / 25.4 and char['x1'] > x * 72 / 25.4]
+            if external_text:
+                crop[3] = min(crop[3], math.floor(min(external_text) * dpi / 72))
+            left, top, right, bottom = [v / factor for v in crop]
+            for glyphs in grouped.values():
+                for glyph in glyphs:
+                    if (glyph['page'] != page or glyph['measure_index'] == index
+                            or glyph['kind'] == 'hidden_fret'):
+                        continue
+                    gx, gy, gw, gh = glyph['bbox_mm']
+                    if gx < right and gx + gw > left and gy < bottom and gy + gh > top:
+                        raise ValueError('crop_contains_foreign_measure_glyph')
+            connections, note_effects, hidden, connection_curves, connection_lines, connection_labels = (
+                native_connection_evidence(pdf_page, layout, grouped, staff['staff_index'], system,
+                                           index, (left, top, right, bottom)))
+            for owner, anchor in hidden.items():
+                grouped.setdefault(owner, [anchor])
+            relations, scope_effects, scope_labels, scope_lines = native_scope_evidence(
+                pdf_page, page_spans[page], grouped, staff['staff_index'], system, index,
+                (left, top, right, bottom), strings)
+            tuplet_counts, tuplet_curves, tuplet_labels = native_tuplet_evidence(
+                pdf_page, grouped, staff['staff_index'], system, index, (left, top, right, bottom))
+            dynamic_effects, dynamic_labels = native_dynamic_evidence(
+                drawing, grouped, staff['staff_index'], index, (left, top, right, bottom))
+            chord_effects, chord_labels, chord_evidence, diagram_labels = native_chord_evidence(
+                pdf_page, grouped, staff, measure, page, (left, top, right, bottom))
+            note_top = min((g['bbox_mm'][1] for key, glyphs in grouped.items()
+                            if key[:2] == (staff['staff_index'], index)
+                            for g in glyphs if g['kind'] != 'hidden_fret'), default=top)
+            # Only an actual rounded horizontal bar below a traced name and
+            # above the note band belongs to the diagram. Filled ties/slurs
+            # still require their own native connection trace.
+            diagram_curves = {ci for ci, curve in enumerate(drawing.curves)
+                if score['document'].get('diagram_style', {}).get('score_visible')
+                and native_barre_path(curve)
+                and curve['bottom'] * 25.4 / 72 < note_top
+                and any(curve['top'] >= y1 and x0 - 12 <= (curve['x0'] + curve['x1']) / 2 <= x1 + 12
+                        for x0, y0, x1, y1 in diagram_labels)}
+            tempo_labels, tempo_effects = [], {}
+            for indication in layout.get('tempo_indications', []):
+                tx, ty, tw, th = indication['bbox_mm']
+                if (indication['page'] != page or indication['master_measure_index'] != index
+                        or not (left <= tx and tx + tw <= right and top <= ty and ty + th <= bottom)):
+                    continue
+                import re
+                bounds = [v * 72 / 25.4 for v in (tx, ty, tx + tw, ty + th)]
+                printed = pdf_page.text(bounds)
+                match = re.search(r'=\s*(\d+)', printed)
+                if not match or '\ue1d5' not in printed:
+                    raise ValueError('unreadable_native_quarter_tempo')
+                tempo_labels.append(bounds)
+                tempo_effects[round(float(indication['position']) * 3840)] = [f'tempo:{int(match[1])}']
+            def intersects(item):
+                return (item['x1'] * 25.4 / 72 > left and item['x0'] * 25.4 / 72 < right
+                        and item['bottom'] * 25.4 / 72 >= top and item['top'] * 25.4 / 72 <= bottom)
+            # These paths may enter from a neighbouring measure whose source
+            # flags are absent here. Never label their missing relations empty.
+            relations.extend(connections)
+            if any(intersects(c) for ci, c in enumerate(drawing.curves)
+                   if ci not in tuplet_curves | connection_curves | diagram_curves):
+                raise ValueError('untraced_visible_curve')
+            if any(intersects(line) and line.get('dash') and any(line['dash'][0])
+                   and not any(abs(line['x0'] - x0) < 1e-6 and abs(line['x1'] - x1) < 1e-6
+                               and abs(line['top'] - y0) < 1e-6 and abs(line['bottom'] - y1) < 1e-6
+                               for x0, y0, x1, y1 in scope_lines)
+                   for li, line in enumerate(drawing.lines) if li not in connection_lines):
+                raise ValueError('untraced_visible_dashed_line')
+            # Actual PDF glyphs also catch implicit dynamics and textual marks
+            # that are not represented by the note's source-effect switches.
+            chars = [c for c in drawing.chars if intersects(c)]
+            for char in chars:
+                if any(x0 - 1e-6 <= char['x0'] and char['x1'] <= x1 + 1e-6
+                       and y0 - 1e-6 <= char['top'] and char['bottom'] <= y1 + 1e-6
+                       for x0, y0, x1, y1 in scope_labels + tuplet_labels + dynamic_labels + tempo_labels + connection_labels + chord_labels):
+                    continue
+                text = char['text']
+                for letter in text:
+                    code = ord(letter)
+                    if (letter in '0123456789xX× .()' or code in (0xE06D, 0xE06E)
+                            or 0xE080 <= code <= 0xE089 or 0xE4E2 <= code <= 0xE4EC
+                            or 0xE1D0 <= code <= 0xE1E9 or 0xE240 <= code <= 0xE24F):
+                        continue
+                    # Standard SMuFL fretboard marks and fingering digits are
+                    # diagram content, never TAB notes. Accept them only above
+                    # the actual note/rest band alongside a traced chord name.
+                    if (chord_evidence and char['top'] * 25.4 / 72 < note_top
+                            and (0xE858 <= code <= 0xE85A or 0xED10 <= code <= 0xED15)):
+                        continue
+                    raise ValueError(f'untraced_printed_glyph_U+{code:04X}')
+            state = {'time': {'status': 'absent'}, 'key': {'status': 'absent'},
+                     'clef': {'status': 'absent'}}
+            if any(any(ord(c) in (0xE06D, 0xE06E) for c in char['text']) for char in chars):
+                state['clef'] = {'status': 'observed', 'value': 'tab'}
+            for signature in system['time_signatures']:
+                if signature['measure_index'] == index and signature['staff_index'] == staff['staff_index']:
+                    state['time'] = {'status': 'observed', 'value': f"{signature['numerator']}/{signature['denominator']}"}
+            for signature in system['key_signatures']:
+                if signature['measure_index'] == index:
+                    raise ValueError('unsupported_printed_tab_key')
+            voices, reference_voices, event_indices, note_indices = [], [], {}, {}
+            event_origins = {}
+            for voice in measure['voices']:
+                events, reference_events = [], []
+                next_start = 0
+                for event in voice['events']:
+                    if event['placeholder']:
+                        continue
+                    marked = next((key for key in event_marks if event.get(key)), None)
+                    if marked:
+                        raise ValueError('untraced_event_' + marked)
+                    owner = (staff['staff_index'], index, voice['voice_index'], event['event_index'])
+                    rhythm = event['rhythm']
+                    code, dots = rhythm['note_value_code'], rhythm['augmentation_dots']
+                    if not 2 <= code <= 8 or dots not in (0, 1, 2) or rhythm['tuplets']['secondary']:
+                        raise ValueError('unsupported_native_rhythm')
+                    enters, times = rhythm['tuplets']['primary'] or (1, 1)
+                    # A lone printed count encodes the conventional group
+                    # (3 in 2, 5/6/7 in 4, etc.), not an arbitrary source ratio.
+                    conventional = enters > 2 and enters & (enters - 1) != 0 and times == 1 << (enters.bit_length() - 1)
+                    rhythm_visible = enters == times or (conventional and tuplet_counts.get(owner) == enters)
+                    duration = dict(value=1 << (code - 2), dotted=dots == 1,
+                                    double_dotted=dots == 2, tuplet_enters=enters, tuplet_times=times)
+                    onset = Fraction(*event['offset']) * 960
+                    if onset.denominator != 1:
+                        raise ValueError('non_integral_native_onset')
+                    start = int(onset) if int(onset) == next_start else None
+                    notes, reference_notes, native_note_indices = [], [], []
+                    if event['rest']:
+                        glyphs = grouped.get((*owner, None), [])
+                        if len(glyphs) != 1 or glyphs[0]['kind'] != 'rest':
+                            raise ValueError('rest_without_unique_visible_glyph')
+                    else:
+                        for note in event['notes']:
+                            # A clipped label or ambiguous voice remains unknown.
+                            # Source switches are reference semantics, never a
+                            # requirement to invent missing visual scope labels.
+                            marked = next((key for key in note_marks if note.get(key)), None)
+                            if marked:
+                                raise ValueError('untraced_note_' + marked)
+                            glyphs = grouped.get((*owner, note['note_index']), [])
+                            if len(glyphs) != 1 or glyphs[0]['kind'] not in ('fret', 'hidden_fret'):
+                                raise ValueError('note_without_unique_visible_glyph')
+                            glyph = glyphs[0]
+                            text = glyph['text'].strip().removeprefix('(').removesuffix(')')
+                            if glyph['kind'] != 'hidden_fret' and not (
+                                    text.isascii() and text.isdigit() or text.lower() in ('x', '×')):
+                                raise ValueError('unsupported_visible_fret_text')
+                            notes.append({'string': strings - glyph['native_string_index'],
+                                          'fret': None if glyph['kind'] == 'hidden_fret'
+                                          else int(text) if text.isdigit() else 'x'})
+                            if effects := note_effects.get((*owner, note['note_index'])):
+                                notes[-1]['effects'] = sorted(effects)
+                            native_note_indices.append(note['note_index'])
+                            effects = [name for field, name in (
+                                ('dead', 'dead'), ('tie_destination', 'tie'),
+                                ('hopo_origin', 'hammer'), ('palm_muted', 'pm'), ('let_ring', 'let'))
+                                if note.get(field)]
+                            effects += [name for field, name in (
+                                ('in_above', 'sia'), ('in_below', 'sib'), ('legato', 'sl'),
+                                ('shift', 'ss'), ('out_down', 'sod'), ('out_up', 'sou'))
+                                if note.get('slides', {}).get(field)]
+                            reference_notes.append({'string': strings - note['native_string_index'],
+                                'fret': note['fret'], 'effects': effects})
+                        if not notes:
+                            raise ValueError('normal_event_without_visible_notes')
+                        glyph = max((g for key, gs in grouped.items() if key[:4] == owner
+                                     for g in gs), key=lambda g: g['bbox_mm'][1])
+                        gx, gy, gw, gh = glyph['bbox_mm']
+                        origin_x = glyph['render_origin_mm'][0]
+                        # Match actual PDF stems to the native drawing origin;
+                        # the tolerance only covers PDF coordinate rounding.
+                        if code > 2 and not any(abs(line['x0'] - line['x1']) < 1e-6
+                            and abs(line['x0'] * 25.4 / 72 - origin_x) < 1e-4
+                            and (gy + gh < line['bottom'] * 25.4 / 72 <= bottom
+                                 or top <= line['top'] * 25.4 / 72 < gy)
+                            and top <= line['top'] * 25.4 / 72
+                            for line in drawing.lines):
+                            rhythm_visible = False
+                    # Every used glyph must actually lie inside this measure's
+                    # unpadded horizontal crop and its printed vertical band.
+                    for glyph in (g for key, gs in grouped.items() if key[:4] == owner for g in gs):
+                        if glyph['kind'] == 'hidden_fret':
+                            continue
+                        gx, gy, gw, gh = glyph['bbox_mm']
+                        if glyph['page'] != page or gx < left or gx + gw > right or gy < top or gy + gh > bottom:
+                            raise ValueError('visible_glyph_clipped_by_crop')
+                    order = sorted(range(len(notes)), key=lambda ni: notes[ni]['string'])
+                    notes = [notes[ni] for ni in order]
+                    reference_notes = [reference_notes[ni] for ni in order]
+                    for ni, previous in enumerate(order):
+                        note_indices[voice['voice_index'], event['event_index'], native_note_indices[previous]] = ni
+                    status = 'rest' if event['rest'] else 'normal'
+                    event_indices[voice['voice_index'], event['event_index']] = len(events)
+                    anchors = [g['render_origin_mm'][0] for key, gs in grouped.items()
+                               if key[:4] == owner for g in gs]
+                    if anchors:
+                        event_origins[voice['voice_index'], len(events)] = sum(anchors) / len(anchors)
+                    observed_event = dict(start=start, duration=_duration_token(duration) if rhythm_visible else None,
+                                          status=status, notes=notes)
+                    printed_effects = list(dynamic_effects.get(owner, []))
+                    printed_effects += chord_effects.get(owner, [])
+                    if voice['voice_index'] == min(v['voice_index'] for v in measure['voices']):
+                        printed_effects += tempo_effects.get(int(onset), [])
+                    if printed_effects:
+                        observed_event['effects'] = printed_effects
+                    events.append(observed_event)
+                    next_start = start + duration_ticks(duration) if start is not None and rhythm_visible else None
+                    reference_events.append(dict(start=int(onset), duration=duration, status=status,
+                        notes=reference_notes, effects=printed_effects))
+                if events:
+                    voices.append({'voice': voice['voice_index'], 'events': events})
+                    reference_voices.append({'voice': voice['voice_index'], 'events': reference_events})
+            if not voices:
+                raise ValueError('measure_without_visible_events')
+            # Coincident stems in another visible voice can establish an onset
+            # even after this voice's unreadable rhythmic subdivision.
+            for voice in voices:
+                for ei, event in enumerate(voice['events']):
+                    if event['start'] is not None:
+                        continue
+                    origin = event_origins.get((voice['voice'], ei))
+                    matches = {other['start'] for v in voices for j, other in enumerate(v['events'])
+                               if other['start'] is not None and origin is not None
+                               and abs(event_origins.get((v['voice'], j), float('inf')) - origin) < 1e-4}
+                    if len(matches) == 1:
+                        event['start'] = matches.pop()
+            for relation in relations:
+                for endpoint in ('start', 'end'):
+                    if isinstance(relation[endpoint], list):
+                        vi, ei, *ni = relation[endpoint]
+                        relation[endpoint] = [vi, event_indices[vi, ei]]
+                        if ni:
+                            relation[endpoint].append(note_indices[vi, ei, ni[0]])
+            reference = parse_measure_target('M | V0{@0:w:r}')
+            reference.update(voices=reference_voices, time_signature=state['time'].get('value'))
+            time = master['time_signature']
+            result[index] = {'observation': {'state': state, 'voices': voices, 'relations': relations},
+                'bbox': crop,
+                'visible_chords': chord_evidence,
+                'visible_diagram_marks': sum(0xE858 <= ord(letter) <= 0xE85A
+                    for char in chars for letter in char['text']),
+                'reference_target': format_measure_target(reference, 'tab'),
+                'oracle_auxiliary': {'state': {'time': {'status': 'observed', 'value': f"{time['numerator']}/{time['denominator']}"},
+                    'tuning': {'status': 'observed', 'value': list(reversed(staff['tuning_pitches_low_to_high']))}},
+                    'voice_map': {str(v['voice']): v['voice'] for v in voices}}}
+        except (ValueError, KeyError) as error:
+            result[index] = {'error': str(error)}
+    return result

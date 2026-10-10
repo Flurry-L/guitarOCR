@@ -125,6 +125,9 @@ pub fn edit(
     if let Some(mut source) = recognized {
         *annotation_mut(&mut source, part_id, index).map_err(|e| (400, e))? = edited;
         source["info"] = json!(info_path);
+        // Rebuild automatic beat attachments from the updated in-memory
+        // annotation. Reassembly preserves explicitly edited musical rows.
+        crate::recognition::reassemble(&mut source).map_err(|e| (400, e))?;
         state["recognition"] =
             json!(write_recognition(output.path(), source).map_err(|e| (400, e))?);
     }

@@ -304,6 +304,12 @@ def train(args):
     validation = CandidateDataset(args.validation, 'validation')
     if train_data.families & validation.families:
         raise ValueError('Training and validation must use different source families')
+    # A fine-tuned detector proposes mostly correct boxes. Keep its genuine
+    # mistakes represented so the quality head does not learn to accept all.
+    negatives = [row for row in train_data.rows if row[3] == 0]
+    repeats = max(0, math.ceil((len(train_data) - len(negatives)) / (9 * len(negatives))) - 1) if negatives else 0
+    train_data.rows.extend(negatives * repeats)
+    print({'training_candidates': len(train_data), 'negative_repetitions': repeats}, flush=True)
     model = make_model().to(args.device)
     if args.initial:
         model.load_state_dict(torch.load(args.initial, map_location='cpu', weights_only=True)['state_dict'])

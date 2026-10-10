@@ -5,6 +5,8 @@ from copy import deepcopy
 import json
 from pathlib import Path
 import random
+import shutil
+import subprocess
 from urllib.parse import quote
 
 import guitarpro as gp
@@ -216,6 +218,158 @@ def create_technique_score(index, seed, bars):
     return song, instrument, program, shift, f'Capo {capo}' if capo else None
 
 
+def create_native_coverage_score(index, seed, bars):
+    """Controlled GP sources for checking visible relations, rhythm and scopes.
+
+    Every source contains every case. Different sources vary pitches, strings,
+    tempo and spacing; their families are split before any native rendering.
+    These cases describe source intent, never substitute for visible labels.
+    """
+    if bars < 32:
+        raise ValueError('native-coverage requires at least 32 bars')
+    rng = random.Random(seed + index)
+    song = m.Song(title=f'Visible notation study {index + 1}',
+                  artist='Reading studies', tempo=rng.randrange(70, 151))
+    song.measureHeaders = []
+    track = m.Track(song, name='Guitar', measures=[])
+    song.tracks = [track]
+    track.channel.instrument = 24
+    track.strings = [m.GuitarString(i + 1, pitch)
+                     for i, pitch in enumerate([64, 59, 55, 50, 45, 40])]
+    track.settings.showRhythm = True
+    track.settings.diagramList = False
+    cases = []
+    primary_string = rng.choice([2, 3, 4])
+    fret = rng.randrange(3, 10)
+
+    def fill(bar, durations=None, voice_index=0, string=None):
+        measure = track.measures[bar]
+        voice = measure.voices[voice_index]
+        voice.beats.clear()
+        cursor = measure.header.start
+        for duration in durations or [m.Duration(8) for _ in range(8)]:
+            beat = m.Beat(voice, start=cursor, duration=deepcopy(duration),
+                          status=m.BeatStatus.normal)
+            voice.beats.append(beat)
+            beat.notes.append(m.Note(beat, string=string or primary_string,
+                                     value=rng.randrange(2, 14)))
+            cursor += duration.time
+        if cursor != measure.header.start + measure.header.length:
+            raise ValueError(f'Incomplete coverage measure {bar}')
+        return voice.beats
+
+    def beat(bar, event, voice=0):
+        return track.measures[bar].voices[voice].beats[event]
+
+    def pair(kind, start, end, *, interval=0, voice=0, chord=False):
+        origin, destination = beat(*start, voice), beat(*end, voice)
+        a, b = origin.notes[0], destination.notes[0]
+        a.string = b.string = primary_string
+        a.value, b.value = fret, fret + interval
+        if kind == 'tie':
+            b.type = m.NoteType.tie
+        elif kind in {'hammer', 'pull'}:
+            a.effect.hammer = True
+        else:
+            a.effect.slides = [m.SlideType.shiftSlideTo if kind == 'ss'
+                               else m.SlideType.legatoSlideTo]
+        if chord:
+            for item, value in [(origin, fret + 2), (destination, fret + 3)]:
+                item.notes.append(m.Note(item, string=primary_string + 1,
+                                         value=value))
+        cases.append({'kind': kind, 'start': list(start), 'end': list(end),
+                      'voice': voice, 'interval': interval,
+                      'partial_chord': chord})
+
+    def scope(kind, start, end, voice=0):
+        for bar in range(start[0], end[0] + 1):
+            events = track.measures[bar].voices[voice].beats
+            left = start[1] if bar == start[0] else 0
+            right = end[1] if bar == end[0] else len(events) - 1
+            for event in events[left:right + 1]:
+                for note in event.notes:
+                    setattr(note.effect, 'palmMute' if kind == 'pm' else 'letRing', True)
+        cases.append({'kind': kind, 'start': list(start), 'end': list(end),
+                      'voice': voice})
+
+    for bar in range(bars):
+        header = m.MeasureHeader(number=bar + 1, start=960 + bar * 3840)
+        header.hasDoubleBar = bar == bars - 1
+        song.measureHeaders.append(header)
+        track.measures.append(m.Measure(track, header))
+        fill(bar)
+    # GP5 stores a break after the measure. Native layout is checked after
+    # importing; an import that ignores a requested break is not called coverage.
+    for bar in [6, 7, 15, 24, 26, 27]:
+        track.measures[bar].lineBreak = m.LineBreak.break_
+    cases.append({'kind': 'negative', 'bars': [0, 29]})
+    pair('tie', (1, 1), (1, 2))
+    pair('tie', (1, 5), (1, 6))
+    pair('tie', (2, 2), (2, 3), chord=True)
+    pair('tie', (2, 7), (3, 0))
+    pair('tie', (3, 7), (4, 0))
+    pair('tie', (5, 7), (6, 0), chord=True)
+    pair('pull', (6, 7), (7, 0), interval=-1)
+    pair('tie', (7, 7), (8, 0))
+    pair('hammer', (9, 0), (9, 1), interval=1)
+    pair('pull', (9, 2), (9, 3), interval=-1)
+    pair('hammer', (9, 5), (9, 6), interval=rng.choice([2, 3, 5]))
+    pair('hammer' if index % 2 == 0 else 'pull', (10, 7), (11, 0),
+         interval=1 if index % 2 == 0 else -1)
+    scope('pm', (11, 2), (11, 5))
+    pair('hammer', (11, 7), (12, 0), interval=1)
+    pair('ss', (12, 1), (12, 2), interval=3)
+    pair('ss', (12, 5), (12, 6), interval=-2)
+    pair('sl', (13, 0), (13, 1), interval=1)
+    pair('sl', (13, 4), (13, 5), interval=-1)
+    for event, slide in zip([0, 2, 4, 6], [m.SlideType.intoFromBelow,
+                            m.SlideType.intoFromAbove, m.SlideType.outDownwards,
+                            m.SlideType.outUpwards]):
+        beat(14, event).notes[0].effect.slides = [slide]
+        cases.append({'kind': slide.name, 'bar': 14, 'event': event, 'voice': 0})
+    pair('ss' if index % 2 == 0 else 'sl', (15, 7), (16, 0), interval=3)
+    rhythm = [m.Duration(8, tuplet=m.Tuplet(3, 2)) for _ in range(3)]
+    rhythm += [m.Duration(4, True), m.Duration(8), m.Duration(4)]
+    fill(17, rhythm)
+    fill(18, rhythm)
+    pair('tie', (18, 0), (18, 1))
+    pair('pull', (18, 3), (18, 4), interval=-1)
+    beat(18, 2).notes.clear()
+    beat(18, 2).status = m.BeatStatus.rest
+    cases.append({'kind': 'triplet_dotted', 'bars': [17, 18]})
+    fill(19, [m.Duration(4) for _ in range(4)])
+    fill(19, [m.Duration(8, tuplet=m.Tuplet(3, 2)) for _ in range(3)]
+         + [m.Duration(4) for _ in range(3)],
+         voice_index=1, string=6)
+    cases.append({'kind': 'multivoice', 'bars': [19, 28, 29]})
+    scope('pm', (20, 3), (20, 3))
+    scope('let', (21, 5), (21, 5))
+    scope('pm', (22, 2), (22, 5))
+    scope('let', (23, 1), (23, 6))
+    pair('ss', (23, 7), (24, 0), interval=3)
+    pair('sl', (20, 7), (21, 0), interval=-1)
+    scope('pm', (24, 4), (27, 2))
+    scope('let', (26, 5), (27, 2))
+    scope('pm', (27, 4), (27, 7))
+    scope('let', (27, 4), (27, 7))
+    fill(28, voice_index=1, string=6)
+    scope('pm', (28, 0), (28, 5))
+    scope('let', (28, 2), (28, 7), voice=1)
+    fill(29, rhythm)
+    fill(29, [m.Duration(4) for _ in range(4)], voice_index=1, string=6)
+    for event in [2, 4]:
+        beat(29, event).notes.clear()
+        beat(29, event).status = m.BeatStatus.rest
+    scope('let', (30, 1), (30, 6))
+    pair('tie', (30, 1), (30, 2))
+    pair('hammer', (30, 4), (30, 5), interval=1)
+    scope('pm', (31, 0), (31, 6))
+    pair('ss', (31, 1), (31, 2), interval=2)
+    pair('sl', (31, 4), (31, 5), interval=-2)
+    song._coverage_cases = cases
+    return song, 'guitar', 24, -12, None
+
+
 SHAPES = [
     ('C', ['x', 3, 2, 0, 1, 0], [None, 3, 2, None, 1, None], []),
     ('G', [3, 2, 0, 0, 0, 3], [2, 1, None, None, None, 3], []),
@@ -290,23 +444,41 @@ def create_chord_score(index, seed, bars):
     return song, 'guitar', 24, -12, None
 
 
-def build(output, sources=1200, bars=24, seed=20260928, profile='general'):
+def build(output, sources=1200, bars=24, seed=20260928, profile='general', format='gp5'):
     output = output.resolve()
     (output / 'sources').mkdir(parents=True, exist_ok=True)
     (output / 'labels').mkdir(exist_ok=True)
-    catalog, manifest = [], []
+    catalog, manifest, native_styles = [], [], []
     for index in range(sources):
         creator = {'general': create_score, 'techniques': create_technique_score,
-                   'chords': create_chord_score}[profile]
-        song, instrument, program, shift, instruction = creator(index, seed, bars)
+                   'chords': create_chord_score,
+                   'native-coverage': create_native_coverage_score}[profile]
+        phrase = index // 3 if profile == 'chords' else index
+        song, instrument, program, shift, instruction = creator(phrase, seed, bars)
+        if profile == 'chords':
+            # Keep identical sounding music across absent/name/grid views.
+            # All three inherit one source family and one dataset split.
+            view = index % 3
+            song.tracks[0].settings.diagramsInScore = view == 2
+            song.tracks[0].settings.diagramList = view != 0 and phrase % 3 == 0
+            if view == 0:
+                for measure in song.tracks[0].measures:
+                    for voice in measure.voices:
+                        for beat in voice.beats:
+                            beat.effect.chord = None
         source_id = f'{seed:08x}{index:08x}'
         # Rotate holdouts so every instrument has independently generated scores.
-        split = ('train', 'train', 'train', 'train', 'train', 'train', 'train', 'train', 'validation', 'test')[(index // 4) % 10]
+        split = ('train', 'train', 'train', 'train', 'train', 'train', 'train', 'train', 'validation', 'test')[(phrase if profile in ('native-coverage', 'chords') else index // 4) % 10]
         path = output / 'sources' / f'{source_id}.gp5'
         gp.write(song, str(path))
+        if format == 'gp':
+            native_styles.append({'source': str(path),
+                'diagrams_in_score': song.tracks[0].settings.diagramsInScore,
+                'diagram_list': song.tracks[0].settings.diagramList})
         label = analyze_source(path, 0)
-        modes = ['notation', 'both', 'tab'] if instrument in {'guitar', 'bass'} else ['notation']
-        family = f'synthetic-{seed}-{index}'
+        modes = (['tab'] if profile == 'native-coverage' else
+                 ['notation', 'both', 'tab'] if instrument in {'guitar', 'bass'} else ['notation'])
+        family = f'synthetic-{seed}-{phrase}'
         label.update(source_id=source_id, family=family, modes=modes)
         (output / 'labels' / f'{source_id}.json').write_text(json.dumps(label, ensure_ascii=False))
         row = {'source_id': source_id, 'source_path': str(path), 'family': family, 'split': split,
@@ -314,12 +486,39 @@ def build(output, sources=1200, bars=24, seed=20260928, profile='general'):
                'expected_native_transpose': shift, 'instruction': instruction}
         if profile == 'techniques' and instruction:
             row.update(instruction_kind='capo', capo=song.tracks[0].offset)
+        if profile == 'native-coverage':
+            row['coverage_cases'] = song._coverage_cases
         catalog.append(row)
         manifest.extend({'document_id': f'{mode}-{source_id}', 'source_family_id': family,
                          'split': 'dev' if split == 'validation' else split, 'instrument_kind': instrument,
                          'source': f'{source_id}.gp5', 'display_mode': mode} for mode in modes)
         if (index + 1) % 100 == 0:
             print('Generated', index + 1, 'scores', flush=True)
+    if format == 'gp':
+        # GP8's legacy GP5 importer does not preserve in-score diagram style.
+        # Save that authored setting in the standard GP format before the
+        # native GP renderer creates pixels and observation evidence.
+        root = Path(__file__).resolve().parents[2]
+        node = shutil.which('node') or str(root / 'tools/node-bin/node')
+        module = (root / 'tools/alphatab/package/dist/alphaTab.core.mjs').as_uri()
+        script = """
+import fs from 'node:fs';
+const at = await import(process.argv[1]);
+const rows = JSON.parse(fs.readFileSync(0, 'utf8'));
+for (const row of rows) {
+    const score = at.importer.ScoreLoader.loadScoreFromBytes(new Uint8Array(fs.readFileSync(row.source)));
+    score.stylesheet.globalDisplayChordDiagramsInScore = row.diagrams_in_score;
+    score.stylesheet.globalDisplayChordDiagramsOnTop = row.diagram_list;
+    fs.writeFileSync(row.source.replace(/\\.gp5$/, '.gp'), new at.exporter.Gp7Exporter().export(score));
+}
+"""
+        subprocess.run([node, '--input-type=module', '-e', script, module],
+                       input=json.dumps(native_styles), text=True, check=True)
+        for row in catalog:
+            original = Path(row['source_path'])
+            row['source_path'] = str(original.with_suffix('.gp'))
+        for row in manifest:
+            row['source'] = str(Path(row['source']).with_suffix('.gp'))
     (output / 'source_catalog.json').write_text(json.dumps({'sources': catalog}, indent=2))
     (output / 'manifest.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in manifest))
     print({'sources': len(catalog), 'documents': len(manifest), 'measures': len(manifest) * bars}, flush=True)
@@ -331,5 +530,7 @@ if __name__ == '__main__':
     parser.add_argument('--sources', type=int, default=1200)
     parser.add_argument('--bars', type=int, default=24)
     parser.add_argument('--seed', type=int, default=20260928)
-    parser.add_argument('--profile', choices=['general', 'techniques', 'chords'], default='general')
+    parser.add_argument('--profile', choices=['general', 'techniques', 'chords', 'native-coverage'], default='general')
+    parser.add_argument('--format', choices=['gp5', 'gp'], default='gp5',
+                        help='Use gp to preserve authored chord-diagram placement in GP8')
     build(**vars(parser.parse_args()))

@@ -1,0 +1,8 @@
+{
+  "version": 2,
+  "min_pixels": 65536,
+  "max_pixels": 589824,
+  "max_upscale": 2.5,
+  "patch_multiple": 28,
+  "page_max_pixels": 2016000
+}

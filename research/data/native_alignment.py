@@ -19,9 +19,27 @@ def chord_words(page):
     """Chord spellings actually painted by GP, including altered extensions."""
     translate = str.maketrans({'\ue260': 'b', '\ue262': '#', '♭': 'b', '♯': '#'})
     pattern = (r'[A-GH][#b]?(?:(?:maj|min|dim|aug|sus|add|omit|no|alt|dom|m|M)'
-               r'|[0-9#b+°øΔ(),/\-])*(?:/[A-GH][#b]?)?')
-    return [(*word[:4], text) for word in page.words()
-            if re.fullmatch(pattern, text := word[4].translate(translate))]
+               r'|[0-9#b+°øΔ(),\-]|/[0-9#b]+)*(?:/[A-GH][#b]?)?')
+    # Music-font line boxes overlap nearby names even when their ink does
+    # not. Separate grid marks before PDF word grouping, retaining the
+    # accidental glyphs that really belong to names such as D/F#.
+    drawing = page._text_page()
+    x, y = drawing.bbox[:2]
+    names = drawing.filter(lambda item: item['object_type'] != 'char'
+                           or not re.search('[\ue858-\ue85a\ued10-\ued2f]', item['text']))
+    result = []
+    for word in names.extract_words(use_text_flow=True, return_chars=True, **page._text_direction()):
+        text = word['text'].translate(translate)
+        matches = list(re.finditer(pattern, text))
+        if ''.join(match[0] for match in matches) != text:
+            continue
+        # Closely spaced diagram names can touch. Their printed root letters
+        # delimit successive chord spellings; keep each one's own characters.
+        for match in matches:
+            chars = word['chars'][match.start():match.end()]
+            result.append((min(c['x0'] for c in chars)-x, min(c['top'] for c in chars)-y,
+                           max(c['x1'] for c in chars)-x, max(c['bottom'] for c in chars)-y, match[0]))
+    return result
 
 
 def align_printed_chords(result, folder):

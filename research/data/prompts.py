@@ -1,6 +1,5 @@
 """Visible-information prompts used to produce OCR training samples."""
 
-import json
 import re
 
 HEADER_PROMPT = (
@@ -85,54 +84,8 @@ def key_fifths(name):
     return fifths + 12 if fifths < -7 else fifths - 12 if fifths > 7 else fifths
 
 
-def state_prompt(mode, instrument, state, pitch_context=None, *, first=False, visual_pitch=False,
-                 include_neighbours=True):
-    from scorelib.pitch_context import prompt_pitch_context
+def observation_prompt(mode):
+    """Use the exact visible-observation prompt shared with product inference."""
+    from scorelib import _native
 
-    if mode == 'tab':
-        # TAB has no printed key signature; its frets must not depend on an
-        # unobservable key copied from the original score file during training.
-        state = {**state, 'key': 0}
-    if visual_pitch and mode != 'tab':
-        state = {k: v for k, v in state.items() if k != 'tuning'}
-    fields = "string, fret" if mode == "tab" else "written MIDI pitch" if mode == "notation" else (
-        "string, fret, written MIDI pitch" if visual_pitch else "string, fret, MIDI pitch")
-    prompt = f"Independent {instrument} {mode} measure recognition. The first image is the target measure. "
-    if include_neighbours:
-        prompt += "The second and third images show the previous and next measures for visual context only. "
-    prompt += (
-        f"Return exactly one M fragment for the FIRST image. Preserve every voice, event start, "
-        f"duration, {fields}, rest, tie and visible technique. "
-    )
-    if include_neighbours:
-        prompt += "Use neighbouring images to resolve cross-bar ties and voice continuity; do not transcribe them. "
-    if first:
-        prompt += "This is the first measure of the score. "
-    prompt += "Effective printed state: " + json.dumps(state, separators=(",", ":")) + ". "
-    if instrument == "drums":
-        prompt += "Pitch fields are General MIDI drum keys. "
-    elif mode == "notation" or (visual_pitch and mode == "both"):
-        prompt += "Return written pitches, before instrument transposition, clef octave and ottava. "
-        if mode == 'both':
-            prompt += "Read pitches from the notation and string/fret from TAB independently. Do not assume a tuning. "
-    if pitch_context and mode != "tab" and instrument != "drums":
-        prompt += "Pitch context: " + json.dumps(prompt_pitch_context(pitch_context), separators=(",", ":")) + ". "
-        prompt += "Preserve ottava:12, ottava:-12, ottava:24 or ottava:-24 on each affected event. "
-    prompt += "Print time/key metadata only at score start or a printed change; use the effective state to read notes."
-    return prompt
-
-
-def attach_neighbours(records):
-    groups = {}
-    for row in records:
-        key = (row.get("source_id", ""), row.get("part_id", "part-1"), row.get("staff_id", "staff-1"))
-        groups.setdefault(key, []).append(row)
-    for rows in groups.values():
-        rows.sort(key=lambda r: int(r.get("bar_index", r.get("measure_index", r.get("measure_number", 1) - 1))))
-        for i, row in enumerate(rows):
-            number = int(row.get("bar_index", row.get("measure_index", row.get("measure_number", 1) - 1)))
-            for field, j in (("previous_image", i - 1), ("next_image", i + 1)):
-                neighbour = rows[j] if 0 <= j < len(rows) else row
-                other = int(neighbour.get("bar_index", neighbour.get("measure_index", neighbour.get("measure_number", 1) - 1)))
-                row[field] = neighbour["image"] if abs(other - number) <= 1 else row["image"]
-    return records
+    return _native.observation_prompt(mode)

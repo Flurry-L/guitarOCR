@@ -57,12 +57,13 @@ class VllmBackend:
             raise RuntimeError(value['error'])
         return value
 
-    def generate_batch(self, messages, max_new_tokens, *, task=None):
+    def generate_batch(self, messages, max_new_tokens, *, task=None, schema=None):
         tasks = batch_tasks(task, len(messages))
         if not messages:
             return []
         self.process.stdin.write(json.dumps({'messages': messages,
-                                            'max_new_tokens': max_new_tokens, 'task': tasks}) + '\n')
+                                            'max_new_tokens': max_new_tokens, 'task': tasks,
+                                            'schema': schema}) + '\n')
         self.process.stdin.flush()
         return [tuple(v) for v in self._receive()['outputs']]
 
@@ -95,6 +96,7 @@ def main():
     from PIL import Image
     from transformers import AutoProcessor
     from vllm import LLM, SamplingParams
+    from vllm.sampling_params import StructuredOutputsParams
 
     from research.common.ocr import (
         batch_tasks,
@@ -158,7 +160,9 @@ def main():
                 if images:
                     value.update(multi_modal_data={'image': images}, multi_modal_uuids={'image': uuids})
                 prompts.append(value)
-            params = SamplingParams(temperature=0, max_tokens=request['max_new_tokens'])
+            schema = request.get('schema')
+            params = SamplingParams(temperature=0, max_tokens=request['max_new_tokens'],
+                                    structured_outputs=StructuredOutputsParams(json=schema) if schema else None)
             tasks = batch_tasks(request.get('task'), len(prompts))
             loras = [adapter_request if adapter is not None and adapter.applies(task) else None for task in tasks]
             outputs = engine.generate(prompts, params, use_tqdm=False,

@@ -164,7 +164,21 @@ function auxiliaryAsset(value) {
 export function validateDeclaredModelAssets(records) {
   const metadata = Object.fromEntries(records.map(({ file, bytes }) => [path.basename(file), JSON.parse(bytes.toString('utf8'))]));
   const catalog = new Set(Object.values(metadata['distribution.json'].files || {}).flat().map(file => file.path));
-  const adapter = metadata['capabilities.json'].information_adapter;
+  const capabilities = metadata['capabilities.json'];
+  if (capabilities.measure_output !== 'observation' || capabilities.measure_images !== 1) {
+    throw new Error('Measure recognition requires single-image observation weights');
+  }
+  const information = capabilities.information_model;
+  if (!information || !Array.isArray(information.adapter_tasks) || !information.adapter_tasks.length ||
+      new Set(information.adapter_tasks).size !== information.adapter_tasks.length ||
+      !information.adapter_tasks.every(task => ['clef', 'staff'].includes(task))) {
+    throw new Error('Information recognition requires its model, projector and staff/clef adapter');
+  }
+  for (const [field, filename] of [['model', 'model-Q8_0.gguf'], ['projector', 'vision-F16.gguf'], ['adapter', 'information-adapter.gguf']]) {
+    if (information[field] !== `../../information/gguf/${filename}` || !catalog.has(`weights/information/gguf/${filename}`)) {
+      throw new Error(`Information model ${field} is missing or has an unsupported path`);
+    }
+  }
   if ((metadata['capabilities.json'].staff_label_model == null) !==
       (metadata['capabilities.json'].instrument_text_model == null)) {
     throw new Error('staff_label_model and instrument_text_model must be declared together');
@@ -182,14 +196,6 @@ export function validateDeclaredModelAssets(records) {
   ]) {
     const declared = metadata['capabilities.json'][field];
     if (declared != null && auxiliaryAsset(declared) !== asset) throw new Error(`Unsupported ${description} model declaration`);
-  }
-  if (adapter != null) {
-    if (adapter.gguf !== '../gguf/information-adapter.gguf' || adapter.peft !== 'information_adapter' ||
-        !Array.isArray(adapter.tasks) || !adapter.tasks.length || new Set(adapter.tasks).size !== adapter.tasks.length ||
-        !adapter.tasks.every(task => ['clef', 'staff'].includes(task))) {
-      throw new Error('Unsupported information adapter contract');
-    }
-    if (!catalog.has('weights/score_ocr/gguf/information-adapter.gguf')) throw new Error('Selected model catalog omits declared information adapter');
   }
   for (const [capability, declaration] of Object.entries(metadata['capabilities.json'])) {
     const asset = auxiliaryAsset(declaration);

@@ -613,6 +613,7 @@ struct DirectExportState {
     std::map<const gp::core::Beat*, NativeEventLocation> beatLocations;
     std::vector<NativeTempoOwner> tempoOwners;
     std::vector<std::string> noteGeometryErrors;
+    std::vector<std::string> relationGeometryErrors;
     int sourceTrackIndex = -1;
     bool restViewsResolved = true;
     bool lyricEventsResolved = true;
@@ -705,6 +706,28 @@ struct NativeNoteGlyph {
     NativeLayoutPoint pageOrigin;
 };
 
+struct NativeRelationEnd {
+    NativeEventLocation location;
+    int noteIndex = -1;
+    int stringIndex = -1;
+    int visibilityCode = -1;
+    std::string text;
+    bool fretView = false;
+    const void* view = nullptr;
+};
+
+struct NativeRelationGeometry {
+    std::string viewKind;
+    int firstSystemMeasure = -1;
+    int page = -1;
+    int systemIndex = -1;
+    NativeRelationEnd startOwner;
+    NativeRelationEnd endOwner;
+    std::vector<NativeLayoutPoint> points;
+    NativeLayoutRect bounds;
+    NativeLayoutRect pageBounds;
+};
+
 struct NativePitchRegion {
     std::string kind;
     int staffIndex = -1;
@@ -736,6 +759,18 @@ static InlineHook g_layoutSystemViewHook = {};
 static InlineHook g_layoutBarViewHook = {};
 static InlineHook g_layoutRestViewHook = {};
 static InlineHook g_layoutFretViewHook = {};
+static InlineHook g_layoutNoteViewRenderHook = {};
+using fn_ViewShared = std::shared_ptr<void>* (__fastcall *)(const void*, std::shared_ptr<void>*);
+using fn_ViewPoint = am::painting::Point* (__fastcall *)(const void*, am::painting::Point*);
+static fn_ViewShared g_slurStartNoteView = nullptr;
+static fn_ViewShared g_slurEndNoteView = nullptr;
+static fn_ViewPoint g_slurStart = nullptr;
+static fn_ViewPoint g_slurEnd = nullptr;
+static fn_ViewPoint g_slurControl1 = nullptr;
+static fn_ViewPoint g_slurControl2 = nullptr;
+static fn_ViewPoint g_slideStart = nullptr;
+static fn_ViewPoint g_slideEnd = nullptr;
+static std::atomic<bool> g_relationGeometryHookReady{false};
 static InlineHook g_layoutBandElementViewHook = {};
 static InlineHook g_layoutTempoIndicationRenderHook = {};
 static InlineHook g_layoutPaintDevicePushMatrixHook = {};
@@ -793,6 +828,9 @@ static thread_local std::vector<NativeKeySignature> g_keySignatures;
 static thread_local std::vector<NativeLayoutMeasureView> g_layoutMeasureViews;
 static thread_local std::vector<NativeRestView> g_restViews;
 static thread_local std::vector<NativeNoteGlyph> g_noteGlyphs;
+static thread_local std::vector<NativeRelationGeometry> g_relationGeometry;
+struct NativeNoteViewLayout { NativeLayoutPoint origin; NativeLayoutRect bounds; };
+static thread_local std::map<const void*, NativeNoteViewLayout> g_noteViewLayouts;
 static thread_local std::vector<NativeEventLocation> g_lyricEvents;
 static thread_local std::vector<NativeTempoViewCapture> g_tempoViewCaptures;
 static thread_local std::vector<NativeTempoIndication> g_tempoIndications;
@@ -1569,6 +1607,94 @@ static void writeNoteGeometry(std::ostream& out) {
     out << "]},\n";
 }
 
+static void relationGeometryError(const std::string& message) {
+    auto* state = g_directExportState;
+    if (!state) return;
+    if (std::find(state->relationGeometryErrors.begin(), state->relationGeometryErrors.end(), message)
+            == state->relationGeometryErrors.end()) {
+        state->relationGeometryErrors.push_back(message);
+        logMsg("[RELATION_GEOMETRY] %s", message.c_str());
+    }
+}
+
+static void writeRelationGeometry(std::ostream& out) {
+    auto& errors = g_directExportState->relationGeometryErrors;
+    std::vector<NativeRelationGeometry> resolved;
+    for (auto capture : g_relationGeometry) {
+        const NativeLayoutSystem* owner = nullptr;
+        for (const auto& system : g_layoutSystems) {
+            if (system.firstMeasureIndex == capture.firstSystemMeasure) owner = &system;
+        }
+        capture.page = uniqueContainingPageForRect(capture.bounds, &capture.pageBounds, false);
+        if (!owner || capture.page != owner->page) {
+            relationGeometryError("rendered relation has no matching system/page");
+            continue;
+        }
+        capture.systemIndex = owner->systemIndex;
+        const double tx = capture.pageBounds.x - capture.bounds.x;
+        const double ty = capture.pageBounds.y - capture.bounds.y;
+        for (auto& point : capture.points) { point.x += tx; point.y += ty; }
+        resolved.push_back(std::move(capture));
+    }
+    out << "  \"relation_geometry\": {\"schema\":\"gpomr.relation-geometry\",\"status\":\""
+        << (errors.empty() ? "complete" : "unresolved") << "\",\"errors\":[";
+    for (size_t i = 0; i < errors.size(); ++i) {
+        if (i) out << ",";
+        out << "\"" << jsonEscape(errors[i]) << "\"";
+    }
+    out << "],\"relations\":[";
+    auto endpoint = [&](const NativeRelationEnd& end) {
+        if (end.noteIndex < 0) { out << "null"; return; }
+        out << "{\"staff_index\":" << end.location.staffIndex
+            << ",\"measure_index\":" << end.location.measureIndex
+            << ",\"voice_index\":" << end.location.voiceIndex
+            << ",\"event_index\":" << end.location.eventIndex
+            << ",\"note_index\":" << end.noteIndex
+            << ",\"native_string_index\":" << end.stringIndex
+            << ",\"visibility_code\":" << end.visibilityCode
+            << ",\"fret_view\":" << (end.fretView ? "true" : "false")
+            << ",\"fret_text\":";
+        if (end.fretView && end.visibilityCode == 0) out << "\"" << jsonEscape(end.text) << "\""; else out << "null";
+        const auto view = g_noteViewLayouts.find(end.view);
+        out << ",\"render_origin_mm\":";
+        if (view == g_noteViewLayouts.end()) out << "null";
+        else {
+            const NativeLayoutSystem* system = nullptr;
+            for (const auto& candidate : g_layoutSystems) {
+                if (candidate.firstMeasureIndex <= end.location.measureIndex
+                        && end.location.measureIndex < candidate.lastMeasureIndex) system = &candidate;
+            }
+            if (!system) out << "null";
+            else {
+                const double tx = system->pageLocal.x - system->abs.x;
+                const double ty = system->pageLocal.y - system->abs.y;
+                out << "[" << view->second.origin.x + tx << "," << view->second.origin.y + ty << "]"
+                    << ",\"page\":" << system->page << ",\"system_index\":" << system->systemIndex;
+                const auto& b = view->second.bounds;
+                out << ",\"layout_bbox_mm\":[" << b.x + tx << "," << b.y + ty << "," << b.w << "," << b.h << "]";
+            }
+        }
+        out << "}";
+    };
+    for (size_t i = 0; i < resolved.size(); ++i) {
+        const auto& capture = resolved[i];
+        if (i) out << ",";
+        out << "{\"view_kind\":\"" << capture.viewKind << "\",\"page\":" << capture.page
+            << ",\"system_index\":" << capture.systemIndex
+            << ",\"bounds_source\":\"native_band_element_view_render\",\"start_owner\":";
+        endpoint(capture.startOwner);
+        out << ",\"end_owner\":"; endpoint(capture.endOwner);
+        out << ",\"points_mm\":[";
+        for (size_t j = 0; j < capture.points.size(); ++j) {
+            if (j) out << ",";
+            out << "[" << capture.points[j].x << "," << capture.points[j].y << "]";
+        }
+        const auto& b = capture.pageBounds;
+        out << "],\"bbox_mm\":[" << b.x << "," << b.y << "," << b.w << "," << b.h << "]}";
+    }
+    out << "]},\n";
+}
+
 static bool writeNativeLayoutDump(const std::string& path,
                                    bool pdfOk,
                                    int sourceTrackIndex) {
@@ -1590,7 +1716,7 @@ static bool writeNativeLayoutDump(const std::string& path,
     out << "  \"source_track_index\": " << sourceTrackIndex << ",\n";
     out << "  \"tab_only\": " << (g_displayMode == "tab" ? "true" : "false") << ",\n";
     out << "  \"display_mode\": \"" << g_displayMode << "\",\n";
-    if (g_displayMode == "tab") writeNoteGeometry(out);
+    if (g_displayMode == "tab") { writeNoteGeometry(out); writeRelationGeometry(out); }
     const auto* stylesheet = g_directExportState
         ? g_directExportState->stylesheet
         : nullptr;
@@ -2257,6 +2383,97 @@ static void captureNoteGlyph(const void* self, void* painter, const am::painting
     } catch (...) { noteGeometryError("native glyph owner or bounds getter failed"); }
 }
 
+// GP's executable instantiates the same exported View classes, so their vtables
+// can belong to GuitarPro.exe rather than GPCore.dll. MSVC RTTI identifies both.
+static const char* viewClassName(const void* self) {
+    const auto table = *reinterpret_cast<const void* const* const*>(self);
+    const auto locator = reinterpret_cast<const unsigned int*>(table[-1]);
+    if (locator[0] != 1) return "";
+    const auto image = reinterpret_cast<uintptr_t>(locator) - locator[5];
+    return reinterpret_cast<const char*>(image + locator[3] + 2 * sizeof(void*));
+}
+
+static bool isViewClass(const void* self, const char* name) {
+    return strcmp(viewClassName(self), name) == 0;
+}
+
+static NativeRelationEnd relationEnd(const void* self, fn_ViewShared getter) {
+    NativeRelationEnd result;
+    std::shared_ptr<void> view;
+    getter(self, &view);
+    if (!view) return result;
+    std::shared_ptr<gp::core::Note> note;
+    g_noteViewNoteModel(view.get(), &note);
+    if (!note) return result;
+    const auto found = g_directExportState->beatLocations.find(g_noteParentBeat(note.get()));
+    if (found == g_directExportState->beatLocations.end()) {
+        relationGeometryError("relation endpoint has no exact selected-track event owner");
+        return result;
+    }
+    result.view = view.get();
+    result.location = found->second;
+    result.noteIndex = static_cast<int>(note->index());
+    result.stringIndex = static_cast<int>(note->string());
+    result.visibilityCode = static_cast<int>(g_viewVisibility(view.get()));
+    result.fretView = isViewClass(view.get(), ".?AVFretView@view@core@gp@@");
+    if (result.fretView) result.text = g_fretViewText(view.get());
+    return result;
+}
+
+static void captureRelationView(void* self, const am::painting::Point* offset) {
+    if (g_layoutDumpActive && g_directExportState && g_directExportState->captureNoteGeometry && self && offset) {
+        try {
+            const bool slide = isViewClass(self, ".?AVSlideView@view@core@gp@@");
+            const bool hopo = isViewClass(self, ".?AVHoPoSlurView@view@core@gp@@");
+            const bool noteSlur = isViewClass(self, ".?AVNoteSlurView@view@core@gp@@") || hopo;
+            const bool slideMark = !slide && static_cast<int>(g_bandElementViewType(self)) == 37;
+            if (slide || slideMark || noteSlur || isViewClass(self, ".?AVBeatSlurView@view@core@gp@@")) {
+                // This callback is reached only after View::render visibility and clip gates.
+                // A concrete BandElement renderer produces the actual curve or line.
+                if (*reinterpret_cast<void**>(static_cast<char*>(self) + 0x140)) {
+                    NativeRelationGeometry capture;
+                    capture.viewKind = slideMark ? "slide_mark" : slide ? "slide" : hopo ? "hopo_slur"
+                        : noteSlur ? "note_slur" : "beat_slur";
+                    capture.firstSystemMeasure = g_renderedSystemFirstMeasureIndex;
+                    capture.bounds = translateRect(rectFromView(self), {offset->x, offset->y});
+                    const auto addPoint = [&](fn_ViewPoint getter) {
+                        am::painting::Point p;
+                        getter(self, &p);
+                        capture.points.push_back({p.x + offset->x, p.y + offset->y});
+                    };
+                    if (!slideMark) {
+                        addPoint(slide ? g_slideStart : g_slurStart);
+                        if (!slide) { addPoint(g_slurControl1); addPoint(g_slurControl2); }
+                        addPoint(slide ? g_slideEnd : g_slurEnd);
+                    }
+                    if (noteSlur) {
+                        capture.startOwner = relationEnd(self, g_slurStartNoteView);
+                        capture.endOwner = relationEnd(self, g_slurEndNoteView);
+                    }
+                    if (isFiniteRect(capture.bounds)) g_relationGeometry.push_back(std::move(capture));
+                    else relationGeometryError("rendered relation has invalid bounds");
+                }
+            }
+        } catch (...) { relationGeometryError("native relation geometry getter failed"); }
+    }
+}
+
+using fn_ViewRender = void (__fastcall *)(void*, void*, const am::painting::Point*, const am::painting::Rect*);
+static void __fastcall hooked_NoteViewRender(void* self, void* painter,
+        const am::painting::Point* offset, const am::painting::Rect* clip) {
+    if (g_layoutDumpActive && g_directExportState && g_directExportState->captureNoteGeometry
+            && self && offset && isViewClass(self, ".?AVFretView@view@core@gp@@")) {
+        am::painting::Point p;
+        auto** table = *reinterpret_cast<void***>(self);
+        reinterpret_cast<fn_ViewPoint>(table[3])(self, &p);
+        NativeNoteViewLayout layout;
+        layout.origin = {offset->x + p.x, offset->y + p.y};
+        layout.bounds = translateRect(rectFromView(self), layout.origin);
+        g_noteViewLayouts[self] = layout;
+    }
+    reinterpret_cast<fn_ViewRender>(g_layoutNoteViewRenderHook.trampoline)(self, painter, offset, clip);
+}
+
 using fn_FretOnRender = void (__fastcall *)(void*, void*, const am::painting::Point*, const am::painting::Rect*, const void*);
 static void __fastcall hooked_FretViewOnRender(void* self, void* painter,
         const am::painting::Point* offset, const am::painting::Rect* clip, const void* color) {
@@ -2295,6 +2512,7 @@ static void __fastcall hooked_BandElementViewOnRender(
                 static_cast<int>(g_bandElementViewType(self)), rect});
         }
         captureLyricBandElement(self);
+        captureRelationView(self, offset);
         tempo = captureTempoBandElement(self, offset);
     }
     if (tempo) ++g_tempoBandElementRenderDepth;
@@ -2442,6 +2660,28 @@ static bool installNativeLayoutHooks() {
                 "?keySignatureElement@BarViewBase@generated@view@core@gp@@"
                 "QEBAAEBV?$shared_ptr@VIElement@painting@am@@@std@@XZ"));
 
+        g_layoutNoteViewRenderHook.target = exportedFunction(gpcore,
+            "?render@View@view@core@gp@@QEBAXAEAVIPainter@renderer@34@AEBVPoint@painting@am@@AEBVRect@89@@Z");
+        g_layoutNoteViewRenderHook.detour = reinterpret_cast<void*>(&hooked_NoteViewRender);
+        g_layoutNoteViewRenderHook.patchSize = 15;
+        g_layoutNoteViewRenderHook.createTrampoline = true;
+        g_slurStartNoteView = reinterpret_cast<fn_ViewShared>(exportedFunction(gpcore,
+            "?startNoteView@NoteSlurView@view@core@gp@@QEBA?AV?$shared_ptr@VNoteView@view@core@gp@@@std@@XZ"));
+        g_slurEndNoteView = reinterpret_cast<fn_ViewShared>(exportedFunction(gpcore,
+            "?endNoteView@NoteSlurView@view@core@gp@@QEBA?AV?$shared_ptr@VNoteView@view@core@gp@@@std@@XZ"));
+        g_slurStart = reinterpret_cast<fn_ViewPoint>(exportedFunction(gpcore,
+            "?startWithOffset@SlurView@view@core@gp@@QEBA?AVPoint@painting@am@@XZ"));
+        g_slurEnd = reinterpret_cast<fn_ViewPoint>(exportedFunction(gpcore,
+            "?endWithOffset@SlurView@view@core@gp@@QEBA?AVPoint@painting@am@@XZ"));
+        g_slurControl1 = reinterpret_cast<fn_ViewPoint>(exportedFunction(gpcore,
+            "?control1WithOffset@SlurView@view@core@gp@@QEBA?AVPoint@painting@am@@XZ"));
+        g_slurControl2 = reinterpret_cast<fn_ViewPoint>(exportedFunction(gpcore,
+            "?control2WithOffset@SlurView@view@core@gp@@QEBA?AVPoint@painting@am@@XZ"));
+        g_slideStart = reinterpret_cast<fn_ViewPoint>(exportedFunction(gpcore,
+            "?startWithOffset@SlideView@view@core@gp@@QEBA?AVPoint@painting@am@@XZ"));
+        g_slideEnd = reinterpret_cast<fn_ViewPoint>(exportedFunction(gpcore,
+            "?endWithOffset@SlideView@view@core@gp@@QEBA?AVPoint@painting@am@@XZ"));
+
         const bool requiredCapabilitiesAvailable = g_layoutSystemViewHook.target
             && g_layoutBarViewHook.target
             && g_layoutBandElementViewHook.target
@@ -2491,6 +2731,13 @@ static bool installNativeLayoutHooks() {
             && memcmp(g_layoutFretViewHook.target, fretPrologue, sizeof(fretPrologue)) == 0
             && installInlineHook(&g_layoutFretViewHook);
         g_noteGeometryHookReady.store(geometryOk);
+        const bool relationOk = geometryOk && g_slurStartNoteView && g_slurEndNoteView
+            && g_slurStart && g_slurEnd && g_slurControl1 && g_slurControl2 && g_slideStart && g_slideEnd
+            && g_layoutNoteViewRenderHook.target
+            && memcmp(g_layoutNoteViewRenderHook.target, fretPrologue, sizeof(fretPrologue)) == 0
+            && installInlineHook(&g_layoutNoteViewRenderHook);
+        g_relationGeometryHookReady.store(relationOk);
+        logMsg("[RELATION_GEOMETRY] native relation capture available=%d", relationOk ? 1 : 0);
         logMsg("[NOTE_GEOMETRY] native FretView capture available=%d", geometryOk ? 1 : 0);
         g_lyricBandElementHookReady.store(lyricOk);
         g_tempoIndicationHooksReady.store(ok);
@@ -2506,6 +2753,7 @@ static bool installNativeLayoutHooks() {
 }
 
 static void removeNativeLayoutHooks() {
+    removeInlineHook(&g_layoutNoteViewRenderHook);
     removeInlineHook(&g_layoutFretViewHook);
     removeInlineHook(&g_layoutPaintDevicePopMatrixHook);
     removeInlineHook(&g_layoutPaintDevicePushMatrixHook);
@@ -2667,6 +2915,8 @@ static void renderPreparedContext(void* context) {
         g_keySignatures.clear();
         g_restViews.clear();
         g_noteGlyphs.clear();
+        g_relationGeometry.clear();
+        g_noteViewLayouts.clear();
         g_lyricEvents.clear();
         g_tempoViewCaptures.clear();
         g_tempoIndications.clear();
@@ -2680,6 +2930,7 @@ static void renderPreparedContext(void* context) {
             if (!g_restViewHookReady.load()) {
                 markRestViewsUnresolved("RestView hook is unavailable");
             }
+            if (!g_relationGeometryHookReady.load()) relationGeometryError("native relation geometry hook is unavailable");
             if (!g_noteGeometryHookReady.load()) {
                 noteGeometryError("native note geometry hook is unavailable");
             }
@@ -2748,7 +2999,10 @@ static bool directExportPreparedContext(
     state.stylesheet = &stylesheet;
     state.sourceTrackIndex = sourceTrackIndex;
     state.captureNoteGeometry = captureNoteGeometry;
-    if (!captureNoteGeometry) state.noteGeometryErrors.push_back("capture disabled for render-equivalence control");
+    if (!captureNoteGeometry) {
+        state.noteGeometryErrors.push_back("capture disabled for render-equivalence control");
+        state.relationGeometryErrors.push_back("capture disabled for render-equivalence control");
+    }
     state.scoreViewMultiRest = view.isMultiRest();
     if (!layoutPath.empty()
             && !collectOriginalMasterBarRanges(
@@ -2864,13 +3118,6 @@ static bool prepareCoreScoreViewForExport(
         emptyStylesheet);
     prepared.stylesheet->applyModel(score.newStylesheet());
     gp::core::style::Stylesheet::setupStyleForExport(*prepared.stylesheet);
-    const std::optional<
-        gp::core::style::generated::BarNumberLayout::Frequency
-    > hiddenBarNumbers(
-        gp::core::style::generated::BarNumberLayout::Frequency::None);
-    gp::core::style::setBarNumberLayoutFrequency(
-        *prepared.stylesheet,
-        hiddenBarNumbers);
     const std::optional<am::painting::Color> transparentBackground(
         am::painting::Color::Transparent);
     gp::core::style::setPageLayoutBackgroundColor(

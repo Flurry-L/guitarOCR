@@ -1,8 +1,8 @@
 //! Native OCR stages. This module owns model prompts and score semantics, never
 //! session persistence, task state, revision checks, or the model process.
 //! Inputs are explicit local crops and schema-1.0 stage values. No Python path.
-pub mod chord_evidence;
 mod annotations;
+pub mod chord_evidence;
 pub mod clef_spatial;
 pub(crate) mod headers;
 pub mod instrument_text;
@@ -11,8 +11,6 @@ pub(crate) mod signature_state;
 pub mod staff_evidence;
 pub mod staff_label;
 mod staff_profile;
-pub mod technique_relation;
-mod tie_relations;
 use crate::auxiliary_onnx::SignatureReader;
 use crate::image_boundary;
 use crate::score_structure::program_from_visible_name;
@@ -148,6 +146,9 @@ fn list<'a>(value: &'a Value, key: &str) -> &'a [Value] {
 }
 fn flag(value: &Value, key: &str) -> bool {
     value[key].as_bool().unwrap_or(false)
+}
+fn tuning_needs_review(row: &Value) -> bool {
+    flag(row, "tuning_needs_review") || !list(row, "tuning_needs_review").is_empty()
 }
 fn merge(to: &mut Value, from: &Value) {
     if let (Some(to), Some(from)) = (to.as_object_mut(), from.as_object()) {
@@ -1680,7 +1681,22 @@ pub fn apply_pitch_regions(
                 }
             }
         }
+        let mut local_clef = json!({});
+        if changes.get(&i).is_some_and(|changes| {
+            changes
+                .iter()
+                .any(|p| p["kind"] == "clef" && p["parsed"]["clef"] != "tab")
+        }) {
+            for field in ["clef", "clef_octave"] {
+                local_clef[field] = json!({"status":if state[field].is_null() || pending.contains(field) {"unknown"}else{"observed"},
+                    "value":state[field],"source":"information_ocr"});
+            }
+        }
+        r["clef_observation"] = local_clef;
         let mut effective = state.clone();
+        effective["instrument_transpose_base"] = state["instrument_transpose"].clone();
+        effective["instrument_transpose_explicit"] =
+            json!(transpose.is_some() || explicit.contains(&key));
         if transpose.is_none()
             && !explicit.contains(&key)
             && state["clef_octave"].as_i64().is_some_and(|v| v != 0)
@@ -2336,6 +2352,7 @@ pub fn recognize_information<G: Generator + ?Sized>(
                 for key in [
                     "measure_number",
                     "pitch_context",
+                    "clef_observation",
                     "pitch_reference",
                     "pitch_needs_review",
                 ] {
@@ -2375,21 +2392,15 @@ pub struct MeasureConfig {
     pub max_tokens: usize,
     pub max_tokens_ceiling: usize,
     pub maximum_attempts: usize,
-    pub visual_pitch: bool,
-    pub pitch_context: bool,
-    pub written_pitch: bool,
     pub constrained_decoding: bool,
 }
 impl Default for MeasureConfig {
     fn default() -> Self {
         Self {
             image_policy: None,
-            max_tokens: 2048,
-            max_tokens_ceiling: 4096,
-            maximum_attempts: 3,
-            visual_pitch: true,
-            pitch_context: true,
-            written_pitch: true,
+            max_tokens: 4096,
+            max_tokens_ceiling: 6144,
+            maximum_attempts: 2,
             constrained_decoding: true,
         }
     }
@@ -2420,6 +2431,18 @@ pub fn prepare_records(layout: &Value, information: &Value) -> Result<Vec<Value>
             .as_i64()
             .filter(|n| *n > 0)
             .ok_or("Missing positive measure number")?;
+        if row["source_id"].is_null() {
+            row["source_id"] = json!("");
+        }
+        if row["part_id"].is_null() {
+            row["part_id"] = json!("part-1");
+        }
+        if row["staff_id"].is_null() {
+            row["staff_id"] = json!("staff-1");
+        }
+        if row["bar_index"].is_null() {
+            row["bar_index"] = json!(bar_index(row));
+        }
         if !numbers.insert(number) {
             return Err("Duplicate measure number".into());
         }
@@ -2475,42 +2498,9 @@ pub fn prepare_records(layout: &Value, information: &Value) -> Result<Vec<Value>
             row["pitch_context"]["capo"] = row["capo"].clone();
         }
     }
-    attach_neighbours(&mut records)?;
     Ok(records)
 }
 static EMPTY_VALUES: Vec<Value> = Vec::new();
-pub fn attach_neighbours(records: &mut [Value]) -> Result<()> {
-    let mut groups: BTreeMap<String, Vec<usize>> = BTreeMap::new();
-    for (i, r) in records.iter().enumerate() {
-        groups.entry(staff_key(r)).or_default().push(i);
-    }
-    for indices in groups.values_mut() {
-        indices.sort_by_key(|&i| bar_index(&records[i]));
-        for (i, &index) in indices.iter().enumerate() {
-            for (field, n) in [
-                ("previous_image", i.checked_sub(1)),
-                (
-                    "next_image",
-                    i.checked_add(1).filter(|&n| n < indices.len()),
-                ),
-            ] {
-                let other = n
-                    .map(|n| indices[n])
-                    .filter(|&n| (bar_index(&records[n]) - bar_index(&records[index])).abs() <= 1)
-                    .unwrap_or(index);
-                records[index][field] = records[other]["image"].clone();
-                let geometry = format!("{field}_record");
-                let mut neighbour = records[other].clone();
-                if let Some(o) = neighbour.as_object_mut() {
-                    o.remove("previous_image_record");
-                    o.remove("next_image_record");
-                }
-                records[index][geometry] = neighbour;
-            }
-        }
-    }
-    Ok(())
-}
 fn valid_signature(v: &Value) -> bool {
     let time = v["time"].as_str();
     (v["time"].is_null() || time.is_some_and(|s| time_signature(s).is_ok()))
@@ -2553,164 +2543,10 @@ pub fn read_score_states(
         }
     }
     let predictions = Value::Object(predictions);
-    signature_state::resolve(records, &predictions)?;
+    for row in records {
+        row["printed_state"] = predictions[row["measure_number"].to_string()].clone();
+    }
     Ok(predictions)
-}
-fn ordered_json(value: &Value, keys: &[&str]) -> String {
-    format!(
-        "{{{}}}",
-        keys.iter()
-            .filter_map(|key| value.get(*key).map(|v| {
-                let rendered = if *key == "octave_spans" {
-                    format!(
-                        "[{}]",
-                        v.as_array()
-                            .into_iter()
-                            .flatten()
-                            .map(|s| ordered_json(s, &["semitones", "start", "end"]))
-                            .collect::<Vec<_>>()
-                            .join(",")
-                    )
-                } else {
-                    v.to_string()
-                };
-                format!("{}:{}", serde_json::to_string(key).unwrap(), rendered)
-            }))
-            .collect::<Vec<_>>()
-            .join(",")
-    )
-}
-
-fn prompt_pitch_context(context: &Value) -> Value {
-    let mut p = json!({});
-    for key in [
-        "clef",
-        "clef_octave",
-        "instrument_transpose",
-        "octave_spans",
-    ] {
-        if let Some(v) = context.get(key) {
-            p[key] = if key == "octave_spans" {
-                json!(v
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .map(|s| json!({"semitones":s["semitones"],"start":s["start"],"end":s["end"]}))
-                    .collect::<Vec<_>>())
-            } else {
-                v.clone()
-            };
-        }
-    }
-    p
-}
-fn state_prompt_with_context(record: &Value, include_neighbours: bool) -> Result<String> {
-    let mode = text(record, "mode", "");
-    let instrument = text(record, "instrument", "guitar");
-    if !["tab", "notation", "both"].contains(&mode)
-        || !["guitar", "bass", "pitched", "drums"].contains(&instrument)
-        || (matches!(instrument, "pitched" | "drums") && mode != "notation")
-    {
-        return Err("Unsupported instrument/display-mode combination".into());
-    }
-    let visual = flag(record, "visual_pitch");
-    let mut state = signature_state::trusted_state(record);
-    if !list(record, "tuning").is_empty() {
-        state["tuning"] = record["tuning"].clone();
-    }
-    if mode == "tab" {
-        state["key"] = json!(0);
-    }
-    if visual && mode != "tab" {
-        state.as_object_mut().unwrap().remove("tuning");
-    }
-    let fields = match mode {
-        "tab" => "string, fret",
-        "notation" => "written MIDI pitch",
-        _ => {
-            if visual {
-                "string, fret, written MIDI pitch"
-            } else {
-                "string, fret, MIDI pitch"
-            }
-        }
-    };
-    let mut prompt = format!(
-        "Independent {instrument} {mode} measure recognition. The first image is the target measure. "
-    );
-    if include_neighbours {
-        prompt += "The second and third images show the previous and next measures for visual context only. ";
-    }
-    prompt += &format!("Return exactly one M fragment for the FIRST image. Preserve every voice, event start, duration, {fields}, rest, tie and visible technique. ");
-    if include_neighbours {
-        prompt += "Use neighbouring images to resolve cross-bar ties and voice continuity; do not transcribe them. ";
-    }
-    if bar_index(record) == 0 {
-        prompt += "This is the first measure of the score. ";
-    }
-    prompt += &format!(
-        "Effective printed state: {}. ",
-        ordered_json(&state, &["time", "key", "tuning"])
-    );
-    if instrument == "drums" {
-        prompt += "Pitch fields are General MIDI drum keys. ";
-    } else if mode == "notation" || (visual && mode == "both") {
-        prompt +=
-            "Return written pitches, before instrument transposition, clef octave and ottava. ";
-        if mode == "both" {
-            prompt += "Read pitches from the notation and string/fret from TAB independently. Do not assume a tuning. ";
-        }
-    }
-    if record["pitch_context"].is_object() && mode != "tab" && instrument != "drums" {
-        prompt += &format!(
-            "Pitch context: {}. Preserve ottava:12, ottava:-12, ottava:24 or ottava:-24 on each affected event. ",
-            ordered_json(
-                &prompt_pitch_context(&record["pitch_context"]),
-                &[
-                    "clef",
-                    "clef_octave",
-                    "instrument_transpose",
-                    "octave_spans"
-                ]
-            )
-        );
-    }
-    prompt += "Print time/key metadata only at score start or a printed change; use the effective state to read notes.";
-    Ok(prompt)
-}
-const MEASURE_REREAD_HINT: &str = " Read the rhythmic staff of the FIRST measure. Keep chord diagrams and their fret/finger labels in chord annotations; read note events only from the staff between its barlines. Re-read all musical events from the image. Keep optional free text brief.";
-fn measure_messages_with_context(
-    record: &Value,
-    policy: Option<&ImagePolicy>,
-    include_neighbours: bool,
-) -> Result<Value> {
-    let target = record_image(record)?;
-    let mut images = vec![target.clone()];
-    for field in ["previous_image", "next_image"] {
-        if !include_neighbours {
-            break;
-        }
-        images.push(if let Some(path) = record[field].as_str() {
-            image_boundary::open_rgb(Path::new(path))?
-        } else if record[format!("{field}_record")].is_object() {
-            record_image(&record[format!("{field}_record")])?
-        } else {
-            target.clone()
-        });
-    }
-    let mut prompt = state_prompt_with_context(record, include_neighbours)?;
-    let names: Vec<&str> = list(record, "chord_annotations")
-        .iter()
-        .filter(|p| p["scope_source"] == "manual")
-        .filter_map(|p| p["parsed"]["text"].as_str())
-        .collect();
-    if !names.is_empty() {
-        prompt += &format!(
-            " Visible chord candidates in the FIRST measure: {}. Read their actual onsets from the image, including repeated names; do not invent notes or evenly spaced chord timing.",
-            json!(names)
-        );
-    }
-    image_messages(&images, &prompt, policy)
 }
 const MAJOR_KEYS: [&str; 17] = [
     "FMajorFlat",
@@ -2789,6 +2625,14 @@ fn ornament(position: &str) -> Option<(Option<i64>, Option<i64>)> {
     ))
 }
 pub fn convert_pitch_target(target: &str, context: &Value, mode: &str) -> Result<String> {
+    convert_pitch_direction(target, context, mode, 1)
+}
+fn convert_pitch_direction(
+    target: &str,
+    context: &Value,
+    mode: &str,
+    direction: i64,
+) -> Result<String> {
     let mut m = score::parse_measure_target(target)?;
     let instrument = context["instrument_transpose"].as_i64().unwrap_or(0);
     let base = instrument + context["clef_octave"].as_i64().unwrap_or(0)
@@ -2797,7 +2641,7 @@ pub fn convert_pitch_target(target: &str, context: &Value, mode: &str) -> Result
         return Err("Invalid pitch context range".into());
     }
     if let Some(key) = m["key_signature"].as_str() {
-        m["key_signature"] = json!(transpose_key(key, instrument)?);
+        m["key_signature"] = json!(transpose_key(key, direction * instrument)?);
     }
     for voice in m["voices"].as_array_mut().unwrap() {
         for event in voice["events"].as_array_mut().unwrap() {
@@ -2810,7 +2654,7 @@ pub fn convert_pitch_target(target: &str, context: &Value, mode: &str) -> Result
             if octaves.len() > 1 || octaves.iter().any(|n| ![-24, -12, 12, 24].contains(n)) {
                 return Err("Invalid local octave instruction".into());
             }
-            let shift = base + octaves.first().copied().unwrap_or(0);
+            let shift = direction * (base + octaves.first().copied().unwrap_or(0));
             for note in event["notes"].as_array_mut().unwrap() {
                 if list(note, "effects").iter().any(|e| e == "dead") {
                     continue;
@@ -2943,101 +2787,7 @@ fn meter_warnings(target: &str, row: &Value) -> Result<Vec<String>> {
     }
 }
 
-fn alternatives(values: impl IntoIterator<Item = String>) -> String {
-    values
-        .into_iter()
-        .map(|v| serde_json::to_string(&v).unwrap())
-        .collect::<Vec<_>>()
-        .join(" | ")
-}
-fn onset_rule(ticks: Option<i64>) -> String {
-    let Some(ticks) = ticks else {
-        return "integer".into();
-    };
-    let limit = (ticks - 1).max(0).to_string();
-    let mut choices = vec!["\"0\"".into()];
-    for size in 1..limit.len() {
-        choices.push(format!(
-            "[1-9]{}",
-            if size > 1 {
-                format!(" [0-9]{{{}}}", size - 1)
-            } else {
-                String::new()
-            }
-        ));
-    }
-    for (index, digit) in limit.bytes().enumerate() {
-        let low = if index == 0 { 1 } else { 0 };
-        let high = i32::from(digit - b'0') - 1;
-        if low <= high {
-            let prefix = if index > 0 {
-                format!("{} ", serde_json::to_string(&limit[..index]).unwrap())
-            } else {
-                String::new()
-            };
-            let tail = limit.len() - index - 1;
-            choices.push(format!(
-                "{prefix}[{low}-{high}]{}",
-                if tail > 0 {
-                    format!(" [0-9]{{{tail}}}")
-                } else {
-                    String::new()
-                }
-            ));
-        }
-    }
-    choices.push(serde_json::to_string(&limit).unwrap());
-    choices.join(" | ")
-}
-pub fn measure_grammar(mode: &str, strings: usize, ticks: Option<i64>) -> Result<String> {
-    let fields = match mode {
-        "notation" => "pitch",
-        "tab" => "position",
-        "both" => "position pitch",
-        _ => return Err("Unknown M display mode".into()),
-    };
-    let mut grammar = include_str!("recognition/measure.gbnf").replace("NOTE_FIELDS", fields);
-    for (name, rule) in [
-        ("onset", onset_rule(ticks)),
-        ("voice-id", alternatives((0..16).map(|n| n.to_string()))),
-        (
-            "string-id",
-            alternatives((1..=strings.clamp(1, 12)).map(|n| n.to_string())),
-        ),
-        ("fret", alternatives((0..37).map(|n| n.to_string()))),
-        ("midi", alternatives((0..128).map(|n| n.to_string()))),
-        ("tuplet", alternatives((1..33).map(|n| n.to_string()))),
-        (
-            "key-name",
-            alternatives(MAJOR_KEYS.into_iter().chain(MINOR_KEYS).map(str::to_owned)),
-        ),
-    ] {
-        grammar += &format!("{name} ::= {rule}\n");
-    }
-    Ok(grammar)
-}
-fn repair_truncated_text(target: &str) -> (String, bool) {
-    let re = Regex::new(r"[<,]text:").unwrap();
-    let Some(m) = re.find_iter(target).last() else {
-        return (target.into(), false);
-    };
-    if target[m.start()..].contains('>') {
-        return (target.into(), false);
-    }
-    let mut repaired = target[..m.start()].trim_end().to_owned();
-    if target.as_bytes()[m.start()] == b',' {
-        repaired.push('>');
-    }
-    let close = repaired
-        .matches('{')
-        .count()
-        .saturating_sub(repaired.matches('}').count());
-    repaired.push_str(&"}".repeat(close));
-    (repaired, true)
-}
-/// Runs one independent crop, returning accepted diagnostics and a reviewable
-/// rest placeholder only after hard musical validation fails all attempts.
-/// Transport/runtime errors are propagated; they are never replaced by rests.
+/// Read one crop only. Missing musical evidence remains null until assembly.
 pub fn recognize_measure<G: Generator + ?Sized>(
     engine: &mut G,
     record: &Value,
@@ -3047,255 +2797,44 @@ pub fn recognize_measure<G: Generator + ?Sized>(
     config.validate()?;
     check(cancelled)?;
     let mut row = record.clone();
-    if let Some(object) = row.as_object_mut() {
-        object.remove("visual_techniques");
-        object.remove("visual_technique_review");
-    }
-    row["visual_pitch"] = json!(config.visual_pitch);
-    if !config.pitch_context && !row["pitch_context"].is_null() {
-        row["pitch_needs_review"] = json!(true);
-        row.as_object_mut()
-            .ok_or("Invalid measure record")?
-            .remove("pitch_context");
-    }
-    if !config.written_pitch
-        && (row["mode"] == "notation" || (row["mode"] == "both" && config.visual_pitch))
-    {
-        return Err("Independent native prompts require a written-pitch model for notation; use matching model capabilities".into());
-    }
-    if !row["score_state"].is_object() {
-        return Err("Read and merge printed signatures before measure inference".into());
-    }
-    let mode = text(&row, "mode", "").to_owned();
-    let instrument = text(&row, "instrument", "guitar").to_owned();
-    let tuning = integers(&row["tuning"])?;
-    let time = text(&row["score_state"], "time", "4/4").to_owned();
-    let trusted = signature_state::trusted_state(&row);
-    let ticks = trusted["time"]
-        .as_str()
-        .map(time_signature)
-        .transpose()?
-        .map(|(n, d)| 3840 * n / d);
-    let grammar = measure_grammar(&mode, tuning.len().max(1), ticks)?;
-    let initial = measure_messages_with_context(&row, config.image_policy.as_ref(), true)?;
-    let mut messages = initial.clone();
+    let prompt = scorelib::observation::observation_prompt(text(&row, "mode", ""))?;
+    let messages = image_messages(
+        &[record_image(&row)?],
+        &prompt,
+        config.image_policy.as_ref(),
+    )?;
     let mut budget = config.max_tokens;
-    let mut final_target = String::new();
-    let mut written = String::new();
-    let mut final_errors = vec![];
-    let mut attempt_count = 0;
-    let mut annotation_only: Option<String> = None;
+    row["observation"] = Value::Null;
+    row["target"] = Value::Null;
+    row["written_target"] = Value::Null;
+    row["ir"] = Value::Null;
     for attempt in 1..=config.maximum_attempts {
         check(cancelled)?;
-        attempt_count = attempt;
-        let constrained = config.constrained_decoding;
         let response = engine.generate(
             messages.clone(),
             budget,
+            config
+                .constrained_decoding
+                .then(scorelib::observation::observation_schema),
             None,
-            constrained.then_some(grammar.as_str()),
         )?;
         check(cancelled)?;
-        let raw = response.content.trim();
-        let target = raw.find("M").map(|i| &raw[i..]).unwrap_or(raw);
-        let (mut model_target, truncated) = repair_truncated_text(target);
-        let mut annotation_error = None;
-        if let Some(original) = annotation_only.as_deref() {
-            match merge_chord_review(original, &model_target, &mode) {
-                Ok(merged) => model_target = merged,
-                Err(error) => {
-                    model_target = original.to_owned();
-                    annotation_error = Some(format!(
-                        "Annotation review failed: {}",
-                        error.chars().take(160).collect::<String>()
-                    ));
-                }
+        row["raw_observation_text"] = json!(response.content);
+        row["recognition_attempts"] = json!(attempt);
+        row["generated_token_count"] = json!(response.completion_tokens);
+        match scorelib::observation::parse_observation(&json!(response.content)) {
+            Ok(observation) => {
+                row["observation"] = observation;
+                row["recognition_errors"] = json!([]);
+                break;
             }
-        }
-        let mut target = model_target.clone();
-        let mut conversions = vec![];
-        if mode == "both" && !config.visual_pitch {
-            if let Ok((derived, _)) = resolve_fretted_pitches(&target, &tuning, None) {
-                target = derived;
-            }
-        }
-        if (mode == "notation" || (mode == "both" && config.visual_pitch))
-            && instrument != "drums"
-            && row["pitch_context"].is_object()
-        {
-            match convert_pitch_target(&model_target, &row["pitch_context"], &mode) {
-                Ok(converted) => target = converted,
-                Err(e) => conversions.push(format!("pitch_conversion: {e}")),
-            }
-        }
-        let (parsed, mut errors) = score::validate_measure_target(
-            &target,
-            &mode,
-            if mode == "both" && config.visual_pitch {
-                None
-            } else {
-                Some(&tuning)
-            },
-            Some(tuning.len()),
-        );
-        errors.extend(conversions);
-        let structural = !errors.is_empty();
-        if errors.is_empty() {
-            let timing = scorelib::gp5_constraints::timing_errors(parsed.as_ref().unwrap())?;
-            if !timing.is_empty() {
-                errors.push("Events overlap within a voice. Re-read durations and onsets; simultaneous notes belong in a chord or another voice".into());
-            }
-            if mode == "notation"
-                && matches!(instrument.as_str(), "guitar" | "bass")
-                && flag(&row, "tuning_explicit")
-            {
-                let options = list(&row, "fingering_tunings");
-                let candidates = if options.is_empty() {
-                    vec![tuning.clone()]
-                } else {
-                    options.iter().map(integers).collect::<Result<Vec<_>>>()?
-                };
-                let mut failures = vec![];
-                for tuning in &candidates {
-                    failures.push(scorelib::gp5_constraints::notation_fingering_errors(
-                        parsed.as_ref().unwrap(),
-                        tuning,
-                    )?);
-                }
-                if failures.iter().all(|f| !f.is_empty()) {
-                    errors.extend(
-                        failures
-                            .into_iter()
-                            .min_by_key(Vec::len)
-                            .unwrap_or_default()
-                            .into_iter()
-                            .map(|e| format!("Check written pitches after transposition: {e}")),
-                    );
-                }
-            }
-        }
-        let hit_limit = response.completion_tokens >= budget as u64;
-        if truncated {
-            errors.push("Text annotation was cut off. Re-read ALL musical events and chord names; keep free text brief".into());
-        } else if hit_limit {
-            errors.push("Generation reached the output limit; return the complete measure".into());
-        }
-        if errors.is_empty() {
-            let parsed = parsed.as_ref().expect("validated measure");
-            let mut chord_errors = chord_recognition_errors(parsed);
-            let names: HashSet<String> = list(parsed, "voices")
-                .iter()
-                .flat_map(|v| list(v, "events"))
-                .filter_map(event_chord_name)
-                .map(|s| chord_key(&s))
-                .collect();
-            for p in list(&row, "chord_annotations") {
-                if p["scope_source"] != "manual" {
-                    continue;
-                }
-                let name = text(&p["parsed"], "text", "");
-                if is_chord_symbol(name) && !names.contains(&chord_key(name)) {
-                    chord_errors.push(format!("Check the visible chord {name:?} in this measure and attach it to its actual musical onset. Preserve all notes, rests, voices and timing; change annotations only"));
-                }
-            }
-            if !chord_errors.is_empty() {
-                annotation_only.get_or_insert_with(|| model_target.clone());
-                errors.extend(chord_errors);
-            }
-        }
-        if let Some(error) = annotation_error {
-            errors.push(error);
-        }
-        written = model_target.clone();
-        final_target = target.clone();
-        final_errors = errors.clone();
-        if errors.is_empty() {
-            break;
-        }
-        if attempt < config.maximum_attempts {
-            if annotation_only.is_some() {
-                messages = initial.clone();
-                messages.as_array_mut().unwrap().extend([json!({"role":"assistant","content":[{"type":"text","text":model_target}]}),json!({"role":"user","content":[{"type":"text","text":format!("Correct the FIRST measure only. {}. Return one complete M fragment.",errors.iter().take(8).cloned().collect::<Vec<_>>().join("; ").chars().take(2048).collect::<String>())}]})]);
-            } else {
-                messages =
-                    measure_messages_with_context(&row, config.image_policy.as_ref(), false)?;
-                let content = messages[0]["content"].as_array_mut().unwrap();
-                let prompt = content.last_mut().unwrap();
-                prompt["text"] = json!(format!(
-                    "{}{MEASURE_REREAD_HINT}",
-                    prompt["text"].as_str().unwrap()
-                ));
-            }
-            if hit_limit && !truncated {
-                budget = config.max_tokens_ceiling.min(budget.saturating_mul(2));
-            }
-            continue;
-        }
-        if structural {
-            let (numerator, denominator) = time_signature(&time)?;
-            final_target = score::rest_target(3840 * numerator / denominator)?;
-            let (_, fallback_errors) = score::validate_measure_target(
-                &final_target,
-                &mode,
-                Some(&tuning),
-                Some(tuning.len()),
-            );
-            if !fallback_errors.is_empty() {
-                return Err(format!(
-                    "Invalid failure placeholder: {}",
-                    fallback_errors.join("; ")
-                ));
-            }
-        } else {
-            let (review_target, uncertain) = retain_uncertain_chords_as_text(&final_target)?;
-            if !uncertain.is_empty() {
-                final_target = review_target;
-                written = retain_uncertain_chords_as_text(&written)?.0;
+            Err(error) => {
+                row["recognition_errors"] = json!([error]);
+                budget = (budget * 2).min(config.max_tokens_ceiling);
             }
         }
     }
-    if score::parse_measure_target(&written).is_ok() {
-        signature_state::observe_ocr_metadata(&mut row, &written)?;
-    }
-    final_errors.extend(meter_warnings(&final_target, &row)?);
-    if flag(&row, "structure_needs_review") {
-        final_errors.push(
-            "Page structure evidence is uncertain; check system, part and staff assignments".into(),
-        );
-    }
-    if flag(&row, "alignment_needs_review") {
-        final_errors.push(
-            "Detected rows have conflicting measure counts; check the proposed bar alignment"
-                .into(),
-        );
-    }
-    final_errors.sort();
-    final_errors.dedup();
-    row["target"] = json!(final_target);
-    row["written_target"] = json!(written);
-    row["recognition_attempts"] = json!(attempt_count);
-    row["fallback_reason"] = json!(final_errors);
-    row["recognition_needs_review"] = json!(
-        !final_errors.is_empty()
-            || flag(&row, "pitch_needs_review")
-            || flag(&row, "instrument_needs_review")
-            || flag(&row, "tuning_needs_review")
-            || flag(&row, "structure_needs_review")
-            || flag(&row, "alignment_needs_review")
-    );
-    row["needs_review"] =
-        json!(flag(&row, "recognition_needs_review") || flag(&row, "state_needs_review"));
-    row["timing_errors"] = json!(scorelib::gp5_constraints::timing_errors(
-        &score::parse_measure_target(text(&row, "target", ""))?
-    )?);
-    if !list(&row, "timing_errors").is_empty() {
-        row["needs_review"] = json!(true);
-    }
-
-    if let Some(obj) = row.as_object_mut() {
-        obj.remove("previous_image_record");
-        obj.remove("next_image_record");
-    }
+    row["needs_review"] = json!(true);
     Ok(row)
 }
 
@@ -3329,7 +2868,7 @@ impl TuningEvidence {
 pub fn reconcile_score_tuning(records: &mut [Value]) -> Result<()> {
     let mut parts: BTreeMap<String, Vec<usize>> = BTreeMap::new();
     for (i, r) in records.iter().enumerate() {
-        if r["mode"] == "both" && flag(r, "visual_pitch") {
+        if r["mode"] == "both" && flag(r, "visual_pitch") && r["target"].is_string() {
             parts
                 .entry(text(r, "part_id", "part-1").into())
                 .or_default()
@@ -3347,20 +2886,7 @@ pub fn reconcile_score_tuning(records: &mut [Value]) -> Result<()> {
         let mut e = TuningEvidence::default();
         for &i in &indices {
             let row = &records[i];
-            if !list(row, "fallback_reason").is_empty() {
-                continue;
-            }
-            let mut target = text(row, "target", "").to_owned();
-            if let Some(written) = row["written_target"]
-                .as_str()
-                .filter(|_| !flag(row, "manually_edited"))
-            {
-                let Ok(t) = convert_pitch_target(written, &row["pitch_context"], "both") else {
-                    continue;
-                };
-                target = t;
-            }
-            let measure = score::parse_measure_target(&target)?;
+            let measure = score::parse_measure_target(text(row, "target", ""))?;
             for voice in list(&measure, "voices") {
                 for event in list(voice, "events") {
                     for note in list(event, "notes") {
@@ -3473,7 +2999,7 @@ pub fn reconcile_score_tuning(records: &mut [Value]) -> Result<()> {
                 row["tuning_source"] = json!("notation_tab_consensus");
             }
             row["tuning_evidence"] = json!(e.counts);
-            if row["mode"] == "both" && !flag(row, "manually_edited") {
+            if row["mode"] == "both" && row["target"].is_string() && !flag(row, "manually_edited") {
                 if conflicts.is_empty() && (explicit || confirmed.len() >= 2) {
                     let (target, changed) = resolve_fretted_pitches(
                         text(row, "target", ""),
@@ -3495,39 +3021,254 @@ pub fn reconcile_score_tuning(records: &mut [Value]) -> Result<()> {
     }
     Ok(())
 }
-/// Final deterministic pass after all independent calls; per-measure checkpoints
-/// should be persisted by the caller before this function is invoked.
-pub fn finalize_records(records: &mut [Value], information: &mut Value) -> Result<()> {
-    signature_state::finalize_ocr_states(records)?;
-    // Editing an individual measure does not confirm the part's instrument.
-    // Keep this document-level conflict visible even on manually edited rows.
-    for row in records
-        .iter_mut()
-        .filter(|row| flag(row, "instrument_needs_review"))
-    {
-        row["needs_review"] = json!(true);
+fn product_pitch_context(row: &Value) -> Value {
+    let mut context = if row["pitch_context"].is_object() {
+        row["pitch_context"].clone()
+    } else {
+        json!({})
+    };
+    context["capo"] = row["capo"].clone();
+    if !row["score_state"]["clef_octave"].is_null() {
+        context["clef_octave"] = row["score_state"]["clef_octave"].clone();
     }
-    for row in records
+    if let Some(base) = context["instrument_transpose_base"].as_i64() {
+        context["instrument_transpose"] =
+            json!(if !flag(&context, "instrument_transpose_explicit")
+                && base != 0
+                && context["clef_octave"] == base
+            {
+                0
+            } else {
+                base
+            });
+    }
+    context
+}
+
+fn product_technique_overlay(resolved: &Value) -> Value {
+    let mut anchors: BTreeMap<(i64, i64), BTreeSet<String>> = BTreeMap::new();
+    for mark in list(resolved, "visual_techniques") {
+        let Some(voice_id) = mark["voice"].as_i64() else {
+            continue;
+        };
+        let Some(index) = mark["event"].as_u64() else {
+            continue;
+        };
+        let Some(voice) = list(resolved, "voices")
+            .iter()
+            .find(|v| v["voice"] == voice_id)
+        else {
+            continue;
+        };
+        let Some(event) = list(voice, "events").get(index as usize) else {
+            continue;
+        };
+        let Some(onset) = event["start"].as_i64() else {
+            continue;
+        };
+        let Some(effect) = mark["effect"]
+            .as_str()
+            .filter(|e| matches!(*e, "pm" | "let"))
+        else {
+            continue;
+        };
+        if !list(event, "notes").is_empty() {
+            anchors
+                .entry((voice_id, onset))
+                .or_default()
+                .insert(effect.to_owned());
+        }
+    }
+    if anchors.is_empty() {
+        return Value::Null;
+    }
+    json!({"protocol":scorelib::visual_techniques::PROTOCOL,"scope":"visible_event","events":anchors.into_iter().map(|((voice,onset),effects)|
+        json!({"voice":voice,"onset":onset,"effects":effects,"status":"classified"})).collect::<Vec<_>>()})
+}
+
+fn assembly_auxiliary(row: &Value) -> Result<Value> {
+    let mut state = json!({});
+    for field in ["time", "key"] {
+        let printed = &row["printed_state"];
+        let evidence = &printed["evidence"][field];
+        if evidence["status"] == "observed" {
+            state[field] = evidence.clone();
+        } else if printed["source"] == "manual" && !printed[field].is_null() {
+            state[field] = json!({"status":"observed","value":printed[field]});
+        }
+        if row["score_state_evidence"][field]["source"] == "manual"
+            && row["score_state_evidence"][field]["status"] == "observed"
+        {
+            state[field] = row["score_state_evidence"][field].clone();
+        }
+    }
+    // Only a locally observed clef is new evidence. Inherited information
+    // context must not erase a change that the measure recognizer can see.
+    for field in ["clef", "clef_octave"] {
+        if row["clef_observation"][field]["status"] == "observed" {
+            state[field] = row["clef_observation"][field].clone();
+        }
+    }
+    for field in ["time", "key", "clef", "clef_octave"] {
+        if row["manual_state"][field].is_object() {
+            state[field] = row["manual_state"][field].clone();
+            state[field]["source"] = json!("manual");
+        }
+    }
+    if !list(row, "tuning").is_empty() && !tuning_needs_review(row) {
+        state["tuning"] = json!({"status":"observed","value":row["tuning"]});
+    }
+    let mut result = json!({"state":state});
+    if flag(row, "manually_edited") {
+        let target = row["target"]
+            .as_str()
+            .ok_or("Manually edited record is missing music")?;
+        let mode = text(row, "mode", "tab");
+        let written = if mode == "tab" || row["instrument"] == "drums" {
+            target.to_owned()
+        } else {
+            let context = product_pitch_context(row);
+            convert_pitch_direction(target, &context, mode, -1)?
+        };
+        let mut measure = score::parse_measure_target(&written)?;
+        if !measure["time_signature"].is_null() {
+            result["state"]["time"] =
+                json!({"status":"observed","value":measure["time_signature"],"source":"manual"});
+        }
+        if let Some(key) = measure["key_signature"].as_str() {
+            result["state"]["key"] =
+                json!({"status":"observed","value":key_parts(key)?.0,"source":"manual"});
+        }
+        for voice in measure["voices"].as_array_mut().unwrap() {
+            for event in voice["events"].as_array_mut().unwrap() {
+                event["duration"] = json!(score::duration_token(&event["duration"])?);
+                for note in event["notes"].as_array_mut().unwrap() {
+                    note["written_pitch"] = note["pitch"].clone();
+                }
+            }
+        }
+        result["resolved_voices"] = measure["voices"].clone();
+        result["source"] = json!("manual");
+    }
+    Ok(result)
+}
+
+/// Every retry reassembles the entire score from local evidence. A changed tie
+/// or scope can therefore update its neighbours without another model call.
+pub fn finalize_records(records: &mut [Value], information: &mut Value) -> Result<()> {
+    let previous = records.to_vec();
+    let inputs: Vec<Value> = records
+        .iter()
+        .map(|row| {
+            let mut input = row.clone();
+            if !row["observation"].is_object() {
+                // An unreadable crop interrupts continuity and carries no events.
+                input["observation"] = json!({"state":{},"voices":[],"relations":[]});
+            }
+            input
+        })
+        .collect();
+    let auxiliary: Vec<Value> = records
+        .iter()
+        .map(assembly_auxiliary)
+        .collect::<Result<_>>()?;
+    let assembled = scorelib::observation::assemble(&inputs, Some(&auxiliary))?;
+    information["relations"] = assembled["relations"].clone();
+    information["recognition_mechanism"] = json!("visible_observation");
+    for (index, (row, assembly)) in records
         .iter_mut()
-        .filter(|row| !flag(row, "manually_edited"))
+        .zip(list(&assembled, "records"))
+        .enumerate()
     {
-        let prior = row["recognition_needs_review"]
-            .as_bool()
-            .unwrap_or(flag(row, "needs_review"));
-        row["needs_review"] = json!(
-            prior
-                || flag(row, "state_needs_review")
-                || flag(row, "alignment_needs_review")
-                || flag(row, "structure_needs_review")
-                || flag(row, "pitch_needs_review")
-                || flag(row, "instrument_needs_review")
-                || flag(row, "tuning_needs_review")
-                || !list(row, "fallback_reason").is_empty()
-                || !list(row, "timing_errors").is_empty()
+        for key in ["resolved", "unresolved", "ir"] {
+            row[key] = assembly[key].clone();
+        }
+        row["assembly_relations"] = json!(list(&assembled, "relations")
+            .iter()
+            .filter(|chain| list(chain, "segments")
+                .iter()
+                .any(|segment| segment["record"] == index))
+            .cloned()
+            .collect::<Vec<_>>());
+        if !flag(row, "manually_edited") {
+            row["visual_techniques"] = if assembly["ir"].is_string() {
+                product_technique_overlay(&assembly["resolved"])
+            } else {
+                Value::Null
+            };
+        }
+        row["visual_pitch"] = json!(true);
+        row["score_state_evidence"] = assembly["resolved"]["state"].clone();
+        row["score_state"] = json!({});
+        for field in ["time", "key", "clef", "clef_octave"] {
+            row["score_state"][field] = assembly["resolved"]["state"][field]["value"].clone();
+        }
+        row["state_needs_review"] = json!(
+            row["score_state"]["time"].is_null()
+                || (row["mode"] != "tab" && row["score_state"]["key"].is_null())
         );
+        row["written_target"] = assembly["ir"].clone();
+        if !flag(row, "manually_edited") {
+            row["target"] = Value::Null;
+            if let Some(written) = assembly["ir"].as_str() {
+                let mode = text(row, "mode", "tab").to_owned();
+                let converted = (|| -> Result<String> {
+                    let mut measure = score::parse_measure_target(written)?;
+                    if mode != "tab" {
+                        if let Some(fifths) = row["score_state"]["key"].as_i64() {
+                            measure["key_signature"] = json!(key_name(fifths, false)?);
+                            measure["print_key_signature"] =
+                                json!(row["observation"]["state"]["key"]["status"] == "observed");
+                        }
+                    }
+                    let written = score::format_measure_target(&measure, &mode, true)?;
+                    row["written_target"] = json!(written);
+                    if mode == "tab" || row["instrument"] == "drums" {
+                        return Ok(written);
+                    }
+                    if row["score_state"]["clef_octave"].is_null() {
+                        return Err(
+                            "Clef octave is unreadable; confirm the visible clef modifier".into(),
+                        );
+                    }
+                    let context = product_pitch_context(row);
+                    convert_pitch_target(&written, &context, &mode)
+                })();
+                match converted {
+                    Ok(target) => row["target"] = json!(target),
+                    Err(error) => row["unresolved"]
+                        .as_array_mut()
+                        .unwrap()
+                        .push(json!({"reason":"pitch_conversion","detail":error})),
+                }
+            }
+            row["pitch_reference"] = json!(if row["instrument"] == "drums" {
+                "percussion_key"
+            } else if matches!(text(row, "instrument", ""), "guitar" | "bass") {
+                "before_capo"
+            } else {
+                "sounding"
+            });
+        }
+        row["recognition_needs_review"] = json!(
+            row["target"].is_null()
+                || !list(row, "unresolved").is_empty()
+                || !list(row, "recognition_errors").is_empty()
+        );
+        if !flag(row, "manually_edited") {
+            row["needs_review"] = json!(
+                flag(row, "recognition_needs_review")
+                    || flag(row, "state_needs_review")
+                    || flag(row, "alignment_needs_review")
+                    || flag(row, "structure_needs_review")
+                    || flag(row, "pitch_needs_review")
+                    || flag(row, "instrument_needs_review")
+                    || tuning_needs_review(row)
+            );
+        }
+        row["timing_errors"] = json!([]);
     }
     reconcile_score_tuning(records)?;
-    tie_relations::resolve(records)?;
     let mut annotations = vec![];
     let parts = if list(information, "parts").is_empty() {
         vec![information.clone()]
@@ -3547,7 +3288,10 @@ pub fn finalize_records(records: &mut [Value], information: &mut Value) -> Resul
         .as_i64()
         .filter(|n| (20..=400).contains(n));
     for row in records.iter_mut() {
-        if Some(bar_index(row)) == opening {
+        if !row["target"].is_string() {
+            continue;
+        }
+        if !flag(row, "manually_edited") && Some(bar_index(row)) == opening {
             if let Some(tempo) = tempo {
                 let mut m = score::parse_measure_target(text(row, "target", ""))?;
                 if m["tempo_quarter"].is_null() {
@@ -3560,9 +3304,12 @@ pub fn finalize_records(records: &mut [Value], information: &mut Value) -> Resul
                 )?);
             }
         }
-        row["timing_errors"] = json!(scorelib::gp5_constraints::timing_errors(
-            &score::parse_measure_target(text(row, "target", ""))?
-        )?);
+        let target = text(row, "target", "");
+        let measure = score::parse_measure_target(target)?;
+        let mut warnings = scorelib::gp5_constraints::timing_errors(&measure)?;
+        warnings.extend(meter_warnings(target, row)?);
+        warnings.extend(chord_recognition_errors(&measure));
+        row["timing_errors"] = json!(warnings);
         if !list(row, "timing_errors").is_empty() {
             row["needs_review"] = json!(true);
         }
@@ -3595,6 +3342,10 @@ pub fn finalize_records(records: &mut [Value], information: &mut Value) -> Resul
             for tuning in &candidates {
                 let mut failures = vec![];
                 for &i in &indices {
+                    if !records[i]["target"].is_string() {
+                        failures.push(vec![]);
+                        continue;
+                    }
                     failures.push(scorelib::gp5_constraints::notation_fingering_errors(
                         &score::parse_measure_target(text(&records[i], "target", ""))?,
                         tuning,
@@ -3620,9 +3371,34 @@ pub fn finalize_records(records: &mut [Value], information: &mut Value) -> Resul
             }
         }
     }
+    for (row, before) in records.iter_mut().zip(&previous) {
+        if flag(row, "manually_edited") {
+            continue;
+        }
+        let changed = row["target"] != before["target"]
+            || row["assembly_relations"] != before["assembly_relations"]
+            || row["unresolved"] != before["unresolved"];
+        if !changed && flag(before, "reviewed") {
+            row["reviewed"] = json!(true);
+            row["needs_review"] = before["needs_review"].clone();
+        } else if changed || flag(row, "needs_review") {
+            row["reviewed"] = json!(false);
+        }
+    }
     if let Some(first) = records.first() {
         information["tuning_used"] = first["tuning"].clone();
     }
+    Ok(())
+}
+
+/// Rebuild musical drafts after editing local evidence or document context.
+pub fn reassemble(source: &mut Value) -> Result<()> {
+    let mut records = source["records"]
+        .as_array()
+        .ok_or("Recognition is missing records")?
+        .clone();
+    finalize_records(&mut records, source)?;
+    source["records"] = json!(records);
     Ok(())
 }
 
@@ -3657,68 +3433,19 @@ fn chord_key(value: &str) -> String {
 }
 
 /// Preserve accepted/manual OCR records after compatible metadata edits.
-/// Returning None means pitches must be recognized again; no source is mutated.
+/// Rebuild derived pitches from retained observations when context changes.
 pub fn update_information(source: &Value, information: &Value) -> Result<Option<Value>> {
-    fn part_contexts(value: &Value) -> Result<BTreeMap<String, Value>> {
-        let mut result = BTreeMap::new();
-        for part in list(value, "parts") {
-            let id = part["id"].as_str().ok_or("Part is missing its id")?;
-            if result.insert(id.to_owned(),json!({"instrument":part["instrument"],"tuning_used":part["tuning_used"],"transpose":part["transpose"]})).is_some(){return Err("Duplicate part id".into());}
-        }
-        Ok(result)
-    }
-    fn pitch_contexts(value: &Value) -> Result<BTreeMap<i64, Value>> {
-        let mut result = BTreeMap::new();
-        for row in list(value, "measure_pitch_contexts") {
-            let number = row["measure_number"]
-                .as_i64()
-                .ok_or("Pitch context is missing its measure number")?;
-            // Confirming existing evidence changes review flags, not the pitches
-            // already recognized from this context.
-            let semantics = json!({
-                "pitch_context": row["pitch_context"],
-                "pitch_reference": row["pitch_reference"],
-            });
-            if result.insert(number, semantics).is_some() {
-                return Err("Duplicate pitch context measure".into());
-            }
-        }
-        Ok(result)
-    }
-    if part_contexts(source)? != part_contexts(information)?
-        || source["tuning_used"] != information["tuning_used"]
-        || text(source, "instrument", "guitar") != text(information, "instrument", "guitar")
-        || source["transpose"] != information["transpose"]
-        || pitch_contexts(source)? != pitch_contexts(information)?
-    {
-        return Ok(None);
-    }
     let mut result = source.clone();
-    let previous_tempo = source["document_metadata"]["tempo_quarter"].clone();
-    let global_capo_changed = list(information, "measure_profiles").is_empty()
-        && source.get("capo").unwrap_or(&Value::from(0))
-            != information.get("capo").unwrap_or(&Value::from(0))
-        && matches!(text(source, "instrument", "guitar"), "guitar" | "bass");
-    let fallback_mode = text(source, "mode", "notation").to_owned();
     for field in [
         "title",
         "artist",
+        "instrument",
+        "midi_program",
         "tuning_used",
         "capo",
+        "transpose",
         "document_metadata",
-    ] {
-        result[field] = information
-            .get(field)
-            .cloned()
-            .ok_or_else(|| format!("Document information is missing {field}"))?;
-    }
-    result["instrument"] = json!(text(information, "instrument", "guitar"));
-    result["midi_program"] = information
-        .get("midi_program")
-        .cloned()
-        .unwrap_or(json!(25));
-    result["parts"] = json!(list(information, "parts"));
-    for field in [
+        "parts",
         "measure_profiles",
         "measure_pitch_contexts",
         "tuning_source",
@@ -3728,112 +3455,81 @@ pub fn update_information(source: &Value, information: &Value) -> Result<Option<
             result[field] = value.clone();
         }
     }
-    let profiles: BTreeMap<i64, &Value> = list(information, "measure_profiles")
-        .iter()
-        .map(|p| {
-            p["measure_number"]
-                .as_i64()
-                .map(|n| (n, p))
-                .ok_or("Profile is missing measure number".to_owned())
-        })
-        .collect::<Result<_>>()?;
-    let contexts: BTreeMap<i64, &Value> = list(information, "measure_pitch_contexts")
-        .iter()
-        .map(|context| {
-            context["measure_number"]
-                .as_i64()
-                .map(|number| (number, context))
-                .ok_or("Pitch context is missing its measure number".to_owned())
-        })
-        .collect::<Result<_>>()?;
     let records = result["records"]
         .as_array_mut()
         .ok_or("Recognition is missing records")?;
+    let updated_layout = list(information, "resolved_records");
+    if !updated_layout.is_empty() && updated_layout.len() != records.len() {
+        return Ok(None);
+    }
     for row in records.iter_mut() {
-        let Some(number) = row["measure_number"].as_i64() else {
-            return Err("Recognition record is missing measure number".into());
-        };
-        if let Some(context) = contexts.get(&number) {
-            for key in [
-                "pitch_context",
-                "pitch_reference",
-                "pitch_needs_review",
-                "instrument_evidence",
-                "instrument_needs_review",
-                "tuning_needs_review",
-                "instrument_tuning_candidates",
+        let number = row["measure_number"]
+            .as_i64()
+            .ok_or("Recognition record is missing measure number")?;
+        if !updated_layout.is_empty() {
+            let Some(updated) = updated_layout
+                .iter()
+                .find(|r| r["measure_number"] == number)
+            else {
+                return Ok(None);
+            };
+            // A regrouped staff can reuse its observation; a changed crop cannot.
+            if ["bbox", "mode", "source_page", "recognition_bbox"]
+                .into_iter()
+                .any(|field| {
+                    updated
+                        .get(field)
+                        .is_some_and(|value| row.get(field) != Some(value))
+                })
+            {
+                return Ok(None);
+            }
+            for field in [
+                "source_id",
+                "part_id",
+                "staff_id",
+                "bar_index",
+                "system_index",
+                "page",
             ] {
-                if let Some(value) = context.get(key) {
-                    row[key] = value.clone();
+                if let Some(value) = updated.get(field) {
+                    row[field] = value.clone();
                 }
             }
         }
-        if global_capo_changed && text(row, "mode", &fallback_mode) != "tab" {
-            row["pitch_needs_review"] = json!(true);
-            row["needs_review"] = json!(true);
-        }
-        let Some(profile) = profiles.get(&number) else {
-            continue;
-        };
-        if row["capo"].as_i64().unwrap_or(0) != profile["capo"].as_i64().unwrap_or(0)
-            && row["mode"] != "tab"
-        {
-            row["pitch_needs_review"] = json!(true);
-            row["needs_review"] = json!(true);
-        }
-        for key in [
-            "part_name",
-            "instrument",
-            "midi_program",
-            "tuning",
-            "string_count",
-            "capo",
-            "tuning_source",
-            "tuning_explicit",
-            "fingering_tunings",
-            "instrument_evidence",
-            "instrument_needs_review",
-            "tuning_needs_review",
-            "instrument_tuning_candidates",
-        ] {
-            if let Some(v) = profile.get(key) {
-                row[key] = v.clone();
+        let profile = list(information, "measure_profiles")
+            .iter()
+            .find(|r| r["measure_number"] == number);
+        if let Some(profile) = profile {
+            merge(row, profile);
+        } else {
+            let part = list(information, "parts")
+                .iter()
+                .find(|p| p["id"] == row["part_id"])
+                .unwrap_or(information);
+            for field in ["instrument", "midi_program", "capo", "tuning_source"] {
+                if let Some(value) = part.get(field) {
+                    row[field] = value.clone();
+                }
             }
+            if let Some(tuning) = part.get("tuning_used") {
+                row["tuning"] = tuning.clone();
+            }
+        }
+        if let Some(context) = list(information, "measure_pitch_contexts")
+            .iter()
+            .find(|r| r["measure_number"] == number)
+        {
+            merge(row, context);
         }
         if row["pitch_context"].is_object() {
-            row["pitch_context"]["capo"] = profile["capo"].clone();
+            row["pitch_context"]["capo"] = row["capo"].clone();
         }
     }
-    let tempo = information["document_metadata"]["tempo_quarter"]
-        .as_i64()
-        .filter(|n| *n != 0);
-    if let Some(tempo) =
-        tempo.filter(|_| information["document_metadata"]["tempo_quarter"] != previous_tempo)
-    {
-        if let Some(first) = records.first() {
-            let opening = first["bar_index"].as_i64().unwrap_or(0);
-            for (index, row) in records.iter_mut().enumerate() {
-                if row["bar_index"].as_i64().unwrap_or(index as i64) != opening {
-                    continue;
-                }
-                let mut measure = score::parse_measure_target(text(row, "target", ""))?;
-                measure["tempo_quarter"] = json!(tempo);
-                row["target"] = json!(score::format_measure_target(
-                    &measure,
-                    text(row, "mode", &fallback_mode),
-                    true
-                )?);
-            }
-        }
-    }
+    reassemble(&mut result)?;
     Ok(Some(result))
 }
 
-fn annotation_effect(effect: &str) -> bool {
-    ["chord:", "diagram:", "text:"]
-        .iter()
-        .any(|prefix| effect.starts_with(prefix))
-}
 fn event_chord_name(event: &Value) -> Option<String> {
     list(event, "effects")
         .iter()
@@ -3841,18 +3537,6 @@ fn event_chord_name(event: &Value) -> Option<String> {
         .find_map(|effect| effect.strip_prefix("chord:"))
         .map(unquote)
 }
-fn quote_annotation(value: &str) -> String {
-    let mut result = String::new();
-    for byte in value.as_bytes() {
-        if byte.is_ascii_alphanumeric() || b"-_.~".contains(byte) {
-            result.push(*byte as char);
-        } else {
-            result.push_str(&format!("%{byte:02X}"));
-        }
-    }
-    result
-}
-/// OCR confidence checks only. Custom/manual chord names remain legal score IR.
 pub fn is_chord_symbol(name: &str) -> bool {
     use std::sync::OnceLock;
     use unicode_normalization::UnicodeNormalization;
@@ -3898,262 +3582,189 @@ pub fn chord_recognition_errors(measure: &Value) -> Vec<String> {
     errors
 }
 
-/// Splice only annotation suffixes into validated original event tokens. In
-/// particular, never route retained music through the M formatter here.
-/// A repeated '^' payload is expanded from the original lexical payload only
-/// when otherwise an edited previous annotation would accidentally propagate.
-fn patch_event_annotations(
-    original: &str,
-    changes: &BTreeMap<(i64, i64), Vec<String>>,
-    section: Option<&str>,
-) -> Result<String> {
-    let measure = score::parse_measure_target(original)?;
-    let mut originals: BTreeMap<(i64, i64), &Value> = BTreeMap::new();
-    for voice in list(&measure, "voices") {
-        for event in list(voice, "events") {
-            let key = (
-                voice["voice"].as_i64().ok_or("Missing voice id")?,
-                event["start"].as_i64().ok_or("Missing event onset")?,
-            );
-            if originals.insert(key, event).is_some() {
-                return Err("Ambiguous original voice/onset during chord review".into());
-            }
-        }
-    }
-    let delimiter = original.find('|').ok_or("Missing M voice separator")?;
-    let whitespace = Regex::new(r"\S+").unwrap();
-    let mut edits: Vec<(usize, usize, String)> = Vec::new();
-    let body = &original[delimiter + 1..];
-    let mut offset = delimiter + 1;
-    for part in body.split("||") {
-        let open = part.find('{').ok_or("Missing voice opening brace")?;
-        let close = part.rfind('}').ok_or("Missing voice closing brace")?;
-        let voice = part[..open]
-            .trim()
-            .strip_prefix('V')
-            .ok_or("Invalid voice prefix")?
-            .parse::<i64>()
-            .map_err(|_| "Invalid voice id")?;
-        let mut previous_original = String::new();
-        let mut previous_output = String::new();
-        for token in whitespace.find_iter(&part[open + 1..close]) {
-            let raw = token.as_str();
-            let first = raw.find(':').ok_or("Missing event onset separator")?;
-            let onset = raw[..first]
-                .strip_prefix('@')
-                .ok_or("Invalid event prefix")?
-                .parse::<i64>()
-                .map_err(|_| "Invalid event onset")?;
-            let mut bracket = 0i32;
-            let payload_offset = raw[first + 1..]
-                .char_indices()
-                .find_map(|(i, c)| {
-                    match c {
-                        '[' => bracket += 1,
-                        ']' => bracket -= 1,
-                        ':' if bracket == 0 => return Some(first + 1 + i + 1),
-                        _ => {}
-                    }
-                    None
-                })
-                .ok_or("Missing payload separator")?;
-            let payload = &raw[payload_offset..];
-            let effective = if payload == "^" {
-                if previous_original.is_empty() {
-                    return Err("Repeated payload has no predecessor".into());
-                }
-                previous_original.clone()
-            } else {
-                payload.to_owned()
-            };
-            let original_event = originals
-                .get(&(voice, onset))
-                .ok_or("Original event identity was not retained")?;
-            let current_effects: Vec<String> = list(original_event, "effects")
-                .iter()
-                .map(|v| {
-                    v.as_str()
-                        .ok_or("Invalid original effect")
-                        .map(str::to_owned)
-                })
-                .collect::<std::result::Result<_, _>>()?;
-            let desired_effects = changes.get(&(voice, onset)).unwrap_or(&current_effects);
-            let desired = if desired_effects == &current_effects {
-                effective.clone()
-            } else {
-                let notes = if effective.ends_with('>') {
-                    effective
-                        .rsplit_once('<')
-                        .ok_or("Invalid original annotation suffix")?
-                        .0
-                } else {
-                    &effective
-                };
-                format!(
-                    "{notes}{}",
-                    if desired_effects.is_empty() {
-                        String::new()
-                    } else {
-                        format!("<{}>", desired_effects.join(","))
-                    }
-                )
-            };
-            let replacement = if payload == "^" && desired == previous_output {
-                "^".to_owned()
-            } else {
-                desired.clone()
-            };
-            if replacement != payload {
-                let start = offset + open + 1 + token.start() + payload_offset;
-                edits.push((start, start + payload.len(), replacement));
-            }
-            previous_original = effective;
-            previous_output = desired;
-        }
-        offset += part.len() + 2;
-    }
-    if let Some(section) = section.filter(|s| !s.is_empty()) {
-        if measure["section"].as_str() != Some(section) {
-            let value = format!("section={}", quote_annotation(section));
-            if let Some(token) = whitespace
-                .find_iter(&original[..delimiter])
-                .find(|t| t.as_str().starts_with("section="))
-            {
-                edits.push((token.start(), token.end(), value));
-            } else {
-                let end = original[..delimiter].trim_end().len();
-                edits.push((end, end, format!(" {value}")));
-            }
-        }
-    }
-    edits.sort_by_key(|e| e.0);
-    let mut result = original.to_owned();
-    for (start, end, replacement) in edits.into_iter().rev() {
-        result.replace_range(start..end, &replacement);
-    }
-    // Reject a malformed annotation without falling back to regenerating music.
-    score::parse_measure_target(&result)?;
-    Ok(result)
-}
+#[cfg(test)]
+mod observation_pipeline_tests {
+    use super::*;
 
-/// Apply only chord/diagram/text and section changes from the reread. Every
-/// musical event, note, onset, duration, velocity and technique comes from the
-/// original, including musical fields in candidate rows that happen to match.
-pub fn merge_chord_review(original: &str, reread: &str, mode: &str) -> Result<String> {
-    let measure = score::parse_measure_target(original)?;
-    let candidate = score::parse_measure_target(reread)?;
-    let mut positions = BTreeMap::new();
-    for voice in list(&measure, "voices") {
-        for event in list(voice, "events") {
-            let key = (
-                voice["voice"].as_i64().ok_or("Missing voice id")?,
-                event["start"].as_i64().ok_or("Missing event onset")?,
+    fn record(bar: i64, fret: Value, relations: Value) -> Value {
+        json!({"source_id":"score", "part_id":"guitar", "staff_id":"tab", "bar_index":bar,
+            "measure_number":bar+1,"mode":"tab","instrument":"guitar","capo":0,
+            "tuning":[64,59,55,50,45,40],"tuning_source":"manual","tuning_explicit":true,
+            "observation":{"state":{"time":{"status":if bar==0 {"observed"}else{"absent"},
+                "value":if bar==0 {json!("4/4")}else{Value::Null}}},
+                "voices":[{"voice":0,"events":[{"start":0,"duration":"q","status":"normal",
+                    "notes":[{"string":1,"fret":fret}],"effects":[]}]}],"relations":relations}})
+    }
+    fn information() -> Value {
+        json!({"parts":[],"document_metadata":{}})
+    }
+    struct LocalOnly {
+        output: String,
+        calls: usize,
+    }
+    impl Generator for LocalOnly {
+        fn generate(
+            &mut self,
+            messages: Value,
+            _: usize,
+            schema: Option<Value>,
+            grammar: Option<&str>,
+        ) -> Result<llama::Generation> {
+            self.calls += 1;
+            let content = messages[0]["content"].as_array().unwrap();
+            assert_eq!(
+                content
+                    .iter()
+                    .filter(|part| part["type"] == "image_url")
+                    .count(),
+                1
             );
-            if positions.insert(key, event).is_some() {
-                return Err("Ambiguous original event onset".into());
-            }
+            let prompt = content
+                .iter()
+                .find_map(|part| part["text"].as_str())
+                .unwrap();
+            assert!(prompt.contains("Do not infer information outside the image"));
+            assert!(!prompt.contains("Effective printed state"));
+            assert!(schema.is_some());
+            assert!(grammar.is_none());
+            Ok(llama::Generation {
+                content: self.output.clone(),
+                completion_tokens: 90,
+            })
         }
     }
-    let mut changes = BTreeMap::new();
-    let mut seen = HashSet::new();
-    for voice in list(&candidate, "voices") {
-        for event in list(voice, "events") {
-            let at = (
-                voice["voice"]
-                    .as_i64()
-                    .ok_or("Missing candidate voice id")?,
-                event["start"]
-                    .as_i64()
-                    .ok_or("Missing candidate event onset")?,
-            );
-            if !seen.insert(at) {
-                return Err(
-                    "The reread repeats a voice/onset; annotation assignment is ambiguous".into(),
-                );
-            }
-            if event_chord_name(event).is_some_and(|s| !s.is_empty())
-                && !positions.contains_key(&at)
-            {
-                return Err(
-                    "The reread chord onset does not match an existing musical event".into(),
-                );
-            }
-            let Some(original_event) = positions.get(&at) else {
-                continue;
-            };
-            let mut effects: Vec<String> = list(original_event, "effects")
-                .iter()
-                .filter_map(Value::as_str)
-                .filter(|s| !annotation_effect(s))
-                .map(str::to_owned)
-                .collect();
-            let previous_annotations: Vec<&str> = list(original_event, "effects")
-                .iter()
-                .filter_map(Value::as_str)
-                .filter(|s| annotation_effect(s))
-                .collect();
-            let next_annotations: Vec<&str> = list(event, "effects")
-                .iter()
-                .filter_map(Value::as_str)
-                .filter(|s| annotation_effect(s))
-                .collect();
-            if previous_annotations == next_annotations {
-                continue;
-            }
-            effects.extend(next_annotations.into_iter().map(str::to_owned));
-            changes.insert(at, effects);
-        }
+    #[test]
+    fn single_crop_keeps_missing_fret_and_invalid_json_does_not_become_rest() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("crop.png");
+        RgbImage::from_pixel(100, 100, Rgb([255, 255, 255]))
+            .save(&path)
+            .unwrap();
+        let mut row = record(0, Value::Null, json!([]));
+        row["image"] = json!(path);
+        row["previous_image"] = json!("/not/an/input.png");
+        row["next_image"] = json!("/not/an/input.png");
+        let mut engine = LocalOnly {
+            output: row["observation"].to_string(),
+            calls: 0,
+        };
+        let result =
+            recognize_measure(&mut engine, &row, &MeasureConfig::default(), &|| false).unwrap();
+        assert!(result["observation"]["voices"][0]["events"][0]["notes"][0]["fret"].is_null());
+        assert!(result["target"].is_null());
+        engine.output = "unreadable".into();
+        let result =
+            recognize_measure(&mut engine, &row, &MeasureConfig::default(), &|| false).unwrap();
+        assert!(result["observation"].is_null());
+        let mut rows = vec![result];
+        finalize_records(&mut rows, &mut information()).unwrap();
+        assert!(rows[0]["target"].is_null());
+        assert_eq!(rows[0]["needs_review"], true);
     }
-    let result = patch_event_annotations(original, &changes, candidate["section"].as_str())?;
-    let (_, before_errors) = score::validate_measure_target(original, mode, None, Some(12));
-    let (_, after_errors) = score::validate_measure_target(&result, mode, None, Some(12));
-    let added: Vec<_> = after_errors
-        .into_iter()
-        .filter(|error| !before_errors.contains(error))
-        .collect();
-    if !added.is_empty() {
-        return Err(format!("Invalid reread annotation: {}", added.join("; ")));
+    #[test]
+    fn reassembly_updates_tied_neighbour_from_manual_value_and_stops_at_gap() {
+        let mut rows = vec![
+            record(
+                0,
+                json!(5),
+                json!([{"kind":"tie","shape":"curve","start":[0,0,0],"end":"right","voice":0}]),
+            ),
+            record(
+                1,
+                Value::Null,
+                json!([{"kind":"tie","shape":"curve","start":"left","end":[0,0,0],"voice":0}]),
+            ),
+        ];
+        rows[0]["observation"]["voices"][0]["events"][0]["duration"] = json!("w");
+        finalize_records(&mut rows, &mut information()).unwrap();
+        assert!(rows[1]["target"].as_str().unwrap().contains("s1f5(tie)"));
+        rows[0]["target"] = json!("M | V0{@0:w:s1f9}");
+        rows[0]["manually_edited"] = json!(true);
+        rows[0]["needs_review"] = json!(true);
+        rows[0]["visual_techniques"] =
+            json!([{"voice":0,"event":0,"effect":"pm","source":"manual"}]);
+        finalize_records(&mut rows, &mut information()).unwrap();
+        assert!(rows[1]["target"].as_str().unwrap().contains("s1f9(tie)"));
+        assert_eq!(
+            rows[0]["observation"]["voices"][0]["events"][0]["notes"][0]["fret"],
+            5
+        );
+        assert_eq!(rows[0]["needs_review"], true);
+        assert_eq!(rows[0]["visual_techniques"][0]["source"], "manual");
+        rows[1]["bar_index"] = json!(3);
+        finalize_records(&mut rows, &mut information()).unwrap();
+        assert!(rows[1]["target"].is_null());
     }
-    Ok(result)
-}
+    #[test]
+    fn notation_is_converted_after_assembly_and_can_be_reassembled() {
+        let mut row = record(0, json!(0), json!([]));
+        row["mode"] = json!("notation");
+        row["capo"] = json!(2);
+        row["pitch_context"] = json!({"clef":"G2","clef_octave":0,"instrument_transpose":-12,"instrument_transpose_base":-12,"instrument_transpose_explicit":false,"capo":2});
+        row["observation"]["state"]["key"] = json!({"status":"observed","value":0});
+        row["observation"]["state"]["clef"] = json!({"status":"observed","value":"G2"});
+        row["observation"]["state"]["clef_octave"] = json!({"status":"observed","value":0});
+        row["observation"]["voices"][0]["events"][0]["notes"] =
+            json!([{"staff_position":0,"accidental":null}]);
+        let mut source = information();
+        source["records"] = json!([row]);
+        reassemble(&mut source).unwrap();
+        let row = &source["records"][0];
+        assert!(row["written_target"].as_str().unwrap().contains("p64"));
+        assert!(row["target"].as_str().unwrap().contains("p50"));
+        let before = source["records"][0]["target"].clone();
+        reassemble(&mut source).unwrap();
+        assert_eq!(source["records"][0]["target"], before);
+        // The same conventional guitar octave must not be applied twice when
+        // the measure model sees a small 8 missed by information detection.
+        source["records"][0]["observation"]["state"]["clef_octave"] =
+            json!({"status":"observed","value":-12});
+        reassemble(&mut source).unwrap();
+        assert!(source["records"][0]["target"]
+            .as_str()
+            .unwrap()
+            .contains("p50"));
+        source["records"][0]["pitch_context"]["instrument_transpose_explicit"] = json!(true);
+        reassemble(&mut source).unwrap();
+        assert!(source["records"][0]["target"]
+            .as_str()
+            .unwrap()
+            .contains("p38"));
 
-/// After visual retries, retain uncertain chord text as review evidence without
-/// allowing the uncertainty to erase or regenerate an otherwise valid measure.
-pub fn retain_uncertain_chords_as_text(target: &str) -> Result<(String, Vec<Value>)> {
-    let measure = score::parse_measure_target(target)?;
-    let mut changes = BTreeMap::new();
-    let mut uncertain = vec![];
-    for voice in list(&measure, "voices") {
-        for event in list(voice, "events") {
-            if chord_recognition_errors(&json!({"voices":[{"events":[event]}]})).is_empty() {
-                continue;
-            }
-            let name = event_chord_name(event).ok_or("Uncertain chord has no name")?;
-            let voice = voice["voice"].as_i64().ok_or("Missing voice id")?;
-            let start = event["start"].as_i64().ok_or("Missing event onset")?;
-            uncertain.push(json!({"voice":voice,"start":start,"text":name}));
-            let mut captions: Vec<String> = list(event, "effects")
-                .iter()
-                .filter_map(Value::as_str)
-                .filter_map(|s| s.strip_prefix("text:"))
-                .map(unquote)
-                .collect();
-            captions.push(name);
-            let mut seen = HashSet::new();
-            captions.retain(|s| seen.insert(s.clone()));
-            let mut effects: Vec<String> = list(event, "effects")
-                .iter()
-                .filter_map(Value::as_str)
-                .filter(|s| !s.starts_with("chord:") && !s.starts_with("text:"))
-                .map(str::to_owned)
-                .collect();
-            effects.push(format!("text:{}", quote_annotation(&captions.join("; "))));
-            changes.insert((voice, start), effects);
-        }
-    }
-    if uncertain.is_empty() {
-        Ok((target.to_owned(), uncertain))
-    } else {
-        Ok((patch_event_annotations(target, &changes, None)?, uncertain))
+        // A new printed clef survives the next crop despite stale inherited
+        // information context; the next crop explicitly sees no new clef.
+        let mut second = source["records"][0].clone();
+        second["measure_number"] = json!(2);
+        second["bar_index"] = json!(1);
+        second["observation"]["state"]["clef"] = json!({"status":"observed","value":"F4"});
+        let mut third = second.clone();
+        third["measure_number"] = json!(3);
+        third["bar_index"] = json!(2);
+        third["observation"]["state"]["clef"] = json!({"status":"absent","value":null});
+        source["records"]
+            .as_array_mut()
+            .unwrap()
+            .extend([second, third]);
+        reassemble(&mut source).unwrap();
+        assert_eq!(
+            source["records"][2]["resolved"]["state"]["clef"],
+            json!({"status":"inherited","value":"F4"})
+        );
+
+        // Manual shared metadata remains authoritative over the unchanged image.
+        source["records"][0]["manual_state"] =
+            json!({"time":{"status":"observed","value":"3/4","source":"manual"}});
+        source["records"][1]["observation"]["state"]["time"] =
+            json!({"status":"absent","value":null});
+        source["records"][2]["observation"]["state"]["time"] =
+            json!({"status":"absent","value":null});
+        reassemble(&mut source).unwrap();
+        reassemble(&mut source).unwrap();
+        assert_eq!(source["records"][2]["score_state"]["time"], "3/4");
+        source["records"][2]["observation"]["state"]["clef_octave"] =
+            json!({"status":"unknown","value":null});
+        reassemble(&mut source).unwrap();
+        assert!(source["records"][2]["target"].is_null());
+        assert_eq!(source["records"][2]["needs_review"], true);
     }
 }

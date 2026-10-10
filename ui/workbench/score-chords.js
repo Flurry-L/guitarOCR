@@ -475,7 +475,7 @@ export function initChordLibraryReview({render, setBusy}) {
         render();
         // Also refresh when embedded in a standalone editor/test host.
         renderLibrary();
-        notice(decision === "confirm" ? "指法库已保存。导出 GP 时将保留这张指法图。"
+        notice(decision === "confirm" ? "指法库已保存。关联到具体拍点后，指法图会随该拍导出到 GP。"
           : decision === "reject" ? "已从指法库排除该候选，可恢复原识别结果。" : "已恢复原识别结果。");
       } finally {
         if (ui.sid === sid && ui.openGeneration === generation) setBusy(false);

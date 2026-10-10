@@ -57,8 +57,7 @@ export function measureProfile(measure, state) {
 }
 export function reviewKind(measure) {
   if (!measure.needs_review) return "";
-  if (measure.annotation_review) return "review";
-  return measure.fallback_reason?.length || measure.timing_errors?.length
+  return measure.timing_errors?.length
     ? "failed"
     : "review";
 }
@@ -93,6 +92,8 @@ export function engrave(state, settings, edited = null, mode = null) {
     edited?.index === mi ? edited.measure : record.parsed,
     edited?.index === mi && Object.hasOwn(edited, "visualTechniques") ? edited.visualTechniques : record.visual_techniques)}));
   const warnings = buildMasterBars(score, records, state);
+  const incomplete = records.filter(({record}) => record.parsed.incomplete).map(({record, mi}) => (record.bar_index ?? mi) + 1);
+  if (incomplete.length) warnings.push(`第 ${[...new Set(incomplete)].join("、")} 小节尚未补全，空白谱格不表示休止。请选中小节，对照原谱补全音符。`);
   records.sort((a, b) => (a.record.bar_index ?? a.mi) - (b.record.bar_index ?? b.mi));
   records.forEach(({record, mi, data}) => {
     const profile = measureProfile(record, state);

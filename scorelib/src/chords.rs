@@ -27,10 +27,14 @@ pub fn pending(annotation: &Value) -> bool {
     let is_chord = matches!(parsed["kind"].as_str(), Some("chord" | "chord_diagram"));
     let unresolved = evidence["review_required"] == true
         || evidence["name_needs_review"] == true
+        || evidence["accepted"]["geometry"] == false
         || evidence["accepted"]["full"] == false
-        || evidence["conflict_fields"]
-            .as_array()
-            .is_some_and(|fields| !fields.is_empty())
+        // A fully accepted dedicated reading resolves the older text-model
+        // geometry; its differences remain audit evidence, not a pending choice.
+        || (evidence["accepted"]["full"] != true
+            && evidence["conflict_fields"]
+                .as_array()
+                .is_some_and(|fields| !fields.is_empty()))
         || (has_candidate && parsed["diagram"].is_null());
     unresolved && (has_candidate || (is_chord && evidence["name_needs_review"] == true))
 }

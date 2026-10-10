@@ -28,6 +28,7 @@ import {
 
 export function initMeasures({ start, go, renderExport, setBusy }) {
   let draft,
+    observationDraft,
     visualTechniques,
     selected,
     profile,
@@ -78,7 +79,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     if (!draft || !ui.sid) return;
     try {
       if (ui.measureDirty) sessionStorage.setItem(draftKey(), JSON.stringify({
-        index: ui.measureIndex, revision: draftRevision, draft, visualTechniques, selected,
+        index: ui.measureIndex, revision: draftRevision, draft, observationDraft, visualTechniques, selected,
         mode: ui.editorMode, text: $("measureText").value, track,
       }));
       else sessionStorage.removeItem(draftKey());
@@ -202,8 +203,14 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
   function snapshot() {
     return { draft: clone(draft), visualTechniques: clone(visualTechniques), selected: clone(selected) };
   }
+  const observationChanged = () => JSON.stringify(observationDraft) !== JSON.stringify(current()?.observation);
+  const invalidObservationInput = () => [...$("observationFields").querySelectorAll("input,select")].find(input => !input.validity.valid);
   function change(fn, { merge = false, typed = false } = {}) {
     if (ui.busy || saving || !draft || ui.editorMode !== "score") return;
+    if (observationChanged() || invalidObservationInput()) {
+      feedback("请先保存补全的识别内容，再编辑谱面。");
+      return;
+    }
     if (!typed) {
       digits = "";
       digitTime = 0;
@@ -235,11 +242,12 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
       (ui.editorMode === "text"
         ? $("measureText").value.trim() !== current()?.score_text?.trim()
         : JSON.stringify(draft) !== JSON.stringify(current()?.parsed)) ||
-      JSON.stringify(visualTechniques ?? null) !== JSON.stringify(current()?.visual_techniques ?? null);
+      JSON.stringify(visualTechniques ?? null) !== JSON.stringify(current()?.visual_techniques ?? null) ||
+      observationChanged() || !!invalidObservationInput();
     persistDraft();
   }
   function restore(from, to) {
-    if (!from.length || ui.busy || saving || ui.editorMode !== "score") return;
+    if (!from.length || ui.busy || saving || ui.editorMode !== "score" || observationChanged() || invalidObservationInput()) return;
     digits = "";
     digitTime = 0;
     to.push(snapshot());
@@ -269,12 +277,12 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
   });
   $("retryIssues").onclick = action(async () => {
     const targets = [...ui.state.review_measures];
-    if (!confirm(`重新识别 ${targets.length} 个待检查小节，将替换这些小节的人工修改；其他小节不变。失败或停止会保留原结果。继续？`)) return;
+    if (!confirm(`重新识别 ${targets.length} 个待检查小节，将替换这些小节的人工修改，并重新连接相邻小节。失败或停止会保留原结果。继续？`)) return;
     if (ui.measureDirty && !targets.includes(ui.measureIndex + 1) && !(await save(false))) return;
     await start("/recognize", { measures: targets });
   });
   $("retryMeasure").onclick = action(async () => {
-    if (!confirm(`重新识别「${measureLabel(current(), ui.measureIndex)}」将替换该小节人工修改${ui.measureDirty ? "和未保存草稿" : ""}，其他小节不变。失败或停止会保留原结果。继续？`)) return;
+    if (!confirm(`重新识别「${measureLabel(current(), ui.measureIndex)}」将替换该小节人工修改${ui.measureDirty ? "和未保存草稿" : ""}，并重新连接相邻小节。失败或停止会保留原结果。继续？`)) return;
     await start("/recognize", { measures: [ui.measureIndex + 1] });
   });
   function renderNavigator() {
@@ -427,9 +435,9 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
       try { context = JSON.parse(sessionStorage.getItem(`guitarocr-editor:${ui.sid}`) || "null"); } catch {}
     }
     if (opening || (projectRevision !== ui.state.revision && !ui.measureDirty)) {
-      if (!opening && selected)
-        histories.set(ui.measureIndex, { undo, redo, selected });
-      else histories.clear();
+      // Assembly can update neighbouring bars, so a new server snapshot
+      // invalidates undo histories based on the previous musical content.
+      histories.clear();
       draft = null;
       if (!opening) {
         try { sessionStorage.removeItem(draftKey()); } catch {}
@@ -466,6 +474,8 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
           ui.measureIndex = cached.index;
           loadMeasure();
           draft = cached.draft;
+          observationDraft = cached.observationDraft ?? clone(current().observation);
+          renderObservation();
           if (Object.hasOwn(cached, "visualTechniques")) visualTechniques = cached.visualTechniques;
           selected = cached.selected;
           draftRevision = cached.revision;
@@ -546,6 +556,8 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
   function loadMeasure() {
     profile = measureProfile(current(), ui.state);
     draft = clone(current().parsed);
+    observationDraft = clone(current().observation);
+    renderObservation();
     visualTechniques = clone(current().visual_techniques ?? null);
     draftRevision = ui.state.revision;
     const history = histories.get(ui.measureIndex);
@@ -569,10 +581,12 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
         ? "已确认"
         : "识别完成";
     $("reviewStatus").className = `pill ${reviewKind(m)}`;
-    $("fallback").hidden = !m.needs_review;
+    $("reviewHint").hidden = !m.needs_review;
     const timingConflicts = Object.entries(m.global_timing_conflicts || {}).map(([field, values]) =>
       `${field === "time_signature" ? "拍号" : "速度"}：${values.join(" / ")}`);
-    $("fallback").textContent = timingConflicts.length
+    $("reviewHint").textContent = m.parsed.incomplete
+      ? "该小节仍有无法确定的音符或节奏，原始识别内容已保留。请展开下方补全音符，或对照原谱重新输入整个小节；空白谱格不表示休止。"
+      : timingConflicts.length
       ? `不同谱表的${timingConflicts.join("；")}不一致。请对照原谱修改或确认当前小节的正确值，同步位置的其他谱表会一起更新。`
       : m.timing_errors?.length
       ? `${m.timing_errors.join("；")}。请调整起点或时值。`
@@ -580,15 +594,60 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
         ? m.export_errors.join("；")
         : m.fingering_errors?.length
           ? "音高或和弦与当前调弦不匹配，请核对音符和调弦。"
-          : m.annotation_review
-            ? "和弦标注未能确认，请对照原图核对名称与拍点。未确认的内容保留在小节文字中。"
-            : m.fallback_reason?.length
-              ? "该小节未通过识别检查，请对照原图核对音符、奏法和音高。"
-              : "请对照原谱核对谱号、移调和音高，确认后即可导出。";
+          : "请对照原谱核对谱号、移调和音高，确认后即可导出。";
+  }
+  function renderObservation() {
+    const panel = $("incompleteObservation"), fields = $("observationFields");
+    panel.hidden = !current().parsed.incomplete || !observationDraft;
+    fields.replaceChildren();
+    if (panel.hidden) return;
+    panel.open = true;
+    const field = (parent, label, object, key, {scale = 1, choices, text = false} = {}) => {
+      const wrapper = el("label", label), input = el(choices ? "select" : "input");
+      if (choices) input.replaceChildren(new Option("未知", ""), ...choices.map(([v, name]) => new Option(name, v)));
+      else { input.type = text ? "text" : "number"; input.step = scale === 1 ? "1" : "any"; }
+      if (choices && object[key] != null && !choices.some(([v]) => String(v) === String(object[key])))
+        input.append(new Option(object[key], object[key]));
+      input.value = object[key] == null ? "" : typeof object[key] === "number" ? object[key] / scale : object[key];
+      input.setAttribute("aria-label", label);
+      input.oninput = () => {
+        input.setCustomValidity("");
+        const value = input.value === "" ? null : (choices && (key !== "accidental" || input.value === "unknown") || text && input.value.toLowerCase() === "x")
+          ? input.value.toLowerCase() : Number(input.value) * scale;
+        if (typeof value === "number" && (!Number.isSafeInteger(value) || key === "fret" && value < 0))
+          input.setCustomValidity(key === "fret" ? "品位请输入非负整数或 X。" : "请输入有效整数；起点可使用能换算为整数 tick 的拍数。");
+        if (input.validity.valid) object[key] = value;
+        updateDirty();
+        updateMeasureControls();
+      };
+      wrapper.append(input); parent.append(wrapper);
+    };
+    const durations = [["w", "全音符"], ["h", "二分"], ["q", "四分"], ["e", "八分"], ["s", "十六分"], ["t", "三十二分"], ["f", "六十四分"]];
+    const choices = durations.flatMap(([v, name]) => [[v, name], [v + ".", name + "附点"], [v + "[3:2]", name + "三连音"]]);
+    for (const voice of observationDraft.voices || []) for (const [ei, event] of voice.events.entries()) {
+      const group = el("fieldset"), title = el("legend", `声部 ${voice.voice + 1} · 第 ${ei + 1} 个${event.status === "rest" ? "休止" : "音符"}`);
+      group.append(title);
+      field(group, "起点（四分拍，从 0 开始）", event, "start", {scale: 960});
+      field(group, "时值", event, "duration", {choices});
+      if (event.status == null) field(group, "类型", event, "status", {choices: [["normal", "音符"], ["rest", "休止"]]});
+      for (const [ni, note] of (event.notes || []).entries()) {
+        const prefix = event.notes.length > 1 ? `音 ${ni + 1} · ` : "";
+        if (profile.mode !== "notation") {
+          field(group, prefix + "弦", note, "string");
+          field(group, prefix + "品位（闷音填 X）", note, "fret", {text: true});
+        }
+        if (profile.mode !== "tab") {
+          field(group, prefix + "谱表位置（底线 0，每线或间加 1）", note, "staff_position");
+          field(group, prefix + "临时升降号（留空表示未打印）", note, "accidental", {choices: [["unknown", "看不清"], ["0", "还原"], ["1", "升"], ["-1", "降"], ["2", "重升"], ["-2", "重降"]]});
+        }
+      }
+      fields.append(group);
+    }
   }
   function updateMeasureControls() {
     const count = ui.state?.measures?.length || 0,
-      busy = ui.busy || saving;
+      busy = ui.busy || saving,
+      editingObservation = observationChanged() || !!invalidObservationInput();
     if (draft) {
       properties.render(busy || ui.editorMode !== "score");
       effects.render(busy || ui.editorMode !== "score");
@@ -611,6 +670,11 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     $("reviewFilter").disabled = busy || !count;
     $("saveMeasure").disabled = busy || !ui.measureDirty;
     $("saveMeasure").textContent = "保存";
+    $("observationFields").querySelectorAll("input,select").forEach(input => {
+      input.disabled = busy || ui.editorMode === "text" || JSON.stringify(draft) !== JSON.stringify(current()?.parsed)
+        || $("measureText").value.trim() !== (current()?.score_text || "").trim();
+    });
+    $("measureText").disabled = busy || editingObservation;
     $("saveStatus").textContent = saving
       ? "正在保存…"
       : ui.measureDirty
@@ -621,8 +685,8 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     $("pasteBeat").disabled =
       busy || !clipboard || !event() || ui.editorMode !== "score";
     $("duplicateBeat").disabled = busy || !event() || ui.editorMode !== "score";
-    $("undoNote").disabled = busy || !undo.length || ui.editorMode === "text";
-    $("redoNote").disabled = busy || !redo.length || ui.editorMode === "text";
+    $("undoNote").disabled = busy || !undo.length || ui.editorMode === "text" || editingObservation;
+    $("redoNote").disabled = busy || !redo.length || ui.editorMode === "text" || editingObservation;
     document
       .querySelectorAll(
         ".note-tools button,.note-tools select,.effect-tools button,.effect-tools select,#fretTools button,#fretTools select,#pitchTools button,#pitchTools select,#drumTools button,#drumTools select,#timeSignature,#measureTempo,#eventStart",
@@ -1348,6 +1412,8 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
   };
   async function save(reviewed = false) {
     if (saving || ui.busy || !draft) return false;
+    const invalid = invalidObservationInput();
+    if (invalid) { invalid.reportValidity(); invalid.focus(); return false; }
     if (!reviewed && !ui.measureDirty) {
       feedback("修改已保存；核对完成后请点「确认并继续」。");
       return true;
@@ -1360,20 +1426,29 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     feedback();
     try {
       const chosen = event()?.notes[selected?.ni];
-      const body = !ui.measureDirty
+      const changedObservation = observationChanged(), wasIncomplete = !!current().parsed.incomplete;
+      const music = clone(draft);
+      for (const key of ["incomplete", "observation", "resolved", "unresolved"]) delete music[key];
+      const body = changedObservation
+        ? { observation: observationDraft }
+        : !ui.measureDirty
         ? { reviewed }
         : ui.editorMode === "text"
           ? { target: $("measureText").value.trim(), reviewed }
-          : { measure: draft, visual_techniques: visualTechniques, reviewed };
+          : { measure: music, visual_techniques: visualTechniques, reviewed };
       if (!(await commitMeasureDraft({
         sid, index: ui.measureIndex, revision: draftRevision, body,
       }, api))) return false;
       draftRevision = ui.state.revision;
       persistDraft();
       projectRevision = ui.state.revision;
+      histories.clear();
+      profile = measureProfile(current(), ui.state);
       draft = clone(current().parsed);
+      observationDraft = clone(current().observation);
+      renderObservation();
       visualTechniques = clone(current().visual_techniques ?? null);
-      if (ui.editorMode === "text") {
+      if (ui.editorMode === "text" || changedObservation || wasIncomplete) {
         undo = [];
         redo = [];
         selected = firstHit();
@@ -1389,7 +1464,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
       renderReference();
       draw();
       renderExport();
-      feedback(reviewed ? "已保存并确认。" : "已保存修改。");
+      feedback(current().parsed.incomplete ? "已保存；还有内容需要补全。" : changedObservation ? "已保存并重新组谱，请核对。" : reviewed ? "已保存并确认。" : "已保存修改。");
       return true;
     } catch (error) {
       if (ui.sid === sid) {

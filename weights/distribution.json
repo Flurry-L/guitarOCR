@@ -25,15 +25,6 @@
         "path": "auxiliary/chord_text_roles.onnx"
       },
       {
-        "path": "auxiliary/technique_grounding.onnx"
-      },
-      {
-        "path": "auxiliary/technique_relation.onnx"
-      },
-      {
-        "path": "auxiliary/technique_relation_calibration.json"
-      },
-      {
         "path": "auxiliary/staff_label.onnx"
       },
       {
@@ -57,7 +48,13 @@
         "path": "weights/score_ocr/gguf/vision-F16.gguf"
       },
       {
-        "path": "weights/score_ocr/gguf/information-adapter.gguf"
+        "path": "weights/information/gguf/model-Q8_0.gguf"
+      },
+      {
+        "path": "weights/information/gguf/vision-F16.gguf"
+      },
+      {
+        "path": "weights/information/gguf/information-adapter.gguf"
       }
     ]
   }

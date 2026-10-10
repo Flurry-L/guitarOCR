@@ -31,8 +31,6 @@ const PATH_FIELDS: &[&str] = &[
     "score_document",
     "musicxml",
     "structure_predictions",
-    "previous_image",
-    "next_image",
     "recognition_log",
     "predictions",
     "gp5",
@@ -468,11 +466,7 @@ fn validate_saved_state(state: &Value, pages: usize) -> Result<()> {
                     .ok_or_else(|| invalid("Recognition records must be an array"))?;
                 for row in records {
                     require_file(row, "image")?;
-                    let target = row
-                        .get("target")
-                        .and_then(Value::as_str)
-                        .ok_or_else(|| invalid("Recognition record has no M target"))?;
-                    scorelib::score::parse_measure_target(target).map_err(invalid)?;
+                    scorelib::score::record_measure(row).map_err(invalid)?;
                 }
             }
         }

@@ -314,7 +314,7 @@ def _matches_pdf_page_dimension(
 def _validate_render_layout(layout: Any) -> None:
     """Validate the page, system, and explicit display gates from the exporter."""
 
-    from gpbridge.score_native_note_geometry import validate_note_geometry
+    from gpbridge.score_native_note_geometry import validate_note_geometry, validate_relation_geometry
 
     has_geometry = isinstance(layout, Mapping) and "note_geometry" in layout
     root = _mapping(layout, "render layout root")
@@ -329,6 +329,8 @@ def _validate_render_layout(layout: Any) -> None:
     )
     if has_geometry:
         validate_note_geometry(layout)
+    if "relation_geometry" in root:
+        validate_relation_geometry(root)
     display_mode = layout["display_mode"]
     if display_mode not in {"tab", "notation", "both"}:
         raise ValueError(f"Invalid render display mode: {display_mode}")

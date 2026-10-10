@@ -2,6 +2,7 @@
 pub mod chords;
 pub mod gp5_constraints;
 pub mod music_exports;
+pub mod observation;
 #[cfg(feature = "python")]
 mod python;
 pub mod score;

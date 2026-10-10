@@ -15,15 +15,13 @@ from scorelib.score import duration_ticks, write_musicxml
 from scorelib.pitch_context import convert_pitch_target, transpose_key
 from research.data.prompts import (
     SIGNATURE_PROMPT,
-    attach_neighbours,
     key_fifths,
     signature_target,
-    state_prompt,
 )
 from scorelib.techniques import canonical_chord_marks
 
 from research.data.prompts import CLEF_PROMPT, HEADER_PROMPT, STAFF_PROMPT
-from research.data.training_samples import dataset_entry
+from research.data.training_samples import dataset_entry, visual_measure_sample
 
 PROFILES = [
     ('Piano', 'pitched', 0, 'G2', 0, 64), ('Violin', 'pitched', 40, 'G2', 0, 72),
@@ -120,19 +118,78 @@ def render(job):
                         spacing=[(10, 4), (16, 6), (12, 5)][index % 3])
 
 
-def render_score(score, root, family, split, *, font='Leipzig', spacing=None):
+def render_score(score, root, family, split, *, font='Leipzig', spacing=None,
+                 join_octaves=False, omit_octave_labels=False, bars_per_system=None):
     """Render an authored score using the same geometry and task serializers."""
     import cairosvg
     import verovio
+    from research.data.observations import glyph_position, note_identity, verovio_links, verovio_observation
 
     root = Path(root)
     root.mkdir(parents=True, exist_ok=True)
     xml = write_musicxml(score, root / 'score.musicxml')
+    # A playback time-modification does not print a tuplet number. Supply the
+    # visual MusicXML brackets for each complete authored group before rendering.
+    xml_tree = ET.parse(xml)
+    for measure_node in xml_tree.iter('measure'):
+        for notation in measure_node.iter('notations'):
+            for existing in list(notation.findall('tuplet')):
+                notation.remove(existing)
+        groups = {}
+        for note_node in measure_node.findall('note'):
+            if note_node.find('chord') is not None:
+                continue
+            modification = note_node.find('time-modification')
+            if modification is None:
+                continue
+            actual = int(modification.findtext('actual-notes'))
+            normal = int(modification.findtext('normal-notes'))
+            key = (note_node.findtext('staff'), note_node.findtext('voice'), actual, normal)
+            group = groups.setdefault(key, [])
+            group.append(note_node)
+            if len(group) == actual:
+                for endpoint, kind in [(group[0], 'start'), (group[-1], 'stop')]:
+                    notation = endpoint.find('notations')
+                    if notation is None:
+                        notation = ET.SubElement(endpoint, 'notations')
+                    ET.SubElement(notation, 'tuplet', {'type': kind, 'number': '1',
+                        **({'bracket': 'yes', 'show-number': 'actual'} if kind == 'start' else {})})
+                groups[key] = []
+        if any(groups.values()):
+            raise ValueError('Incomplete visual tuplet group')
+    if join_octaves:
+        for part_node in xml_tree.iter('part'):
+            measures = part_node.findall('measure')
+            for previous, current in zip(measures, measures[1:]):
+                stop = next((n for n in reversed(list(previous)) if n.tag == 'direction'
+                             and n.find("direction-type/octave-shift[@type='stop']") is not None), None)
+                start = next((n for n in current if n.tag == 'direction'
+                              and n.find('direction-type/octave-shift') is not None), None)
+                if stop is None or start is None:
+                    continue
+                a, b = stop.find('direction-type/octave-shift'), start.find('direction-type/octave-shift')
+                after = list(previous)[list(previous).index(stop) + 1:]
+                before = list(current)[:list(current).index(start)]
+                if (b.get('type') != 'stop' and a.get('size') == b.get('size')
+                        and stop.get('placement') == start.get('placement')
+                        and stop.findtext('voice') == start.findtext('voice')
+                        and stop.findtext('staff') == start.findtext('staff')
+                        and not any(n.tag == 'note' for n in before + after)):
+                    previous.remove(stop)
+                    current.remove(start)
+    if bars_per_system:
+        for part_node in xml_tree.iter('part'):
+            for index, measure_node in enumerate(part_node.findall('measure')):
+                if index and index % bars_per_system == 0:
+                    measure_node.insert(0, ET.Element('print', {'new-system': 'yes'}))
+    xml_tree.write(xml, encoding='utf-8', xml_declaration=True)
     renderer = verovio.toolkit()
     renderer.setOptions({'scale': 70, 'pageWidth': 2100, 'pageHeight': 2970, 'svgBoundingBoxes': True,
                          'header': 'auto', 'footer': 'none', 'font': font})
     if spacing is not None:
         renderer.setOptions({'spacingStaff': spacing[0], 'spacingSystem': spacing[1]})
+    if bars_per_system:
+        renderer.setOptions({'breaks': 'encoded'})
     if not renderer.loadFile(str(xml)):
         raise ValueError(f'Native engraving failed: {xml}')
     flat = [(pi, si, p, s) for pi, p in enumerate(score['parts']) for si, s in enumerate(p['staves'])]
@@ -140,6 +197,16 @@ def render_score(score, root, family, split, *, font='Leipzig', spacing=None):
     for page in range(1, renderer.getPageCount() + 1):
         svg = renderer.renderToSVG(page)
         tree = ET.fromstring(svg)
+        links = verovio_links(renderer.getMEI())
+        if join_octaves or omit_octave_labels:
+            for node in tree.iter():
+                classes = node.get('class', '').split()
+                # Omit only the native repeated number on a continuation;
+                # selected studies also omit the origin's now-unreadable label.
+                if classes[:1] == ['octave'] and (omit_octave_labels or 'spanning' in classes):
+                    for glyph in list(node.findall('s:use', {'s': 'http://www.w3.org/2000/svg'})):
+                        node.remove(glyph)
+            svg = ET.tostring(tree, encoding='unicode')
         ns = {'s': 'http://www.w3.org/2000/svg'}
         width = float(tree.get('width').removesuffix('px'))
         scale = width / 21000
@@ -164,8 +231,50 @@ def render_score(score, root, family, split, *, font='Leipzig', spacing=None):
                         top = min(float(n.get('y')) for n in boxes)
                         right = max(float(n.get('x')) + float(n.get('width')) for n in boxes)
                         bottom = max(float(n.get('y')) + float(n.get('height')) for n in boxes)
+                        for span in system.iter():
+                            classes = span.get('class', '').split()
+                            if not classes or classes[0] not in ('octave', 'trill') or 'bounding-box' in classes:
+                                continue
+                            link_id = span.get('id') or next((c[3:] for c in classes if c.startswith('id-')), None)
+                            link = links.get(link_id, {})
+                            begin, end = note_identity(link.get('startid', '')), note_identity(link.get('endid', ''))
+                            if classes[0] == 'trill':
+                                end = begin
+                            if begin is None or end is None or begin[:2] != (pi, si) or not begin[2] <= bi <= end[2]:
+                                continue
+                            if classes[0] == 'trill':
+                                for rect in span.findall('.//s:rect', ns):
+                                    rx, ry, rw, rh = (float(rect.get(key, 0)) for key in ('x', 'y', 'width', 'height'))
+                                    if rw > 0 and rh > 0:
+                                        top, bottom = min(top, ry), max(bottom, ry + rh)
+                                continue
+                            for line in span.findall('s:path', ns):
+                                points = list(map(float, re.findall(r'[-+]?(?:\d*\.\d+|\d+)', line.get('d', ''))))
+                                if points and max(points[::2]) >= left and min(points[::2]) <= right:
+                                    top = min(top, min(points[1::2]) - 12)
+                                    bottom = max(bottom, max(points[1::2]) + 12)
+                            for glyph in span.findall('s:use', ns):
+                                gx, gy = glyph_position(glyph)
+                                if left <= gx <= right:
+                                    # Include the number above its baseline.
+                                    # Padding also works on cross-system spans,
+                                    # whose aggregate bounding box is displaced.
+                                    top, bottom = min(top, gy - 400), max(bottom, gy + 80)
                         x0, y0 = max(0, (left + 500) * scale - 3), max(0, (top + 500) * scale - 22)
                         x1, y1 = min(image.width, (right + 500) * scale + 3), min(image.height, (bottom + 500) * scale + 22)
+                        neighbour_bounds = []
+                        for neighbour in staves:
+                            if neighbour is staff_node:
+                                continue
+                            rects = [n for n in neighbour.findall('.//s:rect', ns)
+                                     if float(n.get('height', 0)) > 0 and float(n.get('width', 0)) > 0]
+                            neighbour_bounds.append((min(float(n.get('y')) for n in rects),
+                                max(float(n.get('y')) + float(n.get('height')) for n in rects)))
+                        for neighbour_top, neighbour_bottom in neighbour_bounds:
+                            if neighbour_bottom <= top:
+                                y0 = max(y0, ((neighbour_bottom + top) / 2 + 500) * scale)
+                            if neighbour_top >= bottom:
+                                y1 = min(y1, ((bottom + neighbour_top) / 2 + 500) * scale)
                         box = [x0, y0, x1 - x0, y1 - y0]
                         source_id = f'{family}-p{pi}-s{si}'
                         crop = root / 'crops' / f'{pi}-{si}-{bi}.png'
@@ -187,6 +296,12 @@ def render_score(score, root, family, split, *, font='Leipzig', spacing=None):
                                'score_state': state, 'signature_target': signature_target(state['time'] if 'meterSig' in visible else None,
                                                                                         state['key'] if 'keySig' in visible else None)}
                         records.append(row)
+                        row['observation'] = verovio_observation(staff_node, tree, data, (pi, si, bi), links,
+                            (x0 / scale - 500, y0 / scale - 500, x1 / scale - 500, y1 / scale - 500))
+                        row['reference_target'] = data['written_target']
+                        row['oracle_auxiliary'] = {'state': {key: {'status': 'observed', 'value': value}
+                            for key, value in {**state, **data['pitch_context']}.items()},
+                            'voice_map': {str(v['voice']): v['voice'] for v in data['voices']}}
                         for clef_index, clef_node in enumerate(n for n in staff_node if n.get('class') == 'clef'):
                             clef_boxes = [n for n in clef_node.findall('.//s:rect', ns) if float(n.get('width', 0)) > 0 and float(n.get('height', 0)) > 0]
                             if not clef_boxes:
@@ -223,7 +338,6 @@ def render_score(score, root, family, split, *, font='Leipzig', spacing=None):
                 image.crop((0, 0, image.width, max(1, int(top)))).save(header_path)
                 metadata.append(chat(header_path, HEADER_PROMPT, {'title': score['title'], 'artist': None, 'tuning_name': None}))
             pages.append({'image': str(image_path.resolve()), 'width': image.width, 'height': image.height, 'regions': regions})
-    attach_neighbours(records)
     images = [Image.open(p['image']).convert('RGB') for p in pages]
     pdf = root / 'score.pdf'
     images[0].save(pdf, save_all=True, append_images=images[1:], resolution=180)
@@ -231,8 +345,7 @@ def render_score(score, root, family, split, *, font='Leipzig', spacing=None):
         im.close()
     payload = {'id': family, 'split': split, 'pdf': str(pdf.resolve()), 'records': records, 'pages': pages, 'parts': score['parts']}
     (root / 'score.json').write_text(json.dumps(payload))
-    chats = [{'messages': [{'role': 'user', 'content': '<image><image><image>' + state_prompt('notation', r['instrument'], r['score_state'], r['pitch_context'], first=r['bar_index'] == 0, visual_pitch=True)},
-                           {'role': 'assistant', 'content': r['target']}], 'images': [r['image'], r['previous_image'], r['next_image']]} for r in records]
+    chats = [visual_measure_sample(r) for r in records if 'observation' in r]
     return records, chats, structures, metadata
 
 

@@ -90,7 +90,6 @@ struct Track {
     channel: i32,
     mode: String,
     name: String,
-    reference_measures: Vec<Vec<Value>>,
 }
 impl Track {
     fn measure(&self, index: usize) -> Option<&Value> {
@@ -447,7 +446,7 @@ fn beat(
 pub(super) fn encode(input: &Value) -> R<(Vec<u8>, Value)> {
     let (mut score, visual_events) =
         crate::visual_techniques::project_score(&score_document(input)?)?;
-    let (libraries, pending_diagrams) = super::chord_library::unused(&score)?;
+    let omitted_diagrams = super::chord_library::omitted(&score)?;
     super::fingering::assign(&mut score)?;
     let timeline = arr(&score, "timeline")?;
     if timeline.is_empty() {
@@ -564,7 +563,6 @@ pub(super) fn encode(input: &Value) -> R<(Vec<u8>, Value)> {
                         channel,
                         mode: mode.clone(),
                         name,
-                        reference_measures: vec![],
                     });
                 }
             }
@@ -572,80 +570,6 @@ pub(super) fn encode(input: &Value) -> R<(Vec<u8>, Value)> {
     }
     if tracks.is_empty() {
         return Err("No GP5 voices".into());
-    }
-    let mut library_projection = Vec::new();
-    for library in libraries {
-        let source_id = txt(&library.part, "id", "part-1");
-        let channel = tracks
-            .iter()
-            .find(|t| txt(&t.part, "id", "") == source_id)
-            .map(|t| t.channel)
-            .unwrap_or(0);
-        let count = library.diagrams[0].1.frets.len();
-        let mut part = library.part.clone();
-        part["id"] = json!(format!("{source_id}:chord-reference-{count}"));
-        part["instrument"] = json!("guitar");
-        part["capo"] = json!(0);
-        if part["tuning"].as_array().is_none_or(|t| t.len() != count) {
-            // This silent track describes a physical grid, not playable pitches.
-            // Tuning is deliberately not displayed or inferred from a chord name.
-            part["tuning"] = json!(vec![0; count]);
-        }
-        // Importers merge empty beats with identical start positions. Distinct
-        // ordinary rests preserve each diagram and leave all music untouched.
-        let mut remaining_diagrams = library.diagrams.len();
-        let silent_measures = timeline
-            .iter()
-            .map(|bar| {
-                let (numerator, denominator) = meter(bar)?;
-                let mut left = numerator as i64 * 3840 / denominator as i64;
-                let mut beats = Vec::new();
-                while left >= 120 && remaining_diagrams > 0 {
-                    beats.extend(crate::score::rest_events(120)?);
-                    left -= 120;
-                    remaining_diagrams -= 1;
-                }
-                beats.extend(crate::score::rest_events(left)?);
-                Ok(beats)
-            })
-            .collect::<R<Vec<_>>>()?;
-        let capacity = silent_measures.iter().map(Vec::len).sum::<usize>();
-        if capacity == 0 {
-            return Err("Chord reference track has no silent rest slots".into());
-        }
-        for (batch, diagrams) in library.diagrams.chunks(capacity).enumerate() {
-            let mut reference_measures = silent_measures.clone();
-            for (beat, (name, diagram)) in reference_measures.iter_mut().flatten().zip(diagrams) {
-                beat["effects"] = super::chord_library::annotation_effects(name, diagram);
-            }
-            for start in (0..count).step_by(7) {
-                let strings = (start..(start + 7).min(count)).collect::<Vec<_>>();
-                // GP5 has no text-encoding declaration. Keep this generated
-                // purpose label readable in importers using any legacy locale.
-                let part_number = arr(&score, "parts")?
-                    .iter()
-                    .position(|p| txt(p, "id", "part-1") == source_id)
-                    .map_or(1, |index| index + 1);
-                let mut name = format!("Chord diagrams P{part_number}");
-                if library.diagrams.len() > capacity {
-                    name += &format!(" {}", batch + 1);
-                }
-                if count > 7 {
-                    name += &format!(" strings {}-{}", start + 1, (start + 7).min(count));
-                }
-                library_projection.push(json!({"track":tracks.len()+1,"track_name":name,"part_id":source_id,"strategy":"silent_reference_track","warning":"GP5没有独立的未使用指法库；这些按法保存在静音的指法参考轨，只在谱首列出，不表示正文的和弦位置。","strings":strings.iter().map(|i| i+1).collect::<Vec<_>>(),"split_grid":count>7,"diagrams":diagrams.iter().map(|(n,d)| json!({"name":n,"effect":d.effect()})).collect::<Vec<_>>()}));
-                tracks.push(Track {
-                    part: part.clone(),
-                    staff: json!({"id":"chord-reference","measures":[]}),
-                    voices: vec![0],
-                    strings,
-                    channel,
-                    mode: "tab".into(),
-                    name,
-                    reference_measures: reference_measures.clone(),
-                });
-            }
-        }
     }
     let mut w = Writer::new();
     w.fixed("FICHIER GUITAR PRO v5.10", "version", 30)?;
@@ -752,12 +676,11 @@ pub(super) fn encode(input: &Value) -> R<(Vec<u8>, Value)> {
         let (a, b) = meter(t)?;
         let rows = tracks
             .iter()
-            .filter(|track| track.reference_measures.is_empty())
             .filter_map(|track| track.measure(bi))
             .collect::<Vec<_>>();
         let ks = tracks
             .iter()
-            .filter(|track| track.reference_measures.is_empty() && track.mode != "tab")
+            .filter(|track| track.mode != "tab")
             .filter_map(|track| track.measure(bi)?["key_signature"].as_str())
             .map(key)
             .collect::<R<HashSet<_>>>()?;
@@ -847,9 +770,7 @@ pub(super) fn encode(input: &Value) -> R<(Vec<u8>, Value)> {
         if ti == 0 {
             w.u(0)
         }
-        w.u(if !t.reference_measures.is_empty() {
-            0x28 // visible, muted reference track; it contains no sounded notes
-        } else if txt(&t.part, "instrument", "") == "drums" {
+        w.u(if txt(&t.part, "instrument", "") == "drums" {
             9
         } else {
             8
@@ -870,15 +791,11 @@ pub(super) fn encode(input: &Value) -> R<(Vec<u8>, Value)> {
         w.i(num(&t.part, "capo", 0) as i32);
         w.bytes.extend([255, 0, 0, 0]);
         let mode = t.mode.as_str();
-        let display = if !t.reference_measures.is_empty() {
-            0x49u16 // TAB and header diagram list; no in-score diagram placement
-        } else {
-            match mode {
-                "tab" => 0xc9u16,
-                "notation" => 0xcau16,
-                "both" => 0xcbu16,
-                _ => return Err("Invalid GP5 display mode".into()),
-            }
+        let display = match mode {
+            "tab" => 0xc9u16,
+            "notation" => 0xcau16,
+            "both" => 0xcbu16,
+            _ => return Err("Invalid GP5 display mode".into()),
         };
         w.bytes.extend(display.to_le_bytes());
         w.z(3);
@@ -995,9 +912,6 @@ pub(super) fn encode(input: &Value) -> R<(Vec<u8>, Value)> {
                 if vi == 0 && !group_present {
                     beats = crate::score::rest_events(length)?;
                 }
-                if vi == 0 && !t.reference_measures.is_empty() {
-                    beats = t.reference_measures[bi].clone();
-                }
                 if ti == 0 && vi == 0 && bi > 0 {
                     if let Some(tempo) = timeline[bi]["tempo_quarter"].as_i64() {
                         // GP5 stores tempo changes on beats. Use the opening
@@ -1072,7 +986,7 @@ pub(super) fn encode(input: &Value) -> R<(Vec<u8>, Value)> {
         }
     }
     super::readback::verify(&w.bytes, &json!(expected), tempo)?;
-    let report = json!({"duration_projections":duration_projections,"velocity_quantization":w.velocity_quantization,"chord_library_projection":library_projection,"readback_verified":true,"encoding":"cp936","replacements":w.replacements,"detached_ties":detached,"tracks":tracks.len(),"native":true,"readback_scope":["notes","ties","durations","voice_timing","chord_diagrams"],"mapping":tracks.iter().enumerate().map(|(i,t)|json!({"track":i+1,"part_id":t.part["id"],"staff_id":t.staff["id"],"voices":t.voices,"strings":t.strings.iter().map(|s|s+1).collect::<Vec<_>>(),"tuning":t.strings.iter().map(|s|t.part["tuning"][*s].clone()).collect::<Vec<_>>()})).collect::<Vec<_>>()});
+    let report = json!({"duration_projections":duration_projections,"velocity_quantization":w.velocity_quantization,"readback_verified":true,"encoding":"cp936","replacements":w.replacements,"detached_ties":detached,"tracks":tracks.len(),"native":true,"readback_scope":["notes","ties","durations","voice_timing","chord_diagrams"],"mapping":tracks.iter().enumerate().map(|(i,t)|json!({"track":i+1,"part_id":t.part["id"],"staff_id":t.staff["id"],"voices":t.voices,"strings":t.strings.iter().map(|s|s+1).collect::<Vec<_>>(),"tuning":t.strings.iter().map(|s|t.part["tuning"][*s].clone()).collect::<Vec<_>>()})).collect::<Vec<_>>()});
     let mut report = report;
     if !final_bar_projections.is_empty() {
         report["final_bar_projection"] = json!({"measures":final_bar_projections,
@@ -1082,9 +996,9 @@ pub(super) fn encode(input: &Value) -> R<(Vec<u8>, Value)> {
         .as_array_mut()
         .unwrap()
         .push(json!("tempo"));
-    if !pending_diagrams.is_empty() {
-        report["chord_library_review"] = json!({"annotations":pending_diagrams,
-            "warning":"仍有未确认或冲突的和弦指法候选，未写入 GP5 的指法参考轨；候选和原谱保留在项目中，可在和弦指法库单独确认，也可选择当前拍的按法并确认小节。"});
+    if !omitted_diagrams.is_empty() {
+        report["chord_library_omissions"] = json!({"annotations":omitted_diagrams,
+            "warning":"未关联到正文拍点的指法图和待确认候选保留在项目指法库中，未写入 GP5；在编辑器将确认的指法图添加到对应拍后即可随该拍导出。"});
     }
     if !w.chord_label_projections.is_empty() {
         report["chord_label_projection"] = json!({"events":w.chord_label_projections,
