@@ -10,7 +10,7 @@ import unittest
 from research.common.pdf import open_pdf
 from research.data.native_supervision import (
     native_connection_evidence, native_scope_evidence, native_single_slides,
-    native_tab_observations, native_tuplet_evidence,
+    native_observations, native_tuplet_evidence,
 )
 from research.inference.assembly import assemble, parse_observation
 
@@ -59,6 +59,160 @@ def glyph(x0, x1, *, y=40, string=0):
 
 
 class ObservationAssemblyTests(unittest.TestCase):
+    def test_signature_classifier_absence_prevents_false_state_changes(self):
+        rows = [measure(0), measure(1), measure(2)]
+        rows[0]['observation']['state'].update(time={'status': 'observed', 'value': '6/8'},
+            key={'status': 'absent'}, clef={'status': 'observed', 'value': 'G2'})
+        rows[1]['observation']['state'].update(time={'status': 'observed', 'value': '11/1'},
+            key={'status': 'observed', 'value': 1})
+        rows[2]['observation']['state'] = {}
+        absent = {'status': 'absent', 'source': 'visual_classifier', 'calibrated': True}
+        extra = [{'staff_start': True}, {'state': {'time': absent, 'key': absent}}, {}]
+        result = assemble(rows, auxiliary=extra)
+        for row in result['records']:
+            self.assertEqual(row['resolved']['state']['time']['value'], '6/8')
+            self.assertEqual(row['resolved']['state']['key']['value'], 0)
+        self.assertEqual(result['records'][1]['observation']['state']['time']['value'], '11/1')
+        rows[0]['bar_index'] = 7
+        self.assertIsNone(assemble(rows[:1], auxiliary=extra[:1])['records'][0]['resolved']['state']['key']['value'])
+        rows[0]['bar_index'] = 0
+        rows[0]['observation']['state']['key'] = {'status': 'unknown'}
+        self.assertIsNone(assemble(rows[:1], auxiliary=extra[:1])['records'][0]['resolved']['state']['key']['value'])
+
+    def test_omitted_state_continues_but_unreadable_state_interrupts(self):
+        rows = [measure(i) for i in range(4)]
+        rows[0]['observation']['state']['clef_octave'] = {'status': 'observed', 'value': 0}
+        rows[2]['observation']['state']['clef_octave'] = {'status': 'unknown'}
+        result = assemble(rows)
+        self.assertEqual(result['records'][1]['resolved']['state']['clef_octave'],
+                         {'status': 'inherited', 'value': 0})
+        self.assertIsNone(result['records'][2]['resolved']['state']['clef_octave']['value'])
+        self.assertIsNone(result['records'][3]['resolved']['state']['clef_octave']['value'])
+        rows[2]['observation']['state']['clef_octave'] = {'status': 'observed', 'value': 7}
+        result = assemble(rows)
+        self.assertIsNone(result['records'][2]['resolved']['state']['clef_octave']['value'])
+
+    def test_dual_staves_match_independent_notes_after_score_context(self):
+        row = measure(0, voices=[{'voice': 0, 'events': [
+            {'start': 0, 'duration': 'w', 'status': 'normal',
+             'notes': [{'string': 1, 'fret': 0}, {'string': 2, 'fret': 10}],
+             'notation_notes': [{'staff_position': 10, 'accidental': None},
+                                {'staff_position': 7, 'accidental': None}]}]}])
+        row['mode'] = 'both'
+        values = dict(time='4/4', key=0, clef='G2', clef_octave=0,
+            tuning=[64, 59, 55, 50, 45, 40], instrument_transpose=-12,
+            instrument_transpose_explicit=False, capo=0)
+        extra = {'state': {k: {'status': 'observed', 'value': v} for k, v in values.items()}}
+        result = assemble([row], auxiliary=[extra])
+        self.assertIn('s1f0p76', result['records'][0]['ir'])
+        self.assertIn('s2f10p81', result['records'][0]['ir'])
+        self.assertEqual([n['staff_position'] for n in result['records'][0]['resolved']['voices'][0]['events'][0]['notes']], [7, 10])
+        self.assertEqual(result['records'][0]['observation'], row['observation'])
+        event = row['observation']['voices'][0]['events'][0]
+        event['notes'][1]['fret'] = None
+        result = assemble([row], auxiliary=[extra])
+        self.assertIn('s2f10p81', result['records'][0]['ir'])
+        self.assertIsNone(result['records'][0]['observation']['voices'][0]['events'][0]['notes'][1]['fret'])
+        event['notes'][0]['fret'] = None
+        result = assemble([row], auxiliary=[extra])
+        self.assertIsNone(result['records'][0]['ir'])
+        self.assertTrue(any(i['reason'] == 'dual_note_pairing_unresolved' for i in result['records'][0]['unresolved']))
+        event['notes'][0].update(fret=0, staff_position=7)
+        with self.assertRaises(ValueError):
+            assemble([row], auxiliary=[extra])
+
+    def test_dual_unison_head_and_its_tie_apply_to_the_observed_note_group(self):
+        events = [{'start': i * 1920, 'duration': 'h', 'status': 'normal',
+                   'notes': [{'string': 1, 'fret': 0 if i == 0 else None},
+                             {'string': 2, 'fret': 5 if i == 0 else None}],
+                   'notation_notes': [{'staff_position': 7, 'accidental': None}]}
+                  for i in range(2)]
+        relation = dict(connection('tie', [0, 0, 0], [0, 1, 0]), representation='notation')
+        row = measure(0, voices=[{'voice': 0, 'events': events}], relations=[relation])
+        row['mode'] = 'both'
+        values = dict(time='4/4', key=0, clef='G2', clef_octave=0,
+            tuning=[64, 59, 55, 50, 45, 40], instrument_transpose=-12,
+            instrument_transpose_explicit=False, capo=0)
+        extra = {'state': {k: {'status': 'observed', 'value': v} for k, v in values.items()}}
+        result = assemble([row], auxiliary=[extra])
+        self.assertIsNotNone(result['records'][0]['ir'])
+        notes = result['records'][0]['resolved']['voices'][0]['events'][1]['notes']
+        self.assertEqual([n['fret'] for n in notes], [0, 5])
+        self.assertTrue(all('tie' in n['effects'] for n in notes))
+        self.assertEqual(result['relations'][0]['start_notes'], [[0, 0, 0, 0], [0, 0, 0, 1]])
+        self.assertEqual(result['relations'][0]['end_notes'], [[0, 0, 1, 0], [0, 0, 1, 1]])
+        self.assertIsNone(result['relations'][0]['start'])
+        events[1]['notes'] = []
+        result = assemble([row], auxiliary=[extra])
+        self.assertIsNone(result['records'][0]['ir'])
+        hidden = result['records'][0]['resolved']['voices'][0]['events'][1]['notes']
+        self.assertEqual(len(hidden), 1)
+        self.assertNotIn('string', hidden[0])
+        self.assertEqual(hidden[0]['tab_string_candidates'], [1, 2])
+
+    def test_notation_ties_restore_hidden_tab_chord_without_hidden_supervision(self):
+        events = [{'start': i * 960, 'duration': 'q', 'status': 'normal',
+                   'notes': [{'string': 1, 'fret': 0}, {'string': 2, 'fret': 10}] if i == 0 else [],
+                   'notation_notes': [{'staff_position': 10, 'accidental': None},
+                                      {'staff_position': 7, 'accidental': None}]}
+                  for i in range(4)]
+        relations = [connection('tie', [0, i, n], [0, i+1, n], representation='notation')
+                     for i in range(3) for n in range(2)]
+        row = measure(0, voices=[{'voice': 0, 'events': events}], relations=relations)
+        row['mode'] = 'both'
+        values = dict(time='4/4', key=0, clef='G2', clef_octave=0,
+            tuning=[64, 59, 55, 50, 45, 40], instrument_transpose=-12,
+            instrument_transpose_explicit=False, capo=0)
+        extra = {'state': {k: {'status': 'observed', 'value': v} for k, v in values.items()}}
+        result = assemble([row], auxiliary=[extra])
+        self.assertIsNotNone(result['records'][0]['ir'])
+        self.assertEqual(result['records'][0]['observation'], row['observation'])
+        for event in result['records'][0]['resolved']['voices'][0]['events']:
+            self.assertEqual({(n['string'], n['fret'], n['pitch']) for n in event['notes']},
+                             {(1, 0, 76), (2, 10, 81)})
+        self.assertEqual(result['relations'][0]['start'], [0, 0, 0, 1])
+
+    def test_percussion_position_and_head_are_both_required(self):
+        row = measure(0)
+        row['mode'] = 'notation'
+        row['observation']['state']['clef'] = {'status': 'observed', 'value': 'percussion'}
+        for event, (position, head) in zip(row['observation']['voices'][0]['events'],
+                [(9, 'x'), (9, 'circle-x'), (8, 'diamond'), (1, 'normal')]):
+            event['notes'] = [dict(staff_position=position, notehead=head)]
+        result = assemble([row])
+        self.assertEqual([note(result, 0, i)['pitch'] for i in range(4)], [42, 46, 53, 36])
+        self.assertIsNotNone(result['records'][0]['ir'])
+        row['instrument'] = 'drums'
+        row['observation']['state']['clef'] = {'status': 'observed', 'value': 'C3'}
+        from research.inference.run import assemble_predictions
+        result = assemble_predictions([dict(row, id='drums')])
+        self.assertEqual([note(result, 0, i)['pitch'] for i in range(4)], [42, 46, 53, 36])
+        row['observation']['voices'][0]['events'][0]['notes'][0]['notehead'] = None
+        self.assertIsNone(assemble([row])['records'][0]['ir'])
+        from research.evaluation.measures import visible_equal
+        self.assertFalse(visible_equal(dict(staff_position=9, notehead='x'),
+            dict(staff_position=9, notehead='circle-x'), 'notation'))
+
+    def test_dual_tied_accidental_does_not_create_a_false_natural_pitch(self):
+        rows = [measure(0, (6, 6, 6, 6), [connection('tie', [0, 3, 0], 'right')]),
+                measure(1, (6, 6, 6, 6), [connection('tie', 'left', [0, 0, 0])])]
+        for row in rows:
+            row['mode'] = 'both'
+            for event in row['observation']['voices'][0]['events']:
+                event['notes'][0]['string'] = 3
+                event['notation_notes'] = [{'staff_position': 5, 'accidental': None}]
+            for relation in row['observation']['relations']:
+                relation['representation'] = 'notation'
+        rows[0]['observation']['voices'][0]['events'][0]['notation_notes'][0]['accidental'] = 1
+        values = dict(time='4/4', key=0, clef='G2', clef_octave=0,
+            tuning=[64, 59, 55, 50, 45, 40], instrument_transpose=-12,
+            instrument_transpose_explicit=False, capo=0)
+        extra = {'state': {k: {'status': 'observed', 'value': v} for k, v in values.items()}}
+        result = assemble(rows, auxiliary=[extra, extra])
+        self.assertTrue(all(row['ir'] for row in result['records']))
+        self.assertEqual([note(result, 1, i)['pitch'] for i in range(4)], [73] * 4)
+        self.assertIsNone(result['records'][1]['observation']['voices'][0]['events'][1]['notation_notes'][0]['accidental'])
+
     def test_evaluation_keeps_unknown_rhythm_separate_without_reordering_repeated_notes(self):
         from research.evaluation.measures import summarize
         from research.inference.run import assemble_predictions, observation_record
@@ -168,7 +322,7 @@ class ObservationAssemblyTests(unittest.TestCase):
         layout = json.loads((directory / 'layout.json').read_text())
         score = json.loads((directory / 'official-score.json').read_text())
         with open_pdf(directory / 'score.pdf') as document:
-            results = native_tab_observations(layout, score, document)
+            results = native_observations(layout, score, document)
             changed = deepcopy(score)
             for staff in changed['tracks'][0]['staves']:
                 for bar in staff['measures']:
@@ -181,13 +335,13 @@ class ObservationAssemblyTests(unittest.TestCase):
                                     item[field] = not item.get(field, False)
                                 for field in item.get('slides', {}):
                                     item['slides'][field] = not item['slides'][field]
-            mutated = native_tab_observations(layout, changed, document)
+            mutated = native_observations(layout, changed, document)
             self.assertEqual({index: row.get('observation') for index, row in results.items()},
                              {index: row.get('observation') for index, row in mutated.items()})
             nonstandard = deepcopy(score)
             for event in nonstandard['tracks'][0]['staves'][0]['measures'][17]['voices'][0]['events'][:3]:
                 event['rhythm']['tuplets']['primary'] = [3, 4]
-            unknown_ratio = native_tab_observations(layout, nonstandard, document)
+            unknown_ratio = native_observations(layout, nonstandard, document)
         self.assertEqual(len(results), 32)
         self.assertFalse({index: row['error'] for index, row in results.items() if 'error' in row})
         for row in results.values():

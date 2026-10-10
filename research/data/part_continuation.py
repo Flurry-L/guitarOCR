@@ -22,12 +22,12 @@ from research.data.catalog import write_json, write_jsonl
 
 
 def prepare_native_document(job):
-    row, layout_path, output = job
+    source, layout_path, output = job
     path = Path(layout_path)
     trace = json.loads(path.read_text())
-    prov = row['provenance']
-    target = json.loads(row['messages'][-1]['content'])
-    identity = f"native-{prov['source_id']}-{prov['mode']}"
+    score = json.loads(path.with_name('official-score.json').read_text())
+    native_staff = score['tracks'][0]['staves'][0]
+    identity = f"native-{source['source_id']}"
     destination = Path(output) / identity
     destination.mkdir(parents=True, exist_ok=True)
     systems, rendered = [], {}
@@ -50,11 +50,13 @@ def prepare_native_document(job):
             pixels = contain(crop, ROW_SIZE)
             cache = destination / f'{page}-{index}.npz'
             np.savez_compressed(cache, visible=pixels, absent=pixels)
-            systems.append(dict(page=page, system=index, rows=[dict(part='part-1', mode=prov['mode'],
-                instrument=target['instrument'], cache=str(cache.resolve()), source_family=prov['family'],
+            systems.append(dict(page=page, system=index, rows=[dict(part='part-1', mode=source['mode'],
+                instrument=source['instrument'], cache=str(cache.resolve()), source_family=source['family'],
+                clef='tab' if source['mode'] == 'tab' else native_staff['measures'][system['first_measure_index']]['clef'],
+                name=score['tracks'][0]['name'],
                 label_present=bool(system.get('track_label')))]))
-    return dict(id=identity, split=prov['split'], source_families=[prov['family']],
-                source_track=prov['source_id'], domain='native', systems=systems)
+    return dict(id=identity, split=source['split'], source_families=[source['family']],
+                source_track=source['source_id'], domain='native', systems=systems)
 
 
 def render_engraved_document(job):
@@ -163,6 +165,8 @@ def render_engraved_document(job):
                     "part": part_id,
                     "mode": "notation",
                     "instrument": part["instrument"],
+                    "clef": part['staves'][0]['measures'][0]['pitch_context']['clef'],
+                    "name": part['name'],
                     "cache": str(path.resolve()),
                     "source_family": source["id"],
                     "label_pixels": count,
@@ -261,24 +265,81 @@ class ContinuationData(Dataset):
             current = rng.choice(same_instrument if same_instrument and rng.random() < .75 else candidates)
         else:
             current = next(r for r in right if r['part'] == prior['part'])
-        # Reduce and reorder systems during training and fixed evaluation.
-        # No ordinal, repeated instrument, or candidate-count default suffices.
-        left = [r for r in left if r is prior or rng.random() > .45]
-        right = [r for r in right if r is current or rng.random() > .45]
-        rng.shuffle(left)
-        rng.shuffle(right)
+        # Native score pages preserve the printed part order. Keep that real
+        # convention in most examples. Changed galleries require visible names
+        # or distinct staff profiles; hidden source IDs are not visual evidence.
+        changed = len(left) > 1 and rng.random() < .3
+        show_names = changed and rng.random() < .5 and all(
+            np.any(pixels(r['cache'], False) != pixels(r['cache'], True)) for r in left + right)
+        if changed:
+            if not show_names:
+                # A missing/added row makes the identity uncertainty visible.
+                # Shuffling anonymous identical staff profiles at unchanged
+                # counts would fabricate an unobservable convention break.
+                if rng.random() < .5:
+                    dropped = rng.choice([r for r in left if r is not prior])
+                    left = [r for r in left if r is not dropped]
+                else:
+                    dropped = rng.choice([r for r in right if r is not current])
+                    right = [r for r in right if r is not dropped]
+            rng.shuffle(left)
+            rng.shuffle(right)
         li, ri = left.index(prior), right.index(current)
         before = [pixels(r['cache'], rng.random() < .6).copy() for r in left]
         after = [pixels(r['cache'], True).copy() for r in right]
         if self.visible_labels:
             label_rng = random.Random(910397 + index + (0 if self.training else 8000000))
             after = [visible_label_variant(r, label_rng) for r in right]
+        def full_label(row, image):
+            visible, absent = pixels(row['cache'], False), pixels(row['cache'], True)
+            return bool(np.any(visible != absent) and np.array_equal(image, visible))
+        if show_names:
+            # Explicit names make a genuine rearrangement identifiable. In the
+            # remaining cases partial/absent labels preserve actual ambiguity.
+            before = [pixels(r['cache'], False).copy() for r in left]
+            after = [pixels(r['cache'], False).copy() for r in right]
+        def signature(row):
+            return row['mode'], row['clef']
+        previous_counts = Counter(signature(r) for r in left)
+        current_counts = Counter(signature(r) for r in right)
+        previous_names = Counter(r['name'] for r in left)
+        current_names = Counter(r['name'] for r in right)
+        resolvable = []
+        for c, row in enumerate(right):
+            matching = next((p for p, previous in enumerate(left) if previous['part'] == row['part']), None)
+            named = (full_label(row, after[c]) and current_names[row['name']] == 1
+                     and (matching is not None and previous_names[row['name']] == 1
+                          and full_label(left[matching], before[matching])
+                          or matching is None and row['name'] not in previous_names
+                          and all(full_label(r, image) for r, image in zip(left, before, strict=True))))
+            distinct = (previous_counts[signature(row)] == 0 or matching is not None
+                        and previous_counts[signature(row)] == current_counts[signature(row)] == 1)
+            resolvable.append(not changed or named or distinct)
+        if changed and not resolvable[ri] and signature(prior) == signature(current):
+            target = 2
+        duplicated = False
         if target == 2:
-            # A second visually indistinguishable current candidate carries no
-            # unique correspondence evidence. Preserve that uncertainty.
-            after.append(after[ri].copy())
-            if rng.random() < .5:
-                ri = len(after) - 1
+            if not changed or resolvable[ri]:
+                # Repeated anonymous candidates carry no unique identity.
+                after.append(after[ri].copy())
+                resolvable[ri] = False
+                resolvable.append(False)
+                duplicated = True
+                if rng.random() < .5:
+                    ri = len(after) - 1
+        current_rows = right + ([current] if duplicated else [])
+        pairs = defaultdict(list)
+        for c, row in enumerate(current_rows):
+            for p, previous in enumerate(left):
+                label = (2 if not resolvable[c] and signature(previous) == signature(row)
+                         else int(previous['part'] == row['part']))
+                pairs[label].append((p, c))
+        # Supervise the whole gallery, including unaffected rows beside an
+        # ambiguous duplicate. The query mask identifies which relation is
+        # being classified; uncertainty does not apply to every row at once.
+        target = rng.choice(sorted(pairs))
+        li, ri = rng.choice(pairs[target])
+        prior, current = left[li], current_rows[ri]
         if self.training:
             contrast = rng.uniform(.75, 1.1)
             before = [np.clip(255 - (255 - v.astype(np.float32)) * contrast, 0, 255).astype(np.uint8) for v in before]
@@ -299,11 +360,13 @@ class ContinuationData(Dataset):
             previous_identity=previous_identity, previous_mode=prior['mode'], current_mode=current['mode'],
             target=target, flags=flags)
         if include_correspondence:
-            current_rows = right + ([current] if target == 2 else [])
             example['correspondence'] = dict(previous_parts=[r['part'] for r in left],
                 current_parts=[r['part'] for r in current_rows],
                 previous_identities=[r['instrument'] if previous_identity is not None else None for r in left],
                 previous_modes=[r['mode'] for r in left], current_modes=[r['mode'] for r in current_rows],
+                previous_instruments=[r['instrument'] for r in left],
+                current_instruments=[r['instrument'] for r in current_rows],
+                resolvable=resolvable, gallery_changed=changed or duplicated,
                 domain=document.get('domain', 'ensemble'), family=document['source_families'])
         return example
 
@@ -336,31 +399,27 @@ def group_native_tracks(rows):
 
 
 
-def native_jobs(source, paths, split, output, excluded, limit, rng):
-    rows = json.loads((source / f'staff_{split}.json').read_text())
-    rng.shuffle(rows)
-    family_sources = defaultdict(set)
-    for row in rows:
-        family_sources[row['provenance']['family']].add(row['provenance']['source_id'])
-    if split != 'test':
-        rows.sort(key=lambda row: len(family_sources[row['provenance']['family']]) < 2)
-    selected, seen = [], set()
-    for row in rows:
-        prov = row['provenance']
-        key = f"{prov['mode']}-{prov['source_id']}"
-        if key in seen or prov['family'] in excluded or key not in paths:
-            continue
-        target = json.loads(row['messages'][-1]['content'])
-        if target.get('instrument') not in ['guitar', 'bass', 'pitched', 'drums']:
-            continue
-        trace = json.loads(paths[key].read_text())
-        if len(trace['systems']) < 2 or not any(not system.get('track_label') for system in trace['systems'][1:]):
-            continue
-        seen.add(key)
-        selected.append((row, str(paths[key]), str(output)))
-        if limit and len(selected) >= limit:
-            break
-    return selected
+def native_jobs(exports, split, output, excluded, limit, rng):
+    jobs, seen = [], set()
+    for export in exports:
+        for line in (export / 'document-manifest.jsonl').read_text().splitlines():
+            document = json.loads(line)
+            document_split = {'dev': 'validation'}.get(document['split'], document['split'])
+            if document_split != split or document['source_family_id'] in excluded:
+                continue
+            for path in sorted((export / 'documents' / document['document_id']).glob('tracks/*/layout.json')):
+                source_id = f"{document['document_id']}-{path.parent.name}"
+                if source_id in seen:
+                    continue
+                trace = json.loads(path.read_text())
+                if len(trace['systems']) < 2 or not any(not s.get('track_label') for s in trace['systems'][1:]):
+                    continue
+                seen.add(source_id)
+                source = dict(source_id=source_id, family=document['source_family_id'], split=split,
+                              mode=document['display_mode'], instrument=document['instrument_kind'])
+                jobs.append((source, str(path), str(output)))
+    rng.shuffle(jobs)
+    return jobs[:limit or None]
 
 
 def build(args):
@@ -368,24 +427,20 @@ def build(args):
     excluded = ({json.loads(line)['provenance']['family']
                  for line in args.exclude_families.read_text().splitlines()}
                 if args.exclude_families else set())
-    paths = {}
-    for root in args.exports or []:
-        for path in root.glob('*/tracks/*/layout.json'):
-            paths.setdefault(path.parents[2].name, path)
     fonts = ['Bravura', 'Leipzig', 'Gootville', 'Leland', 'Petaluma']
     families, summary = {}, {}
     with ProcessPoolExecutor(args.workers) as pool:
         for split in ['train', 'validation', 'test']:
             rng = random.Random(args.seed)
             rows = []
-            if args.native_info:
-                jobs = native_jobs(args.native_info, paths, split, args.output / split / 'native', excluded, args.limit, rng)
+            if args.native_exports:
+                jobs = native_jobs(args.native_exports, split, args.output / split / 'native', excluded, args.limit, rng)
                 rows.extend(group_native_tracks(list(pool.map(prepare_native_document, jobs))))
             if args.engraved:
                 sources = []
-                for path in sorted((args.engraved / split).glob('*/score.json')):
+                for path in sorted(args.engraved.glob('**/score.json')):
                     value = json.loads(path.read_text())
-                    if len(value['parts']) >= 2 and value['id'] not in excluded:
+                    if value['split'] == split and len(value['parts']) >= 2 and value['id'] not in excluded:
                         sources.append(path)
                 rng.shuffle(sources)
                 jobs = [(path, args.output / split / 'engraved', fonts[i % len(fonts)])
@@ -410,8 +465,7 @@ def build(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--native-info', type=Path, help='Native staff information directory with staff_{split}.json')
-    parser.add_argument('--exports', type=Path, nargs='+', help='Native export document directories')
+    parser.add_argument('--native-exports', type=Path, nargs='+', help='Native export roots with document-manifest.jsonl and documents/')
     parser.add_argument('--engraved', type=Path, help='Engraved score directory with {split}/*/score.json')
     parser.add_argument('--exclude-families', type=Path, help='Optional information manifest whose families must be excluded')
     parser.add_argument('--output', type=Path, required=True)
@@ -419,10 +473,8 @@ def main():
     parser.add_argument('--workers', type=int, default=6)
     parser.add_argument('--seed', type=int, default=202610039)
     args = parser.parse_args()
-    if not any((args.native_info, args.engraved)):
-        parser.error('Provide --native-info or --engraved')
-    if bool(args.native_info) != bool(args.exports):
-        parser.error('--native-info and --exports must be supplied together')
+    if not any((args.native_exports, args.engraved)):
+        parser.error('Provide --native-exports or --engraved')
     if args.limit < 0 or args.workers < 1:
         parser.error('limit must be nonnegative and workers must be positive')
     build(args)

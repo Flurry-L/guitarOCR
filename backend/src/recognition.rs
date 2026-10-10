@@ -79,6 +79,21 @@ pub trait Generator {
             .map(|(m, s, task)| self.generate_task(task, m, max_tokens, s))
             .collect()
     }
+    fn generate_task_each(
+        &mut self,
+        messages: &mut dyn Iterator<Item = Result<(Value, Option<Value>, OcrTask)>>,
+        max_tokens: usize,
+        on_complete: &mut dyn FnMut(usize, llama::Generation) -> Result<()>,
+    ) -> Result<()> {
+        for (index, request) in messages.enumerate() {
+            let (messages, schema, task) = request?;
+            on_complete(
+                index,
+                self.generate_task(task, messages, max_tokens, schema)?,
+            )?;
+        }
+        Ok(())
+    }
     fn report(&mut self, _message: &str) -> Result<()> {
         Ok(())
     }
@@ -114,6 +129,29 @@ impl Generator for guitarocr_engine::runtime::Session<'_> {
             .map(|(m, s, t)| (m, s, self.task_adapter_applied(t)))
             .collect();
         self.generate_batch_with_adapters(messages, max_tokens)
+    }
+    fn generate_task_each(
+        &mut self,
+        messages: &mut dyn Iterator<Item = Result<(Value, Option<Value>, OcrTask)>>,
+        max_tokens: usize,
+        on_complete: &mut dyn FnMut(usize, llama::Generation) -> Result<()>,
+    ) -> Result<()> {
+        let staff = self.task_adapter_applied(OcrTask::Staff);
+        let clef = self.task_adapter_applied(OcrTask::Clef);
+        let mut requests = messages.map(|request| {
+            request.map(|(m, s, task)| {
+                (
+                    m,
+                    s,
+                    match task {
+                        OcrTask::Staff => staff,
+                        OcrTask::Clef => clef,
+                        _ => false,
+                    },
+                )
+            })
+        });
+        self.generate_batch_with_adapters_each(&mut requests, max_tokens, on_complete)
     }
     fn report(&mut self, message: &str) -> Result<()> {
         guitarocr_engine::runtime::Session::report(self, message)
@@ -1014,7 +1052,12 @@ fn recognize_regions_with_evidence<G: Generator + ?Sized>(
             }
             if read_kind == "clef" {
                 if let Some(reader) = clef_reader.as_deref_mut() {
-                    let evidence = reader.predict(image)?;
+                    let page = image_boundary::open_rgb(Path::new(
+                        region["source_page"]
+                            .as_str()
+                            .ok_or("Clef reading requires the source page")?,
+                    ))?;
+                    let evidence = reader.predict(&page, bbox(region)?)?;
                     let (parsed, recorded) = clef_spatial::apply_evidence(&p["parsed"], &evidence);
                     p["parsed"] = parsed;
                     p["clef_spatial_evidence"] = recorded;
@@ -1071,96 +1114,6 @@ fn staff_image(rows: &[Value]) -> Result<Option<(Value, RgbImage)>> {
         crop,
     )))
 }
-fn glyph(c: char) -> [u8; 7] {
-    match c {
-        'R' => [30, 17, 17, 30, 20, 18, 17],
-        '0' => [14, 17, 19, 21, 25, 17, 14],
-        '1' => [4, 12, 4, 4, 4, 4, 14],
-        '2' => [14, 17, 1, 2, 4, 8, 31],
-        '3' => [30, 1, 1, 14, 1, 1, 30],
-        '4' => [2, 6, 10, 18, 31, 2, 2],
-        '5' => [31, 16, 16, 30, 1, 1, 30],
-        '6' => [14, 16, 16, 30, 17, 17, 14],
-        '7' => [31, 1, 2, 4, 8, 8, 8],
-        '8' => [14, 17, 17, 14, 17, 17, 14],
-        '9' => [14, 17, 17, 15, 1, 1, 14],
-        _ => [0; 7],
-    }
-}
-/// Stable embedded glyphs avoid a desktop-font/runtime dependency.
-pub fn structure_image(page: &RgbImage, rows: &[Vec<Value>]) -> Result<RgbImage> {
-    let mut marked = page.clone();
-    for (i, rows) in rows.iter().enumerate() {
-        let mut top = f64::INFINITY;
-        let mut bottom = 0.0f64;
-        for row in rows {
-            let b = bbox(row)?;
-            let band = crate::layout_postprocess::staff_band(row).unwrap_or([b[1], b[1] + b[3]]);
-            top = top.min(band[0]);
-            bottom = bottom.max(band[1]);
-        }
-        let label = format!("R{}", i + 1);
-        let width = label.len() as u32 * 18 + 6;
-        let x = marked.width().saturating_sub(width);
-        let y = ((top + bottom) / 2. - 14.).round_ties_even().max(0.) as u32;
-        for yy in y.saturating_sub(2)..(y + 31).min(marked.height()) {
-            for xx in x.saturating_sub(2)..marked.width() {
-                marked.put_pixel(xx, yy, Rgb([255; 3]));
-            }
-        }
-        for (j, c) in label.chars().enumerate() {
-            for (gy, bits) in glyph(c).iter().enumerate() {
-                for gx in 0..5 {
-                    if bits & (1 << (4 - gx)) != 0 {
-                        for dy in 0..3 {
-                            for dx in 0..3 {
-                                let (xx, yy) =
-                                    (x + j as u32 * 18 + gx * 3 + dx, y + gy as u32 * 3 + dy);
-                                if xx < marked.width() && yy < marked.height() {
-                                    marked.put_pixel(xx, yy, Rgb([0, 65, 220]));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    let scale = 1.0f64
-        .min(1200. / f64::from(marked.width()))
-        .min(1680. / f64::from(marked.height()));
-    if scale < 1. {
-        marked = crate::image_transforms::resize_rgb_lanczos(
-            &marked,
-            (f64::from(marked.width()) * scale)
-                .round_ties_even()
-                .max(1.) as u32,
-            (f64::from(marked.height()) * scale)
-                .round_ties_even()
-                .max(1.) as u32,
-        );
-    }
-    Ok(marked)
-}
-pub fn structure_prompt(count: usize, modes: &[String]) -> String {
-    let mut p="Read the score structure. Each staff row is marked R1, R2, ... in blue. A notation+TAB pair is ONE row of the same part. A piano grand staff has TWO rows of the same part, staff 0 for right hand and staff 1 for left hand. Group simultaneous parts into systems using brackets, barlines and names. Return JSON {\"parts\":[{\"name\":printed instrument name,\"instrument\":guitar|bass|pitched|drums,\"strings\":TAB line count or null,\"program\":zero-based GM program}],\"rows\":[[system,part,staff],...]}. Indices start at 0; rows follow the blue numbers. Keep the same part index in successive systems. Do not infer TAB strings from notation lines. If notation and TAB of one instrument have separate blue row labels, assign both rows the SAME system, part and staff indices. Different printed part names must keep different part indices, including Guitar and Guitar II or multiple parts of the same instrument. A row that already contains notation+TAB cannot pair with another TAB row. ".to_owned();
-    p += &format!("There are {count} marked rows.");
-    if modes.iter().any(|m| m == "notation") && modes.iter().any(|m| m == "tab") {
-        p += &format!(
-            " Detected row types: {}.",
-            modes
-                .iter()
-                .enumerate()
-                .map(|(i, m)| format!("R{}={m}", i + 1))
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
-    }
-    p
-}
-fn structure_schema(count: usize) -> Value {
-    json!({"type":"object","additionalProperties":false,"required":["parts","rows"],"properties":{"parts":{"type":"array","minItems":1,"maxItems":count,"items":{"type":"object","additionalProperties":false,"required":["name","instrument","strings","program"],"properties":{"name":{"type":"string"},"instrument":{"enum":["guitar","bass","pitched","drums"]},"strings":{"anyOf":[{"type":"null"},{"type":"integer","minimum":1,"maximum":12}]},"program":{"type":"integer","minimum":0,"maximum":127}}}},"rows":{"type":"array","minItems":count,"maxItems":count,"items":{"type":"array","minItems":3,"maxItems":3,"items":{"type":"integer","minimum":0}}}}})
-}
 fn majority_mode(rows: &[Value], fallback: &str) -> String {
     let mut counts: Vec<(String, usize)> = vec![];
     for r in rows {
@@ -1177,18 +1130,7 @@ fn majority_mode(rows: &[Value], fallback: &str) -> String {
         .map(|x| x.0)
         .unwrap_or_else(|| fallback.into())
 }
-fn structure_row_centers(
-    rows: &[Vec<Value>],
-    source_height: u32,
-    marked_height: u32,
-) -> Result<Vec<f32>> {
-    if source_height == 0 || marked_height == 0 {
-        return Err("Structure page dimensions must be nonzero".into());
-    }
-    // The relation image has already been proportionally resized for the VLM.
-    // Detector boxes remain in source-page coordinates. Use the actual rounded
-    // output height, matching Python's read_relations transformation.
-    let scale = f64::from(marked_height) / f64::from(source_height);
+fn structure_row_centers(rows: &[Vec<Value>]) -> Result<Vec<f32>> {
     rows.iter()
         .map(|row| {
             let bands =
@@ -1201,7 +1143,7 @@ fn structure_row_centers(
                     .collect::<Result<Vec<_>>>()?;
             let top = bands.iter().map(|b| b[0]).fold(f64::INFINITY, f64::min);
             let bottom = bands.iter().map(|b| b[1]).fold(0., f64::max);
-            Ok(((top + bottom) / 2. * scale) as f32)
+            Ok(((top + bottom) / 2.) as f32)
         })
         .collect()
 }
@@ -1221,11 +1163,12 @@ pub fn recognize_structure<G: Generator + ?Sized>(
         pages.entry(page).or_default().push(row);
     }
     let mut predictions = vec![];
-    let mut relation_reader = config
-        .structure_relation_model
-        .as_deref()
-        .map(crate::structure_relation::StructureRelation::new)
-        .transpose()?;
+    let mut relation_reader = crate::structure_relation::StructureRelation::new(
+        config
+            .structure_relation_model
+            .as_deref()
+            .ok_or("Score structure requires a row relation model")?,
+    )?;
     let mut staff_reader = (config.staff_profile && config.staff_label_model.is_some())
         .then(|| staff_profile::StaffProfileReader::new(config))
         .transpose()?;
@@ -1248,54 +1191,18 @@ pub fn recognize_structure<G: Generator + ?Sized>(
             .as_str()
             .ok_or("Structure requires source_page images")?;
         let original = image_boundary::open_rgb(Path::new(path))?;
-        let marked = structure_image(&original, rows)?;
         let document = rows[0][0]["source_pdf"].as_str().unwrap_or("");
         let modes: Vec<String> = rows.iter().map(|r| majority_mode(r, "notation")).collect();
-        let centers = structure_row_centers(rows, original.height(), marked.height())?;
-        let relation = relation_reader
-            .as_mut()
-            .map(|reader| reader.predict(&marked, &centers, &modes))
-            .transpose()?;
-        let systems = relation.as_ref().map(|relation| &relation.systems);
-        let mut prompt = structure_prompt(rows.len(), &modes);
-        if let Some(systems) = systems {
-            prompt += &format!(
-                " A visual row-relation network proposes system indices {systems:?} for the marked rows. Read the image to verify these groups and assign every visible part and staff."
-            );
-        }
-        let schema = structure_schema(rows.len());
-        let messages = image_messages(&[marked], &prompt, config.image_policy.as_ref())?;
-        let response = engine.generate(messages, 2048, Some(schema))?;
-        let raw = response.content;
-        let result = if let Some(relation) = &relation {
-            crate::score_structure::parse_structure_with_relation_heads(
-                &raw,
-                rows.len(),
-                Some(&relation.systems),
-                &relation.same_system_probabilities,
-                relation.same_part_probabilities.as_deref(),
-                Some(&modes),
-                relation.review_confidence,
-                relation.part_review_confidence,
-            )
-        } else {
-            crate::score_structure::parse_structure_with_audit_proposal(
-                &raw,
-                rows.len(),
-                None,
-                Some(&modes),
-            )
-        };
-        let (mut parsed, mut resolution_audit) = result.map_err(|error| {
-            format!("Could not resolve score parts on page {page}: {error}; check staff boxes and retry")
-        })?;
-        if let Some(relation) = &relation {
-            resolution_audit["relation_prediction"] = json!({"systems":relation.systems,
-                "same_system_probabilities":relation.same_system_probabilities,
-                "same_part_probabilities":relation.same_part_probabilities,
-                "needs_review":relation.needs_review,"review_confidence":relation.review_confidence,
-                "part_review_confidence":relation.part_review_confidence});
-        }
+        let centers = structure_row_centers(rows)?;
+        let relation = relation_reader.predict(&original, &centers, &modes)?;
+        let (mut parsed, resolution_audit) = crate::score_structure::relation_groups(
+            &relation.systems,
+            &relation.same_system_probabilities,
+            &relation.same_part_probabilities,
+            &modes,
+            relation.review_confidence,
+            relation.part_review_confidence,
+        )?;
         if let Some(reader) = staff_reader.as_mut() {
             let assignments = parsed["rows"]
                 .as_array()
@@ -1343,7 +1250,7 @@ pub fn recognize_structure<G: Generator + ?Sized>(
                 serde_json::from_value(parsed["rows"].clone()).map_err(|e| e.to_string())?;
             let batches = crate::score_structure::identity_batches(
                 &assignments,
-                parsed["anonymous_relation_groups"] == true,
+                parsed["system_local_parts"] == true,
             )?;
             let profiles = parsed["parts"]
                 .as_array_mut()
@@ -1398,8 +1305,8 @@ pub fn recognize_structure<G: Generator + ?Sized>(
                 previous_document = document.to_owned();
             }
         }
-        predictions.push(json!({"page":page,"source_page":path,"raw":raw,"parsed":parsed,
-            "systems_from_image":systems,
+        predictions.push(json!({"page":page,"source_page":path,"parsed":parsed,
+            "systems_from_image":relation.systems,
             "structure_needs_review":resolution_audit["needs_review"],"resolution_audit":resolution_audit}));
     }
     Ok(predictions)
@@ -1614,6 +1521,26 @@ pub fn apply_pitch_regions(
             for field in ["clef", "clef_octave"] {
                 local_clef[field] = json!({"status":if state[field].is_null() || pending.contains(field) {"unknown"}else{"observed"},
                     "value":state[field],"source":"information_ocr"});
+                if local_clef[field]["status"] == "observed" {
+                    if let Some(evidence) = changes
+                        .get(&i)
+                        .into_iter()
+                        .flatten()
+                        .filter(|p| p["kind"] == "clef")
+                        .map(|p| &p["clef_spatial_evidence"])
+                        .find(|e| {
+                            e["source"] == "clef_spatial_network"
+                                && e["accepted"] == true
+                                && e[field] == state[field]
+                        })
+                    {
+                        local_clef[field]["source"] = json!("visual_classifier");
+                        local_clef[field]["calibrated"] = json!(true);
+                        local_clef[field]["reader"] = evidence["source"].clone();
+                        local_clef[field]["confidence"] = evidence["confidence"].clone();
+                        local_clef[field]["threshold"] = evidence["threshold"].clone();
+                    }
+                }
             }
         }
         r["clef_observation"] = local_clef;
@@ -1846,7 +1773,6 @@ pub fn recognize_information<G: Generator + ?Sized>(
             .find(|p| p["kind"] == "staff")
             .unwrap_or(&Value::Null);
         let label_evidence = staff_prediction.get("staff_label_evidence");
-        let original_part = part.get("structure_prediction").unwrap_or(part);
         let effective_name = label_evidence
             .map(|e| {
                 if e["status"] == "read" {
@@ -1870,14 +1796,12 @@ pub fn recognize_information<G: Generator + ?Sized>(
             staff_evidence::resolve_string_count(
                 has_tab,
                 &metadata["string_count"],
-                &original_part["strings"],
                 &staff_prediction["staff_evidence"],
                 if index == 0 {
                     config.tuning.as_ref().map(Vec::len)
                 } else {
                     None
                 },
-                flag(staff_prediction, "task_adapter_applied"),
             )
         };
         let count = count_evidence["value"].as_u64().map(|n| n as usize);
@@ -1900,7 +1824,6 @@ pub fn recognize_information<G: Generator + ?Sized>(
             staff_evidence::resolve_instrument_with_label(
                 has_tab,
                 &metadata["instrument"],
-                &original_part["instrument"],
                 if index == 0 {
                     config.instrument.as_deref()
                 } else {
@@ -1931,7 +1854,7 @@ pub fn recognize_information<G: Generator + ?Sized>(
         metadata["instrument_evidence"] = identity_evidence.clone();
         metadata["instrument_evidence"]["names"] = json!({
             "staff_model":label_evidence.map(|e| &e["staff_prediction"]["name"]).unwrap_or(&metadata["name"]),
-            "structure_model":original_part["name"], "label_text":label_evidence.map(|e| &e["text"])});
+            "part_profile":part["name"], "label_text":label_evidence.map(|e| &e["text"])});
         metadata["instrument_source"] = if named_pitched {
             json!("visible_instrument_annotation")
         } else {
@@ -2605,30 +2528,58 @@ pub fn recognize_measure<G: Generator + ?Sized>(
     config: &MeasureConfig,
     cancelled: &dyn Fn() -> bool,
 ) -> Result<Value> {
-    config.validate()?;
-    check(cancelled)?;
-    let mut row = record.clone();
-    let prompt = scorelib::observation::observation_prompt(text(&row, "mode", ""))?;
-    let messages = image_messages(
-        &[record_image(&row)?],
-        &prompt,
-        config.image_policy.as_ref(),
+    let mut result = None;
+    recognize_measures(
+        engine,
+        std::slice::from_ref(record),
+        config,
+        cancelled,
+        &mut |_, row| {
+            result = Some(row);
+            Ok(())
+        },
     )?;
+    result.ok_or_else(|| "Missing measure response".into())
+}
+
+pub fn recognize_measures<G: Generator + ?Sized>(
+    engine: &mut G,
+    records: &[Value],
+    config: &MeasureConfig,
+    cancelled: &dyn Fn() -> bool,
+    on_complete: &mut dyn FnMut(usize, Value) -> Result<()>,
+) -> Result<()> {
+    config.validate()?;
+    let mut requests = records.iter().map(|row| {
+        check(cancelled)?;
+        let mode = text(row, "mode", "");
+        let schema = config
+            .constrained_decoding
+            .then(|| scorelib::observation::observation_schema(mode, row["instrument"].as_str()))
+            .transpose()?;
+        let prompt = scorelib::observation::observation_prompt(mode)?;
+        let messages =
+            image_messages(&[record_image(row)?], &prompt, config.image_policy.as_ref())?;
+        Ok((messages, schema, OcrTask::Base))
+    });
+    engine.generate_task_each(&mut requests, config.max_tokens, &mut |index, response| {
+        check(cancelled)?;
+        on_complete(index, finish_measure(&records[index], response))
+    })
+}
+
+fn finish_measure(record: &Value, response: llama::Generation) -> Value {
+    let mut row = record.clone();
     row["observation"] = Value::Null;
     row["target"] = Value::Null;
     row["written_target"] = Value::Null;
     row["ir"] = Value::Null;
-    let response = engine.generate(
-        messages,
-        config.max_tokens,
-        config
-            .constrained_decoding
-            .then(scorelib::observation::observation_schema),
-    )?;
-    check(cancelled)?;
     row["raw_observation_text"] = json!(response.content);
     row["generated_token_count"] = json!(response.completion_tokens);
-    match scorelib::observation::parse_observation(&json!(response.content)) {
+    match scorelib::observation::parse_measure_observation(
+        &json!(response.content),
+        text(record, "mode", ""),
+    ) {
         Ok(observation) => {
             row["observation"] = observation;
             row["recognition_errors"] = json!([]);
@@ -2636,7 +2587,7 @@ pub fn recognize_measure<G: Generator + ?Sized>(
         Err(error) => row["recognition_errors"] = json!([error]),
     }
     row["needs_review"] = json!(true);
-    Ok(row)
+    row
 }
 
 fn product_pitch_context(row: &Value) -> Value {
@@ -2704,12 +2655,12 @@ fn product_technique_overlay(resolved: &Value) -> Value {
         json!({"voice":voice,"onset":onset,"effects":effects,"status":"classified"})).collect::<Vec<_>>()})
 }
 
-fn assembly_auxiliary(row: &Value) -> Result<Value> {
+fn assembly_auxiliary(row: &Value, information: &Value) -> Result<Value> {
     let mut state = json!({});
     for field in ["time", "key"] {
         let printed = &row["printed_state"];
         let evidence = &printed["evidence"][field];
-        if evidence["status"] == "observed" {
+        if matches!(evidence["status"].as_str(), Some("observed" | "absent")) {
             state[field] = evidence.clone();
         } else if printed["source"] == "manual" && !printed[field].is_null() {
             state[field] = json!({"status":"observed","value":printed[field]});
@@ -2736,7 +2687,44 @@ fn assembly_auxiliary(row: &Value) -> Result<Value> {
     if !list(row, "tuning").is_empty() && !tuning_needs_review(row) {
         state["tuning"] = json!({"status":"observed","value":row["tuning"]});
     }
-    let mut result = json!({"state":state});
+    let context = &row["pitch_context"];
+    if let Some(transpose) = context["instrument_transpose_base"]
+        .as_i64()
+        .or_else(|| context["instrument_transpose"].as_i64())
+    {
+        state["instrument_transpose"] = json!({"status":"observed","value":transpose});
+        state["instrument_transpose_explicit"] = json!({"status":"observed",
+            "value":context["instrument_transpose_explicit"] == true});
+    }
+    if let Some(capo) = row["capo"].as_i64() {
+        state["capo"] = json!({"status":"observed","value":capo});
+    }
+    // Require the actual notation clef to be inside the first bar's crop.
+    // A clef assigned by proximity, or an isolated middle crop, does not
+    // establish that the initial signature area is visible.
+    let metadata = list(information, "parts")
+        .iter()
+        .find(|part| part["id"] == row["part_id"])
+        .map(|part| &part["document_metadata"])
+        .unwrap_or(&information["document_metadata"]);
+    let staff_start = row["bar_index"] == 0
+        && row["system_measure_index"] == 0
+        && row["clef_observation"]["clef"]["status"] == "observed"
+        && bbox(row).is_ok_and(|crop| {
+            list(metadata, "pitch_instructions").iter().any(|region| {
+                region["kind"] == "clef"
+                    && region["page"] == row["page"]
+                    && region["parsed"]["clef"] != "tab"
+                    && region["parsed"]["clef"] == row["clef_observation"]["clef"]["value"]
+                    && bbox(region).is_ok_and(|clef| {
+                        clef[0] >= crop[0]
+                            && clef[1] >= crop[1]
+                            && clef[0] + clef[2] <= crop[0] + crop[2]
+                            && clef[1] + clef[3] <= crop[1] + crop[3]
+                    })
+            })
+        });
+    let mut result = json!({"state":state,"staff_start":staff_start});
     if flag(row, "manually_edited") {
         let target = row["target"]
             .as_str()
@@ -2893,7 +2881,7 @@ pub fn finalize_records(records: &mut [Value], information: &mut Value) -> Resul
         .collect();
     let auxiliary: Vec<Value> = records
         .iter()
-        .map(assembly_auxiliary)
+        .map(|row| assembly_auxiliary(row, information))
         .collect::<Result<_>>()?;
     let assembled = scorelib::observation::assemble(&inputs, Some(&auxiliary))?;
     information["relations"] = assembled["relations"].clone();
@@ -2939,8 +2927,11 @@ pub fn finalize_records(records: &mut [Value], information: &mut Value) -> Resul
                     if mode != "tab" {
                         if let Some(fifths) = row["score_state"]["key"].as_i64() {
                             measure["key_signature"] = json!(key_name(fifths, false)?);
-                            measure["print_key_signature"] =
-                                json!(row["observation"]["state"]["key"]["status"] == "observed");
+                            measure["print_key_signature"] = json!(
+                                row["score_state_evidence"]["key"]["status"] == "observed"
+                                    && row["score_state_evidence"]["key"]["reason"]
+                                        != "empty_initial_signature"
+                            );
                         }
                     }
                     let written = score::format_measure_target(&measure, &mode, true)?;
@@ -3247,14 +3238,13 @@ mod observation_pipeline_tests {
     }
     #[test]
     fn diagnostics_follow_problems_instead_of_manual_review_flags() {
-        let count = |staff, structure| {
+        let count = |staff, network| {
             staff_evidence::resolve_string_count(
                 true,
                 &json!(staff),
-                &json!(structure),
-                &json!({}),
+                &json!({"mode":{"accepted":true,"value":"tab"},
+                    "string_count":{"accepted":true,"value":network}}),
                 None,
-                false,
             )
         };
         assert_eq!(count(6, 6)["needs_review"], false);
@@ -3446,5 +3436,121 @@ mod observation_pipeline_tests {
         reassemble(&mut source).unwrap();
         assert!(source["records"][2]["target"].is_null());
         assert_eq!(source["records"][2]["needs_review"], true);
+    }
+
+    #[test]
+    fn dual_score_uses_part_pitch_context_without_rewriting_visible_notes() {
+        let mut row = record(0, json!(0), json!([]));
+        row["mode"] = json!("both");
+        row["capo"] = json!(2);
+        row["pitch_context"] = json!({"instrument_transpose":-12,
+            "instrument_transpose_base":-12,"instrument_transpose_explicit":false});
+        row["clef_observation"] = json!({
+            "clef":{"status":"observed","value":"G2"},
+            "clef_octave":{"status":"observed","value":0}});
+        row["observation"]["state"]["key"] = json!({"status":"observed","value":0});
+        row["observation"]["voices"][0]["events"][0]["duration"] = json!("w");
+        row["observation"]["voices"][0]["events"][0]["notation_notes"] =
+            json!([{"staff_position":null,"accidental":null}]);
+        let mut rows = vec![row];
+        finalize_records(&mut rows, &mut information()).unwrap();
+        assert!(rows[0]["written_target"]
+            .as_str()
+            .unwrap()
+            .contains("s1f0p78"));
+        assert!(rows[0]["target"].as_str().unwrap().contains("s1f0p64"));
+        assert!(
+            rows[0]["observation"]["voices"][0]["events"][0]["notes"][0]["staff_position"]
+                .is_null()
+        );
+        finalize_records(&mut rows, &mut information()).unwrap();
+        assert!(rows[0]["target"].as_str().unwrap().contains("s1f0p64"));
+
+        // An explicit conflicting notehead remains a conflict, not a second
+        // voice or a silently preferred TAB reading.
+        rows[0]["observation"]["voices"][0]["events"][0]["notation_notes"][0]["staff_position"] =
+            json!(0);
+        finalize_records(&mut rows, &mut information()).unwrap();
+        assert!(rows[0]["target"].is_null());
+        assert!(list(&rows[0], "unresolved")
+            .iter()
+            .any(|issue| issue["reason"] == "dual_note_pairing_unresolved"));
+    }
+
+    #[test]
+    fn signature_absence_prevents_false_changes_and_requires_visible_initial_header() {
+        let mut rows = vec![
+            record(0, json!(0), json!([])),
+            record(1, json!(0), json!([])),
+        ];
+        for (index, row) in rows.iter_mut().enumerate() {
+            row["mode"] = json!("both");
+            row["observation"]["voices"][0]["events"][0]["notation_notes"] =
+                json!([{"staff_position":null,"accidental":null}]);
+            row["page"] = json!(1);
+            row["system_measure_index"] = json!(index);
+            row["bbox"] = json!([0, 0, 100, 200]);
+            row["pitch_context"] = json!({"instrument_transpose":-12,
+                "instrument_transpose_base":-12,"instrument_transpose_explicit":false});
+            row["printed_state"] = json!({"evidence":{
+                "time":{"status":if index==0 {"observed"}else{"absent"},
+                    "value":if index==0 {json!("6/8")}else{Value::Null},
+                    "source":"visual_classifier","calibrated":true},
+                "key":{"status":"absent","value":null,
+                    "source":"visual_classifier","calibrated":true}}});
+            row["observation"]["state"]["time"] = json!({"status":"observed",
+                "value":if index==0 {"6/8"}else{"11/1"}});
+            row["observation"]["state"]["key"] = json!({"status":"observed","value":1});
+        }
+        rows[0]["clef_observation"] = json!({
+            "clef":{"status":"observed","value":"G2"},
+            "clef_octave":{"status":"observed","value":0}});
+        let mut info = information();
+        info["document_metadata"]["pitch_instructions"] = json!([{"kind":"clef","page":1,"bbox":[5,20,10,35],
+            "parsed":{"clef":"G2","clef_octave":0}}]);
+        finalize_records(&mut rows, &mut info).unwrap();
+        assert_eq!(rows[1]["score_state"]["time"], "6/8");
+        assert_eq!(rows[0]["score_state"]["key"], 0);
+        assert_eq!(rows[1]["score_state"]["key"], 0);
+        assert_eq!(rows[1]["observation"]["state"]["time"]["value"], "11/1");
+        rows[0]["bbox"] = json!([20, 0, 80, 200]);
+        finalize_records(&mut rows, &mut info).unwrap();
+        assert!(rows[0]["score_state"]["key"].is_null());
+    }
+
+    #[test]
+    fn accepted_contextual_clef_remains_authoritative_in_measure_assembly() {
+        let mut records = vec![
+            record(0, json!(0), json!([])),
+            record(1, json!(0), json!([])),
+        ];
+        for (index, row) in records.iter_mut().enumerate() {
+            row["mode"] = json!("notation");
+            row["instrument"] = json!("pitched");
+            row["page"] = json!(1);
+            row["system_index"] = json!(0);
+            row["bbox"] = json!([index * 100, 0, 100, 200]);
+            row["observation"]["state"]["key"] = json!({"status":"observed","value":0});
+            row["observation"]["voices"][0]["events"][0]["duration"] = json!("w");
+            row["observation"]["voices"][0]["events"][0]["notes"] =
+                json!([{"staff_position":0,"accidental":null}]);
+        }
+        records[0]["observation"]["state"]["clef"] = json!({"status":"observed","value":"C3"});
+        let predictions = vec![json!({"kind":"clef","page":1,"bbox":[5,20,10,35],
+            "parsed":{"clef":"C4","clef_octave":0},
+            "clef_spatial_evidence":{"source":"clef_spatial_network","accepted":true,
+                "clef":"C4","clef_octave":0,"confidence":0.99,"threshold":0.9}})];
+        let mut records =
+            apply_pitch_regions(&records, &predictions, "pitched", Some(0), None).unwrap();
+        assert_eq!(
+            records[0]["clef_observation"]["clef"]["source"],
+            "visual_classifier"
+        );
+        finalize_records(&mut records, &mut information()).unwrap();
+        for row in &records {
+            assert_eq!(row["score_state"]["clef"], "C4");
+            assert!(row["target"].as_str().unwrap().contains("p50"));
+        }
+        assert_eq!(records[0]["observation"]["state"]["clef"]["value"], "C3");
     }
 }

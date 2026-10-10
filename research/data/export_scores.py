@@ -330,10 +330,6 @@ def _validate_document_geometry(document: Path) -> None:
     for track in sorted((document / "tracks").iterdir()):
         if track.is_dir():
             layout = json.loads((track / "layout.json").read_text(encoding="utf-8"))
-            if layout["display_mode"] != "tab":
-                # Fret-glyph ownership is a TAB-only annotation contract. Page,
-                # system and measure coverage are validated for every mode.
-                continue
             score = json.loads(
                 (track / "official-score.json").read_text(encoding="utf-8")
             )

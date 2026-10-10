@@ -1,9 +1,9 @@
-//! Cross-page identity requires a unique compatible printed name.
+//! Match parts using printed identity or learned continuation evidence.
 use super::{normalized_name, Result};
 use serde_json::{json, Value};
 use std::collections::{BTreeSet, HashMap};
 
-fn name_key(part: &Value) -> String {
+pub(crate) fn name_key(part: &Value) -> String {
     if part["name_source"] == "missing" {
         String::new()
     } else {
@@ -59,7 +59,10 @@ pub(crate) fn resolve(
         let continuation = &profile["continuation_evidence"];
         if continuation["source"] == "part_continuation_network"
             && continuation["status"] == "matched"
-            && profile["staff_label_evidence"]["status"] == "absent"
+            && matches!(
+                profile["staff_label_evidence"]["status"].as_str(),
+                Some("absent" | "unreadable")
+            )
         {
             *continuation_counts
                 .entry(
@@ -80,7 +83,10 @@ pub(crate) fn resolve(
         let continuation = &profile["continuation_evidence"];
         let confirmed_continuation = continuation["source"] == "part_continuation_network"
             && continuation["status"] == "matched"
-            && profile["staff_label_evidence"]["status"] == "absent";
+            && matches!(
+                profile["staff_label_evidence"]["status"].as_str(),
+                Some("absent" | "unreadable")
+            );
         let candidates: Vec<usize> = (0..previous)
             .filter(|&i| {
                 if confirmed_continuation {
@@ -109,6 +115,15 @@ pub(crate) fn resolve(
             None
         };
         let matched = (candidates.len() == 1 && reason.is_none()).then(|| candidates[0]);
+        // A failure to match an existing part is not evidence of a new part.
+        // The first group establishes the score's parts; later groups need a
+        // distinct printed identity or a resolved continuation.
+        if previous > 0 && matched.is_none() && reason.is_some() {
+            return Err(format!(
+                "第 {page} 页的谱行尚不能确定音轨归属（{}），请检查谱行区域后重新识别谱面信息。",
+                reason.unwrap()
+            ));
+        }
         let status = if matched.is_some() {
             "matched"
         } else if reason.is_some() {
@@ -139,6 +154,53 @@ pub(crate) fn resolve(
         evidence.insert(local, identity);
     }
     Ok((mapping, evidence))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn uncertain_continuation_does_not_create_a_track() {
+        let mut parts = vec![
+            json!({"id":"part-1", "name":"Guitar", "instrument":"guitar",
+            "strings":6, "program":25}),
+        ];
+        let mut profile = json!({"name":"", "name_source":"missing", "instrument":"guitar",
+            "strings":6, "program":25, "staff_label_evidence":{"status":"absent"},
+            "continuation_evidence":{"source":"part_continuation_network", "status":"unresolved"}});
+        assert!(resolve(&[profile.clone()], &[[0, 0, 0]], 2, &mut parts).is_err());
+        assert_eq!(parts.len(), 1);
+        profile["continuation_evidence"]["status"] = json!("matched");
+        profile["continuation_evidence"]["matched_part_id"] = json!("part-1");
+        let (mapping, _) = resolve(&[profile.clone()], &[[0, 0, 0]], 2, &mut parts).unwrap();
+        assert_eq!(mapping[&0], 0);
+        assert_eq!(parts.len(), 1);
+        // A false label proposal with no readable name is not contrary identity evidence.
+        profile["staff_label_evidence"]["status"] = json!("unreadable");
+        let (mapping, _) = resolve(&[profile.clone()], &[[0, 0, 0]], 2, &mut parts).unwrap();
+        assert_eq!(mapping[&0], 0);
+        let identity = crate::recognition::staff_evidence::resolve_instrument_with_label(
+            false,
+            &json!("pitched"),
+            None,
+            Some(&profile["staff_label_evidence"]),
+            Some(&json!({"value":"guitar","source":"label_text","status":"resolved"})),
+        );
+        assert_eq!(identity["value"], "guitar");
+        assert_eq!(identity["source"], "confirmed_continuation");
+        profile["staff_label_evidence"]["status"] = json!("read");
+        assert!(resolve(&[profile], &[[0, 0, 0]], 2, &mut parts).is_err());
+        assert_eq!(parts.len(), 1);
+        let (mapping, _) = resolve(
+            &[json!({"name":"Bass", "instrument":"bass", "strings":4, "program":33})],
+            &[[0, 0, 0]],
+            3,
+            &mut parts,
+        )
+        .unwrap();
+        assert_eq!(mapping[&0], 1);
+    }
 }
 
 pub(super) fn attach_page_staff_evidence(record: &mut Value, profile: &Value) {

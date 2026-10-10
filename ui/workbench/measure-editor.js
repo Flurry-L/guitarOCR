@@ -142,7 +142,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
   const view = scoreView($("scoreCanvas"), {
     onSelect: (hit) => selectMeasure(hit.mi, hit),
     onContext: async (hit, x, y) => {
-      if (await selectMeasure(hit.mi, hit)) menu.open(x, y);
+      if (await selectMeasure(hit.mi, hit) && !hit.preview) menu.open(x, y);
     },
     onPlace: async (hit, pitch, add) => {
       if (!(await selectMeasure(hit.mi, hit))) return;
@@ -207,6 +207,12 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
   const invalidObservationInput = () => [...$("observationFields").querySelectorAll("input,select")].find(input => !input.validity.valid);
   function change(fn, { merge = false, typed = false } = {}) {
     if (ui.busy || saving || !draft || ui.editorMode !== "score") return;
+    if (current()?.parsed.incomplete) {
+      inspector(true);
+      $("incompleteObservation").open = true;
+      feedback("这是已确认内容的预览，请在识别观测中纠正未决内容。");
+      return;
+    }
     if (observationChanged() || invalidObservationInput()) {
       feedback("请先保存补全的识别内容，再编辑谱面。");
       return;
@@ -504,8 +510,14 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
       loadMeasure();
       renderNavigator();
     }
-    if (hit) selected = { ...hit };
-    selectionScope = hit?.ni >= 0 ? "note" : "measure";
+    if (hit?.preview) {
+      selected = firstHit();
+      inspector(true);
+      $("incompleteObservation").open = true;
+      ui.editorMode = "score";
+      editorMode();
+    } else if (hit) selected = { ...hit };
+    selectionScope = !hit?.preview && hit?.ni >= 0 ? "note" : "measure";
     renderReference();
     selected.string =
       event()?.notes[selected.ni]?.string || selected.string || 1;
@@ -595,15 +607,21 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
       field(group, "起点（四分拍，从 0 开始）", event, "start", {scale: 960});
       field(group, "时值", event, "duration", {choices});
       if (event.status == null) field(group, "类型", event, "status", {choices: [["normal", "音符"], ["rest", "休止"]]});
-      for (const [ni, note] of (event.notes || []).entries()) {
-        const prefix = event.notes.length > 1 ? `音 ${ni + 1} · ` : "";
-        if (profile.mode !== "notation") {
+      const representations = profile.mode === "both"
+        ? [["TAB · ", event.notes, false], ["五线谱 · ", event.notation_notes, true]]
+        : [["", event.notes, profile.mode === "notation"]];
+      for (const [label, notes, notation] of representations) for (const [ni, note] of (notes || []).entries()) {
+        const prefix = label + (notes.length > 1 ? `音 ${ni + 1} · ` : "");
+        if (!notation) {
           field(group, prefix + "弦", note, "string");
           field(group, prefix + "品位（闷音填 X）", note, "fret", {text: true});
-        }
-        if (profile.mode !== "tab") {
+        } else {
           field(group, prefix + "谱表位置（底线 0，每线或间加 1）", note, "staff_position");
           field(group, prefix + "临时升降号（留空表示未打印）", note, "accidental", {choices: [["unknown", "看不清"], ["0", "还原"], ["1", "升"], ["-1", "降"], ["2", "重升"], ["-2", "重降"]]});
+          if (profile.instrument === "drums") field(group, prefix + "音头形状", note, "notehead", {
+            choices: [["normal", "普通"], ["x", "叉形"], ["circle-x", "圆圈叉形"], ["circle-slash", "圆圈斜线"],
+              ["diamond", "菱形"], ["heavy-x", "粗叉形"], ["heavy-x-hat", "带帽粗叉形"], ["triangle-up", "三角形"]],
+          });
         }
       }
       fields.append(group);
@@ -1390,6 +1408,8 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     try {
       const chosen = event()?.notes[selected?.ni];
       const changedObservation = observationChanged(), wasIncomplete = !!current().parsed.incomplete;
+      if (wasIncomplete && !changedObservation && ui.editorMode !== "text")
+        throw new Error("请在识别观测中纠正未决内容；预览不会替代完整小节。");
       const music = clone(draft);
       for (const key of ["incomplete", "observation", "resolved", "unresolved"]) delete music[key];
       const body = changedObservation

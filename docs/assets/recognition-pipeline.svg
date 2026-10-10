@@ -91,7 +91,7 @@
 <text x="642" y="654" font-family="'DejaVu Sans Mono',monospace" font-size="21" font-weight="400" fill="#7079B8" text-anchor="start">relations</text>
 <text x="898" y="576" font-family="'DejaVu Serif',serif" font-size="25" font-weight="600" fill="#7079B8" text-anchor="end">Oᵢ</text>
 <path d="M 171.01007387508395 352.9308260577569 C 287 352.9308260577569 300 495 338 495" fill="none" stroke="#D4876C" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
-<text x="347" y="689" font-family="'Noto Sans CJK SC','Microsoft YaHei',sans-serif" font-size="20" font-weight="400" fill="#748091" text-anchor="start">辅助网络补充：谱面状态、结构与指法图</text>
+<text x="347" y="689" font-family="'Noto Sans CJK SC','Microsoft YaHei',sans-serif" font-size="20" font-weight="400" fill="#748091" text-anchor="start">专门网络读取：谱面状态、结构与指法图</text>
 </g>
 <g id="ordered-musical-assembly">
 <rect x="1001" y="203" width="373" height="51" rx="5" fill="#EAF4F1" stroke="#B4D5CE" stroke-width="1.5"/>

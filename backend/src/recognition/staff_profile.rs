@@ -98,26 +98,21 @@ impl StaffProfileReader {
 
 /// Local evidence must be resolved before the profile can name a global part.
 pub(super) fn apply(profile: &mut Value, prediction: &Value, has_tab: bool) {
-    let original = profile.clone();
     let parsed = &prediction["parsed"];
     let label = prediction.get("staff_label_evidence");
     let count = staff_evidence::resolve_string_count(
         has_tab,
         &parsed["string_count"],
-        &original["strings"],
         &prediction["staff_evidence"],
         None,
-        flag(prediction, "task_adapter_applied"),
     );
     let identity = staff_evidence::resolve_instrument_with_label(
         has_tab,
         &parsed["instrument"],
-        &original["instrument"],
         None,
         label,
         None,
     );
-    profile["structure_prediction"] = original;
     profile["staff_prediction"] = prediction.clone();
     profile["instrument_evidence"] = identity.clone();
     profile["string_count_evidence"] = count.clone();

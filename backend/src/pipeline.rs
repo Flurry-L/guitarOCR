@@ -12,11 +12,12 @@ use crate::view;
 use guitarocr_engine::runtime::{Options, Runtime, Session};
 use serde_json::{json, Value};
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashSet, VecDeque},
     fs::{self, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{Arc, Condvar, Mutex},
+    time::Duration,
 };
 type Result<T> = std::result::Result<T, String>;
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -25,10 +26,36 @@ enum EngineRole {
     Measures,
 }
 
+#[derive(Default)]
+struct EngineState {
+    loaded: Option<(EngineRole, Arc<Runtime>)>,
+    active: usize,
+    next: u64,
+    waiting: VecDeque<(u64, EngineRole)>,
+}
+
+struct StagePermit<'a> {
+    pipeline: &'a Pipeline,
+    ticket: u64,
+    admitted: bool,
+}
+impl Drop for StagePermit<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut state) = self.pipeline.engine.lock() {
+            state.waiting.retain(|(ticket, _)| *ticket != self.ticket);
+            if self.admitted {
+                state.active -= 1;
+            }
+            self.pipeline.engine_changed.notify_all();
+        }
+    }
+}
+
 pub struct Pipeline {
     pub native: NativeAssets,
     pub models: Arc<Models>,
-    engine: Mutex<Option<(EngineRole, Arc<Runtime>)>>,
+    engine: Mutex<EngineState>,
+    engine_changed: Condvar,
     acceleration: Option<crate::acceleration::Acceleration>,
     slots: usize,
 }
@@ -42,7 +69,8 @@ impl Pipeline {
         Self {
             native,
             models,
-            engine: Mutex::new(None),
+            engine: Mutex::new(EngineState::default()),
+            engine_changed: Condvar::new(),
             acceleration,
             slots,
         }
@@ -53,7 +81,7 @@ impl Pipeline {
     pub fn ready(&self) -> bool {
         self.models.ready()
             && (self.acceleration.as_ref().is_none_or(|a| a.cached())
-                || self.engine.try_lock().is_ok_and(|e| e.is_some()))
+                || self.engine.try_lock().is_ok_and(|e| e.loaded.is_some()))
     }
     pub fn download_bytes(&self) -> u64 {
         self.models.download_bytes()
@@ -68,6 +96,7 @@ impl Pipeline {
             .try_lock()
             .map(|engine| {
                 engine
+                    .loaded
                     .as_ref()
                     .map_or(json!({"device":"auto"}), |(_, engine)| engine.device())
             })
@@ -77,12 +106,12 @@ impl Pipeline {
         self.engine
             .try_lock()
             .ok()
-            .and_then(|engine| engine.as_ref().map(|(_, e)| e.stats()))
+            .and_then(|engine| engine.loaded.as_ref().map(|(_, e)| e.stats()))
             .unwrap_or(Value::Null)
     }
     pub fn shutdown(&self) {
         if let Ok(engine) = self.engine.lock() {
-            if let Some((_, engine)) = engine.as_ref() {
+            if let Some((_, engine)) = engine.loaded.as_ref() {
                 engine.shutdown();
             }
         }
@@ -95,38 +124,56 @@ impl Pipeline {
         run: impl FnOnce(&mut Session<'_>) -> Result<T>,
     ) -> Result<T> {
         self.models.ensure(allow_download, progress)?;
+        let ticket = {
+            let mut state = self.engine.lock().map_err(|_| "识别引擎不可用")?;
+            let ticket = state.next;
+            state.next += 1;
+            state.waiting.push_back((ticket, role));
+            ticket
+        };
+        let mut permit = StagePermit {
+            pipeline: self,
+            ticket,
+            admitted: false,
+        };
         let engine = {
-            let mut engine = loop {
+            let mut state = self.engine.lock().map_err(|_| "识别引擎不可用")?;
+            loop {
                 progress.checkpoint()?;
-                match self.engine.try_lock() {
-                    Ok(mut engine) => {
-                        if let Some((loaded_role, runtime)) = engine.as_ref() {
-                            if *loaded_role != role {
-                                if Arc::strong_count(runtime) > 1 {
-                                    drop(engine);
-                                    std::thread::sleep(std::time::Duration::from_millis(100));
-                                    continue;
-                                }
-                                runtime.shutdown();
-                                *engine = None;
-                            }
-                        }
-                        break engine;
-                    }
-                    Err(std::sync::TryLockError::WouldBlock) => {
-                        std::thread::sleep(std::time::Duration::from_millis(100))
-                    }
-                    Err(_) => return Err("识别引擎不可用，请重新打开应用".into()),
+                let same_role = state
+                    .loaded
+                    .as_ref()
+                    .is_some_and(|(loaded, _)| *loaded == role);
+                // Admit stages in arrival order. A waiting model switch closes
+                // the current group to newcomers, so it cannot be starved.
+                if state.waiting.front() == Some(&(ticket, role))
+                    && (same_role || state.active == 0)
+                {
+                    break;
                 }
-            };
-            if engine.is_none() {
+                state = self
+                    .engine_changed
+                    .wait_timeout(state, Duration::from_millis(100))
+                    .map_err(|_| "识别引擎不可用")?
+                    .0;
+            }
+            if state
+                .loaded
+                .as_ref()
+                .is_some_and(|(loaded, _)| *loaded != role)
+            {
+                if let Some((_, runtime)) = state.loaded.take() {
+                    runtime.shutdown();
+                }
+            }
+            if state.loaded.is_none() {
                 let accelerator = self
                     .acceleration
                     .as_ref()
                     .map(|acceleration| acceleration.prepare(allow_download, progress))
                     .transpose()?
                     .flatten();
-                *engine = Some((
+                state.loaded = Some((
                     role,
                     Arc::new(Runtime::new(Options {
                         executable: self
@@ -158,7 +205,11 @@ impl Pipeline {
                     })),
                 ));
             }
-            engine.as_ref().unwrap().1.clone()
+            state.waiting.pop_front();
+            state.active += 1;
+            permit.admitted = true;
+            self.engine_changed.notify_all();
+            state.loaded.as_ref().unwrap().1.clone()
         };
         engine.run(
             &|| progress.cancelled(),
@@ -251,9 +302,15 @@ impl Pipeline {
                 &json!({"title":title,"document_metadata":{"title_source":"manual"}}),
                 &mut info.manifest,
             );
-        } else if let Some(previous) = state["info"].as_str() {
+        }
+        if let Some(previous) = state["info"].as_str() {
             let previous = view::read_json(Path::new(previous))?;
-            recognition::headers::preserve_manual_title(&previous, &mut info.manifest);
+            if state["manual_title"].as_str().is_none() {
+                recognition::headers::preserve_manual_title(&previous, &mut info.manifest);
+            }
+            if previous["layout"].as_str() == layout_path.to_str() {
+                edit::preserve_manual_instruments(&layout, &previous, &mut info.manifest)?;
+            }
         }
         let predictions = output.path().join("predictions.json");
         edit::json_file(&predictions, &json!(info.predictions))?;
@@ -409,25 +466,31 @@ impl Pipeline {
                 .append(true)
                 .open(&journal)
                 .map_err(|e| e.to_string())?;
-            for record in &records {
-                progress.checkpoint()?;
-                let number = record["measure_number"].as_u64().ok_or("小节编号缺失")? as usize;
-                if !completed.contains_key(&number) {
-                    let result = recognition::recognize_measure(engine, record, &config, &|| {
-                        progress.cancelled()
-                    })?;
+            let pending = records
+                .iter()
+                .filter(|record| {
+                    !completed.contains_key(&(record["measure_number"].as_u64().unwrap() as usize))
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            recognition::recognize_measures(
+                engine,
+                &pending,
+                &config,
+                &|| progress.cancelled(),
+                &mut |_, result| {
                     progress.checkpoint()?;
+                    let number = result["measure_number"].as_u64().ok_or("小节编号缺失")? as usize;
                     serde_json::to_writer(&mut log, &result).map_err(|e| e.to_string())?;
                     log.write_all(b"\n").map_err(|e| e.to_string())?;
                     log.flush().map_err(|e| e.to_string())?;
                     completed.insert(number, result);
-                }
-                progress.update(json!({
-                    "done": completed.len(), "total": records.len(),
-                    "message": format!("正在识别第 {} / {} 小节", completed.len(), records.len())
-                }))?;
-            }
-            Ok(())
+                    progress.update(json!({
+                        "done": completed.len(), "total": records.len(),
+                        "message": format!("已完成 {} / {} 小节", completed.len(), records.len())
+                    }))
+                },
+            )
         })?;
         let mut finished = records
             .iter()

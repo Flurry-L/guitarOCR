@@ -3,22 +3,24 @@ import { alphaTab, engrave, scoreDisplaySettings } from "../../ui/workbench/scor
 
 // Record the glyphs that actually paint. In particular, an allocated TAB note
 // can have no number at all when its tie continues: source fret != printed fret.
-function observeTab(factories, sourceOf, records) {
+function observeNotes(factories, sourceOf, records) {
   const restores = [];
   let serial = 0;
   const wrapPaint = (glyph, value) => {
     const paint = glyph.paint;
     glyph.paint = function (x, y, canvas) {
-      const id = `observation-${serial++}`, texts = [], paths = [], symbols = [], strokes = [];
+      const id = `observation-${serial++}`, texts = [], paths = [], symbols = [], strokes = [], symbol_points = [];
       let path = [];
       const text = canvas.fillText, move = canvas.moveTo, curve = canvas.bezierCurveTo;
       const begin = canvas.beginPath, line = canvas.lineTo, stroke = canvas.stroke;
       const symbol = canvas.fillMusicFontSymbol, multiple = canvas.fillMusicFontSymbols;
       canvas.fillMusicFontSymbol = function (x, y, size, value, ...tail) {
-        symbols.push(value); return symbol.call(this, x, y, size, value, ...tail);
+        symbols.push(value); symbol_points.push({ symbol: value, x, y });
+        return symbol.call(this, x, y, size, value, ...tail);
       };
       canvas.fillMusicFontSymbols = function (x, y, size, values, ...tail) {
-        symbols.push(...values); return multiple.call(this, x, y, size, values, ...tail);
+        symbols.push(...values); symbol_points.push(...values.map(symbol => ({ symbol, x, y })));
+        return multiple.call(this, x, y, size, values, ...tail);
       };
       canvas.fillText = function (value, ...args) {
         if (String(value).length) texts.push(String(value));
@@ -43,18 +45,19 @@ function observeTab(factories, sourceOf, records) {
         canvas.beginPath = begin; canvas.lineTo = line; canvas.stroke = stroke;
         canvas.fillMusicFontSymbol = symbol; canvas.fillMusicFontSymbols = multiple;
         records.push({ ...(typeof value === "function" ? value() : value),
-          id, texts, paths, symbols, strokes, scale: canvas.scale });
+          id, texts, paths, symbols, symbol_points, strokes, scale: canvas.scale });
       }
     };
   };
-  for (const factory of factories.filter(f => f.staffId === "tab")) {
+  for (const factory of factories.filter(f => ["tab", "score"].includes(f.staffId))) {
+    const staff_type = factory.staffId;
     const create = factory.create;
     restores.push(() => { factory.create = create; });
     factory.create = function (...args) {
       const renderer = create.apply(this, args), addBeat = renderer.addBeatGlyph;
       const addPre = renderer.addPreBeatGlyph;
       renderer.addPreBeatGlyph = function (glyph) {
-        wrapPaint(glyph, { kind: "signature", ...sourceOf.get(this.bar) });
+        wrapPaint(glyph, { kind: "signature", staff_type, ...sourceOf.get(this.bar) });
         return addPre.call(this, glyph);
       };
       const paintContent = renderer.paintContent;
@@ -64,7 +67,7 @@ function observeTab(factories, sourceOf, records) {
         try { return paintContent.call(this, x, y, canvas); }
         finally {
           canvas.endGroup();
-          records.push({ kind: "staff", id, ...sourceOf.get(this.bar),
+          records.push({ kind: "staff", staff_type, id, ...sourceOf.get(this.bar),
             lines: Array.from({ length: this.drawnLineCount }, (_, i) => y + this.y + this.getLineY(i)),
             scale: canvas.scale });
         }
@@ -78,30 +81,57 @@ function observeTab(factories, sourceOf, records) {
           finally { owner = null; }
         };
         glyph.addTie = function (tie) {
-          if (/^tab\.tie\.\d+$/.test(tie.slurEffectId || ""))
-            wrapPaint(tie, () => ({ kind: "tie", start: sourceOf.get(tie.startNote), end: sourceOf.get(tie.endNote) }));
+          if (/^(tab|score)\.tie\.\d+$/.test(tie.slurEffectId || ""))
+            wrapPaint(tie, () => ({ kind: "tie", staff_type, start: sourceOf.get(tie.startNote), end: sourceOf.get(tie.endNote) }));
           else if (/^tab\.slur\.effect\./.test(tie.slurEffectId || ""))
-            wrapPaint(tie, () => ({ kind: "technique", start: sourceOf.get(tie.startNote), end: sourceOf.get(tie.endNote) }));
-          else if (owner && !tie.slurEffectId) {
+            wrapPaint(tie, () => ({ kind: "technique", staff_type, start: sourceOf.get(tie.startNote), end: sourceOf.get(tie.endNote) }));
+          else if (staff_type === "tab" && owner && !tie.slurEffectId) {
             // Native slides have no public type/owner fields. Capture their
             // creation owner and actual strokes; classify the visible line
             // relative to its note bounds after rendering, without source flags.
-            wrapPaint(tie, { kind: "local-path", start: sourceOf.get(owner),
+            wrapPaint(tie, { kind: "local-path", staff_type, start: sourceOf.get(owner),
               end: sourceOf.get(owner.slideTarget || owner), note: owner });
           }
           return addTie.call(this, tie);
         };
+        if (staff_type === "score") {
+          // Capture the renderer's source identity as it creates each glyph;
+          // all label values below still come from its actual paint commands.
+          let heads = glyph.onNotes.noteHeads;
+          Object.defineProperty(glyph.onNotes, "noteHeads", {
+            configurable: true, get: () => heads,
+            set(value) {
+              heads = value;
+              if (!value || value.observationWrapped) return;
+              value.observationWrapped = true;
+              const add = value.addMainNoteGlyph;
+              value.addMainNoteGlyph = function (head, note, ...args) {
+                wrapPaint(head, { kind: "notehead", staff_type, ...sourceOf.get(note) });
+                return add.call(this, head, note, ...args);
+              };
+            },
+          });
+          const paintPre = glyph.preNotes.paint;
+          glyph.preNotes.paint = function (...args) {
+            for (const accidental of this.accidentals?.glyphs || []) {
+              if (accidental.observationWrapped) continue;
+              accidental.observationWrapped = true;
+              wrapPaint(accidental, { kind: "accidental", staff_type, ...sourceOf.get(glyph.beat) });
+            }
+            return paintPre.apply(this, args);
+          };
+        }
         const paintNotes = glyph.onNotes.paint;
         glyph.onNotes.paint = function (...args) {
           if (this.restGlyph && !this.restGlyph.observationWrapped) {
             this.restGlyph.observationWrapped = true;
-            wrapPaint(this.restGlyph, { kind: "rest", ...sourceOf.get(glyph.beat) });
+            wrapPaint(this.restGlyph, { kind: "rest", staff_type, ...sourceOf.get(glyph.beat) });
           }
           for (const [string, number] of this.noteNumbers?.notesPerString || []) {
             if (number.observationWrapped) continue;
             number.observationWrapped = true;
             const note = glyph.beat.notes.find(note => note.string === string);
-            wrapPaint(number, { kind: "fret", ...sourceOf.get(note) });
+            wrapPaint(number, { kind: "fret", staff_type, ...sourceOf.get(note) });
           }
           return paintNotes.apply(this, args);
         };
@@ -217,6 +247,8 @@ export async function render(state) {
       smuflFontSources: { [alphaTab.FontFileFormat.Woff2]: new URL(
         "../../ui/workbench/vendor/font/Bravura.woff2", import.meta.url).href } },
     display: { ...scoreDisplaySettings, scale: options.scale || 1.5,
+      notationStaffPaddingTop: options.staff_padding ?? 0,
+      notationStaffPaddingBottom: options.staff_padding ?? 0,
       effectBandPaddingBottom: options.effect_padding ?? scoreDisplaySettings.effectBandPaddingBottom,
       justifyLastSystem: options.justify_last_system ?? false,
       barsPerRow: options.bars_per_row || 2, padding: [45, 30, 35, 30] },
@@ -255,7 +287,7 @@ export async function render(state) {
   const painted = [];
   const restore = options.capture_techniques
     ? observeTechniques(factories, rendered.sourceOf, techniqueSpans, options) : () => {};
-  const restoreTab = options.capture_observations ? observeTab(factories, rendered.sourceOf, painted) : () => {};
+  const restoreTab = options.capture_observations ? observeNotes(factories, rendered.sourceOf, painted) : () => {};
   try {
     await new Promise((resolve, reject) => {
       api.error.on(reject);
@@ -302,6 +334,8 @@ export async function render(state) {
     if (!node) throw new Error(`Missing painted observation group ${item.id}`);
     const bbox = node.getBoundingClientRect();
     item.bbox = [bbox.x - hostBounds.x, bbox.y - hostBounds.y, bbox.width, bbox.height];
+    if (["notehead", "accidental", "signature", "staff"].includes(item.kind))
+      item.bbox = nodeBounds([...node.querySelectorAll("text,path,rect")]) || item.bbox;
     if (item.kind === "chord") {
       // Bind the source identity to actual painted glyphs. Names and grid
       // digits have different jobs even when the engraver puts them together.
@@ -329,6 +363,10 @@ export async function render(state) {
       return out;
     };
     if (item.paths) item.paths = item.paths.map(transformPoints);
+    if (item.symbol_points) item.symbol_points = item.symbol_points.map(point => {
+      const [x, y] = transformPoints([point.x, point.y]);
+      return { symbol: point.symbol, x, y };
+    });
     if (item.kind === "local-path") {
       item.strokes = item.strokes.filter(path => path.length === 2
         && path[0][0] === "move" && path[1][0] === "line")
@@ -364,7 +402,7 @@ export async function render(state) {
           ? (legato.has(ownerKey(item.start)) ? "sl" : "ss") : y2 < y1 ? "sou" : "sod";
       }
       if (!effect) throw new Error("Painted slide does not lie beside its native note");
-      painted.push({ kind: "technique", effect, start: item.start,
+      painted.push({ kind: "technique", staff_type: item.staff_type, effect, start: item.start,
         end: effect === "ss" || effect === "sl" ? item.end : item.start,
         texts: [], symbols: [], paths: [[x1, y1], [x2, y2]],
         bbox: [Math.min(x1, x2), Math.min(y1, y2), Math.abs(x2 - x1), Math.abs(y2 - y1)] });

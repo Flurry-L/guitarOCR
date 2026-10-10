@@ -225,6 +225,12 @@ def evaluate(model, loader, rows, device, task):
             probabilities.extend(logits.sigmoid().cpu().tolist())
             labels.extend(truth.tolist())
     probabilities, labels = np.asarray(probabilities), np.asarray(labels)
+    bounded = np.clip(probabilities, 1e-7, 1 - 1e-7)
+    losses = -(labels[:, :bounded.shape[1]] * np.log(bounded)
+               + (1 - labels[:, :bounded.shape[1]]) * np.log(1 - bounded))
+    log_loss = float(losses[:, 0].mean())
+    if task == 'part' and (labels[:, 0] > 0).any():
+        log_loss += float(losses[labels[:, 0] > 0, 1].mean())
     system_correct = (probabilities[:, 0] >= .5) == labels[:, 0]
     grouping_correct = system_correct.copy()
     if task == 'part':
@@ -237,7 +243,7 @@ def evaluate(model, loader, rows, device, task):
                       'grouping_correct': bool(grouping_correct[offset:end].all()),
                       'probabilities': probabilities[offset:end].tolist()})
         offset = end
-    return {'pages': len(rows), 'pairs': len(labels),
+    return {'pages': len(rows), 'pairs': len(labels), 'log_loss': log_loss,
             'system_exact': sum(row['system_correct'] for row in pages),
             'grouping_exact': sum(row['grouping_correct'] for row in pages),
             'pair_correct': int(grouping_correct.sum()),
@@ -315,7 +321,7 @@ def train(args):
                   'seconds': time.monotonic()-started,
                   **{key: value for key, value in metrics.items() if key != 'predictions'}}
         history.append(report)
-        score = (metrics['system_exact'], metrics['grouping_exact'])
+        score = (metrics['system_exact'], metrics['grouping_exact'], -metrics['log_loss'])
         if score > best:
             best = score
             torch.save({'state_dict': model.state_dict(), 'task': args.task,

@@ -129,11 +129,11 @@ def main():
                 f"Signature work leakage {left}/{right}: {sorted(overlap)[:10]}"
             )
     counts = [Counter(label[head] for _, label in training.rows) for head in range(3)]
-    # Presence is rare. Moderate sampling exposes all printed signatures while
-    # retaining abundant negative crops, without treating repeats as new works.
-    groups = Counter((label[0] != 15, label[1] != 0) for _, label in training.rows)
+    # Balance printed key values as well as presence: cancellation and rare
+    # six/seven-accidental signatures also need examples in each epoch.
+    groups = Counter((label[0], label[1] != 0) for _, label in training.rows)
     sample_weights = [
-        1.0 / math.sqrt(groups[(label[0] != 15, label[1] != 0)])
+        1.0 / math.sqrt(groups[(label[0], label[1] != 0)])
         for path, label in training.rows
     ]
     sampler = WeightedRandomSampler(sample_weights, len(training), replacement=True)
@@ -177,6 +177,7 @@ def main():
         "training": len(training),
         "validation": len(validation),
         "device": args.device,
+        "sampling": "inverse square root of key-class/time-presence frequency",
         "augmentation": "whole-image contain; up to 1.2deg rotation, 6% whitespace per side, readable contrast; no cropping",
     }
     (args.output / "training.json").write_text(json.dumps(provenance, indent=2))

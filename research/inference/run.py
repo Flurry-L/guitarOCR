@@ -23,7 +23,7 @@ def select_rows(rows, limit=0):
         raise ValueError("Limit must be nonnegative")
     documents = {}
     for row in rows:
-        documents.setdefault(row['mode'], {}).setdefault(row.get('family', row['source_id']), []).append(row)
+        documents.setdefault('drums' if row.get('instrument') == 'drums' else row['mode'], {}).setdefault(row.get('family', row['source_id']), []).append(row)
     selected = []
     for round_robin in zip_longest(*(mode.values() for mode in documents.values())):
         for document in round_robin:
@@ -51,14 +51,14 @@ def observation_record(row, raw, tokens=None):
 
     record = {key: row[key] for key in ('id', *IDENTITY)}
     record.update({key: row[key] for key in LAYOUT_FIELDS if key in row})
-    for key in ('family', 'renderer'):
+    for key in ('family', 'renderer', 'instrument'):
         if key in row:
             record[key] = row[key]
     if 'image' in row:
         record['image'] = row['image']
     record.update(raw=raw, tokens=tokens)
     try:
-        record['observation'] = parse_observation(raw)
+        record['observation'] = parse_observation(raw, row['mode'])
     except (ValueError, TypeError, KeyError) as error:
         record.update(observation=None, error=str(error))
     return record
@@ -71,7 +71,8 @@ def predict_observations(rows, model, device='cuda:0', batch_size=16, max_tokens
 
     if batch_size < 1 or max_tokens < 1:
         raise ValueError("Batch size and token budget must be positive")
-    schema = observation_schema()
+    schemas = {key: observation_schema(*key)
+               for key in {(row['mode'], row.get('instrument')) for row in rows}}
     backend = VllmBackend(model, device, options={
         'max_num_seqs': batch_size, 'max_model_len': 8192,
         'limit_mm_per_prompt': {'image': 1, 'video': 0},
@@ -80,8 +81,13 @@ def predict_observations(rows, model, device='cuda:0', batch_size=16, max_tokens
     try:
         for start in range(0, len(rows), batch_size):
             batch = rows[start:start + batch_size]
-            outputs = backend.generate_batch([base_messages(row) for row in batch], max_tokens,
-                                             schema=schema)
+            outputs = [None] * len(batch)
+            for key in dict.fromkeys((row['mode'], row.get('instrument')) for row in batch):
+                indices = [i for i, row in enumerate(batch) if (row['mode'], row.get('instrument')) == key]
+                generated = backend.generate_batch([base_messages(batch[i]) for i in indices], max_tokens,
+                                                   schema=schemas[key])
+                for index, output in zip(indices, generated, strict=True):
+                    outputs[index] = output
             for row, (raw, tokens) in zip(batch, outputs, strict=True):
                 yield observation_record(row, raw, tokens)
     finally:
@@ -90,8 +96,8 @@ def predict_observations(rows, model, device='cuda:0', batch_size=16, max_tokens
 
 def read_auxiliary(path, rows):
     values = {row['id']: row for row in read_rows(path)}
-    return [{key: values.get(row['id'], {}).get(key, {}) for key in ('state', 'voice_map')}
-            for row in rows]
+    return [{**{key: values.get(row['id'], {}).get(key, {}) for key in ('state', 'voice_map')},
+             'staff_start': values.get(row['id'], {}).get('staff_start', False)} for row in rows]
 
 
 def assemble_predictions(predictions, auxiliary=None):
@@ -99,6 +105,7 @@ def assemble_predictions(predictions, auxiliary=None):
 
     indexes = [i for i, row in enumerate(predictions) if row.get('observation') is not None]
     inputs = [{**{key: predictions[i][key] for key in (*IDENTITY, 'observation')},
+               **{key: predictions[i][key] for key in ('instrument',) if key in predictions[i]},
                **{key: predictions[i][key] for key in LAYOUT_FIELDS if key in predictions[i]}}
               for i in indexes]
     accepted = [auxiliary[i] for i in indexes] if auxiliary is not None else None
@@ -118,6 +125,9 @@ def assemble_predictions(predictions, auxiliary=None):
         for field in ('start', 'end'):
             if isinstance(relation.get(field), list):
                 relation[field] = [indexes[relation[field][0]], *relation[field][1:]]
+            if field + '_notes' in relation:
+                relation[field + '_notes'] = [[indexes[item[0]], *item[1:]]
+                                              for item in relation[field + '_notes']]
         relation['segments'] = [{**segment, 'record': indexes[segment['record']]}
                                 for segment in relation.get('segments', [])]
         relation['coverage'] = [[indexes[point[0]], *point[1:]] for point in relation.get('coverage', [])]

@@ -9,11 +9,15 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from research.common.part_continuation import CONTRACT, MAX_PARTS, continuation_inputs
+from research.common.part_continuation import CONTRACT, MAX_PARTS, continuation_inputs, match_gallery
 from research.data.part_continuation import ContinuationData
 from research.inference import cpu_session
 from research.models.auxiliary import PartContinuationNetwork
 from research.training import fit_classifier
+
+MIN_PRECISION = .99
+THRESHOLDS = [.5, .6, .7, .8, .85, .9, .95, .97, .98, .99, .995, .999, 1.0]
+ASSIGNMENT_MARGINS = [0., .25, .5, 1., 2.]
 
 
 class PartContinuationReader:
@@ -24,6 +28,8 @@ class PartContinuationReader:
             raise ValueError('Unsupported part continuation model contract')
         if not .5 <= self.config.get('threshold', -1) <= 1:
             raise ValueError('Invalid part continuation threshold')
+        if self.config.get('assignment_margin', -1) < 0:
+            raise ValueError('Invalid part assignment margin')
 
     def predict(self, previous, current, previous_index, current_index,
                 previous_identity, previous_mode, current_mode):
@@ -85,34 +91,38 @@ def predict(model, records, count, *, visible_labels=False):
     return contexts
 
 
-def assess(contexts, threshold):
+def assess(contexts, threshold, margin=0.):
     report = Counter({key: 0 for key in ['current_parts', 'matchable', 'pair_same_accepted', 'pair_false_same',
         'competing_rejected', 'accepted', 'correct', 'wrong', 'unknown_identity_accepted',
-        'unknown_identity_correct', 'unknown_identity_wrong', 'singleton_accepted', 'singleton_correct', 'singleton_wrong']})
+        'unknown_identity_correct', 'unknown_identity_wrong', 'singleton_accepted', 'singleton_correct', 'singleton_wrong',
+        'source_matchable', 'ambiguous', 'matchable_rejected']})
+    groups = {}
     wrong, decisions = [], []
     for context in contexts:
         previous, current = context['previous_parts'], context['current_parts']
         duplicate = Counter(current)
-        proposals = {}
         for c, row in enumerate(context['probabilities']):
             report['current_parts'] += 1
-            if current[c] in previous and duplicate[current[c]] == 1:
-                report['matchable'] += 1
+            source_matchable = current[c] in previous and duplicate[current[c]] == 1
+            report['source_matchable'] += int(source_matchable)
+            report['matchable'] += int(source_matchable and context['resolvable'][c])
+            report['ambiguous'] += int(not context['resolvable'][c])
             candidates = [p for p, probability in enumerate(row)
                           if int(np.argmax(probability)) == 1 and probability[1] >= threshold]
             for p in candidates:
                 report['pair_same_accepted'] += 1
-                if previous[p] != current[c] or duplicate[current[c]] > 1:
+                if previous[p] != current[c] or duplicate[current[c]] > 1 or not context['resolvable'][c]:
                     report['pair_false_same'] += 1
-            if len(candidates) == 1:
-                proposals[c] = candidates[0]
-        usage = Counter(proposals.values())
-        for c, p in proposals.items():
-            if usage[p] > 1:
+        accepted = {}
+        assignments = match_gallery(context['probabilities'], threshold, margin)
+        for assignment in assignments:
+            c, p = assignment['current'], assignment['previous']
+            if not assignment['accepted']:
                 report['competing_rejected'] += 1
                 continue
             report['accepted'] += 1
-            correct = previous[p] == current[c] and duplicate[current[c]] == 1
+            correct = previous[p] == current[c] and duplicate[current[c]] == 1 and context['resolvable'][c]
+            accepted[c] = correct
             report['correct' if correct else 'wrong'] += 1
             if context['previous_identities'][p] is None:
                 report['unknown_identity_accepted'] += 1
@@ -121,11 +131,32 @@ def assess(contexts, threshold):
                 report['singleton_accepted'] += 1
                 report['singleton_correct' if correct else 'singleton_wrong'] += 1
             decision = dict(index=context['index'], previous=p, current=c, correct=correct,
-                            domain=context['domain'], confidence=context['probabilities'][c][p][1])
+                            domain=context['domain'], confidence=context['probabilities'][c][p][1],
+                            assignment_margin=assignment['margin'])
             decisions.append(decision)
             if not correct:
                 wrong.append(decision)
-    return dict(threshold=threshold, **dict(report), wrong_cases=wrong, decisions=decisions)
+        for c, part in enumerate(current):
+            matchable = part in previous and duplicate[part] == 1 and context['resolvable'][c]
+            report['matchable_rejected'] += int(matchable and c not in accepted)
+            tags = ['single' if len(previous) == len(current) == 1 else 'multiple',
+                    'changed_gallery' if context['gallery_changed'] else 'ordered_gallery']
+            if context['previous_instruments'].count(context['current_instruments'][c]) > 1:
+                tags.append('same_instrument_candidates')
+            if duplicate[part] > 1:
+                tags.append('duplicate')
+            if part not in previous:
+                tags.append('new_part')
+            if not context['resolvable'][c]:
+                tags.append('ambiguous')
+            for tag in tags:
+                counts = groups.setdefault(tag, Counter({k: 0 for k in
+                    ['parts', 'matchable', 'accepted', 'correct', 'wrong', 'matchable_rejected']}))
+                counts.update(parts=1, matchable=int(matchable), accepted=int(c in accepted),
+                              correct=int(accepted.get(c, False)), wrong=int(c in accepted and not accepted[c]),
+                              matchable_rejected=int(matchable and c not in accepted))
+    return dict(threshold=threshold, assignment_margin=margin, **dict(report), groups={k: dict(v) for k, v in groups.items()},
+                wrong_cases=wrong, decisions=decisions)
 
 
 def gallery_contexts(model, data, split, samples):
@@ -144,7 +175,10 @@ def gallery_contexts(model, data, split, samples):
 def evaluate_export(args):
     reader = PartContinuationReader(args.model / "part_continuation.onnx")
     contexts = gallery_contexts(reader.session, args.data, args.split, args.samples)
-    report = assess(contexts, reader.config["threshold"])
+    report = assess(contexts, reader.config["threshold"], reader.config['assignment_margin'])
+    report['thresholds'] = [{key: value for key, value in assess(contexts, threshold, reader.config['assignment_margin']).items()
+                             if key not in ['wrong_cases', 'decisions']}
+                            for threshold in THRESHOLDS]
     output = args.model / f"evaluation-{args.split}.json"
     output.write_text(
         json.dumps(dict(split=args.split, samples=len(contexts), **report), indent=2)
@@ -158,7 +192,21 @@ def evaluate_export(args):
     )
 
 
-def export(output, data, samples=1200):
+def select_threshold(reports):
+    """Calibrate normal score continuation independently of stress-case mix.
+
+    Changed/anonymous galleries are deliberately oversampled for diagnosis.
+    Their prevalence must not set a rejection threshold for ordinary scores.
+    Report their real error/coverage separately instead of hiding that limit.
+    """
+    eligible = [row for row in reports
+                if row['groups']['ordered_gallery']['wrong'] <= (1 - MIN_PRECISION)
+                * row['groups']['ordered_gallery']['accepted']]
+    return max(eligible, key=lambda row: (row['groups']['ordered_gallery']['correct'],
+               -row['groups']['ordered_gallery']['wrong'], -row['wrong'], row['correct'], -row['threshold']))
+
+
+def export(output, data, samples=1200, device='cpu'):
     import onnx
 
     torch.set_num_threads(2)
@@ -166,27 +214,11 @@ def export(output, data, samples=1200):
     model.load_state_dict(
         torch.load(output / "model.pt", map_location="cpu", weights_only=True)
     )
+    model.to(device)
     contexts = gallery_contexts(model, data, "validation", samples)
-    reports = [
-        assess(contexts, threshold)
-        for threshold in [
-            0.8,
-            0.9,
-            0.95,
-            0.97,
-            0.98,
-            0.99,
-            0.995,
-            0.999,
-            0.9995,
-            0.9999,
-            1.0,
-        ]
-    ]
-    chosen = max(
-        (row for row in reports if not row["wrong"]),
-        key=lambda row: (row["correct"], -row["threshold"]),
-    )
+    model.cpu()
+    reports = [assess(contexts, threshold, margin) for threshold in THRESHOLDS for margin in ASSIGNMENT_MARGINS]
+    chosen = select_threshold(reports)
     selection = {
         key: value
         for key, value in chosen.items()
@@ -196,8 +228,11 @@ def export(output, data, samples=1200):
     config = dict(
         CONTRACT,
         threshold=selection["threshold"],
+        assignment_margin=selection['assignment_margin'],
         source_checkpoint=validation["step"],
         visible_label_continuation=True,
+        target_precision=MIN_PRECISION,
+        calibration_objective='ordered_gallery_coverage',
     )
     target = output / "part_continuation.onnx"
     dummy = (
@@ -249,6 +284,8 @@ def export(output, data, samples=1200):
     report = dict(
         samples=len(contexts),
         selected=selection,
+        thresholds=[{key: value for key, value in row.items()
+                     if key not in ['wrong_cases', 'decisions']} for row in reports],
         torch_onnx_max_logit_error=float(np.abs(actual - expected).max()),
     )
     (output / "calibration.json").write_text(json.dumps(report, indent=2) + "\n")
@@ -270,13 +307,13 @@ def evaluate(model, loader):
     classes = p.argmax(1)
     confidence = p.max(1)
     choices = []
-    for threshold in [.8, .9, .95, .97, .98, .99, .995, .999, .9995, .9999, 1.0]:
+    for threshold in THRESHOLDS:
         same = (classes == 1) & (confidence >= threshold)
         choices.append(dict(threshold=threshold, same_accepted=int(same.sum()),
             same_correct=int((same & (target == 1)).sum()), false_same=int((same & (target != 1)).sum()),
             false_same_instrument_negative=int((same & (flags[:, 0] == 1)).sum()),
             false_same_on_ambiguous=int((same & (target == 2)).sum())))
-    eligible = [row for row in choices if row['false_same'] == 0]
+    eligible = [row for row in choices if row['false_same'] <= (1 - MIN_PRECISION) * row['same_accepted']]
     selection = max(eligible, key=lambda row: (row['same_correct'], -row['threshold']))
     confusion = [[int(((target == a) & (classes == b)).sum()) for b in range(3)] for a in range(3)]
     return dict(samples=len(labels), argmax_correct=int((classes == target).sum()),
@@ -349,13 +386,14 @@ def main():
     parser_export.add_argument('--model', type=Path, required=True)
     parser_export.add_argument('--data', type=Path, required=True)
     parser_export.add_argument('--samples', type=int, default=1200)
+    parser_export.add_argument('--device', default='cpu', help='Device for validation gallery calibration')
     args = parser.parse_args()
     if args.command == 'train':
         train(args)
     elif args.command == 'evaluate':
         evaluate_export(args)
     elif args.command == 'export':
-        export(args.model, args.data, args.samples)
+        export(args.model, args.data, args.samples, args.device)
 
 
 if __name__ == "__main__":

@@ -38,7 +38,7 @@ class ClefSpatialNetwork(nn.Module):
     def __init__(self):
         super().__init__()
         layers = []
-        for index, (source, target) in enumerate(zip([1, 16, 24, 40], [16, 24, 40, 64])):
+        for index, (source, target) in enumerate(zip([2, 16, 24, 40], [16, 24, 40, 64])):
             layers.extend([nn.Conv2d(source, target, 3, stride=1 if index == 0 else 2, padding=1),
                            nn.BatchNorm2d(target), nn.SiLU(),
                            nn.Conv2d(target, target, 3, padding=1, groups=target),
@@ -48,7 +48,7 @@ class ClefSpatialNetwork(nn.Module):
                                   nn.Dropout(.1), nn.Linear(128, len(LABELS)))
 
     def forward(self, images):
-        return self.head(self.features(1 - images))
+        return self.head(self.features(torch.cat([1 - images[:, :1], images[:, 1:]], dim=1)))
 
 
 class InstrumentTextNetwork(nn.Module):

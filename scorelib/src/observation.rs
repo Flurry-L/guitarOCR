@@ -44,7 +44,49 @@ pub fn range_relation(r: &Value) -> bool {
                 .iter()
                 .all(|k| !r[k].is_array() || array(&r[k]).len() == 2))
 }
-pub fn observation_schema() -> Value {
+const NOTEHEADS: &[&str] = &[
+    "normal",
+    "x",
+    "circle-x",
+    "circle-slash",
+    "diamond",
+    "heavy-x",
+    "heavy-x-hat",
+    "triangle-up",
+];
+
+// Conventional drum-kit positions (bottom line = 0). Different printed
+// symbols at one position are distinct evidence, e.g. ride versus ride bell.
+fn percussion_pitch(position: i64, shape: &str) -> Option<i64> {
+    match (position, shape) {
+        (0, "normal") => Some(35),
+        (1, "normal") => Some(36),
+        (5, "normal" | "diamond") => Some(38),
+        (5, "x") => Some(37),
+        (2, "normal") => Some(43),
+        (3, "normal") => Some(45),
+        (4, "normal") => Some(47),
+        (6, "normal") => Some(48),
+        (7, "normal") => Some(50),
+        (9, "x") => Some(42),
+        (-1, "x") => Some(44),
+        (9, "circle-x" | "circle-slash") => Some(46),
+        (8, "x") => Some(51),
+        (8, "diamond") => Some(53),
+        (10, "x") => Some(55),
+        (10, "heavy-x") => Some(49),
+        (9, "heavy-x") => Some(57),
+        (11, "heavy-x-hat") => Some(52),
+        (7..=9, "triangle-up") => Some(56),
+        (5, "triangle-up") => Some(54),
+        _ => None,
+    }
+}
+
+pub fn observation_schema(mode: &str, instrument: Option<&str>) -> Result<Value, String> {
+    if !matches!(mode, "tab" | "notation" | "both") {
+        return Err("Observation mode must be tab, notation or both".into());
+    }
     let int = json!({"type":["integer","null"]});
     let effects = |names: &[&str], pattern: &str| {
         // llama.cpp accepts code point ranges, but not \s in a character
@@ -70,27 +112,83 @@ pub fn observation_schema() -> Value {
         }),
         &[],
     );
-    let note = object(
-        json!({"string":int,"fret":{"anyOf":[{"type":"integer"},{"enum":["x",null]}]},"staff_position":int,"accidental":{"anyOf":[{"type":"integer"},{"enum":["unknown",null]}]},"effects":effects(NOTE_EFFECTS, NOTE_EFFECT_PATTERN)}),
+    let tab_note = object(
+        json!({"string":int,"fret":{"anyOf":[{"type":"integer"},{"enum":["x",null]}]},"effects":effects(NOTE_EFFECTS, NOTE_EFFECT_PATTERN)}),
         &[],
     );
-    let event = object(
-        json!({"start":int,"duration":{"type":["string","null"]},"status":{"type":["string","null"]},"notes":{"anyOf":[{"type":"array","items":note},{"type":"null"}]},"effects":effects(EVENT_EFFECTS, EVENT_EFFECT_PATTERN)}),
-        &["start", "duration", "status", "notes"],
+    // llama.cpp emits required fields before optional ones. Keep the required
+    // percussion prefix in the same order as the training answers.
+    let notation_note = object(
+        json!({"staff_position":int,"accidental":{"anyOf":[{"type":"integer"},{"enum":["unknown",null]}]},"notehead":{"anyOf":[{"enum":NOTEHEADS},{"type":"null"}]},"effects":effects(NOTE_EFFECTS, NOTE_EFFECT_PATTERN)}),
+        if mode == "notation" && instrument == Some("drums") {
+            &["staff_position", "accidental", "notehead"]
+        } else {
+            &[]
+        },
     );
+    let note = if mode == "notation" {
+        &notation_note
+    } else {
+        &tab_note
+    };
+    let notes = json!({"type":"array","items":note});
+    let mut fields = json!({"start":int,"duration":{"type":["string","null"]},
+        "status":{"type":["string","null"]},"notes":if mode == "both" {notes.clone()} else {json!({"anyOf":[notes,{"type":"null"}]})}});
+    let mut required = vec!["start", "duration", "status", "notes"];
+    if mode == "both" {
+        fields["notation_notes"] = json!({"type":"array","items":notation_note});
+        required.push("notation_notes");
+    }
+    fields["effects"] = effects(EVENT_EFFECTS, EVENT_EFFECT_PATTERN);
+    let event = object(fields, &required);
     let voice = object(
         json!({"voice":{"type":"integer"},"events":{"type":"array","items":event}}),
         &["voice", "events"],
     );
-    let endpoint = json!({"anyOf":[{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":3},{"enum":["left","right",null]}]});
-    let relation = object(
-        json!({"kind":{"enum":["tie","hammer","sl","ss","pm","let","ottava",null]},"shape":{"enum":["curve","diagonal","extension"]},"start":endpoint,"end":endpoint,"value":int,"voice":int,"lane":{"type":["number","null"]}}),
-        &["kind", "start", "end"],
-    );
-    object(
+    let relation = |note_endpoints: bool| {
+        let endpoint = json!({"anyOf":[{"type":"array","items":{"type":"integer"},
+            "minItems":2,"maxItems":if note_endpoints {3} else {2}},{"enum":["left","right",null]}]});
+        let mut fields = json!({"kind":{"enum":["tie","hammer","sl","ss","pm","let","ottava",null]},
+            "start":endpoint,"end":endpoint,"shape":{"enum":["curve","diagonal","extension"]},
+            "value":int,"voice":int,"lane":{"type":["number","null"]}});
+        if mode == "both" {
+            fields["representation"] = json!({"enum":["tab","notation"]});
+            if note_endpoints {
+                // Keep optional visual features before the required staff
+                // reference, matching training and both decoding engines.
+                let optional = ["shape", "value", "voice", "lane"];
+                let variants: Vec<Value> = (0..1 << optional.len())
+                    .map(|mask| {
+                        let properties: serde_json::Map<String, Value> = fields
+                            .as_object()
+                            .unwrap()
+                            .iter()
+                            .filter(|(name, _)| {
+                                optional
+                                    .iter()
+                                    .position(|key| key == name)
+                                    .is_none_or(|i| mask & (1 << i) != 0)
+                            })
+                            .map(|(name, value)| (name.clone(), value.clone()))
+                            .collect();
+                        let required: Vec<&str> = properties.keys().map(String::as_str).collect();
+                        object(json!(properties), &required)
+                    })
+                    .collect();
+                return json!({"anyOf":variants});
+            }
+        }
+        object(fields, &["kind", "start", "end"])
+    };
+    let relation = if mode == "both" {
+        json!({"anyOf":[relation(false),relation(true)]})
+    } else {
+        relation(true)
+    };
+    Ok(object(
         json!({"state":state,"voices":{"type":"array","items":voice},"relations":{"type":"array","items":relation}}),
         &["state", "voices", "relations"],
-    )
+    ))
 }
 pub fn parse_observation(value: &Value) -> Result<Value, String> {
     let o = if let Some(text) = value.as_str() {
@@ -135,6 +233,12 @@ pub fn parse_observation(value: &Value) -> Result<Value, String> {
             if !event["notes"].is_null() && !event["notes"].is_array() {
                 return Err("Event notes must be an array".into());
             }
+            if event
+                .get("notation_notes")
+                .is_some_and(|notes| !notes.is_array())
+            {
+                return Err("Event notation_notes must be an array".into());
+            }
             if !nullable_integer(&event["start"]) {
                 return Err("Event start must be integer ticks or null".into());
             }
@@ -143,6 +247,7 @@ pub fn parse_observation(value: &Value) -> Result<Value, String> {
             }
             for (index, item) in std::iter::once(event)
                 .chain(array(&event["notes"]))
+                .chain(array(&event["notation_notes"]))
                 .enumerate()
             {
                 if !item.is_object() || item.get("effects").is_some_and(|v| !v.is_array()) {
@@ -188,7 +293,10 @@ pub fn parse_observation(value: &Value) -> Result<Value, String> {
                     }
                 }
             }
-            for note in array(&event["notes"]) {
+            for note in array(&event["notes"])
+                .iter()
+                .chain(array(&event["notation_notes"]))
+            {
                 for field in ["string", "staff_position"] {
                     if !nullable_integer(&note[field]) {
                         return Err(format!("Note {field} must be an integer or null"));
@@ -196,6 +304,13 @@ pub fn parse_observation(value: &Value) -> Result<Value, String> {
                 }
                 if !nullable_integer(&note["fret"]) && note["fret"] != "x" {
                     return Err("Fret must be an integer, x or null".into());
+                }
+                if !note["notehead"].is_null()
+                    && !note["notehead"]
+                        .as_str()
+                        .is_some_and(|s| NOTEHEADS.contains(&s))
+                {
+                    return Err("Unsupported visible notehead shape".into());
                 }
                 if !nullable_integer(&note["accidental"]) && note["accidental"] != "unknown" {
                     return Err("Accidental must be integer semitones, unknown or null".into());
@@ -216,6 +331,11 @@ pub fn parse_observation(value: &Value) -> Result<Value, String> {
     for r in array(&o["relations"]) {
         if !r.is_object() {
             return Err("Relations must be objects".into());
+        }
+        if r.get("representation")
+            .is_some_and(|v| !matches!(v.as_str(), Some("tab" | "notation")))
+        {
+            return Err("Relation representation must be tab or notation".into());
         }
         if !r["kind"].is_null()
             && !matches!(
@@ -308,6 +428,9 @@ fn valid_state_value(field: &str, value: &Value) -> bool {
         "clef_octave" => value
             .as_i64()
             .is_some_and(|n| [-24, -12, 0, 12, 24].contains(&n)),
+        "instrument_transpose" => value.as_i64().is_some_and(|n| (-48..=48).contains(&n)),
+        "instrument_transpose_explicit" => value.is_boolean(),
+        "capo" => value.as_i64().is_some_and(|n| (0..=36).contains(&n)),
         "tuning" => value.as_array().is_some_and(|a| {
             a.iter()
                 .all(|v| v.as_i64().is_some_and(|n| (0..=127).contains(&n)))
@@ -336,7 +459,12 @@ fn state(observation: &Value, auxiliary: &Value, previous: &Value) -> Value {
         };
         // Explicit human correction is authoritative for this field, including
         // "absent" when the user removes a mistaken printed change.
-        let mut seen = if extra["source"] == "manual" {
+        let definitive_classifier =
+            matches!(field.as_str(), "time" | "key" | "clef" | "clef_octave")
+                && extra["source"] == "visual_classifier"
+                && extra["calibrated"] == true
+                && matches!(extra["status"].as_str(), Some("observed" | "absent"));
+        let mut seen = if extra["source"] == "manual" || definitive_classifier {
             extra
         } else {
             observed
@@ -351,7 +479,10 @@ fn state(observation: &Value, auxiliary: &Value, previous: &Value) -> Value {
         }
         result[field] = if seen["status"] == "observed" && !seen["value"].is_null() {
             json!({"status":"observed","value":seen["value"]})
-        } else if seen["status"] == "absent" && !known(previous, field).is_null() {
+        } else if (seen["status"] == "absent"
+            || (observation.get(field).is_none() && auxiliary.get(field).is_none()))
+            && !known(previous, field).is_null()
+        {
             json!({"status":"inherited","value":known(previous,field)})
         } else {
             json!({"status":"unknown","value":null})
@@ -364,6 +495,94 @@ struct Row {
     voice_map: Value,
     voice_links: BTreeMap<(usize, i64, i64), Value>,
     relations: Value,
+}
+
+pub fn parse_measure_observation(value: &Value, mode: &str) -> Result<Value, String> {
+    let observation = parse_observation(value)?;
+    if !matches!(mode, "tab" | "notation" | "both") {
+        return Err("Observation mode must be tab, notation or both".into());
+    }
+    for voice in array(&observation["voices"]) {
+        for event in array(&voice["events"]) {
+            if mode == "both" {
+                if !event["notes"].is_array() || !event["notation_notes"].is_array() {
+                    return Err(
+                        "Both observations require independent notes and notation_notes arrays"
+                            .into(),
+                    );
+                }
+                if array(&event["notes"])
+                    .iter()
+                    .any(|n| n.get("staff_position").is_some() || n.get("accidental").is_some())
+                    || array(&event["notation_notes"])
+                        .iter()
+                        .any(|n| n.get("string").is_some() || n.get("fret").is_some())
+                {
+                    return Err("Both observations must not pair TAB and notation fields".into());
+                }
+            } else if event.get("notation_notes").is_some() {
+                return Err("notation_notes only applies to both-mode observations".into());
+            }
+        }
+    }
+    if mode == "both"
+        && array(&observation["relations"]).iter().any(|relation| {
+            ["start", "end"]
+                .iter()
+                .any(|k| array(&relation[*k]).len() == 3)
+                && relation["representation"].is_null()
+        })
+    {
+        return Err("Both note relations require their visible representation".into());
+    }
+    Ok(observation)
+}
+
+// Both representations retain their own note indices until score context has
+// resolved their pitches. Internal flat indices keep relation assembly shared.
+fn independent_dual_notes(row: &mut Row) {
+    if row.value["mode"] != "both" {
+        return;
+    }
+    let mut offsets = HashMap::new();
+    for voice in row.value["resolved"]["voices"].as_array_mut().unwrap() {
+        let local = voice["voice"].as_i64().unwrap();
+        for (ei, event) in voice["events"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .enumerate()
+        {
+            let notation = event["notation_notes"].as_array().unwrap().clone();
+            let notes = event["notes"].as_array_mut().unwrap();
+            let count = notes.len();
+            offsets.insert((local, ei), count);
+            notes.extend(notation);
+            event["tab_note_count"] = json!(count);
+            event.as_object_mut().unwrap().remove("notation_notes");
+        }
+    }
+    for relation in row.relations.as_array_mut().unwrap() {
+        if let Some(problem) = relation_problem(&row.value["observation"], relation) {
+            relation["observation_problem"] = json!(problem);
+        }
+        if relation["representation"] == "notation" {
+            for key in ["start", "end"] {
+                let endpoint = &mut relation[key];
+                if array(endpoint).len() == 3 {
+                    if let (Some(voice), Some(event), Some(note)) = (
+                        endpoint[0].as_i64(),
+                        endpoint[1].as_u64(),
+                        endpoint[2].as_u64(),
+                    ) {
+                        if let Some(offset) = offsets.get(&(voice, event as usize)) {
+                            endpoint[2] = json!(note + *offset as u64);
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 #[derive(Clone)]
 struct Node {
@@ -463,6 +682,12 @@ pub fn relation_voice(r: &Value) -> Option<i64> {
     }
 }
 fn shapes_match(a: &Value, b: &Value) -> bool {
+    if !a["representation"].is_null()
+        && !b["representation"].is_null()
+        && a["representation"] != b["representation"]
+    {
+        return false;
+    }
     a["shape"].is_null()
         || b["shape"].is_null()
         || a["shape"] == b["shape"]
@@ -496,10 +721,16 @@ pub fn relation_problem(o: &Value, r: &Value) -> Option<String> {
         if ev.is_none() || (!scope && a.len() != 3) {
             return Some(format!("{prefix}_endpoint_unresolved"));
         }
+        let note_field =
+            if r["representation"] == "notation" && ev.unwrap().get("notation_notes").is_some() {
+                "notation_notes"
+            } else {
+                "notes"
+            };
         if a.len() == 3
             && !a[2]
                 .as_u64()
-                .is_some_and(|i| (i as usize) < array(&ev.unwrap()["notes"]).len())
+                .is_some_and(|i| (i as usize) < array(&ev.unwrap()[note_field]).len())
         {
             return Some(format!("{prefix}_endpoint_unresolved"));
         }
@@ -600,7 +831,7 @@ fn connection_problem(
     if !continuous {
         return problem("not_continuous");
     }
-    let tab = matches!(a.value["mode"].as_str(), Some("tab" | "both"));
+    let tab = a.value["mode"] == "tab" || first.get("string").is_some();
     let field = if tab { "string" } else { "staff_position" };
     if (kind == Some("tie") || tab) && (first[field].is_null() || first[field] != last[field]) {
         return problem("identity_unresolved");
@@ -686,6 +917,17 @@ fn boundary_voices(outgoing: &[usize], incoming: &[usize], nodes: &[Node], rows:
     }
 }
 fn pitch_notes(row: &mut Row, incoming: &HashSet<(i64, usize, usize)>) {
+    let entering: HashSet<_> = array(&row.relations)
+        .iter()
+        .filter(|r| r["start"] == "left" && (r["kind"].is_null() || r["kind"] == "tie"))
+        .filter_map(|r| {
+            Some((
+                r["end"][0].as_i64()?,
+                r["end"][1].as_u64()? as usize,
+                r["end"][2].as_u64()? as usize,
+            ))
+        })
+        .collect();
     let st = &row.value["resolved"]["state"];
     let base = match known(st, "clef").as_str() {
         Some("G2") => Some(30),
@@ -707,6 +949,7 @@ fn pitch_notes(row: &mut Row, incoming: &HashSet<(i64, usize, usize)>) {
         }
     }
     let tuning = known(st, "tuning").clone();
+    let percussion = row.value["instrument"] == "drums" || known(st, "clef") == "percussion";
     let tab = row.value["mode"] == "tab";
     let mut accidentals: HashMap<i64, Option<i64>> = HashMap::new();
     let mut events = Vec::new();
@@ -729,7 +972,19 @@ fn pitch_notes(row: &mut Row, incoming: &HashSet<(i64, usize, usize)>) {
         for (ni, note) in notes.iter_mut().enumerate() {
             note["pitch"] = Value::Null;
             note["written_pitch"] = Value::Null;
-            if tab {
+            if percussion {
+                if let (Some(position), Some(shape)) =
+                    (note["staff_position"].as_i64(), note["notehead"].as_str())
+                {
+                    if let Some(pitch) = percussion_pitch(position, shape) {
+                        note["pitch"] = json!(pitch);
+                        note["written_pitch"] = json!(pitch);
+                        note["sounding_pitch"] = json!(pitch);
+                    }
+                }
+                continue;
+            }
+            if tab || note.get("string").is_some() {
                 if let (Some(string), Some(fret)) = (note["string"].as_u64(), note["fret"].as_i64())
                 {
                     if string >= 1 {
@@ -754,6 +1009,12 @@ fn pitch_notes(row: &mut Row, incoming: &HashSet<(i64, usize, usize)>) {
                 accidentals.insert(diatonic, None);
             }
             if incoming.contains(&(voice, ei, ni)) && accidental.is_null() {
+                // A tied accidental may carry into the bar. Until its source
+                // is resolved, later unmarked notes at this position are not
+                // evidence for the key-signature pitch.
+                if entering.contains(&(voice, ei, ni)) {
+                    accidentals.entry(diatonic).or_insert(None);
+                }
                 continue;
             }
             let alter = accidentals
@@ -767,6 +1028,345 @@ fn pitch_notes(row: &mut Row, incoming: &HashSet<(i64, usize, usize)>) {
                 note["written_pitch"] = json!(pitch);
                 note["pitch"] = json!(pitch);
             }
+        }
+    }
+}
+// TAB pitch depends on the inherited tuning and written/sounding context.
+fn dual_shift(state: &Value, event: &Value) -> Option<i64> {
+    let base = known(state, "instrument_transpose").as_i64()?;
+    let explicit = known(state, "instrument_transpose_explicit").as_bool()?;
+    let clef = known(state, "clef_octave").as_i64()?;
+    let capo = known(state, "capo").as_i64()?;
+    let transpose = if !explicit && base == clef { 0 } else { base };
+    let octave = array(&event["effects"])
+        .iter()
+        .filter_map(Value::as_str)
+        .find_map(|e| {
+            e.strip_prefix("ottava:")
+                .and_then(|v| v.parse::<i64>().ok())
+        })
+        .unwrap_or(0);
+    Some(transpose + clef - capo + octave)
+}
+fn resolve_dual_tab(row: &mut Row) {
+    if row.value["mode"] != "both" {
+        return;
+    }
+    let state = row.value["resolved"]["state"].clone();
+    let tuning = known(&state, "tuning");
+    for voice in row.value["resolved"]["voices"].as_array_mut().unwrap() {
+        for event in voice["events"].as_array_mut().unwrap() {
+            let Some(shift) = dual_shift(&state, event) else {
+                continue;
+            };
+            for field in ["notes", "continuation_notes"] {
+                let Some(notes) = event.get_mut(field).and_then(Value::as_array_mut) else {
+                    continue;
+                };
+                for note in notes {
+                    let Some(string) = note["string"].as_u64().filter(|s| *s > 0) else {
+                        continue;
+                    };
+                    let Some(open) = array(tuning)
+                        .get(string as usize - 1)
+                        .and_then(Value::as_i64)
+                    else {
+                        continue;
+                    };
+                    if let Some(fret) = note["fret"].as_i64() {
+                        let pitch = open + fret - shift;
+                        if (0..=127).contains(&pitch) {
+                            note["pitch"] = json!(pitch);
+                            note["written_pitch"] = json!(pitch);
+                            note["sounding_pitch"] = json!(open + fret);
+                        }
+                    } else if note["fret"].is_null() {
+                        if let Some(pitch) = note["pitch"].as_i64() {
+                            let fret = pitch + shift - open;
+                            if (0..=36).contains(&fret) {
+                                note["fret"] = json!(fret);
+                                note["sounding_pitch"] = json!(open + fret);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Merge representations only after each has resolved its own relations. The
+// note order in either printed staff carries no cross-staff identity.
+fn merge_dual_notes(row: &mut Row) -> HashMap<(i64, usize, usize), Vec<usize>> {
+    let mut mapping = HashMap::new();
+    if row.value["mode"] != "both" {
+        return mapping;
+    }
+    let state = row.value["resolved"]["state"].clone();
+    let mut issues = Vec::new();
+    for voice in row.value["resolved"]["voices"].as_array_mut().unwrap() {
+        let local = voice["voice"].as_i64().unwrap();
+        for (ei, event) in voice["events"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .enumerate()
+        {
+            let Some(count) = event["tab_note_count"].as_u64().map(|v| v as usize) else {
+                continue;
+            };
+            let observed_tab_count = count;
+            let mut original = event["notes"].as_array().unwrap().clone();
+            let derived: Vec<_> = array(&event["continuation_notes"])
+                .iter()
+                .map(|note| {
+                    let mut note = note.clone();
+                    note.as_object_mut().unwrap().remove("notation_note");
+                    note
+                })
+                .collect();
+            let added = derived.len();
+            original.splice(count..count, derived);
+            let count = count + added;
+            let original_index = |i: usize| {
+                if i < observed_tab_count {
+                    Some(i)
+                } else if i >= count {
+                    Some(i - added)
+                } else {
+                    None
+                }
+            };
+            let mut notes = original[..count].to_vec();
+            let pairs = dual_note_pairs(&original, count, &state);
+            let mut remaining: Vec<usize> = (count..original.len()).collect();
+            let mut matched = HashSet::new();
+            for (tab, notation) in pairs {
+                for &ni in &tab {
+                    merge_note_evidence(&mut notes[ni], &original[notation[0]]);
+                    matched.insert(ni);
+                }
+                for j in notation {
+                    mapping.insert((local, ei, original_index(j).unwrap()), tab.clone());
+                    remaining.retain(|&i| i != j);
+                }
+            }
+            for ni in 0..count {
+                if let Some(index) = original_index(ni) {
+                    mapping.insert((local, ei, index), vec![ni]);
+                }
+            }
+            if matched.len() != count || !remaining.is_empty() {
+                issues.push(json!({"voice":local,"event":ei,"tab_notes":count,
+                    "notation_notes":original.len()-count,"matched_notes":matched.len()}));
+                // Retain unmatched observed notes. Their absent string/fret
+                // prevents a falsely complete combined IR from being emitted.
+                for j in remaining {
+                    mapping.insert((local, ei, original_index(j).unwrap()), vec![notes.len()]);
+                    notes.push(original[j].clone());
+                }
+            }
+            event["notes"] = json!(notes);
+            event.as_object_mut().unwrap().remove("tab_note_count");
+            event.as_object_mut().unwrap().remove("continuation_notes");
+        }
+    }
+    for fields in issues {
+        issue(row, "dual_note_pairing_unresolved", fields);
+    }
+    resolve_dual_tab(row);
+    mapping
+}
+fn dual_note_pairs(
+    notes: &[Value],
+    tab_count: usize,
+    state: &Value,
+) -> Vec<(Vec<usize>, Vec<usize>)> {
+    let mut pairs = Vec::new();
+    let mut remaining: Vec<usize> = (tab_count..notes.len()).collect();
+    let mut matched = HashSet::new();
+    let pitches: BTreeSet<i64> = notes[..tab_count]
+        .iter()
+        .filter_map(|n| n["pitch"].as_i64())
+        .collect();
+    for pitch in pitches {
+        let tab: Vec<_> = (0..tab_count)
+            .filter(|&i| notes[i]["pitch"].as_i64() == Some(pitch))
+            .collect();
+        let notation: Vec<_> = remaining
+            .iter()
+            .copied()
+            .filter(|&j| notes[j]["pitch"].as_i64() == Some(pitch))
+            .collect();
+        if notation.is_empty()
+            || notation.len() > tab.len()
+            || !notation.iter().all(|&j| notes[j] == notes[notation[0]])
+        {
+            continue;
+        }
+        matched.extend(tab.iter().copied());
+        remaining.retain(|i| !notation.contains(i));
+        pairs.push((tab, notation));
+    }
+    let unmatched: Vec<_> = (0..tab_count).filter(|i| !matched.contains(i)).collect();
+    if !unmatched.is_empty()
+        && !remaining.is_empty()
+        && remaining.len() <= unmatched.len()
+        && unmatched
+            .iter()
+            .filter_map(|&i| notes[i]["pitch"].as_i64())
+            .collect::<BTreeSet<_>>()
+            .len()
+            <= 1
+        && remaining.iter().all(|&j| notes[j] == notes[remaining[0]])
+        && unmatched
+            .iter()
+            .all(|&i| compatible_notation_pitch(&notes[remaining[0]], &notes[i], state))
+    {
+        pairs.push((unmatched, remaining));
+    }
+    pairs
+}
+
+// Exchange determined pitches without collapsing the independently observed
+// note arrays, so notation ties can carry TAB-derived pitch to the next event.
+fn exchange_dual_pitches(row: &mut Row) {
+    if row.value["mode"] != "both" {
+        return;
+    }
+    resolve_dual_tab(row);
+    let state = row.value["resolved"]["state"].clone();
+    for voice in row.value["resolved"]["voices"].as_array_mut().unwrap() {
+        for event in voice["events"].as_array_mut().unwrap() {
+            let Some(count) = event["tab_note_count"].as_u64() else {
+                continue;
+            };
+            let notes = event["notes"].as_array_mut().unwrap();
+            for (tab, notation) in dual_note_pairs(notes, count as usize, &state) {
+                let pitches: BTreeSet<_> = tab
+                    .iter()
+                    .chain(&notation)
+                    .filter_map(|&i| notes[i]["pitch"].as_i64())
+                    .collect();
+                if pitches.len() != 1 {
+                    continue;
+                }
+                let pitch = *pitches.iter().next().unwrap();
+                for ni in tab.into_iter().chain(notation) {
+                    if notes[ni]["pitch"].is_null() {
+                        notes[ni]["pitch"] = json!(pitch);
+                        notes[ni]["written_pitch"] = json!(pitch);
+                    }
+                }
+            }
+        }
+    }
+    resolve_dual_tab(row);
+}
+
+fn propagate_dual_tie(start: &Value, end: &Value, rows: &mut [Row]) {
+    let source = &rows[start[0].as_u64().unwrap() as usize];
+    if source.value["mode"] != "both" {
+        return;
+    }
+    let original = event(source, &local_ref(start)).unwrap();
+    let Some(count) = original["tab_note_count"].as_u64().map(|v| v as usize) else {
+        return;
+    };
+    let index = start[3].as_u64().unwrap() as usize;
+    if index < count {
+        return;
+    }
+    let notes = array(&original["notes"]);
+    let strings: HashSet<_> = dual_note_pairs(notes, count, &source.value["resolved"]["state"])
+        .into_iter()
+        .filter(|(_, notation)| notation.contains(&index))
+        .flat_map(|(tab, _)| tab)
+        .filter_map(|i| notes[i]["string"].as_i64())
+        .chain(
+            array(&original["continuation_notes"])
+                .iter()
+                .filter(|note| note["notation_note"] == index)
+                .filter_map(|note| note["string"].as_i64()),
+        )
+        .collect();
+    let destination = &mut rows[end[0].as_u64().unwrap() as usize];
+    if destination.value["mode"] != "both" {
+        return;
+    }
+    let Some(pitch) = note(destination, &local_ref(end)).and_then(|n| n["pitch"].as_i64()) else {
+        return;
+    };
+    let vi = voice_index(destination, &end[1]).unwrap();
+    let event = &mut destination.value["resolved"]["voices"][vi]["events"]
+        [end[2].as_u64().unwrap() as usize];
+    let Some(count) = event["tab_note_count"].as_u64().map(|v| v as usize) else {
+        return;
+    };
+    let unique_string = strings.len() == 1;
+    if !unique_string && !strings.is_empty() {
+        let mut candidates: Vec<_> = strings.iter().copied().collect();
+        candidates.sort_unstable();
+        let ni = end[3].as_u64().unwrap() as usize;
+        event["notes"][ni]["tab_string_candidates"] = json!(candidates);
+    }
+    for string in strings {
+        if let Some(note) = event["notes"].as_array_mut().unwrap()[..count]
+            .iter_mut()
+            .find(|note| note["string"] == string)
+        {
+            if note["fret"].is_null() && note["pitch"].is_null() {
+                note["pitch"] = json!(pitch);
+                note["written_pitch"] = json!(pitch);
+            }
+        } else if unique_string {
+            if !event["continuation_notes"].is_array() {
+                event["continuation_notes"] = json!([]);
+            }
+            let derived = event["continuation_notes"].as_array_mut().unwrap();
+            if !derived.iter().any(|note| note["string"] == string) {
+                derived.push(
+                    json!({"string":string,"fret":null,"pitch":pitch,"written_pitch":pitch,
+                    "notation_note":end[3],"effects":["tie"]}),
+                );
+            }
+        }
+    }
+    exchange_dual_pitches(destination);
+}
+
+fn compatible_notation_pitch(notation: &Value, tab: &Value, state: &Value) -> bool {
+    let Some(pitch) = tab["pitch"].as_i64() else {
+        return true;
+    };
+    if let Some(written) = notation["pitch"].as_i64() {
+        return written == pitch;
+    }
+    let base = match known(state, "clef").as_str() {
+        Some("G2") => 30,
+        Some("F4") => 18,
+        Some("C3") => 24,
+        Some("C4") => 22,
+        _ => return true,
+    };
+    let Some(position) = notation["staff_position"].as_i64() else {
+        return true;
+    };
+    let diatonic = base + position;
+    let natural =
+        12 * (diatonic.div_euclid(7) + 1) + [0, 2, 4, 5, 7, 9, 11][diatonic.rem_euclid(7) as usize];
+    // An unreadable accidental may be double-flat through double-sharp; it
+    // cannot move a head to a different octave or unrelated staff position.
+    (pitch - natural).abs() <= 2
+}
+fn merge_note_evidence(tab: &mut Value, notation: &Value) {
+    for (key, value) in notation.as_object().unwrap() {
+        if key == "effects" {
+            for effect in array(value).iter().filter_map(Value::as_str) {
+                add_effect(tab, effect);
+            }
+        } else if tab[key].is_null() {
+            tab[key] = value.clone();
         }
     }
 }
@@ -808,10 +1408,7 @@ fn compatible(left: &Node, right: &Node, rows: &[Row]) -> bool {
     {
         return true;
     }
-    let field = if matches!(
-        rows[left.record].value["mode"].as_str(),
-        Some("tab" | "both")
-    ) {
+    let field = if rows[left.record].value["mode"] == "tab" || first.get("string").is_some() {
         "string"
     } else {
         "staff_position"
@@ -932,15 +1529,90 @@ fn tie(chain: &Value, rows: &mut [Row]) -> Option<String> {
         }
     }
     add_effect(last, "tie");
-    let needed: &[&str] = match mode.as_str() {
-        "tab" => &["fret"],
-        "notation" => &["pitch"],
-        _ => &["fret", "pitch"],
+    exchange_dual_pitches(b);
+    resolve_key_notes_after_tie(b, &local_ref(end));
+    propagate_dual_tie(start, end, rows);
+    let last = note(&rows[end[0].as_u64().unwrap() as usize], &local_ref(end)).unwrap();
+    let needed: &[&str] = if mode == "tab" || last.get("string").is_some() {
+        &["fret"]
+    } else {
+        &["pitch"]
     };
     if needed.iter().any(|k| last[k].is_null()) {
         Some("tie_value_unresolved".into())
     } else {
         None
+    }
+}
+fn resolve_key_notes_after_tie(row: &mut Row, endpoint: &Value) {
+    let state = &row.value["resolved"]["state"];
+    let base = match known(state, "clef").as_str() {
+        Some("G2") => 30,
+        Some("F4") => 18,
+        Some("C3") => 24,
+        Some("C4") => 22,
+        _ => return,
+    };
+    let Some(fifths) = known(state, "key").as_i64() else {
+        return;
+    };
+    let tied = note(row, endpoint).unwrap();
+    let Some(position) = tied["staff_position"].as_i64() else {
+        return;
+    };
+    let diatonic = base + position;
+    let order = if fifths >= 0 {
+        [3, 0, 4, 1, 5, 2, 6]
+    } else {
+        [6, 2, 5, 1, 4, 0, 3]
+    };
+    let alteration = if order
+        .into_iter()
+        .take(fifths.unsigned_abs() as usize)
+        .any(|step| step == diatonic.rem_euclid(7))
+    {
+        fifths.signum()
+    } else {
+        0
+    };
+    let pitch = 12 * (diatonic.div_euclid(7) + 1)
+        + [0, 2, 4, 5, 7, 9, 11][diatonic.rem_euclid(7) as usize]
+        + alteration;
+    // Both engraving conventions agree when the continued pitch equals the
+    // key signature. An altered tie alone cannot decide later unmarked notes.
+    if tied["pitch"].as_i64() != Some(pitch) {
+        return;
+    }
+    let Some(start) =
+        event(row, &json!(array(endpoint)[..2])).and_then(|event| event["start"].as_i64())
+    else {
+        return;
+    };
+    let mut events = Vec::new();
+    for (vi, voice) in array(&row.value["resolved"]["voices"]).iter().enumerate() {
+        for (ei, event) in array(&voice["events"]).iter().enumerate() {
+            if let Some(time) = event["start"].as_i64().filter(|time| *time >= start) {
+                events.push((time, vi, ei));
+            }
+        }
+    }
+    events.sort_unstable();
+    for (_, vi, ei) in events {
+        for note in row.value["resolved"]["voices"][vi]["events"][ei]["notes"]
+            .as_array_mut()
+            .unwrap()
+        {
+            if note["staff_position"].as_i64() != Some(position) {
+                continue;
+            }
+            if !note.get("accidental").is_some_and(Value::is_null) {
+                return;
+            }
+            if note["pitch"].is_null() {
+                note["pitch"] = json!(pitch);
+                note["written_pitch"] = json!(pitch);
+            }
+        }
     }
 }
 fn apply_range(chain: &mut Value, nodes: &[Node], rows: &mut [Row]) -> bool {
@@ -1027,6 +1699,10 @@ fn apply_range(chain: &mut Value, nodes: &[Node], rows: &mut [Row]) -> bool {
                         } else {
                             vec![]
                         };
+                    let event = &row.value["resolved"]["voices"][vi]["events"][ei];
+                    if event["tab_note_count"] == 1 && array(&event["notes"]).len() == 2 {
+                        owners = vec![0, 1];
+                    }
                     if array(start).len() == 3 && left == right {
                         owners = if note(row, start).is_some() {
                             vec![start[2].as_u64().unwrap() as usize]
@@ -1091,12 +1767,18 @@ fn ir(row: &mut Row) -> Option<String> {
     let time = known(st, "time");
     if !time.is_null() {
         measure["time_signature"] = time.clone();
-        measure["print_time_signature"] =
-            json!(row.value["observation"]["state"]["time"]["status"] == "observed");
+        measure["print_time_signature"] = json!(st["time"]["status"] == "observed");
     }
     for voice in array(&resolved["voices"]) {
         let mut current = json!({"voice":voice["voice"],"events":[]});
         for (ei, event) in array(&voice["events"]).iter().enumerate() {
+            if array(&row.value["unresolved"]).iter().any(|issue| {
+                issue["reason"] == "dual_note_pairing_unresolved"
+                    && issue["voice"] == voice["voice"]
+                    && issue["event"] == ei
+            }) {
+                return None;
+            }
             let dur = duration(&event["duration"]);
             if dur.is_none()
                 || event["start"].is_null()
@@ -1177,6 +1859,9 @@ fn same_anchors(observed: &Value, manual: &Value) -> bool {
                 && ae.iter().zip(be).all(|(a, b)| {
                     let (an, bn) = (array(&a["notes"]), array(&b["notes"]));
                     a["start"] == b["start"]
+                        // Manual IR has merged notes; independent notation
+                        // indices no longer address that array.
+                        && array(&a["notation_notes"]).is_empty()
                         && an.len() == bn.len()
                         && an.iter().zip(bn).all(|(a, b)| a["string"] == b["string"])
                 })
@@ -1245,7 +1930,11 @@ pub fn assemble(records: &[Value], auxiliary: Option<&[Value]>) -> Result<Value,
                 value[key] = v.clone();
             }
         }
-        value["observation"] = parse_observation(&record["observation"])?;
+        if let Some(instrument) = record.get("instrument") {
+            value["instrument"] = instrument.clone();
+        }
+        value["observation"] =
+            parse_measure_observation(&record["observation"], value["mode"].as_str().unwrap())?;
         value["pitch_reference"] = json!("written");
         value["resolved"] = json!({"voices":value["observation"]["voices"],"state":{},"visual_techniques":[],"pitch_reference":"written"});
         value["unresolved"] = json!([]);
@@ -1276,12 +1965,14 @@ pub fn assemble(records: &[Value], auxiliary: Option<&[Value]>) -> Result<Value,
                     .push(json!({"reason":"manual_relation_anchors_changed"}));
             }
         }
-        rows.push(Row {
+        let mut row = Row {
             value,
             voice_map: extra.get("voice_map").cloned().unwrap_or(json!({})),
             voice_links: BTreeMap::new(),
             relations,
-        });
+        };
+        independent_dual_notes(&mut row);
+        rows.push(row);
     }
     let mut nodes: Vec<Node> = Vec::new();
     let mut links: BTreeMap<usize, usize> = BTreeMap::new();
@@ -1338,13 +2029,37 @@ pub fn assemble(records: &[Value], auxiliary: Option<&[Value]>) -> Result<Value,
                 &extra["state"],
                 &previous,
             );
+            // An explicitly identified complete score header with no key
+            // symbols establishes zero alterations. A crop starting midway
+            // through a score cannot establish that fact.
+            let key_fact = &extra["state"]["key"];
+            let key_absent = if key_fact["source"] == "manual"
+                || (key_fact["source"] == "visual_classifier"
+                    && key_fact["calibrated"] == true
+                    && matches!(key_fact["status"].as_str(), Some("observed" | "absent")))
+            {
+                key_fact["status"] == "absent"
+            } else {
+                rows[index].value["observation"]["state"]["key"]["status"] == "absent"
+            };
+            if bar == 0
+                && extra["staff_start"] == true
+                && key_absent
+                && known(&rows[index].value["resolved"]["state"], "key").is_null()
+            {
+                rows[index].value["resolved"]["state"]["key"] =
+                    json!({"status":"observed","value":0,"reason":"empty_initial_signature"});
+            }
             previous = rows[index].value["resolved"]["state"].clone();
             last_bar = Some(bar);
             let relations = array(&rows[index].relations).to_vec();
             let mut local = Vec::new();
             let mut incoming_notes = HashSet::new();
             for (ri, r) in relations.into_iter().enumerate() {
-                let problem = relation_problem(&rows[index].value["observation"], &r);
+                let problem = r["observation_problem"]
+                    .as_str()
+                    .map(str::to_owned)
+                    .or_else(|| relation_problem(&rows[index].value["resolved"], &r));
                 nodes.push(Node {
                     record: index,
                     index: ri,
@@ -1601,6 +2316,9 @@ pub fn assemble(records: &[Value], auxiliary: Option<&[Value]>) -> Result<Value,
             (-1, -1, vec![])
         }
     });
+    for row in &mut rows {
+        exchange_dual_pitches(row);
+    }
     for i in ties {
         if let Some(reason) = tie(&chains[i], &mut rows) {
             chains[i]["status"] = json!(if reason == "tie_value_unresolved" {
@@ -1615,6 +2333,31 @@ pub fn assemble(records: &[Value], auxiliary: Option<&[Value]>) -> Result<Value,
                     &reason,
                     json!({"relation":segment["relation"]}),
                 );
+            }
+        }
+    }
+    let note_maps: Vec<_> = rows.iter_mut().map(merge_dual_notes).collect();
+    for chain in &mut chains {
+        for key in ["start", "end"] {
+            let endpoint = chain[key].clone();
+            if array(&endpoint).len() == 4 {
+                let ri = endpoint[0].as_u64().unwrap() as usize;
+                let anchor = (
+                    endpoint[1].as_i64().unwrap(),
+                    endpoint[2].as_u64().unwrap() as usize,
+                    endpoint[3].as_u64().unwrap() as usize,
+                );
+                if let Some(notes) = note_maps[ri].get(&anchor) {
+                    if notes.len() == 1 {
+                        chain[key][3] = json!(notes[0]);
+                    } else {
+                        chain[format!("{key}_notes")] = json!(notes
+                            .iter()
+                            .map(|&ni| json!([ri, anchor.0, anchor.1, ni]))
+                            .collect::<Vec<_>>());
+                        chain[key] = Value::Null;
+                    }
+                }
             }
         }
     }
@@ -1636,7 +2379,7 @@ pub fn observation_prompt(mode: &str) -> Result<String, String> {
         "Return one JSON object with state, voices and relations. ",
         "Do not infer information outside the image. ",
         "state contains printed changes: each field has status observed, absent, or unknown and value. ",
-        "absent means clearly not printed; unknown means unreadable. ",
+        "absent means clearly not printed; unknown means unreadable. Omitted state fields describe no local change; use explicit unknown for an unreadable printed mark. ",
         "State fields are time (N/D), key (signed number of sharps or flats, -7..7), clef (G2, F4, C3, C4, percussion or tab), and clef_octave (0, -12, 12, -24 or 24, from the small printed clef modifier). ",
         "voices contains local voice groups with voice and events. ",
         "Each event has start (ticks, quarter=960), duration (w,h,q,e,s,t,f, optional dots or [3:2]), status (normal or rest), notes and effects. ",
@@ -1649,7 +2392,10 @@ pub fn observation_prompt(mode: &str) -> Result<String, String> {
         "Do not attach a neighbouring measure's chord or a page-top chord dictionary to an event. Never add notes or change their frets to match a chord diagram. ",
         "Do not output diagram effects: the separate diagram reader supplies fingering geometry. ",
         "Read staff_position from notation: bottom line=0, one step per line or space upwards. ",
+        "In both mode, each event has two independent arrays: notes contains only TAB string/fret/effects, and notation_notes contains only notation staff_position/accidental/notehead/effects. Read each array from top to bottom on its own staff; never pair notes across the two representations, and never create a duplicate voice or event for the second staff. Include both arrays even for rests. State clef and key refer to the notation staff, not the TAB letters. ",
+        "The two arrays need not have equal length. Omit a note from a representation when neither its glyph nor a connection endpoint is visible there. Use a null fret only for an otherwise visibly located TAB note. Count a completely overlapping notation head once; do not invent hidden copies. ",
         "accidental is null if not printed, an integer -2..2 if printed, or unknown if unreadable. ",
+        "For percussion, retain staff_position and the visible notehead shape: normal, x, circle-x, circle-slash, diamond, heavy-x, heavy-x-hat or triangle-up. Use null for an unreadable shape; a percussion x is an instrument notehead, not a muted guitar note. ",
         "Do not output MIDI pitch or a global voice identity. ",
         "Include only visible effects using IR names. ",
         "A printed H/P curve uses hammer on its origin note. ",
@@ -1664,6 +2410,7 @@ pub fn observation_prompt(mode: &str) -> Result<String, String> {
         "Each has kind (tie, hammer, sl, ss, pm, let, ottava, or null when its label/type is not visible), start and end. ",
         "A note endpoint is [voice,event_index,note_index]; a span endpoint is [voice,event_index]. ",
         "Indices are zero-based and refer to the events and notes you output. ",
+        "In both mode, a note connection also has representation tab or notation, identifying the staff where its visible mark is drawn; its note_index addresses notes or notation_notes respectively. Keep marks on each staff independent even when their music appears equivalent. Event-only spans need no representation. ",
         "Rests and tied continuations with hidden frets also count as events; note_index is the position in that event's notes array, not a string number or staff position. ",
         "Include a relation only when its curve, technique label or extension line is visible. ",
         "A PM/let label without a visible extension line identifies its marked start event; its end is null. ",
@@ -1797,5 +2544,58 @@ mod tests {
         let edited = assemble(&[plain], Some(&[json!({"resolved_voices":manual})])).unwrap();
         assert!(edited["records"][0]["ir"].is_string());
         assert_eq!(edited["records"][0]["unresolved"], json!([]));
+
+        let mut dual = records[0].clone();
+        dual["mode"] = json!("both");
+        dual["observation"]["relations"][0]["representation"] = json!("notation");
+        for event in dual["observation"]["voices"][0]["events"]
+            .as_array_mut()
+            .unwrap()
+        {
+            event["notation_notes"] = json!([{"staff_position":9,"accidental":null}]);
+        }
+        let mut manual = records[0]["observation"]["voices"].clone();
+        for event in manual[0]["events"].as_array_mut().unwrap() {
+            event["notes"][0]["pitch"] = json!(79);
+        }
+        let edited = assemble(&[dual.clone()], Some(&[json!({"resolved_voices":manual})])).unwrap();
+        assert!(edited["records"][0]["ir"].is_string());
+        assert_eq!(edited["relations"], json!([]));
+        assert_eq!(
+            edited["records"][0]["unresolved"],
+            json!([{"reason":"manual_relation_anchors_changed"}])
+        );
+        assert_eq!(edited["records"][0]["observation"], dual["observation"]);
+    }
+
+    #[test]
+    fn one_unknown_accidental_cannot_describe_different_known_pitches() {
+        let values = json!({"time":"4/4","key":0,"clef":"G2","clef_octave":0,
+            "tuning":[64,59,55,50,45,40],"instrument_transpose":-12,
+            "instrument_transpose_explicit":false,"capo":0});
+        let state: serde_json::Map<String, Value> = values
+            .as_object()
+            .unwrap()
+            .iter()
+            .map(|(k, v)| (k.clone(), json!({"status":"observed","value":v})))
+            .collect();
+        let mut row = json!({"source_id":"score","part_id":0,"staff_id":0,
+            "bar_index":0,"mode":"both","observation":{"state":{},"relations":[],
+                "voices":[{"voice":0,"events":[{"start":0,"duration":"w","status":"normal",
+                    "notes":[{"string":1,"fret":0},{"string":2,"fret":6}],
+                    "notation_notes":[{"staff_position":7,"accidental":"unknown"}]}]}]}});
+        let extra = [json!({"state":state})];
+        let result = assemble(&[row.clone()], Some(&extra)).unwrap();
+        assert!(result["records"][0]["ir"].is_null());
+        assert!(array(&result["records"][0]["unresolved"])
+            .iter()
+            .any(|issue| issue["reason"] == "dual_note_pairing_unresolved"));
+        row["observation"]["voices"][0]["events"][0]["notes"][1]["fret"] = json!(5);
+        let result = assemble(&[row], Some(&extra)).unwrap();
+        assert!(result["records"][0]["ir"].is_string());
+        assert_eq!(
+            array(&result["records"][0]["resolved"]["voices"][0]["events"][0]["notes"]).len(),
+            2
+        );
     }
 }

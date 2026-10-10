@@ -126,16 +126,12 @@ pub fn image_tensor(image: &RgbImage) -> Result<Vec<f32>> {
 pub fn resolve_string_count(
     has_tab: bool,
     staff: &Value,
-    structure: &Value,
     evidence: &Value,
     manual: Option<usize>,
-    staff_task_adapted: bool,
 ) -> Value {
     let mut candidates = json!({});
-    for (name, value) in [("staff_model", staff), ("structure_model", structure)] {
-        if value.as_u64().is_some_and(|n| (1..=12).contains(&n)) {
-            candidates[name] = value.clone();
-        }
+    if staff.as_u64().is_some_and(|n| (1..=12).contains(&n)) {
+        candidates["staff_model"] = staff.clone();
     }
     // String count is meaningful only after the two heads agree on whether
     // the image contains TAB. Raw evidence remains available for review.
@@ -149,29 +145,13 @@ pub fn resolve_string_count(
         candidates["manual"] = json!(count);
     }
     if !has_tab {
-        return json!({"value":null,"source":"not_applicable","candidates":candidates,"needs_review":false,
-            "local_agreement":false,"structure_conflict":false});
+        return json!({"value":null,"source":"not_applicable","candidates":candidates,"needs_review":false});
     }
-    let source = ["manual", "staff_network", "staff_model", "structure_model"]
+    let source = ["manual", "staff_network", "staff_model"]
         .into_iter()
         .find(|name| !candidates[*name].is_null())
         .unwrap_or("unknown");
     let value = candidates[source].clone();
-    // Only a task-adapted local staff reading can corroborate the calibrated
-    // mode/count network. An independent page count stays visible but cannot
-    // by itself block this local agreement. Identity and tuning are separate.
-    let local_agreement = staff_task_adapted
-        && matches!(evidence["mode"]["value"].as_str(), Some("tab" | "both"))
-        && candidates["staff_network"]
-            .as_u64()
-            .is_some_and(|n| (1..=12).contains(&n))
-        && candidates["staff_model"] == candidates["staff_network"];
-    let structure_conflict =
-        !candidates["structure_model"].is_null() && candidates["structure_model"] != value;
-    let visual_authority = matches!(evidence["mode"]["value"].as_str(), Some("tab" | "both"))
-        && candidates["staff_network"]
-            .as_u64()
-            .is_some_and(|n| (1..=12).contains(&n));
     let needs_review = manual.is_none()
         && (value.is_null()
             || candidates
@@ -181,28 +161,23 @@ pub fn resolve_string_count(
                 .any(|candidate| !candidate.is_null() && candidate != &value));
     json!({"value":value,"source":source,"candidates":candidates,
         "needs_review":needs_review,
-        "local_agreement":local_agreement,"structure_conflict":structure_conflict,
         "staff_conflict":!candidates["staff_model"].is_null() && candidates["staff_model"] != value,
-        "visual_authority":visual_authority,
         "provisional":needs_review && !value.is_null()})
 }
 
 pub fn resolve_instrument_with_label(
     has_tab: bool,
     staff: &Value,
-    structure: &Value,
     manual: Option<&str>,
     label: Option<&Value>,
     continuation: Option<&Value>,
 ) -> Value {
     let mut candidates = json!({});
-    for (source, value) in [("staff_model", staff), ("structure_model", structure)] {
-        if value
-            .as_str()
-            .is_some_and(|v| ["guitar", "bass", "pitched", "drums"].contains(&v))
-        {
-            candidates[source] = value.clone();
-        }
+    if staff
+        .as_str()
+        .is_some_and(|v| ["guitar", "bass", "pitched", "drums"].contains(&v))
+    {
+        candidates["staff_model"] = staff.clone();
     }
     if let Some(label) = label {
         let known = |value: &Value| {
@@ -227,11 +202,10 @@ pub fn resolve_instrument_with_label(
         if accepted {
             return json!({"value":observed,"source":"label_text","status":"resolved","candidates":candidates,
                 "needs_review":false,"provisional":false,"label_evidence":label,
-                "structure_conflict":!structure.is_null() && structure != observed,
                 "staff_conflict":!original.is_null() && original != observed});
         }
         if let Some(previous) = continuation.filter(|v| {
-            label["status"] == "absent"
+            matches!(label["status"].as_str(), Some("absent" | "unreadable"))
                 && matches!(
                     v["source"].as_str(),
                     Some("label_text" | "confirmed_continuation")
@@ -251,29 +225,12 @@ pub fn resolve_instrument_with_label(
         return json!({"value":instrument,"source":"manual","status":"resolved",
             "candidates":candidates,"needs_review":false,"provisional":false,"provisional_source":null});
     }
-    let source = ["structure_model", "staff_model"]
-        .into_iter()
-        .find(|key| {
-            candidates[*key]
-                .as_str()
-                .is_some_and(|instrument| !has_tab || ["guitar", "bass"].contains(&instrument))
-        })
-        .unwrap_or("unknown");
-    let value = candidates[source].clone();
-    let needs_review = value.is_null()
-        || candidates
-            .as_object()
-            .unwrap()
-            .values()
-            .any(|candidate| candidate != &value);
-    let source = if !needs_review && candidates.as_object().unwrap().len() > 1 {
-        "agreement"
-    } else {
-        source
-    };
-    json!({"value":value,"source":if needs_review {"unresolved"} else {source},
+    let value = candidates["staff_model"]
+        .as_str()
+        .filter(|instrument| !has_tab || ["guitar", "bass"].contains(instrument));
+    let needs_review = value.is_none();
+    json!({"value":value,"source":if needs_review {"unresolved"} else {"staff_model"},
         "status":if needs_review {"unresolved"} else {"resolved"},
         "candidates":candidates,"needs_review":needs_review,
-        "provisional_source":if needs_review && !value.is_null() {json!(source)} else {Value::Null},
-        "provisional":needs_review && !value.is_null()})
+        "provisional":false})
 }

@@ -1,5 +1,46 @@
 // Edit the existing score structure; untouched notes retain all their fields.
 export const clone = (value) => structuredClone(value);
+// A display projection only. Incomplete evidence never becomes an editable
+// measure or an exportable score merely because some events can be drawn.
+export function observationPreview(record) {
+  const conflicts = new Set((record.unresolved || [])
+    .filter(issue => issue.reason === "dual_note_pairing_unresolved")
+    .map(issue => `${issue.voice}:${issue.event}`));
+  const duration = token => {
+    const match = /^(w|h|q|e|s|t|f|d[0-9]+)(\.\.|\.)?(?:\[([0-9]+):([0-9]+)\])?$/.exec(token);
+    if (!match) return null;
+    const value = { w: 1, h: 2, q: 4, e: 8, s: 16, t: 32, f: 64 }[match[1]] ?? Number(match[1].slice(1));
+    const enters = Number(match[3] || 1), times = Number(match[4] || 1);
+    return value > 0 && enters > 0 && times > 0
+      ? { value, dotted: match[2] === ".", double_dotted: match[2] === "..", tuplet_enters: enters, tuplet_times: times }
+      : null;
+  };
+  const state = record.resolved?.state || {};
+  const needs = record.mode === "tab" ? ["string", "fret"]
+    : record.mode === "notation" ? ["pitch"] : ["string", "fret", "pitch"];
+  const voices = (record.resolved?.voices || []).map(voice => ({
+    voice: voice.voice,
+    events: (voice.events || []).flatMap((event, index) => {
+      const rhythm = duration(event.duration);
+      if (!Number.isSafeInteger(event.start) || event.start < 0 || !rhythm
+        || !["normal", "rest", "empty"].includes(event.status)
+        || conflicts.has(`${voice.voice}:${index}`)) return [];
+      // Conflicting rhythm has no faithful single-voice engraving. Do not
+      // move a later note to the end of an overlapping observation.
+      if (voice.events.some((other, j) => {
+        const d = duration(other.duration);
+        return j !== index && Number.isSafeInteger(other.start) && d
+          && other.start < event.start + ticks({duration: rhythm})
+          && event.start < other.start + ticks({duration: d});
+      })) return [];
+      const notes = event.notes || [];
+      if (event.status === "normal" && (!notes.length
+        || notes.some(note => needs.some(key => note[key] == null)))) return [];
+      return [{ ...clone(event), duration: rhythm, source_event: index }];
+    }).sort((a, b) => a.start - b.start),
+  }));
+  return { preview: true, voices, time_signature: state.time?.value, key_signature: state.key?.value };
+}
 export function ticks(event) {
   const d = event.duration;
   return Math.round(3840 / d.value * (d.double_dotted ? 1.75 : d.dotted ? 1.5 : 1)

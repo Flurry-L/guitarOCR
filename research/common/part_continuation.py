@@ -1,5 +1,8 @@
 """Portable image contract for learned cross-page part correspondence."""
 
+import math
+from functools import lru_cache
+
 import numpy as np
 from PIL import Image
 
@@ -16,8 +19,52 @@ FEATURES += ['previous_count_div8', 'current_count_div8',
 CONTRACT = dict(version=1, row_size=list(ROW_SIZE), context_size=list(CONTEXT_SIZE),
     labels=LABELS, identities=IDENTITIES, modes=MODES, features=FEATURES,
     max_parts=MAX_PARTS, grayscale='pil_l', resize='contain_lanczos_white_center',
-    normalization='zero_one', context_channels=['previous_pixels', 'previous_query_mask',
+    normalization='zero_one', assignment='one_to_one_log_odds', context_channels=['previous_pixels', 'previous_query_mask',
                                                'current_pixels', 'current_query_mask'])
+
+
+def match_gallery(probabilities, threshold, margin):
+    """Match learned edges globally, leaving unknown/new parts unmatched.
+
+    Each accepted edge must survive comparison with the best complete
+    alternative assignment that omits it. No row order supplies an identity.
+    """
+    edges = []
+    for row in probabilities:
+        eligible = []
+        for previous, values in enumerate(row):
+            probability = values[1]
+            if int(np.argmax(values)) == 1 and probability >= threshold:
+                probability = min(1 - 1e-8, max(1e-8, probability))
+                eligible.append((previous, math.log(probability / (1 - probability))))
+        edges.append(eligible)
+
+    def solve(excluded=None):
+        @lru_cache(None)
+        def visit(current, used):
+            if current == len(edges):
+                return 0., ()
+            score, tail = visit(current + 1, used)
+            best = score, (None,) + tail
+            for previous, weight in edges[current]:
+                if used & (1 << previous) or excluded == (current, previous):
+                    continue
+                score, tail = visit(current + 1, used | (1 << previous))
+                if score + weight > best[0]:
+                    best = score + weight, (previous,) + tail
+            return best
+        return visit(0, 0)
+
+    score, assignment = solve()
+    matches = []
+    for current, previous in enumerate(assignment):
+        if previous is None:
+            continue
+        alternative, _ = solve((current, previous))
+        difference = score - alternative
+        matches.append(dict(current=current, previous=previous, margin=difference,
+                            accepted=difference > max(1e-6, margin)))
+    return matches
 
 
 def contain(image, size):

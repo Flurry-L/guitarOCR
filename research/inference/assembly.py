@@ -8,12 +8,12 @@ LAYOUT_FIELDS = ("page", "source_page", "system_index")
 NOTE_RELATIONS = ("tie", "hammer", "sl", "ss")
 
 
-def observation_schema():
-    return json.loads(_native.observation_schema())
+def observation_schema(mode, instrument=None):
+    return json.loads(_native.observation_schema(mode, instrument))
 
 
-def parse_observation(value):
-    return json.loads(_native.parse_observation(json.dumps(value)))
+def parse_observation(value, mode=None):
+    return json.loads(_native.parse_observation(json.dumps(value), mode))
 
 
 def range_relation(relation):

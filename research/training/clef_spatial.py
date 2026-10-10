@@ -9,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageOps
+from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 from torch.utils.data import DataLoader, Dataset
 
 from research.common.clef_spatial import CONTRACT, LABELS, image_tensor
@@ -27,8 +27,8 @@ class ClefSpatialReader:
         if not .5 <= self.config.get('threshold', -1) <= 1:
             raise ValueError('Invalid spatial clef threshold')
 
-    def predict(self, image):
-        values = image_tensor(image)[None]
+    def predict(self, image, query_bbox):
+        values = image_tensor(image, query_bbox)[None]
         logits = self.session.run(['logits'], {'images': values})[0]
         if logits.shape != (1, len(self.config['labels'])) or not np.isfinite(logits).all():
             raise ValueError('Invalid spatial clef output')
@@ -52,7 +52,7 @@ def export(output, data):
     model = ClefSpatialNetwork().eval()
     model.load_state_dict(torch.load(output / 'model.pt', map_location='cpu', weights_only=True))
     target = output / 'clef_spatial.onnx'
-    torch.onnx.export(model, torch.zeros(1, 1, 256, 256), target, input_names=['images'], output_names=['logits'],
+    torch.onnx.export(model, torch.zeros(1, 2, 256, 256), target, input_names=['images'], output_names=['logits'],
                       dynamic_axes={key: {0: 'batch'} for key in ['images', 'logits']}, opset_version=17, dynamo=False)
     graph = onnx.load(target)
     config = dict(CONTRACT, threshold=validation['selected']['threshold'], source_checkpoint=validation['step'])
@@ -63,7 +63,7 @@ def export(output, data):
     errors = []
     for row in records[:14]:
         with Image.open(row['images'][0]) as image:
-            tensor = image_tensor(image)[None]
+            tensor = image_tensor(image, row['query_bbox'])[None]
         with torch.inference_mode():
             expected = model(torch.from_numpy(tensor)).numpy()
         actual = reader.session.run(['logits'], {'images': tensor})[0]
@@ -85,9 +85,10 @@ def evaluate_export(model, manifest, output):
         if 'clef' not in target:
             continue
         with Image.open(row['images'][0]) as image:
-            evidence = reader.predict(image)
+            evidence = reader.predict(image, row['query_bbox'])
         guess = LABELS[int(np.argmax(evidence['probabilities']))]
-        predictions.append(dict(image=row['images'][0], family=row.get('provenance', {}).get('family'), target=target,
+        predictions.append(dict(image=row['images'][0], query_bbox=row['query_bbox'],
+                                family=row.get('provenance', {}).get('family'), target=target,
                                 prediction=evidence, raw_argmax=guess))
     report = dict(samples=len(predictions), accepted=sum(p['prediction']['accepted'] for p in predictions),
         correct=sum(p['prediction']['accepted'] and all(p['prediction'][k] == p['target'][k] for k in ['clef','clef_octave']) for p in predictions),
@@ -98,41 +99,6 @@ def evaluate_export(model, manifest, output):
     print(json.dumps({k:v for k,v in report.items() if k!='predictions'}, indent=2))
 
 
-def adjacent_clefs(primary, neighbor, *, gap_fraction=0.12, neighbor_fraction=0.7,
-                   placement="below"):
-    if not 0 <= gap_fraction <= 0.5 or not 0 < neighbor_fraction <= 1:
-        raise ValueError("Invalid neighboring staff context")
-    if placement not in {"above", "below"}:
-        raise ValueError("Invalid neighboring staff placement")
-    primary = primary.convert("L")
-    neighbor = neighbor.convert("L")
-    if min(*primary.size, *neighbor.size) < 1:
-        raise ValueError("Empty clef crop")
-
-    width = min(primary.width, neighbor.width)
-
-    def scaled(image):
-        height = max(1, round(image.height * width / image.width))
-        return image.resize((width, height), Image.Resampling.LANCZOS)
-
-    main = scaled(primary)
-    following = scaled(neighbor)
-    visible_height = max(1, round(following.height * neighbor_fraction))
-    if placement == "above":
-        following = following.crop((0, following.height - visible_height, width, following.height))
-    else:
-        following = following.crop((0, 0, width, visible_height))
-    gap = round(main.height * gap_fraction)
-    canvas = Image.new("L", (width, main.height + gap + following.height), 255)
-    if placement == "above":
-        canvas.paste(following, (0, 0))
-        canvas.paste(main, (0, following.height + gap))
-    else:
-        canvas.paste(main, (0, 0))
-        canvas.paste(following, (0, main.height + gap))
-    return canvas
-
-
 @lru_cache(maxsize=8192)
 def pixels(path):
     with Image.open(path) as image:
@@ -140,44 +106,39 @@ def pixels(path):
 
 
 class ClefData(Dataset):
-    def __init__(self, rows, count=None, *, adjacent_context=False):
-        self.rows, self.count, self.adjacent_context = rows, count, adjacent_context
-        self.groups = defaultdict(list)
+    def __init__(self, rows, count=None):
+        self.rows, self.count = rows, count
+        domains = defaultdict(lambda: defaultdict(list))
         for index, row in enumerate(rows):
             target = json.loads(row['messages'][-1]['content'])
-            self.groups[LABELS.index(target)].append(index)
-        self.neighbors = self.groups[LABELS.index(dict(clef='tab', clef_octave=0))]
-        self.other_neighbors = [index for index, row in enumerate(rows)
-                                if json.loads(row['messages'][-1]['content'])['clef'] != 'tab']
-        self.context_indices = list(range(len(rows)))
+            label = LABELS.index(target)
+            domains[label][row['provenance']['renderer']].append(index)
+        self.sampling_groups = {label: list(groups.values()) for label, groups in domains.items()}
 
     def __len__(self):
-        return self.count or len(self.rows) + (len(self.context_indices) if self.adjacent_context else 0)
+        return self.count or len(self.rows)
 
     def __getitem__(self, index):
         rng = random.Random(552203 + index)
-        context = self.adjacent_context and (self.count and rng.random() < .45 or
-                                             not self.count and index >= len(self.rows))
         if self.count:
-            index = rng.choice(self.groups[rng.choice(list(self.groups))])
-        elif context:
-            index = self.context_indices[index - len(self.rows)]
+            # Give each renderer the same chance within a clef class. Rare
+            # printed forms must not be drowned out by one synthetic font set.
+            label = rng.choice(list(self.sampling_groups))
+            index = rng.choice(rng.choice(self.sampling_groups[label]))
         row = self.rows[index]
         image = pixels(row['images'][0]).copy()
-        if context:
-            tab = json.loads(row['messages'][-1]['content'])['clef'] == 'tab'
-            choices = self.other_neighbors if tab else self.neighbors
-            if choices:
-                neighbor = pixels(self.rows[choices[rng.randrange(len(choices))]]['images'][0])
-                image = adjacent_clefs(image, neighbor, gap_fraction=rng.uniform(0, .25),
-                                       neighbor_fraction=rng.uniform(.25, 1),
-                                       placement='above' if tab else 'below')
+        query = list(row['query_bbox'])
         if self.count and rng.random() < .8:
             margins = tuple(rng.randrange(max(2, round(min(image.size) * .3))) for _ in range(4))
             image = ImageOps.expand(image, margins, fill=255)
+            query[0] += margins[0]
+            query[1] += margins[1]
             scale = rng.uniform(.8, 1.2)
+            width, height = image.size
             image = image.resize((max(1, round(image.width * scale)),
                                   max(1, round(image.height * scale))), Image.Resampling.LANCZOS)
+            query = [query[0] * image.width / width, query[1] * image.height / height,
+                     query[2] * image.width / width, query[3] * image.height / height]
             image = ImageEnhance.Contrast(image).enhance(rng.uniform(.65, 1.2))
             if rng.random() < .25:
                 image = image.filter(ImageFilter.GaussianBlur(rng.uniform(.2, .7)))
@@ -186,23 +147,22 @@ class ClefData(Dataset):
                 scale = min(1.0, rng.uniform(32, 120) / image.height)
                 image = image.resize((max(1, round(image.width*scale)), max(1, round(image.height*scale))),
                                      Image.Resampling.LANCZOS).resize(size, Image.Resampling.BILINEAR)
-            if rng.random() < .4:
-                # Detector boxes can retain neighbouring staff fragments and
-                # unequal surrounding space. This is training augmentation;
-                # production always reads the complete original image.
-                top = round(image.height * rng.uniform(0, 1.5))
-                bottom = round(image.height * rng.uniform(0, .8))
-                context = Image.new('L', (image.width, image.height + top + bottom), 255)
-                context.paste(image, (0, top))
-                if top > image.height * .8 and rng.random() < .6:
-                    draw = ImageDraw.Draw(context)
-                    gap = max(2, round(image.height * .07))
-                    for line in range(rng.choice([5, 6])):
-                        y = gap * (line + 1)
-                        draw.line((0, y, image.width, y), fill=rng.randrange(20, 100))
-                    draw.text((rng.randrange(max(1, image.width//2)), gap * 7), str(rng.randrange(1, 20)), fill=0)
-                image = context
-        return image_tensor(image), np.int64(LABELS.index(json.loads(row['messages'][-1]['content'])))
+            # Detector bounds vary independently from the printed clef. The
+            # complete context stays available when the query becomes tight.
+            dx, dy = query[2] * rng.uniform(-.1, .1), query[3] * rng.uniform(-.1, .1)
+            query = [query[0] + dx, query[1] + dy, query[2] - dx, query[3] - dy]
+        tensor = image_tensor(image, query)
+        if self.count and rng.random() < .8:
+            # Keep every staff line while varying the query's canvas position.
+            # Real page edges make the same clef appear away from the centre.
+            size = rng.randrange(160, 257)
+            left, top = rng.randrange(257 - size), rng.randrange(257 - size)
+            shifted = np.stack([np.ones((256, 256), dtype=np.float32), np.zeros((256, 256), dtype=np.float32)])
+            for channel, resample in ((0, Image.Resampling.LANCZOS), (1, Image.Resampling.NEAREST)):
+                resized = Image.fromarray(tensor[channel]).resize((size, size), resample)
+                shifted[channel, top:top + size, left:left + size] = np.asarray(resized)
+            tensor = shifted
+        return tensor, np.int64(LABELS.index(json.loads(row['messages'][-1]['content'])))
 
 
 def evaluate(model, loader):
@@ -215,11 +175,12 @@ def evaluate(model, loader):
     p, target = np.asarray(probabilities), np.asarray(labels)
     correct = p.argmax(1) == target
     choices = []
-    for threshold in [.8, .9, .95, .97, .98, .99, .995, .999, .9999, 1.0]:
+    for threshold in [.5, .6, .7, .8, .9, .95, .97, .98, .99, .995, .999, .9999, 1.0]:
         accepted = p.max(1) >= threshold
         choices.append(dict(threshold=threshold, accepted=int(accepted.sum()),
                             correct=int((accepted & correct).sum()), wrong=int((accepted & ~correct).sum())))
-    selected = max([row for row in choices if not row['wrong']], key=lambda r: (r['correct'], -r['threshold']))
+    selected = max([row for row in choices if row['wrong'] <= .01 * row['accepted']],
+                   key=lambda r: (r['correct'], -r['threshold']))
     return dict(samples=len(labels), argmax_correct=int(correct.sum()), selected=selected,
                 thresholds=choices, probabilities=probabilities, targets=labels)
 
@@ -232,9 +193,9 @@ def train(args):
                for split in ['train', 'validation']}
     families = {split: {r['provenance']['family'] for r in rows} for split, rows in records.items()}
     assert not families['train'] & families['validation']
-    train = DataLoader(ClefData(records['train'], args.steps * 48, adjacent_context=args.adjacent_context), batch_size=48, shuffle=True,
+    train = DataLoader(ClefData(records['train'], args.steps * 48), batch_size=48, shuffle=True,
                        num_workers=6, persistent_workers=True, pin_memory=True)
-    validation = DataLoader(ClefData(records['validation'], adjacent_context=args.adjacent_context),
+    validation = DataLoader(ClefData(records['validation']),
                             batch_size=48, num_workers=4, persistent_workers=True)
     model = ClefSpatialNetwork().cuda()
     if args.init:
@@ -257,7 +218,6 @@ def train(args):
                 **report,
                 seed=654721,
                 initialize=str(args.init) if args.init else None,
-                adjacent_context=args.adjacent_context,
                 data=str(args.data),
             ),
             indent=2,
@@ -275,7 +235,6 @@ def main():
     parser_train.add_argument('--steps', type=int, default=2400)
     parser_train.add_argument('--init', type=Path)
     parser_train.add_argument('--learning-rate', type=float, default=.0005)
-    parser_train.add_argument('--adjacent-context', action='store_true')
     parser_export = commands.add_parser('export')
     parser_export.add_argument('--model', type=Path, required=True)
     parser_export.add_argument('--data', type=Path, required=True)

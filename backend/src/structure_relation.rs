@@ -1,4 +1,4 @@
-//! Learned adjacent-row relations. This model proposes groups; it never rewrites rows.
+//! Learned adjacent-row membership in simultaneous systems and instrument groups.
 use image::{imageops, RgbImage};
 use ort::{session::Session, value::Tensor};
 use serde_json::Value;
@@ -10,9 +10,8 @@ type Result<T> = std::result::Result<T, String>;
 pub struct RelationPrediction {
     pub systems: Vec<usize>,
     pub same_system_probabilities: Vec<f32>,
-    pub needs_review: bool,
     pub review_confidence: f32,
-    pub same_part_probabilities: Option<Vec<f32>>,
+    pub same_part_probabilities: Vec<f32>,
     pub part_review_confidence: f32,
 }
 
@@ -120,9 +119,8 @@ impl StructureRelation {
             return Ok(RelationPrediction {
                 systems: vec![0],
                 same_system_probabilities: vec![],
-                needs_review: false,
                 review_confidence: self.review_confidence,
-                same_part_probabilities: Some(Vec::new()),
+                same_part_probabilities: Vec::new(),
                 part_review_confidence: self.part_review_confidence,
             });
         }
@@ -162,19 +160,11 @@ impl StructureRelation {
             .iter()
             .map(|v| 1. / (1. + (-v / self.part_temperature).exp()))
             .collect();
-        let needs_review = probabilities
-            .iter()
-            .any(|p| p.max(1. - p) < self.review_confidence)
-            || part_probabilities
-                .iter()
-                .zip(systems.windows(2))
-                .any(|(p, s)| s[0] == s[1] && p.max(1. - p) < self.part_review_confidence);
         Ok(RelationPrediction {
             systems,
             same_system_probabilities: probabilities,
-            needs_review,
             review_confidence: self.review_confidence,
-            same_part_probabilities: Some(part_probabilities),
+            same_part_probabilities: part_probabilities,
             part_review_confidence: self.part_review_confidence,
         })
     }

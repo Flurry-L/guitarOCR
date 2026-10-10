@@ -237,7 +237,9 @@ def write_dataset(output, rows):
     (output / 'dataset_info.json').write_text(json.dumps({split: dataset_entry(f'{split}.jsonl') for split in counts}, indent=2))
     (output / 'dataset.json').write_text(json.dumps({'complete': True, 'supervision': 'visible_observation',
         'measure_images': 1, 'image_geometry': 'preserve_aspect_ratio', 'splits': counts,
-        'renderers': sorted({row.get('renderer', 'unknown') for row in rows})}, indent=2))
+        'renderers': sorted({row.get('renderer', 'unknown') for row in rows}),
+        'coverage': {split: {mode: sum(row['split'] == split and ('drums' if row.get('instrument') == 'drums' else row['mode']) == mode
+                         for row in rows) for mode in ('tab', 'notation', 'both', 'drums')} for split in counts}}, indent=2))
     return counts
 
 
@@ -611,13 +613,17 @@ def continuation_image(image, geometry, index, state):
 
 def tab_crops(geometry, size):
     painted, boxes = geometry['painted'], geometry['boxes']
+    staff_type = 'tab' if any(p.get('staff_type') == 'tab' for p in painted) else 'score'
     centers = {p['mi']: (min(p['lines']) + max(p['lines'])) / 2
-               for p in painted if p['kind'] == 'staff'}
+               for p in painted if p['kind'] == 'staff' and p.get('staff_type', 'tab') == staff_type}
     visible_tops, visible_bottoms = [], []
     for mi, box in enumerate(geometry['boxes']):
-        tops, bottoms = [box[1]], [box[1] + box[3]]
+        staff_ink = [p['bbox'] for p in painted if p['kind'] == 'staff' and p['mi'] == mi]
+        tops = [b[1] for b in staff_ink]
+        bottoms = [b[1] + b[3] for b in staff_ink]
         tops.extend(p['bbox'][1] for p in painted
-                    if p['kind'] in ('fret', 'signature') and p['mi'] == mi and p['texts'])
+                    if p['kind'] in ('fret', 'signature', 'notehead', 'accidental') and p['mi'] == mi
+                    and (p['texts'] or p['symbols']))
         chords = [p['bbox'] for p in painted if p['kind'] == 'chord' and p['mi'] == mi]
         tops.extend(b[1] for b in chords)
         bottoms.extend(b[1] + b[3] for b in chords)
@@ -691,6 +697,69 @@ def clipped_chord_crop(crop, geometry, mi):
     return crop
 
 
+def painted_state(painted, mi, staff):
+    state = {key: visible_state() for key in ('time', 'key', 'clef', 'clef_octave')}
+    points = [point for p in painted if p['kind'] == 'signature' and p['mi'] == mi
+              and p.get('staff_type', 'tab') == staff.get('staff_type', 'tab')
+              for point in p['symbol_points']]
+    rows = {}
+    for point in points:
+        symbol = point['symbol']
+        if 0xE080 <= symbol <= 0xE089:
+            rows.setdefault(round(point['y'], 3), []).append((point['x'], str(symbol - 0xE080)))
+        if symbol in (0xE06D, 0xE06E):
+            state['clef'] = visible_state('tab')
+        if symbol in (0xE069, 0xE06A):
+            state['clef'] = visible_state('percussion')
+        letter = {0xE050: 'G', 0xE062: 'F', 0xE05C: 'C'}.get(symbol)
+        if letter:
+            step = (max(staff['lines']) - min(staff['lines'])) / 8
+            line = round((max(staff['lines']) - point['y']) / (2 * step)) + 1
+            state['clef'] = visible_state(f'{letter}{line}')
+            state['clef_octave'] = visible_state(0)
+    if len(rows) == 2:
+        state['time'] = visible_state('/'.join(''.join(d for _, d in sorted(values))
+                                             for _, values in sorted(rows.items())))
+    accidentals = [ACCIDENTALS[f'{p["symbol"]:04X}'] for p in points
+                   if f'{p["symbol"]:04X}' in ACCIDENTALS]
+    if accidentals:
+        state['key'] = visible_state(sum(accidentals))
+    return state
+
+
+def painted_accidental(head, painted):
+    owner = head['mi'], head['vi'], head['ei']
+    y = head['symbol_points'][0]['y']
+    marks = [point for item in painted if item['kind'] == 'accidental'
+        and (item['mi'], item['vi'], item['ei']) == owner
+        for point in item['symbol_points'] if abs(point['y'] - y) < .01]
+    # A printed accidental belongs to the written staff position. Matching
+    # coincident notation heads to TAB strings is an assembly operation.
+    if not marks:
+        return None
+    heads = {(round(point['x'], 3), round(point['y'], 3), point['symbol'])
+             for item in painted if item['kind'] == 'notehead'
+             and (item['mi'], item['vi'], item['ei']) == owner
+             for point in item['symbol_points'] if abs(point['y'] - y) < .01}
+    # Separate heads at the same height can have different alterations. A
+    # shared sign does not reveal its attachment; keep that evidence unknown.
+    if len(heads) > 1:
+        return 'unknown'
+    codes = {mark['symbol'] for mark in marks}
+    return ACCIDENTALS.get(f'{codes.pop():04X}', 'unknown') if len(codes) == 1 else 'unknown'
+
+
+def painted_notehead(symbol):
+    shapes = {0xE0A2: 'normal', 0xE0A3: 'normal', 0xE0A4: 'normal',
+              0xE0A9: 'x', 0xE0B3: 'circle-x', 0xE0F7: 'circle-slash',
+              0xE0D9: 'diamond', 0xE0DB: 'diamond', 0xE0DD: 'diamond',
+              0xE0BA: 'triangle-up', 0xE0BB: 'triangle-up', 0xE0BC: 'triangle-up', 0xE0BE: 'triangle-up',
+              0xE0F8: 'heavy-x', 0xE0F9: 'heavy-x-hat'}
+    if symbol not in shapes:
+        raise ValueError(f'Unsupported drawn percussion notehead U+{symbol:04X}')
+    return shapes[symbol]
+
+
 def tab_observations(state, geometry, page_image, output, index):
     from PIL import ImageDraw
 
@@ -699,7 +768,11 @@ def tab_observations(state, geometry, page_image, output, index):
     systems = {s['mi']: s for s in geometry['systems']}
     geometry['crop_top_margin'] = state['render_options']['crop_top_margin']
     frets = {(p['mi'], p['vi'], p['ei'], p['ni']): p for p in painted if p['kind'] == 'fret'}
-    staffs = {p['mi']: p for p in painted if p['kind'] == 'staff'}
+    staff_type = 'tab' if state['mode'] in ('tab', 'both') else 'score'
+    staffs = {p['mi']: p for p in painted if p['kind'] == 'staff'
+              and p.get('staff_type', 'tab') == staff_type}
+    notation_staffs = {p['mi']: p for p in painted if p['kind'] == 'staff' and p.get('staff_type') == 'score'}
+    heads = {(p['mi'], p['vi'], p['ei'], p['ni']): p for p in painted if p['kind'] == 'notehead'}
     continuation_image(page_image, geometry, index, state)
     if index % 7 == 0:
         candidates = [p for p in painted if p['kind'] == 'fret' and p['texts']
@@ -720,30 +793,64 @@ def tab_observations(state, geometry, page_image, output, index):
         page_image.crop(crop).save(path)
         lines = staffs[mi]['lines']
         top, bottom = min(lines), max(lines)
-        local_state = {key: visible_state() for key in ('time', 'key', 'clef')}
-        for signature in (p for p in painted if p['kind'] == 'signature' and p['mi'] == mi):
-            symbols = signature['symbols']
-            if any(symbol in (57453, 57454) for symbol in symbols):
-                local_state['clef'] = visible_state('tab')
-            digits = [str(s - 57472) for s in symbols if 57472 <= s <= 57481]
-            if len(digits) == 2:
-                local_state['time'] = visible_state('/'.join(digits))
-        voices = []
+        local_state = painted_state(painted, mi, notation_staffs.get(mi) or staffs[mi])
+        tab_endpoints = {(p[end]['vi'], p[end]['ei'], p[end]['ni'])
+                         for p in painted if p['kind'] in ('tie', 'technique') and p['paths']
+                         and p.get('staff_type') == 'tab' and intersects(p['bbox'], crop)
+                         for end in ('start', 'end') if p[end]['mi'] == mi}
+        voices, note_indexes = [], {}
         for vi, voice in enumerate(source['parsed']['voices']):
             events = []
             for ei, event in enumerate(voice['events']):
-                notes = []
+                tab_notes, notation_notes = [], []
                 for ni, _ in enumerate(event['notes']):
-                    glyph = frets[mi, vi, ei, ni]
-                    texts = glyph['texts']
-                    text = texts[-1].strip('()<>[]') if texts else ''
-                    fret = int(text) if text.isdigit() else 'x' if text.lower() == 'x' else None
-                    notes.append({'string': glyph['string'], 'fret': fret})
-                events.append({'start': event['start'], 'duration': _duration_token(event['duration']),
-                               'status': event['status'], 'notes': notes})
+                    if state['mode'] in ('tab', 'both'):
+                        glyph = frets[mi, vi, ei, ni]
+                        texts = glyph['texts']
+                        text = texts[-1].strip('()<>[]') if texts else ''
+                        fret = int(text) if text.isdigit() else 'x' if text.lower() == 'x' else None
+                        if state['mode'] != 'both' or texts or (vi, ei, ni) in tab_endpoints:
+                            tab_notes.append((ni, {'string': glyph['string'], 'fret': fret}))
+                    if state['mode'] in ('notation', 'both'):
+                        head = heads[mi, vi, ei, ni]
+                        points = head['symbol_points']
+                        if not points:
+                            raise ValueError('Source note has no painted notation head')
+                        y = points[0]['y']
+                        staff_lines = notation_staffs[mi]['lines']
+                        step = (max(staff_lines) - min(staff_lines)) / 8
+                        position = (max(staff_lines) - y) / step
+                        if abs(position - round(position)) > .01:
+                            raise ValueError('Painted notehead is not on a staff line or space')
+                        note = dict(staff_position=round(position), accidental=painted_accidental(head, painted))
+                        if source['instrument'] == 'drums':
+                            note['notehead'] = painted_notehead(points[0]['symbol'])
+                        notation_notes.append((ni, note, points[0]))
+                if state['mode'] == 'both':
+                    tab_notes.sort(key=lambda item: item[1]['string'])
+                    notation_notes.sort(key=lambda item: (item[2]['y'], item[2]['x']))
+                groups = {'tab': [], 'notation': []}
+                for ni, note in tab_notes:
+                    note_indexes['tab', vi, ei, ni] = len(groups['tab'])
+                    groups['tab'].append(note)
+                visible_heads = {}
+                for ni, note, point in notation_notes:
+                    shape = (round(point['x'], 3), round(point['y'], 3), point['symbol'])
+                    if state['mode'] == 'both' and shape in visible_heads:
+                        note_indexes['notation', vi, ei, ni] = visible_heads[shape]
+                    else:
+                        note_indexes['notation', vi, ei, ni] = len(groups['notation'])
+                        visible_heads[shape] = len(groups['notation'])
+                        groups['notation'].append(note)
+                observed_event = {'start': event['start'], 'duration': _duration_token(event['duration']),
+                                  'status': event['status'],
+                                  'notes': groups['notation' if state['mode'] == 'notation' else 'tab']}
+                if state['mode'] == 'both':
+                    observed_event['notation_notes'] = groups['notation']
+                events.append(observed_event)
                 if event['status'] == 'rest' and not any(p['kind'] == 'rest' and p['mi'] == mi
                     and p['vi'] == vi and p['ei'] == ei and p['symbols'] for p in painted):
-                    raise ValueError('Source rest has no painted rest glyph')
+                    raise ValueError(f'Source rest has no painted rest glyph: {source["id"]}/{vi}/{ei}')
             voices.append({'voice': voice['voice'], 'events': events})
         visible_chords = []
         for chord in (p for p in painted if p['kind'] == 'chord' and p['mi'] == mi):
@@ -772,14 +879,19 @@ def tab_observations(state, geometry, page_image, output, index):
             effect = technique['effect']
             if effect not in TAB_TECHNIQUES:
                 raise ValueError(f'Unsupported painted TAB technique: {effect}')
-            note = voices[a['vi']]['events'][a['ei']]['notes'][a['ni']]
+            representation = 'tab' if technique['staff_type'] == 'tab' else 'notation'
+            field = 'notation_notes' if state['mode'] == 'both' and representation == 'notation' else 'notes'
+            note = voices[a['vi']]['events'][a['ei']][field][note_indexes[representation, a['vi'], a['ei'], a['ni']]]
             if effect not in note.setdefault('effects', []):
                 note['effects'].append(effect)
         for vi, voice in enumerate(source['parsed']['voices']):
             for ei, event in enumerate(voice['events']):
                 for ni, note in enumerate(event['notes']):
                     expected = set(note['effects']) & TAB_TECHNIQUES
-                    observed = set(voices[vi]['events'][ei]['notes'][ni].get('effects', []))
+                    representation = 'notation' if state['mode'] == 'notation' else 'tab'
+                    mapped = note_indexes.get((representation, vi, ei, ni))
+                    observed = (set(voices[vi]['events'][ei]['notes'][mapped].get('effects', []))
+                                if mapped is not None else set())
                     if expected != observed:
                         raise ValueError(f'Unpainted or wrongly attributed technique: {source["id"]}/{ei}/{ni}')
         relations = []
@@ -787,10 +899,16 @@ def tab_observations(state, geometry, page_image, output, index):
             a, b = tie['start'], tie['end']
             if not a['mi'] <= mi <= b['mi']:
                 continue
-            relation = {'kind': 'tie', 'start': [a['vi'], a['ei'], a['ni']] if a['mi'] == mi else 'left',
-                        'end': [b['vi'], b['ei'], b['ni']] if b['mi'] == mi else 'right'}
+            representation = 'tab' if tie['staff_type'] == 'tab' else 'notation'
+            relation = {'kind': 'tie',
+                        'start': [a['vi'], a['ei'], note_indexes[representation, a['vi'], a['ei'], a['ni']]] if a['mi'] == mi else 'left',
+                        'end': [b['vi'], b['ei'], note_indexes[representation, b['vi'], b['ei'], b['ni']]] if b['mi'] == mi else 'right'}
+            if state['mode'] == 'both':
+                relation['representation'] = representation
             if a['mi'] != mi or b['mi'] != mi:
-                relation.update(voice=a['vi'], lane=round((tie['paths'][0][1] - top) / (bottom - top), 3))
+                relation_lines = (notation_staffs if representation == 'notation' else staffs)[mi]['lines']
+                relation_top, relation_bottom = min(relation_lines), max(relation_lines)
+                relation.update(voice=a['vi'], lane=round((tie['paths'][0][1] - relation_top) / (relation_bottom - relation_top), 3))
             if relation not in relations:
                 relations.append(relation)
         for span in geometry['techniqueSpans']:
@@ -815,12 +933,13 @@ def tab_observations(state, geometry, page_image, output, index):
             relations.append(relation)
         row = {key: source[key] for key in ('id', 'family', 'source_id', 'split', 'part_id', 'staff_id', 'bar_index', 'mode')}
         row.update(image=str(path.resolve()), source_page=str(page_path.resolve()), bbox=crop,
+                   instrument=source['instrument'],
                    renderer='alphatab', render_variant=state['render_variant'],
                    page=systems[mi]['page_index'] + 1, system_index=systems[mi]['system_index'],
                    observation={'state': local_state, 'voices': voices, 'relations': relations},
                    reference_target=source['target'],
-                   oracle_auxiliary={'state': {k: visible_state(v) for k, v in source['score_state'].items()},
-                                     'voice_map': {'0': 0}})
+                   oracle_auxiliary={'staff_start': source['bar_index'] == 0, 'state': {k: visible_state(v) for k, v in source['score_state'].items()},
+                                     'voice_map': {str(v['voice']): v['voice'] for v in voices}})
         if 'chord_view' in state:
             row.update(chord_view=state['chord_view'], visible_chords=visible_chords,
                        visible_diagrams=sum(p['kind'] == 'chord' and p['mi'] == mi
@@ -831,15 +950,114 @@ def tab_observations(state, geometry, page_image, output, index):
     return rows
 
 
+def standard_score(index, split):
+    from research.data.engraved_scores import generate, key_fifths
+    from scorelib.pitch_context import transpose_key
+    from scorelib.score import format_measure_target, parse_measure_target
+
+    score = generate(index, split, bars=8)
+    state = tab_score(index, split)
+    state.update(id=f'standard-{split}-{index:05d}', mode='notation', measures=[])
+    for pi, part in enumerate(score['parts']):
+        for si, staff in enumerate(part['staves']):
+            context = dict(staff['measures'][0]['pitch_context'])
+            if index % 5 == 4 and context['clef'] == 'C3':
+                context['clef'] = 'C4'
+            first_key = next(m['key_signature'] for m in staff['measures'] if m.get('key_signature'))
+            written_key = key_fifths(transpose_key(first_key, -context['instrument_transpose']))
+            for mi, measure in enumerate(staff['measures']):
+                parsed = parse_measure_target(measure['written_target'])
+                parsed['key_signature'] = measure['key_signature']
+                for voice in parsed['voices']:
+                    for event in voice['events']:
+                        if voice['voice'] > 0 and event['status'] == 'rest':
+                            event.update(status='normal', notes=[{'pitch': next(n['pitch'] for e in voice['events']
+                                for n in e['notes']), 'effects': []}])
+                        for note in event['notes']:
+                            note['effects'] = [e for e in note['effects'] if e == 'tie']
+                row = dict(id=f'{state["id"]}-p{pi}-s{si}-{mi}', source_id=state['id'],
+                    family=state['id'], split=split, mode='notation', instrument=part['instrument'],
+                    part_id=part['id'], staff_id=staff['id'], bar_index=mi, measure_index=mi,
+                    part_name=part['name'], midi_program=part['midi_program'],
+                    tuning=part['tuning'], capo=0, pitch_context=context, parsed=parsed,
+                    target=format_measure_target(parsed, 'notation'),
+                    score_state=dict(time=score['timeline'][mi]['time_signature'], key=written_key,
+                        tuning=part['tuning'], clef=context['clef'], clef_octave=0,
+                        instrument_transpose=context['instrument_transpose'],
+                        instrument_transpose_explicit=True, capo=0))
+                state['measures'].append(row)
+    state['render_options']['width'] = max(state['render_options']['width'], 2200)
+    state['render_options']['bars_per_row'] = 2
+    state['render_options']['staff_padding'] = 35
+    return state
+
+
+def score_mode(index, split, mode):
+    """Independent dual/standard/drum families with one visible measure target."""
+    from scorelib.score import format_measure_target
+    from guitarpro.models import KeySignature
+
+    if mode == 'standard':
+        return standard_score(index, split)
+    state = tab_score(index, split)
+    state['id'] = f'{mode}-{split}-{index:05d}'
+    state['mode'] = 'both' if mode == 'both' else 'notation'
+    family = f'{mode}-{split}-{index - index % 8:05d}'
+    rng = random.Random(f'{mode}:{split}:{index - index % 8}')
+    drum_keys = [35, 36, 37, 38, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57]
+    for mi, row in enumerate(state['measures']):
+        row.update(id=f'{state["id"]}-{mi}', source_id=state['id'], family=family, mode=state['mode'])
+        row['score_state'].update(clef='G2', clef_octave=0,
+            instrument_transpose=-12, instrument_transpose_explicit=False, capo=0)
+        if mode == 'both':
+            initial_key = index // 8 % 15 - 7
+            key = initial_key if mi < 4 else (0 if initial_key else 3)
+            row['score_state']['key'] = key
+            row['parsed'].update(key_signature=KeySignature((key, 0)).name,
+                                 print_key_signature=mi in (0, 4))
+        # Ties remain as actual curves; TAB-specific effects already have
+        # their own corpus. Each staff supplies its own visible note group.
+        for voice in row['parsed']['voices']:
+            for event in voice['events']:
+                for note in event['notes']:
+                    note['effects'] = [effect for effect in note['effects'] if effect == 'tie']
+        if mode == 'drums':
+            row.update(instrument='drums', part_name='Drums', midi_program=0, tuning=[])
+            row['pitch_context'].update(clef='percussion', instrument_transpose=0)
+            row['score_state'].update(clef='percussion', instrument_transpose=0, tuning=[])
+            # One merged rhythm or two stem directions, with common kit
+            # combinations and isolated hits to cover every visible symbol.
+            count = 1 if index % 3 == 0 else 2
+            length = 2880 if row['score_state']['time'] in ('3/4', '6/8') else 3840
+            voices = []
+            for vi in range(count):
+                events = []
+                step = rng.choice([480, 960])
+                for onset in range(0, length, step):
+                    pool = drum_keys if count == 1 else ([42, 46, 49, 51, 52, 53, 55, 56, 57] if vi == 0
+                                                        else [35, 36, 37, 38, 43, 44, 45, 47, 48, 50, 54])
+                    pitches = rng.sample(pool, rng.choice([1, 1, 1, 2, 3]))
+                    rest = vi == 0 and rng.random() < .12
+                    events.append(dict(start=onset, duration=dict(value=8 if step == 480 else 4,
+                        dotted=False, double_dotted=False, tuplet_enters=1, tuplet_times=1),
+                        status='rest' if rest else 'normal', effects=[],
+                        notes=[] if rest else [dict(pitch=pitch, effects=[]) for pitch in pitches]))
+                voices.append(dict(voice=vi, events=events))
+            row['parsed']['voices'] = voices
+        row['target'] = format_measure_target(row['parsed'], state['mode'])
+    return state
+
+
 def tab_batch(job):
     from PIL import Image
     from research.data.score_rendering import browser_page
 
-    output, jobs, with_chords = job
+    output, jobs, variant = job
     rows = []
     with browser_page() as (page, origin):
         for split, index in jobs:
-            state = tab_chord_score(index, split) if with_chords else tab_score(index, split)
+            state = (tab_chord_score(index, split) if variant == 'tab-chords' else
+                     tab_score(index, split) if variant == 'tab' else score_mode(index, split, variant))
             directory = Path(output) / 'images' / state['id']
             directory.mkdir(parents=True, exist_ok=True)
             page.goto(origin + '/research/data/score_renderer.js')
@@ -852,10 +1070,10 @@ def tab_batch(job):
     return rows
 
 
-def build_tab(output, train, validation, test, workers=4, index_offset=0, *, with_chords=False):
+def build_tab(output, train, validation, test, workers=4, index_offset=0, *, with_chords=False, mode='tab'):
     jobs = [(split, index) for split, count in [('train', train), ('validation', validation), ('test', test)]
             for index in range(index_offset, index_offset + count)]
-    batches = [(str(output), jobs[i:i + 20], with_chords) for i in range(0, len(jobs), 20)]
+    batches = [(str(output), jobs[i:i + 20], 'tab-chords' if with_chords else mode) for i in range(0, len(jobs), 20)]
     rows = []
     with ProcessPoolExecutor(workers) as pool:
         for index, values in enumerate(pool.map(tab_batch, batches), 1):
@@ -877,7 +1095,7 @@ def main():
     parser.add_argument('--workers', type=int, default=8)
     parser.add_argument('--index-offset', type=int, default=0,
                         help='Start score IDs and random seeds here when adding new families')
-    parser.add_argument('--mode', choices=['notation', 'tab', 'tab-chords', 'octave'], default='notation')
+    parser.add_argument('--mode', choices=['notation', 'tab', 'tab-chords', 'both', 'standard', 'drums', 'octave'], default='notation')
     parser.add_argument('--merge', nargs='+', type=Path, help='Merge existing observation manifests and refresh their prompts')
     args = parser.parse_args()
     if args.merge:
@@ -885,7 +1103,9 @@ def main():
                 for line in (directory / f'manifest_{split}.jsonl').read_text().splitlines() if line.strip()]
     else:
         builder = {'notation': build_notation, 'tab': build_tab, 'tab-chords': build_tab_chords,
-                   'octave': build_octave}[args.mode]
+                   'octave': build_octave,
+                   **{mode: (lambda *values, mode=mode: build_tab(*values, mode=mode))
+                      for mode in ('both', 'standard', 'drums')}}[args.mode]
         rows = builder(args.output, args.train, args.validation, args.test, args.workers, args.index_offset)
     print(write_dataset(args.output, rows), flush=True)
 

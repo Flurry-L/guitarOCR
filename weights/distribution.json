@@ -12,14 +12,14 @@
       {
         "path": "auxiliary/signature.onnx",
         "asset": "auxiliary-signature.onnx",
-        "bytes": 4484038,
-        "sha256": "6419be2df78f5e86a5e835e7599d67574e53bcce2bb75c1b5bb137866a906cd0"
+        "bytes": 4483838,
+        "sha256": "9cb805cd05f6e4690b681964b876f6bb14347fa070160201ad9ae344d0b287e6"
       },
       {
         "path": "auxiliary/structure_relations.onnx",
         "asset": "auxiliary-structure_relations.onnx",
-        "bytes": 4680927,
-        "sha256": "57b86ee9d72d60e5ab465d2b364bb326940934c5759a03355507ec1d39ce285e"
+        "bytes": 4680798,
+        "sha256": "dd203ac72c4e6524b38b62fce60244e7dcbac80c4caabafae7c43931c7f9471f"
       },
       {
         "path": "auxiliary/chord_evidence.onnx",
@@ -60,14 +60,14 @@
       {
         "path": "auxiliary/part_continuation.onnx",
         "asset": "auxiliary-part_continuation.onnx",
-        "bytes": 1025248,
-        "sha256": "1f3237fb2c4480796ab6849a941099fb6ddd3b7ea9f6154b38adde1270936208"
+        "bytes": 1025448,
+        "sha256": "19ba23dfe9625b162d93dff67d1b265cab36d4e3eb16855e2f206e9ec5ce078b"
       },
       {
         "path": "auxiliary/clef_spatial.onnx",
         "asset": "auxiliary-clef_spatial.onnx",
-        "bytes": 2263350,
-        "sha256": "cd968e650bce06f67cd754f6ab62d5a457fd698c5c56f8a4bb00954d2ba2e006"
+        "bytes": 2265000,
+        "sha256": "cddbbb9cadd417b0537f8e67a282c69fced24d725d19cdc1551ab9e2530f59a2"
       },
       {
         "path": "auxiliary/layout_quality.onnx",
@@ -81,13 +81,13 @@
         "path": "weights/score_ocr/gguf/model-Q8_0.gguf",
         "asset": "score_ocr-gguf-model-Q8_0.gguf",
         "bytes": 722295296,
-        "sha256": "dc60cf659af5343aadef3ee59bd3db5ba4f43cff03ef2194e24dc1ebccd27f95"
+        "sha256": "9ad1c1776100ee1561419710de0b1ab215ae04ca0edd0ffad6aca7f98c5d5dad"
       },
       {
         "path": "weights/score_ocr/gguf/vision-F16.gguf",
         "asset": "score_ocr-gguf-vision-F16.gguf",
         "bytes": 869017888,
-        "sha256": "1ebcbb8e67bbd7655cf9c2188078be1d144d1c06c7e1a2690582047d250028d1"
+        "sha256": "4a56727a1aef48a30c47c66ad08b49bc3259063a8ae5ac9cf9be427bf399f8df"
       },
       {
         "path": "weights/information/gguf/model-Q8_0.gguf",

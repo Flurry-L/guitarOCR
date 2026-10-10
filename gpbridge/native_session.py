@@ -390,7 +390,7 @@ class NativeExportSession:
             "track_index": track_index,
             "tab_only": display_mode == "tab",
             "display_mode": display_mode,
-            "capture_note_geometry": display_mode == "tab",
+            "capture_note_geometry": True,
         })
 
     def list_tracks(self, input_path: Path) -> dict[str, Any]:

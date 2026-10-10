@@ -1,8 +1,5 @@
-//! Keep confident visual groups without borrowing incompatible semantic labels.
-//!
-//! These groups describe observed row membership, not instrument identity or
-//! correspondence across systems. This path never invokes template repair.
-use super::{complementary, json_object, part_identity, triples, validate_row_topology, Result};
+//! Build visible staff groups; semantic identity is read separately.
+use super::{complementary, part_identity, validate_row_topology, Result};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap};
 
@@ -53,79 +50,46 @@ pub(crate) fn resolve_identity_batch(
     Ok((mapping, evidence))
 }
 
-/// Return an anonymous structure only when both relation heads are trustworthy
-/// and their adjacent-row partition conflicts with the original model rows.
-/// Uncertain/malformed proposals remain for the caller's existing review path.
-pub fn resolve_conflicting_groups(
-    raw: &str,
-    count: usize,
-    systems: Option<&[usize]>,
+/// Adjacent-row classifiers own grouping; low confidence is review evidence,
+/// never a request for a language model to invent a replacement topology.
+pub fn relation_groups(
+    systems: &[usize],
     system_probabilities: &[f32],
-    part_probabilities: Option<&[f32]>,
-    modes: Option<&[String]>,
+    part_probabilities: &[f32],
+    modes: &[String],
     review_confidence: f32,
     part_review_confidence: f32,
-) -> Result<Option<(Value, Value)>> {
-    if modes.is_some_and(|m| m.len() != count) {
-        return Err("Row mode count does not cover every detected row".into());
-    }
-    for (threshold, name) in [
-        (review_confidence, "Relation"),
-        (part_review_confidence, "Part relation"),
-    ] {
-        if !threshold.is_finite() || !(0.5..=1.0).contains(&threshold) {
-            return Err(format!("{name} review confidence must be in [0.5, 1]"));
-        }
-    }
-    let (Some(systems), Some(part_probabilities)) = (systems, part_probabilities) else {
-        return Ok(None);
-    };
-    let valid_probabilities = |p: &[f32]| {
+) -> Result<(Value, Value)> {
+    let count = modes.len();
+    let valid = |p: &[f32]| {
         p.len() == count.saturating_sub(1)
             && p.iter().all(|v| v.is_finite() && (0.0..=1.0).contains(v))
     };
-    let coherent = count > 0
-        && systems.len() == count
-        && systems[0] == 0
-        && valid_probabilities(system_probabilities)
-        && valid_probabilities(part_probabilities)
-        && systems
-            .windows(2)
-            .zip(system_probabilities)
-            .all(|(s, p)| s[0].checked_add(usize::from(*p < 0.5)) == Some(s[1]));
-    if !coherent
-        || !system_probabilities
-            .iter()
-            .all(|p| p.max(1. - p) >= review_confidence)
+    if count == 0
+        || systems.len() != count
+        || systems[0] != 0
+        || !valid(system_probabilities)
+        || !valid(part_probabilities)
         || !systems
             .windows(2)
-            .zip(part_probabilities)
-            .all(|(s, p)| s[0] != s[1] || p.max(1. - p) >= part_review_confidence)
+            .zip(system_probabilities)
+            .all(|(s, p)| s[0].checked_add(usize::from(*p < 0.5)) == Some(s[1]))
+        || [review_confidence, part_review_confidence]
+            .iter()
+            .any(|v| !v.is_finite() || !(0.5..=1.0).contains(v))
     {
-        return Ok(None);
+        return Err("Invalid staff relation prediction".into());
     }
-    let source = json_object(raw)?;
-    let Some(original) = triples(&source)
-        .filter(|rows| rows.len() == count && rows.iter().flatten().all(|&value| value >= 0))
-    else {
-        return Ok(None);
-    };
-    let system_conflict = original
-        .windows(2)
-        .zip(systems.windows(2))
-        .any(|(raw, learned)| (raw[0][0] == raw[1][0]) != (learned[0] == learned[1]));
-    let part_conflict = original
-        .windows(2)
-        .zip(systems.windows(2))
-        .zip(part_probabilities)
-        .any(|((raw, system), p)| {
-            system[0] == system[1]
-                && ((raw[0][0] == raw[1][0] && raw[0][1] == raw[1][1]) != (*p >= 0.5))
-        });
-    if !system_conflict && !part_conflict {
-        return Ok(None);
+    let mut review_rows = std::collections::BTreeSet::new();
+    for (i, pair) in systems.windows(2).enumerate() {
+        let s = system_probabilities[i];
+        let p = part_probabilities[i];
+        if s.max(1. - s) < review_confidence
+            || (pair[0] == pair[1] && p.max(1. - p) < part_review_confidence)
+        {
+            review_rows.extend([i + 1, i + 2]);
+        }
     }
-
     let mut groups: Vec<Vec<usize>> = vec![];
     for index in 0..count {
         if index == 0 || systems[index] != systems[index - 1] || part_probabilities[index - 1] < 0.5
@@ -136,57 +100,72 @@ pub fn resolve_conflicting_groups(
     }
     let mut profiles = vec![];
     let mut assignments = vec![[0usize; 3]; count];
-    let mut group_audit = vec![];
     for (part, indices) in groups.iter().enumerate() {
-        let system = systems[indices[0]];
-        let paired = modes.is_some_and(|m| complementary(m, indices));
-        // Only the unambiguous two-row notation/TAB representation shares a
-        // staff. All other staff slots follow observed row order, never a name.
+        let paired = complementary(modes, indices);
         for (staff, &index) in indices.iter().enumerate() {
-            assignments[index] = [system, part, if paired { 0 } else { staff }];
+            assignments[index] = [systems[index], part, if paired { 0 } else { staff }];
         }
-        profiles.push(json!({
-            "name":"", "name_source":"missing", "instrument":null,
-            "program":null, "strings":null, "identity_status":"unknown",
-            "anonymous_relation_group":true, "needs_review":true,
-            "instrument_evidence":{"value":null,"status":"unknown",
-                "source":"anonymous_relation_group","needs_review":true,"candidates":{}},
-            "string_count_evidence":{"value":null,"status":"unknown",
-                "source":"anonymous_relation_group","needs_review":true,"candidates":{}}
-        }));
-        group_audit.push(json!({"system":system,"part":part,
-            "row_indices":indices,"paired_notation_tab":paired,
-            "identity_status":"unknown"}));
+        profiles.push(
+            json!({"name":"", "name_source":"missing", "instrument":null,
+            "program":null,"strings":null,"identity_status":"unknown",
+            "instrument_evidence":{"value":null,"status":"unknown"},
+            "string_count_evidence":{"value":null,"status":"unknown"}}),
+        );
     }
-    let parsed = json!({"parts":profiles,"rows":assignments,
-        "anonymous_relation_groups":true,"needs_review":true});
-    if validate_row_topology(&parsed, count, modes).is_err() {
-        return Err("Anonymous relation groups exceed supported staff topology".into());
+    let needs_review = !review_rows.is_empty();
+    let parsed = json!({"parts":profiles,"rows":assignments,"system_local_parts":true});
+    validate_row_topology(&parsed, count, Some(modes))?;
+    let audit = json!({"parsed_rows":assignments,"systems_from_image":systems,
+        "needs_review":needs_review,"review_rows":review_rows,
+        "review_reasons":if needs_review {vec!["uncertain_row_relation"]} else {vec![]},
+        "relation_probabilities":system_probabilities,"same_part_probabilities":part_probabilities,
+        "selected_system_source":"visual_relation_network", "selected_part_source":"visual_relation_network"});
+    Ok((parsed, audit))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn groups_preserve_simultaneous_staves_and_uncertain_boundaries() {
+        let modes = vec!["notation".to_owned(); 4];
+        let (piano, audit) = relation_groups(
+            &[0, 0, 1, 1],
+            &[0.999, 0.001, 0.999],
+            &[0.999, 0.001, 0.999],
+            &modes,
+            0.95,
+            0.95,
+        )
+        .unwrap();
+        assert_eq!(
+            piano["rows"],
+            json!([[0, 0, 0], [0, 0, 1], [1, 1, 0], [1, 1, 1]])
+        );
+        assert_eq!(audit["needs_review"], false);
+        let (ensemble, audit) = relation_groups(
+            &[0, 0, 1, 1],
+            &[0.999, 0.001, 0.999],
+            &[0.067, 0.001, 0.001],
+            &modes,
+            0.95,
+            0.95,
+        )
+        .unwrap();
+        assert_eq!(
+            ensemble["rows"],
+            json!([[0, 0, 0], [0, 1, 0], [1, 2, 0], [1, 3, 0]])
+        );
+        assert_eq!(audit["review_rows"], json!([1, 2]));
+        let (dual, _) = relation_groups(
+            &[0, 0],
+            &[0.999],
+            &[0.999],
+            &["notation".into(), "tab".into()],
+            0.95,
+            0.95,
+        )
+        .unwrap();
+        assert_eq!(dual["rows"], json!([[0, 0, 0], [0, 0, 0]]));
     }
-    let mut reasons = vec![];
-    if system_conflict {
-        reasons.push("system_evidence_disagreement");
-    }
-    if part_conflict {
-        reasons.push("part_evidence_disagreement");
-    }
-    reasons.push("anonymous_part_identity");
-    let audit = json!({
-        "raw_rows":source["rows"],"parsed_rows":parsed["rows"],
-        "rows_changed":source["rows"] != parsed["rows"],
-        "raw_rows_valid_without_geometry":validate_row_topology(&source,count,modes).is_ok(),
-        "systems_from_image":systems,"changes":[],"needs_review":true,
-        "review_rows":(1..=count).collect::<Vec<_>>(),"review_reasons":reasons,
-        "model_candidate":source,"model_candidate_error":null,
-        "relation_candidate":parsed,"relation_candidate_error":null,
-        "part_relation_candidate":parsed,"part_relation_candidate_error":null,
-        "relation_probabilities":system_probabilities,
-        "same_part_probabilities":part_probabilities,
-        "system_indices_constrained":false,
-        "selected_system_source":"visual_relation_network",
-        "selected_part_source":"anonymous_visual_relation_groups",
-        "semantic_binding":"unknown","anonymous_groups":group_audit,
-        "semantic_profiles_reused":false,"template_repair_applied":false
-    });
-    Ok(Some((parsed, audit)))
 }

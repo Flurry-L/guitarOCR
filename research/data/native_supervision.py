@@ -661,6 +661,33 @@ def native_dynamic_evidence(drawing, grouped, staff_index, index, crop_mm):
     return effects, boxes
 
 
+def native_connection_representation(raw, grouped, staff_index, system):
+    """Locate a painted connection in its actual TAB or notation drawing."""
+    owners = [owner for owner in (raw.get('start_owner'), raw.get('end_owner')) if owner]
+    kinds = {'tab' if owner['fret_view'] else 'notation' for owner in owners}
+    if len(kinds) == 1:
+        return kinds.pop()
+    points = raw.get('points_mm', [])
+    if not points:
+        return None
+    measures = {box['measure_index'] for box in system['measure_boxes']}
+    distances = {}
+    for key, glyphs in grouped.items():
+        if key[0] != staff_index or key[1] not in measures:
+            continue
+        for glyph in glyphs:
+            if glyph['kind'] not in ('fret', 'notehead'):
+                continue
+            representation = 'tab' if glyph['kind'] == 'fret' else 'notation'
+            x, y, w, h = glyph['bbox_mm']
+            distance = min(max(x - px, 0, px - x - w) ** 2 + max(y - py, 0, py - y - h) ** 2
+                           for px, py in (points[0], points[-1]))
+            distances[representation] = min(distance, distances.get(representation, float('inf')))
+    if not distances or len(set(distances.values())) < len(distances):
+        return None
+    return min(distances, key=distances.get)
+
+
 def native_connection_evidence(page, layout, grouped, staff_index, system, index, crop_mm):
     """Read note connections from actual draw paths and local PDF lettering.
 
@@ -742,7 +769,7 @@ def native_connection_evidence(page, layout, grouped, staff_index, system, index
         x, y, w, h = glyph['bbox_mm']
         if not (crop_mm[0] <= x and x + w <= crop_mm[2] and crop_mm[1] <= y and y + h <= crop_mm[3]):
             return None
-        return glyph.get('text', '').strip()
+        return (glyph.get('text') or '').strip()
 
     def numeric(text):
         match = re.fullmatch(r'\(?([0-9]+)\)?', text or '')
@@ -921,8 +948,45 @@ def native_barre_path(curve):
                for edge in (curve['x0'], curve['x1']))
 
 
-def native_tab_observations(layout, score, document, dpi=180):
-    """Compile drawn TAB notes, rhythm and connections, retaining visible unknowns.
+def native_staff_lines(drawing, system, mode, strings):
+    """Read the staff grid from the PDF's actual horizontal drawing segments."""
+    from collections import defaultdict
+
+    x, y, w, h = system['bbox_mm']
+    rows = defaultdict(float)
+    for line in drawing.lines:
+        x0, y0, x1, y1 = [line[k] * 25.4 / 72 for k in ('x0', 'top', 'x1', 'bottom')]
+        if line.get('stroke') and abs(y0 - y1) < 1e-5 and y <= y0 <= y + h:
+            rows[round(y0, 4)] += max(0, min(x1, x + w) - max(x0, x))
+    lines = sorted(y for y, width in rows.items() if width > w * .65)
+    expected = 5 + strings if mode == 'both' else 5
+    if len(lines) != expected:
+        raise ValueError('native_pdf_staff_line_count')
+    notation = lines[:5]
+    spacing = (notation[-1] - notation[0]) / 4
+    if spacing <= 0 or any(abs(y - notation[0] - i * spacing) > 1e-3 for i, y in enumerate(notation)):
+        raise ValueError('native_pdf_staff_spacing')
+    return notation
+
+
+def native_beam_path(curve, drawing):
+    """A filled beam is a straight quadrilateral attached to printed stems."""
+    path = curve.get('path', [])
+    if not curve.get('fill') or curve.get('stroke') or ''.join(p[0] for p in path) != 'mllllh':
+        return False
+    a, b, c, d, close = [p[1] for p in path[:-1]]
+    if (a != close or abs(a[0] - d[0]) > 1e-4 or abs(b[0] - c[0]) > 1e-4
+            or abs(a[0] - b[0]) <= abs(a[1] - d[1])
+            or abs((b[1] - a[1]) - (c[1] - d[1])) > 1e-4):
+        return False
+    return all(any(abs(line['x0'] - line['x1']) < 1e-5
+                   and abs(line['x0'] - p[0]) <= line['linewidth'] / 2 + 1e-4
+                   and line['top'] <= max(p[1], q[1]) and line['bottom'] >= min(p[1], q[1])
+                   for line in drawing.lines) for p, q in ((a, d), (b, c)))
+
+
+def native_observations(layout, score, document, dpi=180):
+    """Compile drawn notes, rhythm and connections, retaining visible unknowns.
 
     Numeric frets come only from FretView draw text. The rendered native score
     supplies the owning event and its rhythm, never an invisible fret or effect.
@@ -934,17 +998,23 @@ def native_tab_observations(layout, score, document, dpi=180):
     from gpbridge.score_native_note_geometry import group_glyphs_by_owner
     from scorelib.score import _duration_token, duration_ticks
 
-    if not layout.get('tab_only') or layout.get('display_mode', 'tab') != 'tab':
-        raise ValueError('native_observation_requires_tab_only')
+    mode = layout['display_mode']
+    key_names = ['CbMajor', 'GbMajor', 'DbMajor', 'AbMajor', 'EbMajor', 'BbMajor', 'FMajor',
+                 'CMajor', 'GMajor', 'DMajor', 'AMajor', 'EMajor', 'BMajor', 'F#Major', 'C#Major']
     if not layout.get('pdf_ok') or not score.get('pdf_ok'):
         raise ValueError('native_pdf_export_incomplete')
     if len(score['tracks']) != 1 or len(score['tracks'][0]['staves']) != 1:
         raise ValueError('native_observation_requires_one_staff')
-    grouped = group_glyphs_by_owner(score, layout, require_complete=True)
+    all_glyphs = group_glyphs_by_owner(score, layout, require_complete=True)
+    primary = 'notehead' if mode == 'notation' else 'fret'
+    grouped = {key: [g for g in glyphs if g['kind'] in (primary, 'rest')]
+               for key, glyphs in all_glyphs.items()}
+    grouped = {key: glyphs for key, glyphs in grouped.items() if glyphs}
     track = score['tracks'][0]
     staff = track['staves'][0]
     strings = staff['string_count']
-    if not 4 <= strings <= 8:
+    percussion = all(m['clef'] == 'Neutral' for m in staff['measures'])
+    if mode != 'notation' and not 4 <= strings <= 8:
         raise ValueError('unsupported_tab_string_count')
     systems = {box['measure_index']: system for system in layout['systems']
                for box in system['measure_boxes']}
@@ -979,6 +1049,7 @@ def native_tab_observations(layout, score, document, dpi=180):
                 page_objects[page] = pdf_page._text_page()
                 page_spans[page] = pdf_spans(pdf_page)
             drawing = page_objects[page]
+            notation_lines = native_staff_lines(drawing, system, mode, strings) if mode != 'tab' else None
             factor = dpi / 25.4
             crop = [max(0, round(x * factor)), max(0, round((y - 4) * factor)),
                     min(math.ceil(pdf_page.width * dpi / 72), round((x + w) * factor)),
@@ -1005,7 +1076,7 @@ def native_tab_observations(layout, score, document, dpi=180):
             if external_text:
                 crop[3] = min(crop[3], math.floor(min(external_text) * dpi / 72))
             left, top, right, bottom = [v / factor for v in crop]
-            for glyphs in grouped.values():
+            for glyphs in all_glyphs.values():
                 for glyph in glyphs:
                     if (glyph['page'] != page or glyph['measure_index'] == index
                             or glyph['kind'] == 'hidden_fret'):
@@ -1013,11 +1084,34 @@ def native_tab_observations(layout, score, document, dpi=180):
                     gx, gy, gw, gh = glyph['bbox_mm']
                     if gx < right and gx + gw > left and gy < bottom and gy + gh > top:
                         raise ValueError('crop_contains_foreign_measure_glyph')
-            connections, note_effects, hidden, connection_curves, connection_lines, connection_labels = (
-                native_connection_evidence(pdf_page, layout, grouped, staff['staff_index'], system,
-                                           index, (left, top, right, bottom)))
-            for owner, anchor in hidden.items():
-                grouped.setdefault(owner, [anchor])
+            connections, note_effects = [], {}
+            connection_curves, connection_lines, connection_labels = set(), set(), []
+            representations = ('tab', 'notation') if mode == 'both' else (mode,)
+            for representation in representations:
+                kind = 'fret' if representation == 'tab' else 'notehead'
+                visible = {key: [g for g in glyphs if g['kind'] in (kind, 'rest')]
+                           for key, glyphs in all_glyphs.items()}
+                visible = {key: glyphs for key, glyphs in visible.items() if glyphs}
+                connection_layout = layout
+                if mode == 'both':
+                    geometry = layout['relation_geometry']
+                    connection_layout = {**layout, 'relation_geometry': {**geometry, 'relations': [
+                        raw for raw in geometry.get('relations', [])
+                        if native_connection_representation(raw, all_glyphs, staff['staff_index'], system) == representation]}}
+                found, effects, hidden, curves, lines, labels = native_connection_evidence(
+                    pdf_page, connection_layout, visible, staff['staff_index'], system,
+                    index, (left, top, right, bottom))
+                if mode == 'both':
+                    for relation in found:
+                        relation['representation'] = representation
+                connections.extend(found)
+                note_effects[representation] = effects
+                connection_curves.update(curves)
+                connection_lines.update(lines)
+                connection_labels.extend(labels)
+                if representation == 'tab':
+                    for owner, anchor in hidden.items():
+                        grouped.setdefault(owner, [anchor])
             relations, scope_labels, scope_lines = native_scope_evidence(
                 pdf_page, page_spans[page], grouped, staff['staff_index'], system, index,
                 (left, top, right, bottom), strings)
@@ -1060,7 +1154,8 @@ def native_tab_observations(layout, score, document, dpi=180):
             # flags are absent here. Never label their missing relations empty.
             relations.extend(connections)
             if any(intersects(c) for ci, c in enumerate(drawing.curves)
-                   if ci not in tuplet_curves | connection_curves | diagram_curves):
+                   if ci not in tuplet_curves | connection_curves | diagram_curves
+                   and not (mode != 'tab' and native_beam_path(c, drawing))):
                 raise ValueError('untraced_visible_curve')
             if any(intersects(line) and line.get('dash') and any(line['dash'][0])
                    and not any(abs(line['x0'] - x0) < 1e-6 and abs(line['x1'] - x1) < 1e-6
@@ -1080,6 +1175,8 @@ def native_tab_observations(layout, score, document, dpi=180):
                 for letter in text:
                     code = ord(letter)
                     if (letter in '0123456789xX× .()' or code in (0xE06D, 0xE06E)
+                            or mode != 'tab' and (0xE050 <= code <= 0xE069 or 0xE260 <= code <= 0xE264
+                                or any(g['smufl'] == code for gs in all_glyphs.values() for g in gs))
                             or 0xE080 <= code <= 0xE089 or 0xE4E2 <= code <= 0xE4EC
                             or 0xE1D0 <= code <= 0xE1E9 or 0xE240 <= code <= 0xE24F):
                         continue
@@ -1092,14 +1189,24 @@ def native_tab_observations(layout, score, document, dpi=180):
                     raise ValueError(f'untraced_printed_glyph_U+{code:04X}')
             state = {'time': {'status': 'absent'}, 'key': {'status': 'absent'},
                      'clef': {'status': 'absent'}}
-            if any(any(ord(c) in (0xE06D, 0xE06E) for c in char['text']) for char in chars):
+            if mode == 'tab' and any(any(ord(c) in (0xE06D, 0xE06E) for c in char['text']) for char in chars):
                 state['clef'] = {'status': 'observed', 'value': 'tab'}
+            if mode != 'tab':
+                for region in layout.get('pitch_regions', []):
+                    if region['kind'] == 'clef' and region['measure_index'] == index and region['staff_index'] == staff['staff_index']:
+                        cx, cy, cw, ch = region['bbox_mm']
+                        if region['page'] == page and left <= cx and cx + cw <= right and top <= cy and cy + ch <= bottom:
+                            clef = visible_clef(pdf_page, region, measure)
+                            if clef['clef'] != 'tab':
+                                state.update({k: {'status': 'observed', 'value': v} for k, v in clef.items()})
             for signature in system['time_signatures']:
                 if signature['measure_index'] == index and signature['staff_index'] == staff['staff_index']:
                     state['time'] = {'status': 'observed', 'value': f"{signature['numerator']}/{signature['denominator']}"}
             for signature in system['key_signatures']:
-                if signature['measure_index'] == index:
-                    raise ValueError('unsupported_printed_tab_key')
+                if signature['measure_index'] == index and signature['staff_index'] == staff['staff_index']:
+                    if mode == 'tab':
+                        raise ValueError('unsupported_printed_tab_key')
+                    state['key'] = {'status': 'observed', 'value': signature['accidental_count']}
             voices, reference_voices, event_indices, note_indices = [], [], {}, {}
             event_origins = {}
             for voice in measure['voices']:
@@ -1127,7 +1234,8 @@ def native_tab_observations(layout, score, document, dpi=180):
                     if onset.denominator != 1:
                         raise ValueError('non_integral_native_onset')
                     start = int(onset) if int(onset) == next_start else None
-                    notes, reference_notes, native_note_indices = [], [], []
+                    notes, notation_notes, reference_notes, native_note_indices = [], [], [], []
+                    notation_owner_indices, notation_glyph_indices = {}, {}
                     if event['rest']:
                         glyphs = grouped.get((*owner, None), [])
                         if len(glyphs) != 1 or glyphs[0]['kind'] != 'rest':
@@ -1141,18 +1249,56 @@ def native_tab_observations(layout, score, document, dpi=180):
                             if marked:
                                 raise ValueError('untraced_note_' + marked)
                             glyphs = grouped.get((*owner, note['note_index']), [])
-                            if len(glyphs) != 1 or glyphs[0]['kind'] not in ('fret', 'hidden_fret'):
+                            if len(glyphs) != 1 or glyphs[0]['kind'] not in (primary, 'hidden_fret'):
                                 raise ValueError('note_without_unique_visible_glyph')
                             glyph = glyphs[0]
-                            text = glyph['text'].strip().removeprefix('(').removesuffix(')')
-                            if glyph['kind'] != 'hidden_fret' and not (
-                                    text.isascii() and text.isdigit() or text.lower() in ('x', '×')):
-                                raise ValueError('unsupported_visible_fret_text')
-                            notes.append({'string': strings - glyph['native_string_index'],
-                                          'fret': None if glyph['kind'] == 'hidden_fret'
-                                          else int(text) if text.isdigit() else 'x'})
-                            if effects := note_effects.get((*owner, note['note_index'])):
-                                notes[-1]['effects'] = sorted(effects)
+                            observed_note, notation_note = {}, {}
+                            if mode != 'notation':
+                                text = glyph['text'].strip().removeprefix('(').removesuffix(')')
+                                if glyph['kind'] != 'hidden_fret' and not (
+                                        text.isascii() and text.isdigit() or text.lower() in ('x', '×')):
+                                    raise ValueError('unsupported_visible_fret_text')
+                                observed_note.update(string=strings - glyph['native_string_index'],
+                                    fret=None if glyph['kind'] == 'hidden_fret' else int(text) if text.isdigit() else 'x')
+                            if mode != 'tab':
+                                evidence = all_glyphs.get((*owner, note['note_index']), [])
+                                heads = [g for g in evidence if g['kind'] == 'notehead']
+                                marks = [g for g in evidence if g['kind'] == 'accidental']
+                                if len(heads) != 1 or len(marks) > 1:
+                                    raise ValueError('note_without_unique_drawn_head')
+                                position = (notation_lines[-1] - heads[0]['render_origin_mm'][1]) / ((notation_lines[-1] - notation_lines[0]) / 8)
+                                if abs(position - round(position)) > 1e-3:
+                                    raise ValueError('drawn_head_off_staff_grid')
+                                accidentals = {0xE260: -1, 0xE261: 0, 0xE262: 1, 0xE263: 2, 0xE264: -2}
+                                if marks and marks[0]['smufl'] not in accidentals:
+                                    raise ValueError('unsupported_drawn_accidental')
+                                notation_note.update(staff_position=round(position),
+                                    accidental=accidentals[marks[0]['smufl']] if marks else None)
+                                if percussion:
+                                    from research.data.observations import painted_notehead
+                                    notation_note['notehead'] = painted_notehead(heads[0]['smufl'])
+                                if effects := note_effects['notation'].get((*owner, note['note_index'])):
+                                    notation_note['effects'] = sorted(effects)
+                                # Unison notes on different strings can paint
+                                # the same head twice. The bitmap contains one
+                                # head; source ownership must not duplicate it.
+                                head_key = (tuple(heads[0]['render_origin_mm']), heads[0]['smufl'])
+                                if head_key not in notation_glyph_indices:
+                                    notation_glyph_indices[head_key] = len(notation_notes)
+                                    notation_notes.append(notation_note)
+                                else:
+                                    existing = notation_notes[notation_glyph_indices[head_key]]
+                                    if existing['accidental'] is None:
+                                        existing['accidental'] = notation_note['accidental']
+                                    elif notation_note['accidental'] not in (None, existing['accidental']):
+                                        raise ValueError('conflicting_coincident_accidentals')
+                                    if notation_note.get('effects'):
+                                        existing['effects'] = sorted(set(existing.get('effects', [])) | set(notation_note['effects']))
+                                notation_owner_indices[note['note_index']] = notation_glyph_indices[head_key]
+                            if mode != 'notation':
+                                notes.append(observed_note)
+                                if effects := note_effects['tab'].get((*owner, note['note_index'])):
+                                    notes[-1]['effects'] = sorted(effects)
                             native_note_indices.append(note['note_index'])
                             effects = [name for field, name in (
                                 ('dead', 'dead'), ('tie_destination', 'tie'),
@@ -1162,18 +1308,24 @@ def native_tab_observations(layout, score, document, dpi=180):
                                 ('in_above', 'sia'), ('in_below', 'sib'), ('legato', 'sl'),
                                 ('shift', 'ss'), ('out_down', 'sod'), ('out_up', 'sou'))
                                 if note.get('slides', {}).get(field)]
-                            reference_notes.append({'string': strings - note['native_string_index'],
-                                'fret': note['fret'], 'effects': effects})
-                        if not notes:
+                            ref = {'effects': effects}
+                            if mode != 'notation':
+                                ref.update(string=strings - note['native_string_index'], fret=note['fret'])
+                            if mode != 'tab':
+                                ref['pitch'] = staff['tuning_pitches_low_to_high'][note['native_string_index']] + note['fret'] - track['view_transposition_offset']
+                            reference_notes.append(ref)
+                        if not notes and not notation_notes:
                             raise ValueError('normal_event_without_visible_notes')
-                        glyph = max((g for key, gs in grouped.items() if key[:4] == owner
-                                     for g in gs), key=lambda g: g['bbox_mm'][1])
+                        rhythm_glyphs = [g for key, gs in all_glyphs.items() if key[:4] == owner
+                                         for g in gs if g['kind'] == ('fret' if mode == 'tab' else 'notehead')]
+                        glyph = max(rhythm_glyphs, key=lambda g: g['bbox_mm'][1])
                         gx, gy, gw, gh = glyph['bbox_mm']
                         origin_x = glyph['render_origin_mm'][0]
                         # Match actual PDF stems to the native drawing origin;
                         # the tolerance only covers PDF coordinate rounding.
                         if code > 2 and not any(abs(line['x0'] - line['x1']) < 1e-6
-                            and abs(line['x0'] * 25.4 / 72 - origin_x) < 1e-4
+                            and (abs(line['x0'] * 25.4 / 72 - origin_x) < 1e-4 if mode == 'tab'
+                                 else gx - .05 <= line['x0'] * 25.4 / 72 <= gx + gw + .05)
                             and (gy + gh < line['bottom'] * 25.4 / 72 <= bottom
                                  or top <= line['top'] * 25.4 / 72 < gy)
                             and top <= line['top'] * 25.4 / 72
@@ -1181,7 +1333,7 @@ def native_tab_observations(layout, score, document, dpi=180):
                             rhythm_visible = False
                     # Every used glyph must actually lie inside this measure's
                     # unpadded horizontal crop and its printed vertical band.
-                    for glyph in (g for key, gs in grouped.items() if key[:4] == owner for g in gs):
+                    for glyph in (g for key, gs in all_glyphs.items() if key[:4] == owner for g in gs):
                         if glyph['kind'] == 'hidden_fret':
                             continue
                         gx, gy, gw, gh = glyph['bbox_mm']
@@ -1189,9 +1341,17 @@ def native_tab_observations(layout, score, document, dpi=180):
                             raise ValueError('visible_glyph_clipped_by_crop')
                     order = sorted(range(len(notes)), key=lambda ni: notes[ni]['string'])
                     notes = [notes[ni] for ni in order]
-                    reference_notes = [reference_notes[ni] for ni in order]
+                    reference_notes.sort(key=lambda note: note['string'] if mode != 'notation' else -note['pitch'])
                     for ni, previous in enumerate(order):
-                        note_indices[voice['voice_index'], event['event_index'], native_note_indices[previous]] = ni
+                        note_indices[voice['voice_index'], event['event_index'], native_note_indices[previous],
+                                     'tab'] = ni
+                    if mode != 'tab':
+                        notation_order = sorted(range(len(notation_notes)), key=lambda ni: -notation_notes[ni]['staff_position'])
+                        notation_notes = [notation_notes[ni] for ni in notation_order]
+                        for native_index, previous in notation_owner_indices.items():
+                            note_indices[voice['voice_index'], event['event_index'], native_index, 'notation'] = notation_order.index(previous)
+                    if mode == 'notation':
+                        notes = notation_notes
                     status = 'rest' if event['rest'] else 'normal'
                     event_indices[voice['voice_index'], event['event_index']] = len(events)
                     anchors = [g['render_origin_mm'][0] for key, gs in grouped.items()
@@ -1200,6 +1360,8 @@ def native_tab_observations(layout, score, document, dpi=180):
                         event_origins[voice['voice_index'], len(events)] = sum(anchors) / len(anchors)
                     observed_event = dict(start=start, duration=_duration_token(duration) if rhythm_visible else None,
                                           status=status, notes=notes)
+                    if mode == 'both':
+                        observed_event['notation_notes'] = notation_notes
                     printed_effects = list(dynamic_effects.get(owner, []))
                     printed_effects += chord_effects.get(owner, [])
                     if voice['voice_index'] == min(v['voice_index'] for v in measure['voices']):
@@ -1233,19 +1395,29 @@ def native_tab_observations(layout, score, document, dpi=180):
                         vi, ei, *ni = relation[endpoint]
                         relation[endpoint] = [vi, event_indices[vi, ei]]
                         if ni:
-                            relation[endpoint].append(note_indices[vi, ei, ni[0]])
+                            representation = relation.get('representation', 'notation' if mode == 'notation' else 'tab')
+                            relation[endpoint].append(note_indices[vi, ei, ni[0], representation])
             reference = parse_measure_target('M | V0{@0:w:r}')
-            reference.update(voices=reference_voices, time_signature=state['time'].get('value'))
+            reference.update(voices=reference_voices, time_signature=state['time'].get('value'),
+                             key_signature=key_names[state['key']['value'] + 7] if state['key']['status'] == 'observed' else None)
             time = master['time_signature']
             result[index] = {'observation': {'state': state, 'voices': voices, 'relations': relations},
                 'bbox': crop,
                 'visible_chords': chord_evidence,
                 'visible_diagram_marks': sum(0xE858 <= ord(letter) <= 0xE85A
                     for char in chars for letter in char['text']),
-                'reference_target': format_measure_target(reference, 'tab'),
-                'oracle_auxiliary': {'state': {'time': {'status': 'observed', 'value': f"{time['numerator']}/{time['denominator']}"},
+                'reference_target': format_measure_target(reference, mode),
+                'oracle_auxiliary': {'staff_start': index == 0, 'state': {'time': {'status': 'observed', 'value': f"{time['numerator']}/{time['denominator']}"},
                     'tuning': {'status': 'observed', 'value': list(reversed(staff['tuning_pitches_low_to_high']))}},
                     'voice_map': {str(v['voice']): v['voice'] for v in voices}}}
+            if mode != 'tab':
+                result[index]['oracle_auxiliary']['state'].update(
+                    clef={'status': 'observed', 'value': 'percussion' if percussion else measure['clef']},
+                    clef_octave={'status': 'observed', 'value': NATIVE_OCTAVES[measure['ottavia_name']]},
+                    instrument_transpose={'status': 'observed', 'value': track['view_transposition_offset']},
+                    instrument_transpose_explicit={'status': 'observed', 'value': False},
+                    capo={'status': 'observed', 'value': staff['capo_fret'] if staff['capo_present'] else 0},
+                    key={'status': 'observed', 'value': measure['drawing_key_signature']['accidental_count']})
         except (ValueError, KeyError) as error:
             result[index] = {'error': str(error)}
     return result

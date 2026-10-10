@@ -45,15 +45,19 @@ def ticks(duration):
 
 def events(measure):
     return [{**event, 'at': (voice['voice'], i), 'start': event.get('start'),
-             'duration': ticks(event.get('duration')), 'silent': not event.get('notes')}
+             'duration': ticks(event.get('duration')),
+             'silent': not (event.get('notes') or event.get('notation_notes'))}
             for voice in (measure or {}).get('voices', [])
             for i, event in enumerate(voice['events'])]
 
 
 def notes(measure):
-    return [{'at': (*event['at'], i), 'start': event.get('start'),
-             'duration': event['duration'], **note}
-            for event in events(measure) for i, note in enumerate(event.get('notes') or [])]
+    return [{'at': (*event['at'], i, *(['notation'] if field == 'notation_notes' else [])),
+             'start': event.get('start'), 'duration': event['duration'],
+             **({'representation': 'notation' if field == 'notation_notes' else 'tab'}
+                if 'notation_notes' in event else {}), **note}
+            for event in events(measure) for field in ('notes', 'notation_notes')
+            for i, note in enumerate(event.get(field) or [])]
 
 
 def near(gold, actual, tolerance, duration=False):
@@ -75,7 +79,13 @@ def pairs(gold, actual, matches, *, prefer=None):
 
 
 def visible_equal(gold, actual, mode, *, ignore_fret=False):
+    if mode == 'both':
+        if gold.get('representation') != actual.get('representation'):
+            return False
+        mode = gold.get('representation', mode)
     fields = ([] if mode == 'tab' else ['staff_position', 'accidental'])
+    if 'notehead' in gold:
+        fields += ['notehead']
     if mode != 'notation':
         fields += ['string'] + ([] if ignore_fret else ['fret'])
     return all(gold.get(field) == actual.get(field, 'unknown' if field == 'accidental' else None) for field in fields
@@ -103,7 +113,12 @@ def relation_counts(observation, mapping=None):
                 matches = {gold[0] for actual, gold in mapping.items() if actual[0] == voice}
                 voice = next(iter(matches)) if len(matches) == 1 else ('unmatched', voice)
         shape = relation.get('shape') if relation.get('kind') is None else None
-        counts[relation.get('kind'), relation.get('value'), endpoint(start, mapping), endpoint(end, mapping), voice, shape] += 1
+        def visible_endpoint(value):
+            if isinstance(value, list) and len(value) == 3 and relation.get('representation') == 'notation':
+                value = [*value, 'notation']
+            return endpoint(value, mapping)
+        counts[relation.get('kind'), relation.get('value'), visible_endpoint(start),
+               visible_endpoint(end), voice, shape, relation.get('representation')] += 1
     return counts
 
 
@@ -161,14 +176,31 @@ def count_rhythm_fields(counts, gold, actual, aligned, tolerance):
         counts['unknown_' + field + '_invented'] += sum(value is not None for value in matched)
 
 
-def musical_counts(counts, prefix, gold, resolved, mode, tolerance):
-    expected, actual = notes(gold), notes(resolved)
+def dead_note(note):
+    return note.get('fret') == 'x' or 'dead' in note.get('effects', [])
+
+
+def musical_value(note, field):
+    if dead_note(note) and field in ('fret', 'pitch'):
+        return 'x' if field == 'fret' else None
+    return note.get(field)
+
+
+def musical_fields(mode):
     fields = ['string', 'fret'] if mode == 'tab' else ['pitch']
     if mode == 'both':
         fields += ['string', 'fret']
-    complete = [note for note in actual if all(note.get(field) is not None for field in fields)]
+    return fields
+
+
+def musical_counts(counts, prefix, gold, resolved, mode, tolerance):
+    expected, actual = notes(gold), notes(resolved)
+    fields = musical_fields(mode)
+    complete = [note for note in actual if all(musical_value(note, field) is not None
+                or (field == 'pitch' and dead_note(note)) for field in fields)]
     matches = pairs(expected, complete, lambda a, b: near(a, b, tolerance, True)
-                    and all(a.get(field) == b.get(field) for field in fields))
+                    and dead_note(a) == dead_note(b)
+                    and all(musical_value(a, field) == musical_value(b, field) for field in fields))
     add_counts(counts, prefix + '_notes', len(expected), len(complete), len(matches))
     counts[prefix + '_note_slots'] += len(actual)
     counts[prefix + '_determinate_notes'] += len(complete)
@@ -237,7 +269,8 @@ def summarize(rows, predictions, assembled, auxiliary=None, tolerance=120):
                 else positions.get(a['at']) == b['at']))
         add_counts(counts, 'visible_chords', len(gold_chords), len(actual_chords), len(chord_pairs))
         if row['mode'] != 'notation':
-            unknown = [note for note in expected_notes if note.get('fret') is None]
+            unknown = [note for note in expected_notes if note.get('representation') != 'notation'
+                       and note.get('fret') is None]
             aligned = pairs(unknown, actual_notes, lambda a, b: note_time_matches(a, b)
                             and visible_equal(a, b, row['mode'], ignore_fret=True))
             counts['unknown_frets'] += len(unknown)
@@ -286,6 +319,17 @@ def summarize(rows, predictions, assembled, auxiliary=None, tolerance=120):
     # identify voices in the reference; they never enter model predictions.
     truth_auxiliary = [row.get('oracle_auxiliary', {}) for row in rows]
     expected_assembly = assemble_predictions(gold_predictions, truth_auxiliary)
+    # Merged notes can include a tied TAB continuation that had no printed TAB
+    # glyph. Its final index is not an index into the visible observations.
+    resolved_maps = {}
+    for index, (gold, actual) in enumerate(zip(expected_assembly['records'], assembled['records'], strict=True)):
+        expected_notes, actual_notes = notes(gold.get('resolved')), notes(actual.get('resolved'))
+        fields = musical_fields(rows[index]['mode'])
+        matches = pairs(expected_notes, actual_notes, lambda a, b:
+            near(a, b, tolerance) and dead_note(a) == dead_note(b)
+            and all(musical_value(a, field) == musical_value(b, field) for field in fields))
+        resolved_maps[index] = {**{actual: expected for actual, expected in maps[index].items() if len(actual) == 2},
+                                **{actual_notes[b]['at']: expected_notes[a]['at'] for a, b in matches}}
 
     def coverage(relations, predicted=False):
         values = Counter()
@@ -305,8 +349,11 @@ def summarize(rows, predictions, assembled, auxiliary=None, tolerance=120):
             if not isinstance(value, list):
                 return value
             record, *local = value
-            return (record, *endpoint(local, maps[record] if predicted else None))
-        return Counter((r['kind'], r.get('value'), anchor(r['start']), anchor(r['end']))
+            return (record, *endpoint(local, resolved_maps[record] if predicted else None))
+        def bound(relation, field):
+            group = relation.get(field + '_notes')
+            return ('notes', *sorted((anchor(item) for item in group), key=repr)) if group else anchor(relation[field])
+        return Counter((r['kind'], r.get('value'), bound(r, 'start'), bound(r, 'end'))
                        for r in relations if r['status'] == 'resolved' and r['kind'] is not None)
 
     expected, actual = chains(expected_assembly['relations']), chains(assembled['relations'], True)
@@ -387,7 +434,7 @@ def run(manifest, output, model=None, device='cuda:0', limit=0, batch_size=16, m
              [row.get('oracle_auxiliary', {}) for row in rows] if oracle_auxiliary else None)
     assembled = assemble_predictions(predictions, extra)
     result = summarize(rows, predictions, assembled, extra, tolerance)
-    for field in ('mode', 'renderer'):
+    for field in ('mode', 'renderer', 'instrument'):
         groups = result['by_' + field] = {}
         for value in sorted({row.get(field) or 'unknown' for row in rows}):
             indices = [i for i, row in enumerate(rows) if (row.get(field) or 'unknown') == value]
@@ -396,6 +443,8 @@ def run(manifest, output, model=None, device='cuda:0', limit=0, batch_size=16, m
             assistance = [extra[i] for i in indices] if extra is not None else None
             grouped = summarize(references, values, assemble_predictions(values, assistance), assistance, tolerance)
             groups[value] = {'samples': len(indices), 'metrics': grouped['metrics'], 'counts': grouped['counts']}
+    result['coverage'] = {mode: sum(('drums' if row.get('instrument') == 'drums' else row['mode']) == mode
+                                          for row in rows) for mode in ('tab', 'notation', 'both', 'drums')}
     result['run'] = {'scope': 'research_single_image_observation_and_assembly',
                      'inference': 'saved_observations' if observations else 'vllm',
                      'model': str(model) if model else None, 'device': device if model else None,
@@ -421,4 +470,4 @@ if __name__ == '__main__':
     parser.add_argument('--max-tokens', type=int, default=4096)
     parser.add_argument('--tolerance', type=int, default=120, help='Onset/duration tolerance in ticks; quarter note = 960')
     report = run(**vars(parser.parse_args()))
-    print(json.dumps({key: report[key] for key in ('run', 'metrics', 'by_mode', 'by_renderer')}, ensure_ascii=False, indent=2))
+    print(json.dumps({key: report[key] for key in ('run', 'metrics', 'coverage', 'by_mode', 'by_renderer', 'by_instrument')}, ensure_ascii=False, indent=2))

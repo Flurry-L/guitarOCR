@@ -16,7 +16,7 @@ OCR_TRAINING_DEFAULTS = {
 }
 
 
-def validate_score_dataset(config):
+def validate_score_dataset(config, required_modes=()):
     """Keep score supervision and the held-out split explicit."""
     directory = Path(config["dataset_dir"]).resolve()
     dataset = json.loads((directory / "dataset.json").read_text())
@@ -33,6 +33,11 @@ def validate_score_dataset(config):
         )
     if Path(config.get("media_dir") or directory).resolve() != directory:
         raise ValueError("Score image paths resolve relative to dataset_dir")
+    for split in ("train", "validation", "test"):
+        missing = [mode for mode in required_modes
+                   if not dataset.get("coverage", {}).get(split, {}).get(mode, 0)]
+        if missing:
+            raise ValueError(f"Score dataset {split} has no samples for: {', '.join(missing)}")
 
 
 def load_training_config(path: Path, overrides=()) -> tuple[dict, dict]:
@@ -53,12 +58,13 @@ def load_training_config(path: Path, overrides=()) -> tuple[dict, dict]:
             raise ValueError(f"Expected a key=value override, got: {override}")
         config[key] = yaml.safe_load(value)
     audit_required = config.pop("require_score_dataset", False)
+    required_modes = config.pop("required_score_modes", [])
     options = {
         key: config.pop(key, default)
         for key, default in OCR_TRAINING_DEFAULTS.items()
     }
-    if audit_required:
-        validate_score_dataset(config)
+    if audit_required or required_modes:
+        validate_score_dataset(config, required_modes)
     return config, options
 
 

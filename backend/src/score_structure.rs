@@ -1,16 +1,15 @@
 //! Validate learned staff groups and match observed part identities across pages.
 //! Invalid row assignments require model evidence or manual correction.
-use regex::Regex;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap};
-use std::sync::OnceLock;
 use unicode_casefold::UnicodeCaseFold;
 
 mod anonymous_relations;
 mod part_identity;
-pub use anonymous_relations::resolve_conflicting_groups as anonymous_relation_groups;
+pub use anonymous_relations::relation_groups;
 pub(crate) use anonymous_relations::{identity_batches, resolve_identity_batch};
 pub(crate) use part_identity::compatible_profile as compatible_part_profiles;
+pub(crate) use part_identity::name_key as part_name_key;
 
 pub type Result<T> = std::result::Result<T, String>;
 pub type StaffRows = Vec<Vec<Value>>;
@@ -43,12 +42,6 @@ fn parts(value: &Value) -> Result<&[Value]> {
         .map(Vec::as_slice)
         .ok_or_else(|| "Structure needs parts and staff rows".into())
 }
-fn rows(value: &Value) -> Result<&[Value]> {
-    value["rows"]
-        .as_array()
-        .map(Vec::as_slice)
-        .ok_or_else(|| "Structure needs parts and staff rows".into())
-}
 fn triples(value: &Value) -> Option<Vec<[i64; 3]>> {
     value["rows"]
         .as_array()?
@@ -66,18 +59,6 @@ fn normalized_name(name: &str) -> String {
     name.case_fold()
         .filter(|c| c.is_alphanumeric() || *c == '_')
         .collect()
-}
-fn grand_name(part: &Value) -> bool {
-    static PATTERN: OnceLock<Regex> = OnceLock::new();
-    PATTERN
-        .get_or_init(|| Regex::new(r"(?i)\b(?:piano|keyboard|organ|harp)\b").unwrap())
-        .is_match(part["name"].as_str().unwrap_or(""))
-}
-fn grand_program(part: &Value) -> bool {
-    part["instrument"] == "pitched"
-        && part["program"]
-            .as_i64()
-            .is_some_and(|p| (0..8).contains(&p) || (16..21).contains(&p) || p == 46)
 }
 fn complementary(modes: &[String], indices: &[usize]) -> bool {
     indices.len() == 2
@@ -183,16 +164,6 @@ pub fn staff_rows(records: &[Value]) -> Result<StaffRows> {
         .collect())
 }
 
-fn json_object(raw: &str) -> Result<Value> {
-    let start = raw
-        .find('{')
-        .ok_or("Structure response has no JSON object")?;
-    let end = raw
-        .rfind('}')
-        .filter(|&i| i >= start)
-        .ok_or("Structure response has no complete JSON object")?;
-    serde_json::from_str(&raw[start..=end]).map_err(|e| format!("Invalid structure JSON: {e}"))
-}
 /// Check semantic references without guessing a repeating page template.
 fn validate_row_topology(
     value: &Value,
@@ -235,417 +206,6 @@ fn validate_row_topology(
     Ok(assignments)
 }
 
-/// Normalize visible profiles and validate the supplied staff assignments.
-pub fn parse_structure(raw: &str, count: usize, modes: Option<&[String]>) -> Result<Value> {
-    parse_structure_impl(raw, count, modes, None)
-}
-
-fn record_structure_change(
-    audit: &mut Option<&mut Vec<Value>>,
-    reason: &str,
-    before: &Value,
-    after: &Value,
-) {
-    if before["parts"] != after["parts"] || before["rows"] != after["rows"] {
-        if let Some(changes) = audit.as_deref_mut() {
-            changes.push(json!({"reason": reason,
-                "before": {"parts": before["parts"], "rows": before["rows"]},
-                "after": {"parts": after["parts"], "rows": after["rows"]}}));
-        }
-    }
-}
-
-fn parse_structure_impl(
-    raw: &str,
-    count: usize,
-    modes: Option<&[String]>,
-    mut audit: Option<&mut Vec<Value>>,
-) -> Result<Value> {
-    if modes.is_some_and(|m| m.len() != count) {
-        return Err("Row mode count does not cover every detected row".into());
-    }
-    let mut value = json_object(raw)?;
-    let before = value.clone();
-    parts(&value)?;
-    rows(&value)?;
-    for part in value["parts"].as_array_mut().unwrap() {
-        if !part.is_object() {
-            return Err("Invalid part profile".into());
-        }
-        let instrument = part["instrument"]
-            .as_str()
-            .filter(|s| ["guitar", "bass", "pitched", "drums"].contains(s))
-            .ok_or("Invalid part instrument")?
-            .to_owned();
-        if !part["strings"].is_null() {
-            let strings = part["strings"]
-                .as_i64()
-                .filter(|v| (1..=12).contains(v))
-                .ok_or("Invalid string count")?;
-            part["strings"] = json!(strings);
-        } else {
-            part["strings"] = Value::Null;
-        }
-        let name = if let Some(name) = part["name"].as_str().filter(|s| !s.trim().is_empty()) {
-            name.to_owned()
-        } else {
-            part["name_source"] = json!("missing");
-            instrument.clone()
-        };
-        let name: String = name.chars().take(160).collect();
-        part["name"] = json!(name);
-        let mut program = part["program"]
-            .as_i64()
-            .filter(|v| (0..=127).contains(v))
-            .ok_or("Invalid MIDI program")?;
-        if let Some(visible) = program_from_visible_name(&name) {
-            program = visible;
-        } else if instrument == "guitar" && !(24..=31).contains(&program) {
-            program = 25;
-        } else if instrument == "bass" && !(32..=39).contains(&program) {
-            program = 33;
-        }
-        part["program"] = json!(program);
-    }
-    record_structure_change(
-        &mut audit,
-        "visible_instrument_profile_normalization",
-        &before,
-        &value,
-    );
-    let assignments = validate_row_topology(&value, count, modes)?;
-    let before = value.clone();
-    if let Some(modes) = modes {
-        for (part, profile) in value["parts"]
-            .as_array_mut()
-            .unwrap()
-            .iter_mut()
-            .enumerate()
-        {
-            let visible: Vec<_> = assignments
-                .iter()
-                .zip(modes)
-                .filter_map(|(row, mode)| (row[1] as usize == part).then_some(mode))
-                .collect();
-            if !visible.is_empty() && visible.iter().all(|m| m.as_str() == "notation") {
-                profile["strings"] = Value::Null;
-            }
-        }
-    }
-    record_structure_change(&mut audit, "notation_only_string_count", &before, &value);
-    Ok(value)
-}
-
-/// Compare a visual relation proposal without using it to repair model rows.
-pub fn parse_structure_with_audit_proposal(
-    raw: &str,
-    count: usize,
-    systems: Option<&[usize]>,
-    modes: Option<&[String]>,
-) -> Result<(Value, Value)> {
-    let mut changes = vec![];
-    let parsed = parse_structure_impl(raw, count, modes, Some(&mut changes))?;
-    audit_structure_result(raw, count, systems, modes, parsed, changes)
-}
-
-/// Preserve semantic identities and compare independent system/part relation candidates.
-pub fn parse_structure_with_relation_heads(
-    raw: &str,
-    count: usize,
-    systems: Option<&[usize]>,
-    probabilities: &[f32],
-    part_probabilities: Option<&[f32]>,
-    modes: Option<&[String]>,
-    review_confidence: f32,
-    part_review_confidence: f32,
-) -> Result<(Value, Value)> {
-    if modes.is_some_and(|m| m.len() != count) {
-        return Err("Row mode count does not cover every detected row".into());
-    }
-    if !review_confidence.is_finite() || !(0.5..=1.0).contains(&review_confidence) {
-        return Err("Relation review confidence must be in [0.5, 1]".into());
-    }
-    if !part_review_confidence.is_finite() || !(0.5..=1.0).contains(&part_review_confidence) {
-        return Err("Part relation review confidence must be in [0.5, 1]".into());
-    }
-    // A changed learned partition cannot inherit semantic identities by their
-    // position in an incompatible language-model partition. Keep the observed
-    // groups anonymous until independent visual identity evidence is available.
-    if let Some(result) = anonymous_relation_groups(
-        raw,
-        count,
-        systems,
-        probabilities,
-        part_probabilities,
-        modes,
-        review_confidence,
-        part_review_confidence,
-    )? {
-        return Ok(result);
-    }
-    let model = parse_structure(raw, count, modes);
-    let coherent = count > 0
-        && systems.is_some_and(|s| s.len() == count && s[0] == 0)
-        && probabilities.len() == count.saturating_sub(1)
-        && probabilities
-            .iter()
-            .all(|p| p.is_finite() && (0.0..=1.0).contains(p))
-        && systems
-            .unwrap()
-            .windows(2)
-            .zip(probabilities)
-            .all(|(s, p)| s[0].checked_add(usize::from(*p < 0.5)) == Some(s[1]));
-    let reliable = coherent
-        && probabilities
-            .iter()
-            .all(|p| p.max(1. - p) >= review_confidence);
-    // With a part head, a new system partition also invalidates the old
-    // positional semantic binding. The trusted two-head case returned anonymous
-    // groups above; an uncertain part head cannot authorize template repair.
-    let unresolved_system_identity = part_probabilities.is_some()
-        && systems.filter(|s| s.len() == count).is_some_and(|systems| {
-            json_object(raw)
-                .ok()
-                .and_then(|source| triples(&source))
-                .filter(|rows| rows.len() == count)
-                .is_some_and(|rows| {
-                    rows.windows(2)
-                        .zip(systems.windows(2))
-                        .any(|(a, b)| (a[0][0] == a[1][0]) != (b[0] == b[1]))
-                })
-        });
-    let mut changes = vec![];
-    let mut relation_value = None;
-    let relation = systems
-        .filter(|s| s.len() == count)
-        .map(|systems| -> Result<Value> {
-            let mut candidate = json_object(raw)?;
-            let rows = candidate["rows"]
-                .as_array_mut()
-                .ok_or("Structure needs staff rows")?;
-            if rows.len() != count {
-                return Err("Structure does not cover every detected staff row".into());
-            }
-            for (row, system) in rows.iter_mut().zip(systems) {
-                let triple = row
-                    .as_array_mut()
-                    .filter(|r| r.len() == 3)
-                    .ok_or("Invalid structure row")?;
-                triple[0] = json!(system);
-            }
-            relation_value = Some(candidate.clone());
-            parse_structure_impl(&candidate.to_string(), count, modes, Some(&mut changes))
-        });
-    let part_relation = part_probabilities.map(|probabilities| -> Result<(Value, bool, bool)> {
-        let candidate = relation_value
-            .as_ref()
-            .filter(|_| reliable)
-            .ok_or("Part relations need reliable system assignments")?;
-        part_relation_candidate(
-            candidate,
-            count,
-            probabilities,
-            modes,
-            part_review_confidence,
-        )
-    });
-    let use_part = !unresolved_system_identity
-        && part_relation
-            .as_ref()
-            .is_some_and(|r| r.as_ref().is_ok_and(|(_, confident, _)| *confident));
-    let use_relation =
-        !unresolved_system_identity && reliable && relation.as_ref().is_some_and(Result::is_ok);
-    let selected = if use_part {
-        part_relation.as_ref().unwrap().as_ref().unwrap().0.clone()
-    } else if use_relation {
-        relation.as_ref().unwrap().as_ref().unwrap().clone()
-    } else {
-        model.as_ref().map_err(Clone::clone)?.clone()
-    };
-    let (parsed, mut audit) = audit_structure_result(
-        raw,
-        count,
-        systems,
-        modes,
-        selected,
-        if use_relation { changes } else { vec![] },
-    )?;
-    audit["model_candidate"] = model.as_ref().ok().cloned().unwrap_or(Value::Null);
-    audit["model_candidate_error"] = model
-        .as_ref()
-        .err()
-        .map(|e| json!(e))
-        .unwrap_or(Value::Null);
-    audit["relation_candidate"] = relation
-        .as_ref()
-        .and_then(|r| r.as_ref().ok())
-        .cloned()
-        .unwrap_or(Value::Null);
-    audit["relation_candidate_error"] = relation
-        .as_ref()
-        .and_then(|r| r.as_ref().err())
-        .map(|e| json!(e))
-        .unwrap_or(Value::Null);
-    audit["relation_probabilities"] = json!(probabilities);
-    audit["same_part_probabilities"] = json!(part_probabilities);
-    audit["part_relation_candidate"] = part_relation
-        .as_ref()
-        .and_then(|r| r.as_ref().ok())
-        .map(|(v, _, _)| v.clone())
-        .unwrap_or(Value::Null);
-    audit["part_relation_candidate_error"] = part_relation
-        .as_ref()
-        .and_then(|r| r.as_ref().err())
-        .map(|e| json!(e))
-        .unwrap_or(Value::Null);
-    audit["system_indices_constrained"] = json!(false);
-    audit["selected_system_source"] = json!(if use_relation || use_part {
-        "visual_relation_network"
-    } else {
-        "structure_model"
-    });
-    audit["selected_part_source"] = json!(if use_part {
-        "visual_relation_network"
-    } else {
-        "structure_model"
-    });
-    let invalid_original = audit["raw_rows_valid_without_geometry"] != true;
-    let reasons = audit["review_reasons"].as_array_mut().unwrap();
-    if systems.is_some() && !reliable {
-        reasons.push(json!("uncertain_row_relation"));
-    }
-    if relation.as_ref().is_some_and(Result::is_err) {
-        reasons.push(json!("invalid_relation_candidate"));
-    }
-    if systems.is_some() && !coherent {
-        reasons.push(json!("invalid_relation_prediction"));
-    }
-    if invalid_original {
-        reasons.push(json!("invalid_model_row_assignment"));
-    }
-    if unresolved_system_identity {
-        reasons.push(json!("unresolved_part_identity_after_system_conflict"));
-    }
-    if let Some(result) = &part_relation {
-        match result {
-            Ok((_, confident, disagreement)) => {
-                if !confident {
-                    reasons.push(json!("uncertain_part_relation"));
-                }
-                if *disagreement {
-                    reasons.push(json!("part_evidence_disagreement"));
-                }
-            }
-            Err(_) => reasons.push(json!("invalid_part_relation_candidate")),
-        }
-    }
-    if !reasons.is_empty() {
-        audit["needs_review"] = json!(true);
-    }
-    Ok((parsed, audit))
-}
-
-fn part_relation_candidate(
-    source: &Value,
-    count: usize,
-    probabilities: &[f32],
-    modes: Option<&[String]>,
-    threshold: f32,
-) -> Result<(Value, bool, bool)> {
-    if count == 0
-        || probabilities.len() != count - 1
-        || probabilities
-            .iter()
-            .any(|p| !p.is_finite() || !(0.0..=1.0).contains(p))
-    {
-        return Err("Invalid same-part probabilities".into());
-    }
-    let original = require_triples(source)?;
-    if original.len() != count {
-        return Err("Part relation row count mismatch".into());
-    }
-    let confident = original
-        .windows(2)
-        .zip(probabilities)
-        .all(|(r, p)| r[0][0] != r[1][0] || p.max(1. - p) >= threshold);
-    let disagreement = original
-        .windows(2)
-        .zip(probabilities)
-        .any(|(r, p)| r[0][0] == r[1][0] && ((r[0][1] == r[1][1]) != (*p >= 0.5)));
-    if disagreement && confident {
-        return Err(
-            "Conflicting part relations require anonymous groups or new visual identity evidence"
-                .into(),
-        );
-    }
-    Ok((
-        parse_structure(&source.to_string(), count, modes)?,
-        confident,
-        disagreement,
-    ))
-}
-
-fn audit_structure_result(
-    raw: &str,
-    count: usize,
-    systems: Option<&[usize]>,
-    modes: Option<&[String]>,
-    parsed: Value,
-    changes: Vec<Value>,
-) -> Result<(Value, Value)> {
-    let source = json_object(raw)?;
-    let valid_original =
-        parse_structure(raw, count, modes).is_ok_and(|value| value["rows"] == source["rows"]);
-    let mut review_rows = std::collections::BTreeSet::new();
-    if valid_original && source["rows"] != parsed["rows"] {
-        if let (Some(original), Some(resolved)) = (triples(&source), triples(&parsed)) {
-            if original.len() == resolved.len() {
-                for (i, first) in original.iter().enumerate() {
-                    let profile = &source["parts"][first[1] as usize];
-                    let grand = profile["instrument"] == "pitched"
-                        && (grand_name(profile) || grand_program(profile));
-                    if !grand {
-                        continue;
-                    }
-                    for j in i + 1..original.len() {
-                        let second = original[j];
-                        if first[..2] == second[..2]
-                            && matches!((first[2], second[2]), (0, 1) | (1, 0))
-                            && resolved[i][0] != resolved[j][0]
-                        {
-                            review_rows.extend([i + 1, j + 1]);
-                        }
-                    }
-                }
-            }
-        }
-    }
-    let mut disagreement = false;
-    if valid_original {
-        if let (Some(systems), Some(original)) =
-            (systems.filter(|s| s.len() == count), triples(&source))
-        {
-            let mut order = HashMap::new();
-            for (index, row) in original.iter().enumerate() {
-                let next = order.len();
-                let actual = *order.entry(row[0]).or_insert(next);
-                if actual != systems[index] {
-                    disagreement = true;
-                    review_rows.insert(index + 1);
-                }
-            }
-        }
-    }
-    let needs_review = !review_rows.is_empty();
-    let audit = json!({"raw_rows":source["rows"],"parsed_rows":parsed["rows"],
-        "rows_changed":source["rows"] != parsed["rows"],
-        "raw_rows_valid_without_geometry":valid_original,"systems_from_image":systems,
-        "changes":changes,"needs_review":needs_review,"review_rows":review_rows,
-        "review_reasons":if disagreement {vec!["system_evidence_disagreement"]}
-            else if needs_review {vec!["piano_grand_staff_split_by_geometry"]} else {vec![]}});
-    Ok((parsed, audit))
-}
-
 /// Assign stable global parts across pages, leaving geometry to score_grid.
 /// Pages are sorted numerically. Unused model profiles never become output parts.
 pub fn resolve_pages(pages: &mut [StructurePage]) -> Result<ResolvedPages> {
@@ -661,10 +221,7 @@ pub fn resolve_pages(pages: &mut [StructurePage]) -> Result<ResolvedPages> {
     };
     for page in pages {
         let assignments = require_triples(&page.structure)?;
-        let batches = identity_batches(
-            &assignments,
-            page.structure["anonymous_relation_groups"] == true,
-        )?;
+        let batches = identity_batches(&assignments, page.structure["system_local_parts"] == true)?;
         let profiles = page.structure["parts"]
             .as_array_mut()
             .ok_or("Missing structure parts")?;

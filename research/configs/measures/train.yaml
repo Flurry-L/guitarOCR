@@ -13,6 +13,7 @@ freeze_multi_modal_projector: false
 dataset_dir: database/observations
 dataset: train
 require_score_dataset: true
+required_score_modes: [tab, notation, both, drums]
 mix_strategy: concat
 eval_dataset: validation
 template: glm_ocr

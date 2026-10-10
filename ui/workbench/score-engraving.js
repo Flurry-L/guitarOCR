@@ -1,7 +1,7 @@
 import * as alphaTab from "./vendor/alphaTab.mjs";
 import { addGraceNotes, noteEffects, beatEffects, swappedAccidental, dynamicValue } from "./score-effects.js";
 import { buildMasterBars, writtenKey } from "./score-structure.js";
-import { pitchShift, ticks, projectVisibleTechniques } from "./score-model.js";
+import { pitchShift, ticks, projectVisibleTechniques, observationPreview } from "./score-model.js";
 
 export const scoreDisplaySettings = Object.freeze({effectBandPaddingBottom: 8});
 
@@ -87,12 +87,13 @@ export function engrave(state, settings, edited = null, mode = null) {
   score.artist = metadata.artist || "";
   score.subTitle = document.subtitle || "";
   score.notices = document.header_notes || "";
-  const records = state.measures.map((record, mi) => ({record, mi, data: projectVisibleTechniques(
-    edited?.index === mi ? edited.measure : record.parsed,
-    edited?.index === mi && Object.hasOwn(edited, "visualTechniques") ? edited.visualTechniques : record.visual_techniques)}));
+  const records = state.measures.map((record, mi) => ({record, mi, data: record.parsed.incomplete
+    ? observationPreview(record)
+    : projectVisibleTechniques(edited?.index === mi ? edited.measure : record.parsed,
+      edited?.index === mi && Object.hasOwn(edited, "visualTechniques") ? edited.visualTechniques : record.visual_techniques)}));
   const warnings = buildMasterBars(score, records, state);
   const incomplete = records.filter(({record}) => record.parsed.incomplete).map(({record, mi}) => (record.bar_index ?? mi) + 1);
-  if (incomplete.length) warnings.push(`第 ${[...new Set(incomplete)].join("、")} 小节尚未补全，空白谱格不表示休止。请选中小节，对照原谱补全音符。`);
+  if (incomplete.length) warnings.push(`第 ${[...new Set(incomplete)].join("、")} 小节仅预览已确认的内容，空缺处尚未确定，不表示休止。选中小节可对照原谱纠正识别。`);
   records.sort((a, b) => (a.record.bar_index ?? a.mi) - (b.record.bar_index ?? b.mi));
   records.forEach(({record, mi, data}) => {
     const profile = measureProfile(record);
@@ -139,7 +140,7 @@ export function engrave(state, settings, edited = null, mode = null) {
     sourceOf.set(bar, { mi });
     bar.clef = drums
       ? M.Clef.Neutral
-      : (M.Clef[profile.pitch_context.clef] ??
+      : (M.Clef[data.preview ? record.score_state?.clef : profile.pitch_context.clef] ??
         (profile.instrument === "bass" ? M.Clef.F4 : M.Clef.G2));
     bar.clefOttava = ottava(profile.pitch_context.clef_octave || 0);
     const key = data.key_signature ?? keysByStaff.get(staffId) ?? record.score_state?.key;
@@ -153,6 +154,8 @@ export function engrave(state, settings, edited = null, mode = null) {
     }
     // Preserve voice numbers, even when only the second voice has content.
     const count = Math.max(1, ...data.voices.map((v) => v.voice + 1));
+    const meter = data.preview && data.time_signature?.split("/").map(Number);
+    const previewEnd = meter ? 3840 * meter[0] / meter[1] : 0;
     for (let v = 0; v < count; v++) {
       const voice = new M.Voice();
       bar.addVoice(voice);
@@ -160,16 +163,19 @@ export function engrave(state, settings, edited = null, mode = null) {
       const events = data.voices[vi]?.events || [];
       let cursor = 0;
       const dynamicKey = `${staffId}/${v}`;
-      events.forEach((event, ei) => {
+      events.forEach((event, eventIndex) => {
+        const ei = data.preview ? event.source_event : eventIndex;
+        const source = { mi, vi, ei, preview: data.preview === true };
         if (event.start > cursor) {
           const gap = new M.Beat();
           gap.isEmpty = true;
           gap.overrideDisplayDuration = event.start - cursor;
           voice.addBeat(gap);
+          if (data.preview) sourceOf.set(gap, { ...source, ei: -1 });
         }
         const beat = new M.Beat();
         voice.addBeat(beat);
-        sourceOf.set(beat, { mi, vi, ei });
+        sourceOf.set(beat, source);
         beats.set(`${mi}:${vi}:${ei}`, beat);
         beat.duration = event.duration.value;
         beat.dots = event.duration.double_dotted
@@ -187,7 +193,7 @@ export function engrave(state, settings, edited = null, mode = null) {
           event.notes.forEach((source, ni) => {
             const note = new EngravedNote();
             note.beat = beat;
-            sourceOf.set(note, { mi, vi, ei, ni, string: source.string });
+            sourceOf.set(note, { mi, vi, ei, ni, string: source.string, preview: data.preview === true });
             if (drums) note.percussionArticulation = source.pitch;
             else {
               if (source.string) {
@@ -197,8 +203,7 @@ export function engrave(state, settings, edited = null, mode = null) {
               if (Number.isFinite(source.pitch)) {
                 note.octave = Math.floor(source.pitch / 12);
                 note.tone = source.pitch % 12;
-                note.writtenPitch =
-                  source.pitch -
+                note.writtenPitch = data.preview ? source.pitch : source.pitch -
                   pitchShift(
                     profile.pitch_context,
                     event.effects,
@@ -214,19 +219,27 @@ export function engrave(state, settings, edited = null, mode = null) {
             note.dynamics = source.velocity !== undefined && source.velocity !== 95
               ? dynamicValue(source.velocity) : beat.dynamics;
             noteEffects(note, source.effects || []);
-            addGraceNotes(note, source, profile, sourceOf, {mi, vi, ei, ni, string: source.string},
+            addGraceNotes(note, source, profile, sourceOf, {mi, vi, ei, ni, string: source.string, preview: data.preview === true},
               EngravedNote, pitchShift(profile.pitch_context, event.effects, profile.instrument));
           });
         cursor = event.start + ticks(event);
       });
+      if (data.preview && cursor < previewEnd) {
+        const gap = new M.Beat();
+        gap.isEmpty = true;
+        gap.overrideDisplayDuration = previewEnd - cursor;
+        voice.addBeat(gap);
+        sourceOf.set(gap, { mi, vi, ei: -1, preview: true });
+      }
       if (!voice.beats.length) {
         const empty = new M.Beat();
         empty.isEmpty = true;
         voice.addBeat(empty);
+        if (data.preview) sourceOf.set(empty, { mi, vi, ei: -1, preview: true });
       }
     }
   });
-  for (const staff of staves.values())
+  for (const staff of staves.values()) {
     while (staff.bars.length < score.masterBars.length) {
       const bar = new M.Bar(),
         voice = new M.Voice(),
@@ -236,6 +249,16 @@ export function engrave(state, settings, edited = null, mode = null) {
       voice.addBeat(rest);
       rest.isEmpty = true;
     }
+    // alphaTab links the same voice across bars. Partial observations can
+    // expose a second voice in just one bar; keep its other bars empty.
+    const count = Math.max(...staff.bars.map(bar => bar.voices.length));
+    for (const bar of staff.bars) while (bar.voices.length < count) {
+      const voice = new M.Voice(), empty = new M.Beat();
+      bar.addVoice(voice);
+      empty.isEmpty = true;
+      voice.addBeat(empty);
+    }
+  }
   score.finish(settings);
   return { score, sourceOf, beats, tracks, warnings };
 }

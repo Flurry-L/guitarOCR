@@ -4,8 +4,7 @@
     "tempo",
     "staff",
     "clef",
-    "annotation",
-    "structure"
+    "annotation"
   ],
   "information_adapter": {
     "gguf": "../gguf/information-adapter.gguf",

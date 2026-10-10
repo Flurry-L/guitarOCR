@@ -691,6 +691,8 @@ struct NativeLayoutMeasureView {
 };
 
 struct NativeNoteGlyph {
+    std::string kind;
+    int smufl = 0;
     NativeEventLocation location;
     int noteIndex = -1;
     int stringIndex = -1;
@@ -758,6 +760,10 @@ struct NativeLayoutSystem {
 static InlineHook g_layoutSystemViewHook = {};
 static InlineHook g_layoutBarViewHook = {};
 static InlineHook g_layoutRestViewHook = {};
+static InlineHook g_layoutNoteHeadViewHook = {};
+static InlineHook g_layoutAccidentalViewHook = {};
+static InlineHook g_painterDrawGlyphHook = {};
+static InlineHook g_painterDrawGlyphHeightHook = {};
 static InlineHook g_layoutFretViewHook = {};
 static InlineHook g_layoutNoteViewRenderHook = {};
 using fn_ViewShared = std::shared_ptr<void>* (__fastcall *)(const void*, std::shared_ptr<void>*);
@@ -804,6 +810,8 @@ static fn_BarViewElement g_barViewKeySignatureElement = nullptr;
 static fn_NoteViewBeatModel g_noteViewBeatModel = nullptr;
 static fn_NoteViewVoiceIndex g_noteViewVoiceIndex = nullptr;
 static fn_NoteViewNoteModel g_noteViewNoteModel = nullptr;
+static fn_NoteViewNoteModel g_accidentalNoteModel = nullptr;
+static int (__fastcall *g_smuflCodePoint)(int) = nullptr;
 static fn_NoteParentBeat g_noteParentBeat = nullptr;
 static fn_FretViewText g_fretViewText = nullptr;
 static fn_FretViewFont g_fretViewFont = nullptr;
@@ -828,6 +836,12 @@ static thread_local std::vector<NativeKeySignature> g_keySignatures;
 static thread_local std::vector<NativeLayoutMeasureView> g_layoutMeasureViews;
 static thread_local std::vector<NativeRestView> g_restViews;
 static thread_local std::vector<NativeNoteGlyph> g_noteGlyphs;
+struct NativeGlyphContext {
+    const void* view = nullptr;
+    const char* kind = nullptr;
+    NativeLayoutPoint layoutOrigin;
+};
+static thread_local NativeGlyphContext g_drawingGlyph;
 static thread_local std::vector<NativeRelationGeometry> g_relationGeometry;
 struct NativeNoteViewLayout { NativeLayoutPoint origin; NativeLayoutRect bounds; };
 static thread_local std::map<const void*, NativeNoteViewLayout> g_noteViewLayouts;
@@ -1584,7 +1598,7 @@ static void writeNoteGeometry(std::ostream& out) {
     for (size_t i = 0; i < g_noteGlyphs.size(); ++i) {
         const auto& glyph = g_noteGlyphs[i];
         if (i) out << ",";
-        out << "{\"kind\":\"" << (glyph.noteIndex < 0 ? "rest" : "fret") << "\""
+        out << "{\"kind\":\"" << glyph.kind << "\""
             << ",\"staff_index\":" << glyph.location.staffIndex
             << ",\"measure_index\":" << glyph.location.measureIndex
             << ",\"voice_index\":" << glyph.location.voiceIndex
@@ -1596,8 +1610,11 @@ static void writeNoteGeometry(std::ostream& out) {
         out << ",\"page\":" << glyph.page << ",\"system_index\":" << glyph.systemIndex
             << ",\"visibility_code\":" << glyph.visibilityCode
             << ",\"text\":";
-        if (glyph.noteIndex < 0) out << "null"; else out << "\"" << jsonEscape(glyph.text) << "\"";
-        out << ",\"bounds_source\":\"" << (glyph.noteIndex < 0 ? "rest_view_layout" : "native_draw_text_bounds_0") << "\""
+        if (glyph.kind != "fret") out << "null"; else out << "\"" << jsonEscape(glyph.text) << "\"";
+        out << ",\"smufl\":";
+        if (glyph.smufl) out << glyph.smufl; else out << "null";
+        out << ",\"bounds_source\":\"" << (glyph.kind == "rest" ? "rest_view_layout"
+            : glyph.kind == "fret" ? "native_draw_text_bounds_0" : "drawn_glyph_view_layout") << "\""
             << ",\"bbox_mm\":";
         rect(glyph.pageBounds);
         out << ",\"layout_bbox_mm\":";
@@ -1716,7 +1733,8 @@ static bool writeNativeLayoutDump(const std::string& path,
     out << "  \"source_track_index\": " << sourceTrackIndex << ",\n";
     out << "  \"tab_only\": " << (g_displayMode == "tab" ? "true" : "false") << ",\n";
     out << "  \"display_mode\": \"" << g_displayMode << "\",\n";
-    if (g_displayMode == "tab") { writeNoteGeometry(out); writeRelationGeometry(out); }
+    writeNoteGeometry(out);
+    writeRelationGeometry(out);
     const auto* stylesheet = g_directExportState
         ? g_directExportState->stylesheet
         : nullptr;
@@ -2355,6 +2373,7 @@ static void captureNoteGlyph(const void* self, void* painter, const am::painting
             return;
         }
         NativeNoteGlyph glyph;
+        glyph.kind = isRest ? "rest" : "fret";
         glyph.location = location->second;
         glyph.origin = {offset->x, offset->y};
         glyph.visibilityCode = visibility;
@@ -2475,6 +2494,67 @@ static void __fastcall hooked_NoteViewRender(void* self, void* painter,
 }
 
 using fn_FretOnRender = void (__fastcall *)(void*, void*, const am::painting::Point*, const am::painting::Rect*, const void*);
+static void __fastcall hooked_NoteHeadViewOnRender(void* self, void* painter,
+        const am::painting::Point* offset, const am::painting::Rect* clip, const void* color) {
+    const auto previous = g_drawingGlyph;
+    if (g_layoutDumpActive && offset) g_drawingGlyph = {self, "notehead", {offset->x, offset->y}};
+    reinterpret_cast<fn_FretOnRender>(g_layoutNoteHeadViewHook.trampoline)(self, painter, offset, clip, color);
+    g_drawingGlyph = previous;
+}
+
+static void __fastcall hooked_AccidentalViewOnRender(void* self, void* painter,
+        const am::painting::Point* offset, const am::painting::Rect* clip) {
+    const auto previous = g_drawingGlyph;
+    if (g_layoutDumpActive && offset) g_drawingGlyph = {self, "accidental", {offset->x, offset->y}};
+    reinterpret_cast<fn_ViewRender>(g_layoutAccidentalViewHook.trampoline)(self, painter, offset, clip);
+    g_drawingGlyph = previous;
+}
+
+// Capture only calls that actually reach Painter. Hidden/tied noteheads may
+// possess a Note model but never produce a drawing operation.
+static void capturePaintedGlyph(void* painter, const am::painting::Point* point, int smufl) {
+    auto* state = g_directExportState;
+    if (!g_layoutDumpActive || !state || !state->captureNoteGeometry || !g_drawingGlyph.view || !point || !smufl) return;
+    try {
+        const auto transform = currentPainterTranslation(painter);
+        if (!transform.translationOnly) { noteGeometryError("musical glyph uses a non-translation transform"); return; }
+        std::shared_ptr<gp::core::Note> note;
+        const bool accidental = strcmp(g_drawingGlyph.kind, "accidental") == 0;
+        (accidental ? g_accidentalNoteModel : g_noteViewNoteModel)(g_drawingGlyph.view, &note);
+        if (!note) { noteGeometryError("musical glyph has no Note owner"); return; }
+        const auto found = state->beatLocations.find(g_noteParentBeat(note.get()));
+        if (found == state->beatLocations.end()) { noteGeometryError("musical glyph has no selected-track owner"); return; }
+        NativeNoteGlyph glyph;
+        glyph.kind = g_drawingGlyph.kind;
+        glyph.smufl = g_smuflCodePoint(smufl);
+        glyph.location = found->second;
+        glyph.noteIndex = static_cast<int>(note->index());
+        glyph.stringIndex = static_cast<int>(note->string());
+        // The View supplies document coordinates; finalizeNoteGeometry applies
+        // the owning page offset exactly once, as it does for fret drawing.
+        glyph.origin = {point->x, point->y};
+        glyph.layoutBounds = translateRect(rectFromView(const_cast<void*>(g_drawingGlyph.view)), g_drawingGlyph.layoutOrigin);
+        glyph.bounds = glyph.layoutBounds;
+        if (!isFiniteRect(glyph.bounds)) { noteGeometryError("musical glyph has invalid view bounds"); return; }
+        g_noteGlyphs.push_back(std::move(glyph));
+    } catch (...) { noteGeometryError("musical glyph owner capture failed"); }
+}
+
+using fn_DrawGlyph = void (__fastcall *)(void*, const am::painting::Point*, int, int, int);
+static void __fastcall hooked_DrawGlyph(void* self, const am::painting::Point* point, int smufl, int horizontal, int vertical) {
+    capturePaintedGlyph(self, point, smufl);
+    reinterpret_cast<fn_DrawGlyph>(g_painterDrawGlyphHook.trampoline)(self, point, smufl, horizontal, vertical);
+}
+
+using fn_DrawGlyphHeight = void (__fastcall *)(void*, const am::painting::Point*, int, double, int, int);
+static void __fastcall hooked_DrawGlyphHeight(void* self, const am::painting::Point* point, int smufl, double height, int horizontal, int vertical) {
+    if (height > 0) capturePaintedGlyph(self, point, smufl);
+    const auto previous = g_drawingGlyph;
+    g_drawingGlyph = {};
+    reinterpret_cast<fn_DrawGlyphHeight>(g_painterDrawGlyphHeightHook.trampoline)(self, point, smufl, height, horizontal, vertical);
+    g_drawingGlyph = previous;
+}
+
 static void __fastcall hooked_FretViewOnRender(void* self, void* painter,
         const am::painting::Point* offset, const am::painting::Rect* clip, const void* color) {
     if (g_layoutDumpActive) captureNoteGlyph(self, painter, offset, false);
@@ -2562,6 +2642,28 @@ static bool installNativeLayoutHooks() {
         g_layoutFretViewHook.detour = reinterpret_cast<void*>(&hooked_FretViewOnRender);
         g_layoutFretViewHook.patchSize = 15;
         g_layoutFretViewHook.createTrampoline = true;
+        auto prepare = [](InlineHook& hook, void* target, void* detour, int size) {
+            hook.target = target;
+            hook.detour = detour;
+            hook.patchSize = size;
+            hook.createTrampoline = true;
+        };
+        prepare(g_layoutNoteHeadViewHook, exportedFunction(gpcore,
+            "?onRender@NoteHeadView@view@core@gp@@UEBAXAEAVIPainter@renderer@34@AEBVPoint@painting@am@@AEBVRect@89@AEBVColor@89@@Z"),
+            reinterpret_cast<void*>(&hooked_NoteHeadViewOnRender), 15);
+        prepare(g_layoutAccidentalViewHook, exportedFunction(gpcore,
+            "?onRender@AccidentalView@view@core@gp@@UEBAXAEAVIPainter@renderer@34@AEBVPoint@painting@am@@AEBVRect@89@@Z"),
+            reinterpret_cast<void*>(&hooked_AccidentalViewOnRender), 15);
+        prepare(g_painterDrawGlyphHook, exportedFunction(ampainting,
+            "?drawGlyph@Painter@painting@am@@QEAAXAEBVPoint@23@W4SmuflUnicodes@23@W4GlyphHAlign@23@W4GlyphVAlign@23@@Z"),
+            reinterpret_cast<void*>(&hooked_DrawGlyph), 14);
+        prepare(g_painterDrawGlyphHeightHook, exportedFunction(ampainting,
+            "?drawGlyphWithHeight@Painter@painting@am@@QEAAXAEBVPoint@23@W4SmuflUnicodes@23@NW4GlyphHAlign@23@W4GlyphVAlign@23@@Z"),
+            reinterpret_cast<void*>(&hooked_DrawGlyphHeight), 18);
+        g_accidentalNoteModel = reinterpret_cast<fn_NoteViewNoteModel>(exportedFunction(gpcore,
+            "?noteModel@AccidentalView@view@core@gp@@QEBA?AV?$shared_ptr@VNote@core@gp@@@std@@XZ"));
+        g_smuflCodePoint = reinterpret_cast<int (__fastcall *)(int)>(exportedFunction(ampainting,
+            "?bravuraCodePoints@Bravura@painting@am@@SAHW4SmuflUnicodes@23@@Z"));
         g_noteViewNoteModel = reinterpret_cast<fn_NoteViewNoteModel>(exportedFunction(gpcore,
             "?noteModel@NoteView@view@core@gp@@QEBA?AV?$shared_ptr@VNote@core@gp@@@std@@XZ"));
         g_noteParentBeat = reinterpret_cast<fn_NoteParentBeat>(exportedFunction(gpcore,
@@ -2726,10 +2828,21 @@ static bool installNativeLayoutHooks() {
         g_restViewHookReady.store(restOk);
         // Three complete MOV instructions; reject an unknown binary prologue.
         const BYTE fretPrologue[] = {0x48,0x89,0x5c,0x24,0x08,0x48,0x89,0x6c,0x24,0x10,0x48,0x89,0x74,0x24,0x18};
+        const BYTE headPrologue[] = {0x48,0x89,0x5c,0x24,0x10,0x48,0x89,0x74,0x24,0x18,0x48,0x89,0x7c,0x24,0x20};
+        const BYTE glyphPrologue[] = {0x40,0x53,0x55,0x56,0x57,0x41,0x56,0x48,0x81,0xec,0xa0,0,0,0};
+        const BYTE heightPrologue[] = {0x48,0x89,0x5c,0x24,0x08,0x48,0x89,0x74,0x24,0x10,0x57,0x48,0x81,0xec,0x80,0,0,0};
+        auto installGlyphHook = [](InlineHook& hook, const BYTE* expected, size_t size) {
+            return hook.target && memcmp(hook.target, expected, size) == 0 && installInlineHook(&hook);
+        };
         const bool geometryOk = restOk && g_noteViewNoteModel && g_noteParentBeat && g_fretViewText && g_fretViewFont && g_styleTextBounds
+            && g_accidentalNoteModel && g_smuflCodePoint
             && g_layoutFretViewHook.target
             && memcmp(g_layoutFretViewHook.target, fretPrologue, sizeof(fretPrologue)) == 0
-            && installInlineHook(&g_layoutFretViewHook);
+            && installInlineHook(&g_layoutFretViewHook)
+            && installGlyphHook(g_layoutNoteHeadViewHook, headPrologue, sizeof(headPrologue))
+            && installGlyphHook(g_layoutAccidentalViewHook, fretPrologue, sizeof(fretPrologue))
+            && installGlyphHook(g_painterDrawGlyphHook, glyphPrologue, sizeof(glyphPrologue))
+            && installGlyphHook(g_painterDrawGlyphHeightHook, heightPrologue, sizeof(heightPrologue));
         g_noteGeometryHookReady.store(geometryOk);
         const bool relationOk = geometryOk && g_slurStartNoteView && g_slurEndNoteView
             && g_slurStart && g_slurEnd && g_slurControl1 && g_slurControl2 && g_slideStart && g_slideEnd
@@ -2753,6 +2866,10 @@ static bool installNativeLayoutHooks() {
 }
 
 static void removeNativeLayoutHooks() {
+    removeInlineHook(&g_painterDrawGlyphHeightHook);
+    removeInlineHook(&g_painterDrawGlyphHook);
+    removeInlineHook(&g_layoutAccidentalViewHook);
+    removeInlineHook(&g_layoutNoteHeadViewHook);
     removeInlineHook(&g_layoutNoteViewRenderHook);
     removeInlineHook(&g_layoutFretViewHook);
     removeInlineHook(&g_layoutPaintDevicePopMatrixHook);
@@ -2915,6 +3032,7 @@ static void renderPreparedContext(void* context) {
         g_keySignatures.clear();
         g_restViews.clear();
         g_noteGlyphs.clear();
+        g_drawingGlyph = {};
         g_relationGeometry.clear();
         g_noteViewLayouts.clear();
         g_lyricEvents.clear();
@@ -3860,7 +3978,7 @@ static DWORD WINAPI pipeServerThread(LPVOID) {
                             layoutPath,
                             officialScorePath,
                             selectedTrackIndex,
-                            geometryText != "false" && displayMode == "tab",
+                            geometryText != "false",
                             displayMode);
                         if (cr.ok) {
                             response = json::make({{"ok", "true"}});

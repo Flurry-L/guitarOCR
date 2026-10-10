@@ -82,13 +82,17 @@ fn parse_diagram_effect(effect: &str) -> String {
         .unwrap_or(Value::Null)
         .to_string()
 }
-#[pyfunction]
-fn parse_observation(input: &str) -> PyResult<String> {
-    result(observation::parse_observation(&value(input)?))
+#[pyfunction(signature = (input, mode=None))]
+fn parse_observation(input: &str, mode: Option<&str>) -> PyResult<String> {
+    let input = value(input)?;
+    result(match mode {
+        Some(mode) => observation::parse_measure_observation(&input, mode),
+        None => observation::parse_observation(&input),
+    })
 }
-#[pyfunction]
-fn observation_schema() -> String {
-    observation::observation_schema().to_string()
+#[pyfunction(signature = (mode, instrument=None))]
+fn observation_schema(mode: &str, instrument: Option<&str>) -> PyResult<String> {
+    result(observation::observation_schema(mode, instrument))
 }
 #[pyfunction]
 fn observation_prompt(mode: &str) -> PyResult<String> {

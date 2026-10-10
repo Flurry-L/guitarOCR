@@ -299,6 +299,7 @@ function engravedSection(
       flag.onclick = () =>
         onSelect({
           mi: i,
+          preview: state.measures[i].parsed.incomplete === true,
           vi: 0,
           ei: 0,
           ni: -1,
@@ -358,7 +359,7 @@ function engravedSection(
       id: event.pointerId,
       drag: false,
       canDrag:
-        event.pointerType !== "touch" && hit.kind === "notation" && hit.ni >= 0,
+        !hit.preview && event.pointerType !== "touch" && hit.kind === "notation" && hit.ni >= 0,
     };
     host.closest("[tabindex]")?.focus({ preventScroll: true });
   });
@@ -399,7 +400,8 @@ function engravedSection(
   host.addEventListener("dblclick", (event) => {
     const p = coordinates(event),
       hit = hitAt(p.x, p.y);
-    if (hit?.ni < 0 && Number.isFinite(hit.pitch))
+    if (hit?.preview) onSelect(hit);
+    else if (hit?.ni < 0 && Number.isFinite(hit.pitch))
       onPlace(hit, hit.pitch, true);
   });
   return {

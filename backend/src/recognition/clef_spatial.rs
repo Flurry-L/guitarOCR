@@ -20,7 +20,7 @@ fn labels() -> Vec<Value> {
     result
 }
 
-pub fn image_tensor(image: &RgbImage) -> Result<Vec<f32>> {
+pub fn image_tensor(image: &RgbImage, query: [f64; 4]) -> Result<Vec<f32>> {
     check_dimensions(image.width(), image.height())?;
     let scale =
         (SIZE as f64 / f64::from(image.width())).min(SIZE as f64 / f64::from(image.height()));
@@ -36,7 +36,26 @@ pub fn image_tensor(image: &RgbImage) -> Result<Vec<f32>> {
         (SIZE as i64 - i64::from(width)) / 2,
         (SIZE as i64 - i64::from(height)) / 2,
     );
-    Ok(canvas.pixels().map(|p| f32::from(p[0]) / 255.).collect())
+    let mut tensor: Vec<f32> = canvas.pixels().map(|p| f32::from(p[0]) / 255.).collect();
+    tensor.resize(SIZE * SIZE * 2, 0.);
+    let x_offset = (SIZE as u32 - width) / 2;
+    let y_offset = (SIZE as u32 - height) / 2;
+    let edge = |value: f64, offset: u32, upper: bool| {
+        let position = value * scale + f64::from(offset);
+        (if upper {
+            position.ceil()
+        } else {
+            position.floor()
+        })
+        .clamp(0., SIZE as f64) as usize
+    };
+    let [x, y, w, h] = query;
+    for yy in edge(y, y_offset, false)..edge(y + h, y_offset, true) {
+        for xx in edge(x, x_offset, false)..edge(x + w, x_offset, true) {
+            tensor[SIZE * SIZE + yy * SIZE + xx] = 1.;
+        }
+    }
+    Ok(tensor)
 }
 
 pub struct ClefSpatialReader {
@@ -60,6 +79,8 @@ impl ClefSpatialReader {
             .ok_or("Invalid spatial clef threshold")?;
         if config["version"] != 1
             || config["image_size"] != json!([SIZE, SIZE])
+            || config["channels"] != 2
+            || config["context_padding_ratio"] != 2
             || config["labels"] != json!(labels())
             || config["grayscale"] != "pil_l"
             || config["resize"] != "contain_lanczos_white_center"
@@ -70,8 +91,26 @@ impl ClefSpatialReader {
         Ok(Self { session, threshold })
     }
 
-    pub fn predict(&mut self, image: &RgbImage) -> Result<Value> {
-        let tensor = Tensor::from_array(([1, 1, SIZE, SIZE], image_tensor(image)?))
+    pub fn predict(&mut self, page: &RgbImage, query: [f64; 4]) -> Result<Value> {
+        let [x, y, w, h] = query;
+        let pad = 2. * w.max(h);
+        let left = (x - pad).floor().max(0.);
+        let top = (y - pad).floor().max(0.);
+        let right = (x + w + pad).ceil().min(f64::from(page.width()));
+        let bottom = (y + h + pad).ceil().min(f64::from(page.height()));
+        if right <= left || bottom <= top {
+            return Err("Clef query lies outside the page".into());
+        }
+        let context = image::imageops::crop_imm(
+            page,
+            left as u32,
+            top as u32,
+            (right - left) as u32,
+            (bottom - top) as u32,
+        )
+        .to_image();
+        let local_query = [x - left, y - top, w, h];
+        let tensor = Tensor::from_array(([1, 2, SIZE, SIZE], image_tensor(&context, local_query)?))
             .map_err(|e| e.to_string())?;
         let outputs = self
             .session
@@ -93,7 +132,8 @@ impl ClefSpatialReader {
             json!({"clef":null,"clef_octave":null})
         };
         Ok(
-            json!({"source":"clef_spatial_network", "clef":label["clef"],
+            json!({"source":"clef_spatial_network", "context_bbox":[left, top, right-left, bottom-top],
+            "query_bbox":query, "clef":label["clef"],
             "clef_octave":label["clef_octave"], "accepted":accepted, "confidence":confidence,
             "threshold":self.threshold, "probabilities":probabilities,
             "status":if accepted {"recognized"} else {"uncertain"}}),

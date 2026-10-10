@@ -341,7 +341,7 @@ def build_native_observations(documents, output, dpi=180, *, scopes_only=False):
     in rejections.jsonl and never become empty-technique training negatives.
     """
     from research.common.pdf import open_pdf
-    from research.data.native_supervision import native_tab_observations
+    from research.data.native_supervision import native_observations
     from research.data.observations import write_dataset
 
     output = Path(output)
@@ -356,16 +356,21 @@ def build_native_observations(documents, output, dpi=180, *, scopes_only=False):
             layout = json.loads((folder / 'layout.json').read_text())
             score = json.loads((folder / 'official-score.json').read_text())
             with open_pdf(folder / 'score.pdf') as document:
-                observations = native_tab_observations(layout, score, document, dpi)
+                mode = layout['display_mode']
+                observations = native_observations(layout, score, document, dpi)
                 pages = {}
                 for system in layout['systems']:
                     for box in system['measure_boxes']:
                         index = box['measure_index']
                         observed = observations[index]
                         identity = {k: source[k] for k in ('source_id', 'family', 'split')}
-                        identity.update(id=f"{source['source_id']}-tab-{index}", bar_index=index,
+                        identity.update(id=f"{source['source_id']}-{mode}-{index}", bar_index=index,
                             part_id=f"part-{score['source_track_index']}", staff_id='staff-0',
-                            mode='tab', renderer='guitarpro')
+                            mode=mode, renderer='guitarpro')
+                        if source.get('instrument'):
+                            identity['instrument'] = source['instrument']
+                        if all(m['clef'] == 'Neutral' for m in score['tracks'][0]['staves'][0]['measures']):
+                            identity['instrument'] = 'drums'
                         if 'error' in observed:
                             rejected.append({**identity, 'reason': observed['error']})
                             continue
@@ -429,7 +434,7 @@ def build_native_observations(documents, output, dpi=180, *, scopes_only=False):
     summary = {'renderer': 'guitarpro', 'sources': len(documents), 'accepted': counts,
                'rejected': dict(Counter(row['reason'] for row in rejected)),
                'visible_coverage': {split: dict(values) for split, values in coverage.items()},
-               'scope': 'Single-staff TAB; labels use actual fret/rest drawing, connected curves and slides, '
+               'scope': 'Single-staff TAB, notation and paired staves; labels use actual fret/notehead/rest drawing, connected curves and slides, '
                         'printed rhythmic evidence and PM/let scopes. Invisible values and ambiguous owners remain null.'}
     write_json(output / 'native_summary.json', summary)
     return summary
@@ -438,7 +443,7 @@ def build_native_observations(documents, output, dpi=180, *, scopes_only=False):
 if __name__ == '__main__':
     import argparse
 
-    parser = argparse.ArgumentParser(description='Compile visible GP TAB observations from native exports')
+    parser = argparse.ArgumentParser(description='Compile visible GP observations from native exports')
     parser.add_argument('--native-manifest', nargs='+', type=Path, required=True,
                         help='Native document manifests; each lives beside its documents directory')
     parser.add_argument('--output', type=Path, required=True)
@@ -459,6 +464,7 @@ if __name__ == '__main__':
             for track in tracks:
                 documents.append({'folder': str(track.parent),
                     'source_id': 'guitarpro-' + source['document_id'] + '-' + track.parent.name,
-                    'family': source['source_family_id'], 'split': split})
+                    'family': source['source_family_id'], 'split': split,
+                    'instrument': source['instrument_kind']})
             counts[split] += 1
     print(json.dumps(build_native_observations(documents, args.output, scopes_only=args.scopes_only), indent=2))

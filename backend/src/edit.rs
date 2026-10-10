@@ -97,6 +97,29 @@ mod observation_edit_tests {
     }
 
     #[test]
+    fn rereading_a_staff_keeps_its_confirmed_instrument() {
+        let previous = json!({"parts":[{"id":"part-1","instrument":"pitched",
+            "midi_program":42,"capo":0,"transpose":null,
+            "document_metadata":{"instrument_source":"manual"}}],
+            "measure_profiles":[{"part_id":"part-1","measure_number":1,"mode":"notation"}]});
+        let detected = json!({"parts":[{"id":"part-1","name":"","instrument":null,
+            "document_metadata":{"instrument_needs_review":true}}],
+            "measure_profiles":[{"part_id":"part-1","measure_number":1,"mode":"notation"}],
+            "measure_pitch_contexts":[],"document_metadata":{}});
+        let layout = json!({"records":[]});
+        let mut current = detected.clone();
+        preserve_manual_instruments(&layout, &previous, &mut current).unwrap();
+        assert_eq!(current["instrument"], "pitched");
+        assert_eq!(current["parts"][0]["midi_program"], 42);
+        assert_eq!(current["measure_profiles"][0]["instrument"], "pitched");
+        assert_eq!(current["document_metadata"]["instrument_source"], "manual");
+        let mut regrouped = detected.clone();
+        regrouped["measure_profiles"][0]["measure_number"] = json!(2);
+        preserve_manual_instruments(&layout, &previous, &mut regrouped).unwrap();
+        assert!(regrouped["parts"][0]["instrument"].is_null());
+    }
+
+    #[test]
     fn incomplete_measure_survives_save_and_becomes_exportable_after_edit() {
         let output = tempfile::tempdir().unwrap();
         let mut source = json!({"mode":"tab","instrument":"guitar","tuning_used":[64,59,55,50,45,40],
@@ -819,6 +842,7 @@ fn edited_single(layout: &Value, previous: &Value, values: &Value) -> Result<Val
                     "pitch_context",
                     "pitch_reference",
                     "pitch_issues",
+                    "clef_observation",
                 ] {
                     if let Some(v) = row.get(key) {
                         value.insert(key.into(), v.clone());
@@ -864,6 +888,47 @@ fn edited_single(layout: &Value, previous: &Value, values: &Value) -> Result<Val
         json!({"document_metadata":metadata,"predictions":previous["predictions"],"title":title,"artist":artist,"tuning_used":tuning,"tuning_source":tuning_source,"capo":capo,"instrument":instrument,"midi_program":program,"transpose":transpose,"measure_pitch_contexts":contexts}),
     )
 }
+/// Rereading the same staff must retain the user's confirmed instrument.
+/// Apply it through the normal metadata editor so all derived contexts agree.
+pub(crate) fn preserve_manual_instruments(
+    layout: &Value,
+    previous: &Value,
+    current: &mut Value,
+) -> Result<()> {
+    let members = |info: &Value, id: &Value| {
+        info["measure_profiles"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|row| &row["part_id"] == id)
+            .map(|row| (row["measure_number"].as_u64(), row["mode"].as_str()))
+            .map(|(number, mode)| (number, mode.map(str::to_owned)))
+            .collect::<std::collections::BTreeSet<_>>()
+    };
+    for part in previous["parts"].as_array().into_iter().flatten() {
+        if part["document_metadata"]["instrument_source"] != "manual" {
+            continue;
+        }
+        let membership = members(previous, &part["id"]);
+        if membership.is_empty() || membership != members(current, &part["id"]) {
+            continue;
+        }
+        let mut values = json!({"part_id":part["id"],"instrument":part["instrument"],
+            "confirm_instrument":true});
+        for key in ["midi_program", "capo", "transpose"] {
+            if let Some(value) = part.get(key) {
+                values[key] = value.clone();
+            }
+        }
+        if part["tuning_source"] == "manual" {
+            values["tuning_used"] = part["tuning_used"].clone();
+            values["confirm_tuning"] = json!(true);
+        }
+        *current = edited_information(layout, current, &values)?;
+    }
+    Ok(())
+}
+
 fn edited_information(layout: &Value, previous: &Value, values: &Value) -> Result<Value> {
     let mut layout = layout.clone();
     if previous["resolved_records"].is_array() {

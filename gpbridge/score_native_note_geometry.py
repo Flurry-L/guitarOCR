@@ -17,6 +17,7 @@ FIELDS = {
     "system_index",
     "visibility_code",
     "text",
+    "smufl",
     "bounds_source",
     "bbox_mm",
     "layout_bbox_mm",
@@ -96,8 +97,17 @@ def validate_note_geometry(
                 raise ValueError("rest glyph cannot invent note ownership or text")
             if glyph["bounds_source"] != "rest_view_layout":
                 raise ValueError("unexpected rest bounds provenance")
+        elif glyph["kind"] in ("notehead", "accidental"):
+            if type(glyph["note_index"]) is not int or glyph["note_index"] < 0:
+                raise ValueError("musical glyph needs an actual note owner")
+            if type(glyph["smufl"]) is not int or glyph["smufl"] <= 0 or glyph["text"] is not None:
+                raise ValueError("musical glyph needs its drawn SMuFL symbol")
+            if glyph["bounds_source"] != "drawn_glyph_view_layout":
+                raise ValueError("unexpected musical glyph bounds provenance")
         else:
             raise ValueError("unsupported native glyph kind")
+        if glyph["kind"] in ("fret", "rest") and glyph["smufl"] is not None:
+            raise ValueError("text/rest trace has no SMuFL drawing capture")
         page, system = pages.get(glyph["page"]), systems.get(glyph["system_index"])
         if (
             page is None
@@ -119,7 +129,9 @@ def validate_note_geometry(
                 or y + h > height + 1e-5
             ):
                 raise ValueError("glyph bounds exceed the page")
-        _numbers(glyph["render_origin_mm"], 2, "render origin")
+        ox, oy = _numbers(glyph["render_origin_mm"], 2, "render origin")
+        if not 0 <= ox <= width or not 0 <= oy <= height:
+            raise ValueError("glyph drawing origin exceeds the page")
     return payload["glyphs"]
 
 

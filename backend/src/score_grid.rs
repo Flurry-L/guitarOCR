@@ -28,6 +28,20 @@ fn bbox(row: &Value) -> Result<[f64; 4]> {
 fn score(r: &Value) -> f64 {
     r["score"].as_f64().filter(|v| v.is_finite()).unwrap_or(1.)
 }
+fn mark_structure_review(record: &mut Value, reasons: &[Value]) {
+    let mut merged = record["structure_review_reasons"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    for reason in reasons {
+        if !merged.contains(reason) {
+            merged.push(reason.clone());
+        }
+    }
+    record["structure_needs_review"] = json!(true);
+    record["structure_review_reasons"] = json!(merged);
+    record["needs_review"] = json!(true);
+}
 fn save_crop(record: &mut Value, bounds: [f64; 4], path: &Path) -> Result<()> {
     let source = record["source_page"]
         .as_str()
@@ -258,6 +272,17 @@ pub fn fuse_paired_staves(
             record["mode"] = json!("both");
             record["geometry_source"] = json!("notation_tab_pair");
             record["source_measure_numbers"] = json!(numbers);
+            for source in &records {
+                if source["structure_needs_review"] == true {
+                    mark_structure_review(
+                        &mut record,
+                        source["structure_review_reasons"]
+                            .as_array()
+                            .map(Vec::as_slice)
+                            .unwrap_or(&[]),
+                    );
+                }
+            }
             boxes.push((record, column));
         }
         result.push((boxes, part, staff));
@@ -265,7 +290,7 @@ pub fn fuse_paired_staves(
     Ok(result)
 }
 
-/// Also preserve reconciled page profiles and model_parts in stage diagnostics.
+/// Preserve resolved page profiles and per-row review evidence in stage diagnostics.
 pub fn resolve_document(
     records: &[Value],
     predictions: &mut [Value],
@@ -280,7 +305,7 @@ pub fn resolve_document(
         grouped.entry(page).or_default().push(row);
     }
     let mut pages = vec![];
-    for (page, rows) in grouped {
+    for (page, mut rows) in grouped {
         let matching: Vec<_> = predictions
             .iter()
             .filter(|p| p["page"].as_u64() == Some(page))
@@ -294,6 +319,22 @@ pub fn resolve_document(
         if !structure.is_object() {
             return Err(format!("Missing parsed structure for page {page}"));
         }
+        let audit = &matching[0]["resolution_audit"];
+        if let Some(indices) = audit["review_rows"].as_array() {
+            // Relation indices address the ordered detector rows, not their
+            // stored IDs. Mark before notation/TAB rows are fused.
+            let reasons = audit["review_reasons"]
+                .as_array()
+                .map(Vec::as_slice)
+                .unwrap_or(&[]);
+            for (index, boxes) in rows.iter_mut().enumerate() {
+                if indices.contains(&json!(index + 1)) {
+                    for record in boxes {
+                        mark_structure_review(record, reasons);
+                    }
+                }
+            }
+        }
         pages.push(crate::score_structure::StructurePage {
             page,
             structure,
@@ -306,13 +347,6 @@ pub fn resolve_document(
             .iter_mut()
             .find(|p| p["page"].as_u64() == Some(page.page))
             .ok_or("Missing page diagnostics")?;
-        if prediction["parsed"]["parts"] != page.structure["parts"] {
-            let change = json!({"reason":"resolved_part_identity",
-                "before":prediction["parsed"]["parts"],"after":page.structure["parts"]});
-            if let Some(changes) = prediction["resolution_audit"]["changes"].as_array_mut() {
-                changes.push(change);
-            }
-        }
         prediction["parsed"] = page.structure.clone();
         let identities = page.structure["part_identity"].clone();
         if !prediction["resolution_audit"].is_object() {
@@ -358,17 +392,9 @@ pub fn resolve_document(
                 row["system_index"] = json!(system.system);
                 row["bar_index"] = json!(bar_offset + column);
                 row["measure_number"] = json!(result.len() + 1);
-                if let Some(audit) = predictions
-                    .iter()
-                    .find(|p| {
-                        p["page"].as_u64() == Some(system.page)
-                            && p["structure_needs_review"] == true
-                    })
-                    .map(|p| &p["resolution_audit"])
-                {
-                    row["structure_needs_review"] = json!(true);
-                    row["structure_review_reasons"] = audit["review_reasons"].clone();
-                    row["needs_review"] = json!(true);
+                if row["part_identity"]["review_reason"].is_string() {
+                    let reason = row["part_identity"]["review_reason"].clone();
+                    mark_structure_review(&mut row, &[reason]);
                 }
                 result.push(row);
             }
@@ -378,4 +404,56 @@ pub fn resolve_document(
             .ok_or("Bar timeline overflow")?;
     }
     Ok((resolved.parts, result))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn relation_review_survives_paired_rows_and_noncontiguous_row_ids() {
+        let dir = tempfile::tempdir().unwrap();
+        let page = dir.path().join("page.png");
+        image::RgbImage::from_pixel(300, 400, image::Rgb([255; 3]))
+            .save(&page)
+            .unwrap();
+        for ids in [[0, 1, 2, 3], [7, 11, 16, 31]] {
+            let modes = ["notation", "tab", "notation", "tab"].map(str::to_owned);
+            let (mut structure, audit) = crate::score_structure::relation_groups(
+                &[0, 0, 1, 1],
+                &[0.999, 0.49, 0.999],
+                &[0.999, 0.001, 0.999],
+                &modes,
+                0.95,
+                0.95,
+            )
+            .unwrap();
+            for profile in structure["parts"].as_array_mut().unwrap() {
+                profile["name"] = json!("Guitar");
+                profile["name_source"] = json!("label_text");
+            }
+            let records: Vec<_> = ids
+                .iter()
+                .enumerate()
+                .map(|(index, id)| {
+                    json!({
+                        "page":1,"row_index":id,"mode":modes[index],"measure_number":index+1,
+                        "bbox":[10,index*80+10,200,40],"source_page":page.to_string_lossy(),
+                    })
+                })
+                .collect();
+            let mut predictions = vec![json!({"page":1,"parsed":structure,
+                "resolution_audit":audit,"structure_needs_review":true})];
+            let (_, resolved) = resolve_document(&records, &mut predictions, dir.path()).unwrap();
+            assert_eq!(resolved.len(), 2);
+            for row in resolved {
+                assert_eq!(row["mode"], "both");
+                assert_eq!(row["structure_needs_review"], true);
+                assert_eq!(
+                    row["structure_review_reasons"],
+                    json!(["uncertain_row_relation"])
+                );
+            }
+        }
+    }
 }
