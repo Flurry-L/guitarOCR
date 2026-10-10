@@ -7,7 +7,7 @@ rust-version.workspace = true
 [dependencies]
 libloading = "0.8"
 getrandom = "0.3"
-tokio = { version = "1", features = ["rt-multi-thread", "time", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "time", "macros", "sync"] }
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json"] }
 # llama.cpp emits object properties in schema order. Keep the training order;
 # alphabetizing these keys changes the model's constrained decoding sequence.

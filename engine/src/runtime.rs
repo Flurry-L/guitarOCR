@@ -6,13 +6,12 @@ use crate::{
 };
 use serde_json::{json, Value};
 use std::{
-    collections::VecDeque,
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Condvar, Mutex,
+        Arc, Mutex,
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 type Result<T> = std::result::Result<T, String>;
@@ -32,29 +31,10 @@ struct State {
     engine: Option<Arc<Engine>>,
     selection: Value,
 }
-#[derive(Default)]
-struct Queue {
-    next: u64,
-    waiting: VecDeque<u64>,
-    active: usize,
-    completed: u64,
-}
 pub struct Runtime {
     options: Options,
     state: Mutex<State>,
-    queue: Mutex<Queue>,
-    changed: Condvar,
     stopping: AtomicBool,
-}
-struct Permit<'a>(&'a Runtime);
-impl Drop for Permit<'_> {
-    fn drop(&mut self) {
-        if let Ok(mut queue) = self.0.queue.lock() {
-            queue.active -= 1;
-            queue.completed += 1;
-            self.0.changed.notify_all();
-        }
-    }
 }
 pub struct Session<'a> {
     engine: Arc<Engine>,
@@ -84,6 +64,19 @@ impl Session<'_> {
         self.engine
             .generate_batch_with_adapters(messages, max_tokens, self.cancelled)
     }
+    pub fn generate_batch_with_adapters_each(
+        &mut self,
+        messages: &mut dyn Iterator<Item = Result<(Value, Option<Value>, bool)>>,
+        max_tokens: usize,
+        on_complete: &mut dyn FnMut(usize, llama::Generation) -> Result<()>,
+    ) -> Result<()> {
+        self.engine.generate_batch_with_adapters_each(
+            messages,
+            max_tokens,
+            self.cancelled,
+            on_complete,
+        )
+    }
     pub fn report(&self, message: &str) -> Result<()> {
         (self.report)(message)
     }
@@ -106,8 +99,6 @@ impl Runtime {
                 engine: None,
                 selection: json!({"device":"auto","selector":null}),
             }),
-            queue: Mutex::new(Queue::default()),
-            changed: Condvar::new(),
             stopping: AtomicBool::new(false),
         }
     }
@@ -118,43 +109,15 @@ impl Runtime {
             .unwrap_or_else(|_| json!({"device":"auto","loading":true}))
     }
     pub fn stats(&self) -> Value {
-        self.queue.lock().map(|q| json!({"active":q.active,"queued":q.waiting.len(),"completed":q.completed,"slots":self.options.slots})).unwrap_or(Value::Null)
-    }
-    fn admit(&self, cancelled: &dyn Fn() -> bool) -> Result<Permit<'_>> {
-        let mut queue = self
-            .queue
-            .lock()
-            .map_err(|_| "Inference queue unavailable")?;
-        if queue.waiting.len() >= 128 {
-            return Err("Inference queue is full; retry later".into());
-        }
-        let ticket = queue.next;
-        queue.next += 1;
-        queue.waiting.push_back(ticket);
-        let deadline = Instant::now() + Duration::from_secs(1800);
-        loop {
-            if cancelled() || Instant::now() >= deadline {
-                queue.waiting.retain(|t| *t != ticket);
-                self.changed.notify_all();
-                return Err(if cancelled() {
-                    "Inference cancelled"
-                } else {
-                    "Inference queue timeout"
-                }
-                .into());
-            }
-            if queue.active < self.options.slots && queue.waiting.front() == Some(&ticket) {
-                queue.waiting.pop_front();
-                queue.active += 1;
-                self.changed.notify_all();
-                return Ok(Permit(self));
-            }
-            queue = self
-                .changed
-                .wait_timeout(queue, Duration::from_millis(100))
-                .map_err(|_| "Inference queue unavailable")?
-                .0;
-        }
+        self.state
+            .try_lock()
+            .map(|state| {
+                state.engine.as_ref().map_or_else(
+                    || json!({"active":0,"queued":0,"completed":0,"slots":self.options.slots}),
+                    |engine| engine.stats(),
+                )
+            })
+            .unwrap_or(Value::Null)
     }
     pub fn run<T>(
         &self,
@@ -164,7 +127,6 @@ impl Runtime {
     ) -> Result<T> {
         let is_cancelled = || cancelled() || self.stopping.load(Ordering::Relaxed);
         let cancelled: &dyn Fn() -> bool = &is_cancelled;
-        let _permit = self.admit(cancelled)?;
         let engine = {
             let mut state = loop {
                 if cancelled() {
@@ -247,7 +209,6 @@ impl Runtime {
     }
     pub fn shutdown(&self) {
         self.stopping.store(true, Ordering::Relaxed);
-        self.changed.notify_all();
         // Loading observes the same flag; taking its lock waits for cleanup.
         if let Ok(mut state) = self.state.lock() {
             if let Some(engine) = state.engine.take() {
