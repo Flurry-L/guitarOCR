@@ -1,0 +1,134 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="748" viewBox="0 0 1440 748" role="img" aria-labelledby="title desc">
+<title id="title">GuitarOCR：从页面到可编辑乐谱</title>
+<desc id="desc">页面定位后，信息模型与结构网络确定音轨、谱表及小节位置。小节模型读取当前一张图，输出state、voices和relations。音乐核心按顺序继承状态、连接跨节关系和计算音高，输出ScoreIR用于编辑和导出。原始图像与观察保留在项目中。</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 1 1 L 9 5 L 1 9" fill="none" stroke="#52657D" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<rect width="1440" height="748" fill="white"/>
+<g id="heading">
+<text x="36" y="52" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="32" font-weight="700" fill="#182B45" text-anchor="start">从页面到可编辑乐谱</text>
+<text x="36" y="91" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="22" font-weight="400" fill="#52657D" text-anchor="start">图像中的符号先成为局部观察，再在整谱中获得音乐含义。</text>
+<rect x="1003" y="38" width="135" height="32" rx="6" fill="white" stroke="#D9E2EE" stroke-width="1.5"/>
+<circle cx="1018" cy="54" r="5" fill="#4168CF"/>
+<text x="1032" y="61" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="18" font-weight="400" fill="#52657D" text-anchor="start">学习模型</text>
+<rect x="1152" y="38" width="135" height="32" rx="6" fill="white" stroke="#D9E2EE" stroke-width="1.5"/>
+<circle cx="1167" cy="54" r="5" fill="#137F79"/>
+<text x="1181" y="61" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="18" font-weight="400" fill="#52657D" text-anchor="start">音乐核心</text>
+<rect x="1301" y="38" width="103" height="32" rx="6" fill="white" stroke="#D9E2EE" stroke-width="1.5"/>
+<circle cx="1316" cy="54" r="5" fill="#52657D"/>
+<text x="1330" y="61" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="18" font-weight="400" fill="#52657D" text-anchor="start">数据</text>
+</g>
+<rect x="36" y="130" width="280" height="505" rx="14" fill="#F5F7FA" stroke="#D9E2EE" stroke-width="1.5"/>
+<text x="56" y="175" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="22" font-weight="700" fill="#4168CF" text-anchor="start">01</text>
+<text x="99" y="175" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="25" font-weight="700" fill="#182B45" text-anchor="start">页面定位</text>
+<rect x="348" y="130" width="416" height="505" rx="14" fill="#F5F7FA" stroke="#D9E2EE" stroke-width="1.5"/>
+<text x="368" y="175" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="22" font-weight="700" fill="#4168CF" text-anchor="start">02</text>
+<text x="411" y="175" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="25" font-weight="700" fill="#182B45" text-anchor="start">读取信息与小节</text>
+<rect x="796" y="130" width="280" height="505" rx="14" fill="#F5F7FA" stroke="#D9E2EE" stroke-width="1.5"/>
+<text x="816" y="175" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="22" font-weight="700" fill="#137F79" text-anchor="start">03</text>
+<text x="859" y="175" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="25" font-weight="700" fill="#182B45" text-anchor="start">全谱组装</text>
+<rect x="1108" y="130" width="296" height="505" rx="14" fill="#F5F7FA" stroke="#D9E2EE" stroke-width="1.5"/>
+<text x="1128" y="175" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="22" font-weight="700" fill="#137F79" text-anchor="start">04</text>
+<text x="1171" y="175" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="25" font-weight="700" fill="#182B45" text-anchor="start">编辑与导出</text>
+<g id="layout-detection">
+<rect x="55" y="208" width="242" height="80" rx="10" fill="#EEF3FF" stroke="#CEDAF6" stroke-width="1.5"/>
+<text x="176" y="240" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="23" font-weight="600" fill="#4168CF" text-anchor="middle">PP-DocLayoutV3</text>
+<text x="176" y="271" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="21" font-weight="400" fill="#52657D" text-anchor="middle">＋候选框质量网络</text>
+<rect x="77" y="310" width="198" height="235" rx="5" fill="white" stroke="#C3CFDF" stroke-width="1.5"/>
+<text x="176" y="337" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="19" font-weight="400" fill="#52657D" text-anchor="middle">PDF / 图像</text>
+<path d="M 133 348 H 219" fill="none" stroke="#D9E2EE" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="88" y="370" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="13" font-weight="400" fill="#52657D" text-anchor="start">1</text>
+<path d="M 91 382 H 260" fill="none" stroke="#A2AEBD" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M 91 389 H 260" fill="none" stroke="#A2AEBD" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M 91 396 H 260" fill="none" stroke="#A2AEBD" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M 91 403 H 260" fill="none" stroke="#A2AEBD" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M 91 410 H 260" fill="none" stroke="#A2AEBD" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M 91 417 H 260" fill="none" stroke="#A2AEBD" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M 91 382 V 417" fill="none" stroke="#8391A2" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M 170 382 V 417" fill="none" stroke="#8391A2" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M 260 382 V 417" fill="none" stroke="#8391A2" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="86" y="359" width="86" height="66" rx="3" fill="none" stroke="#4168CF" stroke-width="1.5"/>
+<rect x="172" y="359" width="92" height="66" rx="3" fill="none" stroke="#4168CF" stroke-width="1.5"/>
+<rect x="103" y="375" width="11" height="12" rx="0" fill="white" stroke="none" stroke-width="1.5"/>
+<text x="108" y="385" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="12" font-weight="400" fill="#182B45" text-anchor="middle">5</text>
+<rect x="140" y="389" width="11" height="12" rx="0" fill="white" stroke="none" stroke-width="1.5"/>
+<text x="145" y="399" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="12" font-weight="400" fill="#182B45" text-anchor="middle">7</text>
+<rect x="188" y="382" width="11" height="12" rx="0" fill="white" stroke="none" stroke-width="1.5"/>
+<text x="193" y="392" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="12" font-weight="400" fill="#182B45" text-anchor="middle">3</text>
+<rect x="230" y="403" width="11" height="12" rx="0" fill="white" stroke="none" stroke-width="1.5"/>
+<text x="235" y="413" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="12" font-weight="400" fill="#182B45" text-anchor="middle">5</text>
+<text x="88" y="442" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="13" font-weight="400" fill="#52657D" text-anchor="start">2</text>
+<path d="M 91 454 H 260" fill="none" stroke="#A2AEBD" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M 91 461 H 260" fill="none" stroke="#A2AEBD" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M 91 468 H 260" fill="none" stroke="#A2AEBD" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M 91 475 H 260" fill="none" stroke="#A2AEBD" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M 91 482 H 260" fill="none" stroke="#A2AEBD" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M 91 489 H 260" fill="none" stroke="#A2AEBD" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M 91 454 V 489" fill="none" stroke="#8391A2" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M 170 454 V 489" fill="none" stroke="#8391A2" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M 260 454 V 489" fill="none" stroke="#8391A2" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="86" y="431" width="86" height="66" rx="3" fill="none" stroke="#4168CF" stroke-width="1.5"/>
+<rect x="172" y="431" width="92" height="66" rx="3" fill="none" stroke="#4168CF" stroke-width="1.5"/>
+<rect x="103" y="447" width="11" height="12" rx="0" fill="white" stroke="none" stroke-width="1.5"/>
+<text x="108" y="457" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="12" font-weight="400" fill="#182B45" text-anchor="middle">5</text>
+<rect x="140" y="461" width="11" height="12" rx="0" fill="white" stroke="none" stroke-width="1.5"/>
+<text x="145" y="471" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="12" font-weight="400" fill="#182B45" text-anchor="middle">7</text>
+<rect x="188" y="454" width="11" height="12" rx="0" fill="white" stroke="none" stroke-width="1.5"/>
+<text x="193" y="464" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="12" font-weight="400" fill="#182B45" text-anchor="middle">3</text>
+<rect x="230" y="475" width="11" height="12" rx="0" fill="white" stroke="none" stroke-width="1.5"/>
+<text x="235" y="485" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="12" font-weight="400" fill="#182B45" text-anchor="middle">5</text>
+<text x="176" y="583" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="21" font-weight="400" fill="#52657D" text-anchor="middle">小节框 · 谱头 · 标注</text>
+</g>
+<g id="reading-tasks">
+<rect x="368" y="208" width="376" height="148" rx="10" fill="#EEF3FF" stroke="#CEDAF6" stroke-width="1.5"/>
+<text x="388" y="243" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="24" font-weight="700" fill="#4168CF" text-anchor="start">整谱信息</text>
+<text x="388" y="278" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="22" font-weight="400" fill="#182B45" text-anchor="start">信息 GLM + 结构辅助网络</text>
+<text x="388" y="313" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="22" font-weight="400" fill="#52657D" text-anchor="start">音轨、谱表、调弦</text>
+<text x="388" y="341" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="22" font-weight="400" fill="#52657D" text-anchor="start">以及小节的时间位置</text>
+<path d="M 556 356 V 404" fill="none" stroke="#8F9FB7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="576" y="389" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="20" font-weight="400" fill="#52657D" text-anchor="start">位置与谱型</text>
+<rect x="368" y="420" width="376" height="185" rx="10" fill="#EEF3FF" stroke="#CEDAF6" stroke-width="1.5"/>
+<text x="388" y="455" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="24" font-weight="700" fill="#4168CF" text-anchor="start">当前一张小节图</text>
+<text x="388" y="491" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="22" font-weight="400" fill="#182B45" text-anchor="start">小节 GLM + 局部辅助网络</text>
+<text x="388" y="530" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="23" font-weight="600" fill="#182B45" text-anchor="start">可见观察 JSON</text>
+<text x="388" y="567" font-family="ui-monospace, Consolas, monospace" font-size="21" font-weight="400" fill="#52657D" text-anchor="start">state · voices · relations</text>
+</g>
+<g id="score-assembly">
+<rect x="816" y="208" width="240" height="397" rx="10" fill="#E9F5F2" stroke="#BDDDD6" stroke-width="1.5"/>
+<text x="936" y="248" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="26" font-weight="700" fill="#137F79" text-anchor="middle">scorelib</text>
+<text x="936" y="280" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="20" font-weight="400" fill="#52657D" text-anchor="middle">沿同一谱表的时间顺序</text>
+<circle cx="840" cy="321" r="4" fill="#137F79"/>
+<text x="855" y="328" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="24" font-weight="600" fill="#137F79" text-anchor="start">继承谱面状态</text>
+<text x="855" y="361" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="18" font-weight="400" fill="#52657D" text-anchor="start">拍号、调号、谱号</text>
+<path d="M 840 333 V 403" fill="none" stroke="#BDDDD6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="840" cy="415" r="4" fill="#137F79"/>
+<text x="855" y="422" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="24" font-weight="600" fill="#137F79" text-anchor="start">连接跨节关系</text>
+<text x="855" y="455" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="18" font-weight="400" fill="#52657D" text-anchor="start">延音、PM、八度范围</text>
+<path d="M 840 427 V 497" fill="none" stroke="#BDDDD6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="840" cy="509" r="4" fill="#137F79"/>
+<text x="855" y="516" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="24" font-weight="600" fill="#137F79" text-anchor="start">计算音高</text>
+<text x="855" y="549" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="18" font-weight="400" fill="#52657D" text-anchor="start">弦品 / 谱位 + 上下文</text>
+</g>
+<g id="score-output">
+<rect x="1128" y="208" width="256" height="114" rx="10" fill="white" stroke="#D9E2EE" stroke-width="1.5"/>
+<text x="1256" y="251" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="28" font-weight="700" fill="#182B45" text-anchor="middle">ScoreIR</text>
+<text x="1256" y="289" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="22" font-weight="400" fill="#52657D" text-anchor="middle">音轨 · 时间轴 · 小节</text>
+<path d="M 1256 322 V 350" fill="none" stroke="#8F9FB7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="1128" y="362" width="256" height="95" rx="10" fill="white" stroke="#D9E2EE" stroke-width="1.5"/>
+<text x="1256" y="401" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="24" font-weight="600" fill="#182B45" text-anchor="middle">任选小节编辑</text>
+<text x="1256" y="434" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="21" font-weight="400" fill="#52657D" text-anchor="middle">对照原图 · 播放</text>
+<path d="M 1256 457 V 485" fill="none" stroke="#8F9FB7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="1128" y="497" width="256" height="108" rx="10" fill="white" stroke="#D9E2EE" stroke-width="1.5"/>
+<text x="1256" y="538" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="23" font-weight="600" fill="#182B45" text-anchor="middle">GP5 / MusicXML</text>
+<text x="1256" y="574" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="22" font-weight="400" fill="#52657D" text-anchor="middle">保存项目 ZIP</text>
+</g>
+<g id="data-flow">
+<path d="M 316 400 H 340" fill="none" stroke="#52657D" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M 764 400 H 788" fill="none" stroke="#52657D" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M 1076 400 H 1100" fill="none" stroke="#52657D" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+</g>
+<g id="project-lifecycle">
+<rect x="36" y="665" width="1368" height="58" rx="10" fill="white" stroke="#D9E2EE" stroke-width="1.5"/>
+<text x="58" y="702" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="22" font-weight="400" fill="#52657D" text-anchor="start">随项目保留：原图、区域、可见观察与编辑进度</text>
+<path d="M 824 680 V 708" fill="none" stroke="#D9E2EE" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="879" y="702" font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="22" font-weight="500" fill="#137F79" text-anchor="start">保存修改 → 重新组谱 → 更新后续关系</text>
+</g>
+</svg>

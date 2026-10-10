@@ -1,0 +1,164 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="780" viewBox="0 0 1440 780" role="img" aria-labelledby="title desc">
+  <title id="title">GuitarOCR 的单小节识别网络</title>
+  <desc id="desc">当前一张小节图被切为 14 乘 14 像素图块，经 24 层视觉 Transformer 编码、2 乘 2 空间下采样和多模态投影，形成 1536 维视觉 token。视觉 token 与任务提示及已生成 token 进入同一序列，由 16 层文本 Decoder 自回归生成包含 state、voices 和 relations 的可见观察 JSON。信息读取与小节识别采用同架构的两套独立权重，按阶段加载。</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 1 1 L 8 5 L 1 9" fill="none" stroke="#52657D" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <style>
+      text { font-family: 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif; fill: #182B45; }
+      .title { font-size: 34px; font-weight: 700; }
+      .subtitle { font-size: 23px; fill: #52657D; }
+      .heading { font-size: 25px; font-weight: 700; }
+      .body { font-size: 23px; }
+      .detail { font-size: 22px; fill: #52657D; }
+      .code { font-family: 'DejaVu Sans Mono', monospace; font-size: 23px; }
+      .stage { fill: #FFFFFF; stroke: #D9E2EE; stroke-width: 2; }
+      .network { fill: #EEF3FF; stroke: #4168CF; stroke-width: 2; }
+      .data { fill: #F5F7FA; stroke: #D9E2EE; stroke-width: 2; }
+      .flow { fill: none; stroke: #52657D; stroke-width: 2.5; marker-end: url(#arrow); stroke-linejoin: round; stroke-linecap: round; }
+      .thin { fill: none; stroke: #52657D; stroke-width: 2; stroke-linecap: round; }
+    </style>
+  </defs>
+  <rect width="1440" height="780" fill="#FFFFFF"/>
+
+  <g id="figure-heading">
+    <text x="40" y="55" class="title">从一张小节图，到可见的音乐观察</text>
+    <text x="40" y="96" class="subtitle">GLM-OCR 读取当前图上的符号；跨小节关系在后续组谱阶段连接。</text>
+  </g>
+
+  <g id="pipeline-labels">
+    <text x="120" y="182" text-anchor="middle" class="detail">图像输入</text>
+    <text x="540" y="182" text-anchor="middle" class="detail">图像 → 视觉 token</text>
+    <text x="1015" y="182" text-anchor="middle" class="detail">视觉与文字 → 同一序列</text>
+    <text x="1292" y="182" text-anchor="middle" class="detail">逐 token 输出</text>
+  </g>
+
+  <g id="current-measure-image">
+    <rect x="40" y="208" width="160" height="292" rx="16" class="stage"/>
+    <text x="120" y="246" text-anchor="middle" class="heading">小节裁图</text>
+    <rect x="52" y="270" width="136" height="108" rx="5" fill="#FFFFFF" stroke="#D9E2EE"/>
+    <g id="tab-example" stroke="#52657D" stroke-width="1.5">
+      <path d="M 61 289 H 179 M 61 303 H 179 M 61 317 H 179 M 61 331 H 179 M 61 345 H 179 M 61 359 H 179"/>
+      <path d="M 62 289 V 359 M 178 289 V 359"/>
+    </g>
+    <rect x="76" y="290" width="18" height="24" fill="#FFFFFF"/>
+    <rect x="109" y="318" width="18" height="24" fill="#FFFFFF"/>
+    <rect x="142" y="332" width="18" height="24" fill="#FFFFFF"/>
+    <g class="code" text-anchor="middle">
+      <text x="85" y="311">3</text>
+      <text x="118" y="339">5</text>
+      <text x="151" y="353">7</text>
+    </g>
+    <text x="120" y="431" text-anchor="middle" class="body">当前一张图</text>
+    <text x="120" y="465" text-anchor="middle" class="detail">保比例缩放</text>
+  </g>
+
+  <g id="patch-embedding">
+    <rect x="235" y="208" width="150" height="292" rx="16" class="stage"/>
+    <text x="310" y="246" text-anchor="middle" class="heading">图块嵌入</text>
+    <g id="patch-grid" fill="#EEF3FF" stroke="#4168CF" stroke-width="1.5">
+      <rect x="270" y="280" width="17" height="17" rx="2"/><rect x="291" y="280" width="17" height="17" rx="2"/><rect x="312" y="280" width="17" height="17" rx="2"/><rect x="333" y="280" width="17" height="17" rx="2"/>
+      <rect x="270" y="301" width="17" height="17" rx="2"/><rect x="291" y="301" width="17" height="17" rx="2"/><rect x="312" y="301" width="17" height="17" rx="2"/><rect x="333" y="301" width="17" height="17" rx="2"/>
+      <rect x="270" y="322" width="17" height="17" rx="2"/><rect x="291" y="322" width="17" height="17" rx="2"/><rect x="312" y="322" width="17" height="17" rx="2"/><rect x="333" y="322" width="17" height="17" rx="2"/>
+      <rect x="270" y="343" width="17" height="17" rx="2"/><rect x="291" y="343" width="17" height="17" rx="2"/><rect x="312" y="343" width="17" height="17" rx="2"/><rect x="333" y="343" width="17" height="17" rx="2"/>
+    </g>
+    <text x="310" y="431" text-anchor="middle" class="body">14 × 14</text>
+    <text x="310" y="465" text-anchor="middle" class="detail">像素 / 图块</text>
+  </g>
+
+  <g id="vision-transformer">
+    <rect x="420" y="208" width="190" height="292" rx="16" class="stage"/>
+    <text x="515" y="246" text-anchor="middle" class="heading">视觉编码器</text>
+    <rect x="452" y="278" width="133" height="79" rx="9" fill="#DCE6FF" stroke="#4168CF" stroke-width="1.5"/>
+    <rect x="447" y="285" width="133" height="79" rx="9" fill="#E5ECFF" stroke="#4168CF" stroke-width="1.5"/>
+    <rect x="442" y="292" width="133" height="79" rx="9" class="network"/>
+    <text x="509" y="340" text-anchor="middle" font-size="22">Transformer</text>
+    <text x="515" y="431" text-anchor="middle" class="body">24 层</text>
+    <text x="515" y="465" text-anchor="middle" class="detail">1024 维</text>
+  </g>
+
+  <g id="spatial-merge-and-projection">
+    <rect x="645" y="208" width="200" height="292" rx="16" class="stage"/>
+    <text x="745" y="246" text-anchor="middle" class="heading">多模态投影</text>
+    <g fill="#EEF3FF" stroke="#4168CF" stroke-width="1.5">
+      <rect x="668" y="299" width="24" height="24" rx="3"/><rect x="699" y="299" width="24" height="24" rx="3"/>
+      <rect x="668" y="330" width="24" height="24" rx="3"/><rect x="699" y="330" width="24" height="24" rx="3"/>
+    </g>
+    <path d="M 733 326 H 761" class="flow"/>
+    <rect x="778" y="309" width="34" height="34" rx="5" fill="#4168CF"/>
+    <text x="745" y="407" text-anchor="middle" class="body">2 × 2 下采样</text>
+    <text x="745" y="439" text-anchor="middle" class="body">视觉 token</text>
+    <text x="745" y="472" text-anchor="middle" class="detail">1536 维</text>
+  </g>
+
+  <g id="autoregressive-text-decoder">
+    <rect x="880" y="208" width="270" height="292" rx="16" class="stage"/>
+    <text x="1015" y="246" text-anchor="middle" class="heading">自回归文本解码</text>
+    <rect x="896" y="264" width="96" height="35" rx="6" class="data"/>
+    <rect x="998" y="264" width="137" height="35" rx="6" fill="#E9F5F2" stroke="#137F79" stroke-width="1.5"/>
+    <text x="944" y="289" text-anchor="middle" font-size="22">任务提示</text>
+    <text x="1067" y="289" text-anchor="middle" font-size="22">已生成 token</text>
+    <path d="M 944 300 V 309 H 987 V 316" class="flow"/>
+    <path d="M 1068 300 V 316" class="flow"/>
+    <g id="combined-token-sequence">
+      <rect x="898" y="320" width="22" height="27" rx="3" fill="#4168CF"/>
+      <rect x="924" y="320" width="22" height="27" rx="3" fill="#4168CF"/>
+      <rect x="950" y="320" width="22" height="27" rx="3" fill="#4168CF"/>
+      <rect x="976" y="320" width="22" height="27" rx="3" fill="#AAB7C7"/>
+      <rect x="1002" y="320" width="22" height="27" rx="3" fill="#AAB7C7"/>
+      <rect x="1028" y="320" width="22" height="27" rx="3" fill="#137F79"/>
+      <rect x="1054" y="320" width="22" height="27" rx="3" fill="#137F79"/>
+      <rect x="1080" y="320" width="22" height="27" rx="3" fill="#137F79"/>
+      <text x="1117" y="342" text-anchor="middle" font-size="24" fill="#52657D">…</text>
+    </g>
+    <path d="M 1015 348 V 374" class="flow"/>
+    <rect x="900" y="383" width="230" height="58" rx="9" class="network"/>
+    <text x="1015" y="420" text-anchor="middle" class="body">16 层 Decoder</text>
+    <text x="1015" y="475" text-anchor="middle" class="detail">1536 维</text>
+  </g>
+
+  <g id="visible-observation-json">
+    <rect x="1185" y="208" width="215" height="292" rx="16" class="data"/>
+    <text x="1292" y="246" text-anchor="middle" class="heading">可见观察 JSON</text>
+    <g class="code">
+      <text x="1207" y="293">{</text>
+      <text x="1227" y="328">state,</text>
+      <text x="1227" y="363">voices,</text>
+      <text x="1227" y="398">relations</text>
+      <text x="1207" y="433">}</text>
+    </g>
+    <text x="1292" y="475" text-anchor="middle" class="detail">交给后续组谱</text>
+  </g>
+
+  <g id="data-flow">
+    <path d="M 202 333 H 228" class="flow"/>
+    <path d="M 387 333 H 413" class="flow"/>
+    <path d="M 612 333 H 638" class="flow"/>
+    <path d="M 847 333 H 890" class="flow"/>
+    <path d="M 1132 412 H 1166 V 333 H 1178" class="flow"/>
+  </g>
+
+  <g id="sequence-legend">
+    <rect x="223" y="530" width="17" height="17" rx="3" fill="#4168CF"/>
+    <text x="251" y="547" class="detail">视觉 token</text>
+    <rect x="402" y="530" width="17" height="17" rx="3" fill="#AAB7C7"/>
+    <text x="430" y="547" class="detail">任务提示</text>
+    <rect x="572" y="530" width="17" height="17" rx="3" fill="#137F79"/>
+    <text x="600" y="547" class="detail">已生成 token</text>
+    <text x="790" y="547" class="detail">共同进入同一序列，逐步生成答案</text>
+  </g>
+
+  <g id="independent-deployment-tasks">
+    <rect x="40" y="590" width="1360" height="155" rx="16" class="data"/>
+    <text x="66" y="630" class="heading">同架构，两套独立权重，按阶段加载</text>
+    <text x="66" y="676" class="body" font-weight="700">信息模型</text>
+    <text x="248" y="676" class="body">谱头、谱行、标注图</text>
+    <path d="M 521 667 H 586" class="flow"/>
+    <text x="613" y="676" class="body">名称、调弦、谱号等信息</text>
+    <text x="66" y="716" class="body" font-weight="700">小节模型</text>
+    <text x="248" y="716" class="body">当前一张小节图</text>
+    <path d="M 521 707 H 586" class="flow"/>
+    <text x="613" y="716" class="body">state / voices / relations</text>
+  </g>
+</svg>

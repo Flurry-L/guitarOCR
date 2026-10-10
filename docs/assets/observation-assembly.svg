@@ -1,0 +1,115 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1000" viewBox="0 0 1440 1000" role="img" aria-labelledby="title desc">
+  <title id="title">可见观察如何组成跨小节的音乐关系</title>
+  <desc id="desc">两个相邻小节的示例。延音示例中，前节看见一弦五品及向右延出的弧线，后节看见进入的弧线但未印品位；组装连接后得到延续的五品音，原观察仍保留空值。PM 示例中，前节看见 PM 标签和延伸线，后节只看见无标签续线；组装将它们连接为同一个 PM 范围。谱面为示意，JSON 为真实字段节选。</desc>
+  <defs>
+    <style>
+      text { font-family: 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif; fill: #182B45; }
+      .title { font-size: 34px; font-weight: 700; }
+      .subtitle { font-size: 23px; fill: #52657D; }
+      .heading { font-size: 25px; font-weight: 700; }
+      .body { font-size: 23px; }
+      .small { font-size: 22px; }
+      .muted { fill: #52657D; }
+      .blue { fill: #4168CF; }
+      .teal { fill: #137F79; }
+      .purple { fill: #8058B6; }
+      .code { font-family: 'DejaVu Sans Mono', 'Noto Sans CJK SC', 'Microsoft YaHei', monospace; font-size: 23px; }
+      .staff { fill: none; stroke: #A7B4C6; stroke-width: 1.5; }
+      .bar { stroke: #52657D; stroke-width: 2; }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 1 1 L 8 5 L 1 9" fill="none" stroke="#52657D" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+
+  <rect width="1440" height="1000" fill="#FFFFFF"/>
+  <text x="40" y="55" class="title">先记录看得见的，再连接跨小节的含义</text>
+  <text x="40" y="94" class="subtitle">每张小节图独立识别；音乐核心沿同一谱表的时间顺序组装。</text>
+
+  <text x="40" y="149" class="heading muted">01　谱面示意</text>
+  <text x="480" y="149" class="heading blue">02　局部观察 · 字段节选</text>
+  <text x="1000" y="149" class="heading teal">03　组装后的含义</text>
+
+  <!-- A: the hidden fret remains unknown in the visible observation. -->
+  <text x="40" y="193" class="heading">A　延音：后节没有印出品位</text>
+  <rect x="40" y="213" width="400" height="309" rx="16" fill="#F5F7FA" stroke="#D9E2EE"/>
+  <rect x="480" y="213" width="480" height="309" rx="16" fill="#EEF3FF" stroke="#D9E2EE"/>
+  <rect x="1000" y="213" width="400" height="309" rx="16" fill="#E9F5F2" stroke="#D9E2EE"/>
+  <path d="M449 368 H469" fill="none" stroke="#52657D" stroke-width="2" marker-end="url(#arrow)"/>
+  <path d="M969 368 H989" fill="none" stroke="#52657D" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <text x="145" y="254" text-anchor="middle" class="small blue">第 1 小节</text>
+  <text x="332" y="254" text-anchor="middle" class="small blue">第 2 小节</text>
+  <g class="staff">
+    <path d="M66 321 H415 M66 337 H415 M66 353 H415 M66 369 H415 M66 385 H415 M66 401 H415"/>
+  </g>
+  <path d="M67 320 V402 M240 320 V402 M415 320 V402" class="bar"/>
+  <text x="86" y="304" class="small muted">4/4</text>
+  <rect x="133" y="304" width="28" height="34" fill="#F5F7FA"/>
+  <text x="147" y="335" text-anchor="middle" font-size="38" font-weight="700" class="blue">5</text>
+  <path d="M159 313 C179 289 207 275 235 278 M247 279 C279 283 310 297 338 314" fill="none" stroke="#4168CF" stroke-width="3" stroke-linecap="round"/>
+  <text x="144" y="444" text-anchor="middle" class="body">一弦 5 品</text>
+  <text x="331" y="444" text-anchor="middle" class="body blue">品位未印出</text>
+  <text x="240" y="489" text-anchor="middle" class="small muted">两节均为一个整音符</text>
+
+  <text x="504" y="256" class="small blue" font-weight="700">第 1 节 · 看见起点</text>
+  <text x="504" y="294" class="code">string: 1, fret: 5</text>
+  <text x="504" y="330" class="code">kind: "tie", end: "right"</text>
+  <path d="M504 353 H936" stroke="#D9E2EE" stroke-width="1.5"/>
+  <text x="504" y="389" class="small blue" font-weight="700">第 2 节 · 看见进入的弧线</text>
+  <text x="504" y="427" class="code">string: 1, <tspan fill="#4168CF" font-weight="700">fret: null</tspan></text>
+  <text x="504" y="463" class="code">kind: "tie", start: "left"</text>
+
+  <text x="1025" y="256" class="body teal" font-weight="700">连接相邻的延音端点</text>
+  <text x="1025" y="297" class="small">同一根弦，时值连续</text>
+  <rect x="1024" y="318" width="352" height="112" rx="10" fill="#FFFFFF" stroke="#C6E1DB"/>
+  <text x="1042" y="351" class="small teal">第 2 节 resolved / IR</text>
+  <text x="1042" y="384" class="code">fret: 5</text>
+  <text x="1042" y="417" class="code">effects: ["tie"]</text>
+  <text x="1025" y="465" class="body">延续前节的一弦 5 品</text>
+  <text x="1025" y="501" class="small muted">原 observation 仍保留 null</text>
+
+  <!-- B: only a visible continuation line is emitted locally. -->
+  <text x="40" y="586" class="heading">B　奏法范围：后节只剩延伸线</text>
+  <rect x="40" y="606" width="400" height="309" rx="16" fill="#F5F7FA" stroke="#D9E2EE"/>
+  <rect x="480" y="606" width="480" height="309" rx="16" fill="#EEF3FF" stroke="#D9E2EE"/>
+  <rect x="1000" y="606" width="400" height="309" rx="16" fill="#E9F5F2" stroke="#D9E2EE"/>
+  <path d="M449 761 H469" fill="none" stroke="#52657D" stroke-width="2" marker-end="url(#arrow)"/>
+  <path d="M969 761 H989" fill="none" stroke="#52657D" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <text x="145" y="647" text-anchor="middle" class="small purple">第 1 小节</text>
+  <text x="332" y="647" text-anchor="middle" class="small purple">第 2 小节</text>
+  <g class="staff">
+    <path d="M66 714 H415 M66 730 H415 M66 746 H415 M66 762 H415 M66 778 H415 M66 794 H415"/>
+  </g>
+  <path d="M67 713 V795 M240 713 V795 M415 713 V795" class="bar"/>
+  <text x="116" y="695" class="body purple" font-weight="700">P.M.</text>
+  <path d="M179 686 H235 M247 686 H340" fill="none" stroke="#8058B6" stroke-width="3" stroke-dasharray="10 7"/>
+  <path d="M340 686 V698" fill="none" stroke="#8058B6" stroke-width="3"/>
+  <rect x="133" y="697" width="28" height="34" fill="#F5F7FA"/>
+  <rect x="326" y="697" width="28" height="34" fill="#F5F7FA"/>
+  <text x="147" y="728" text-anchor="middle" font-size="38" font-weight="700">5</text>
+  <text x="340" y="728" text-anchor="middle" font-size="38" font-weight="700">5</text>
+  <text x="144" y="837" text-anchor="middle" class="body">标签 + 线</text>
+  <text x="331" y="837" text-anchor="middle" class="body purple">只有续线</text>
+  <text x="240" y="882" text-anchor="middle" class="small muted">虚线在后一节的音符处结束</text>
+
+  <text x="504" y="649" class="small purple" font-weight="700">第 1 节 · 标签确定类型</text>
+  <text x="504" y="687" class="code">kind: "pm", end: "right"</text>
+  <text x="504" y="723" class="code">shape: "extension"</text>
+  <path d="M504 746 H936" stroke="#D9E2EE" stroke-width="1.5"/>
+  <text x="504" y="782" class="small purple" font-weight="700">第 2 节 · 保留无标签续线</text>
+  <text x="504" y="820" class="code" fill="#8058B6"><tspan fill="#8058B6" font-weight="700">kind: null</tspan>, start: "left"</text>
+  <text x="504" y="856" class="code">shape: "extension", end: [0,0]</text>
+
+  <text x="1025" y="649" class="body teal" font-weight="700">把两段线接成同一范围</text>
+  <text x="1025" y="690" class="small">由前节可见标签确定 PM</text>
+  <rect x="1024" y="715" width="352" height="92" rx="10" fill="#FFFFFF" stroke="#C6E1DB"/>
+  <text x="1042" y="752" class="small teal">组装后的关系</text>
+  <text x="1042" y="787" class="body purple" font-weight="700">PM ━━━ 第 1 节 ━━ 第 2 节</text>
+  <text x="1025" y="848" class="body">对范围内事件应用 PM</text>
+  <text x="1025" y="886" class="small muted">原 observation 的 kind 仍为 null</text>
+
+  <path d="M40 945 H1400" stroke="#D9E2EE" stroke-width="1.5"/>
+  <text x="40" y="979" class="small muted">观察保存图上证据；resolved / IR 保存连接后的音乐内容。原始观察始终可回看。</text>
+</svg>
