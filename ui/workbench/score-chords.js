@@ -31,7 +31,7 @@ export function chordFromEffects(effects = []) {
 
 export function unresolvedChordChoices(record, voice, event) {
   const {name, diagram} = chordFromEffects(event?.effects);
-  if (!name || !event || (record?.reviewed && !record?.needs_review)) return [];
+  if (!name || !event) return [];
   return (record?.chord_diagram_choices || []).filter(choice =>
     (!diagram || choice.source === "chord_evidence") &&
     choice.voice === voice && choice.start === event.start && chordKey(choice.name) === chordKey(name));

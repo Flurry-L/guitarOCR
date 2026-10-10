@@ -294,7 +294,7 @@ function engravedSection(
         "measure-flag",
       );
       flag.type = "button";
-      flag.title = `${state.measures[i].part_name || ""} 第 ${index + 1} 小节：${kind === "failed" ? "识别失败" : "待检查"}`.trim();
+      flag.title = `${state.measures[i].part_name || ""} 第 ${index + 1} 小节：${state.measures[i].issues.map(issue => issue.message).join("；")}`.trim();
       flag.setAttribute("aria-label", flag.title);
       flag.onclick = () =>
         onSelect({

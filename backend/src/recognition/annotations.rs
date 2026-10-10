@@ -391,7 +391,7 @@ pub fn attach_chord_annotations(records: &mut [Value], predictions: &[Value]) ->
                     candidates.sort();
                     choices.push(json!({"voice":voice_number,"start":event["start"],"name":name,"diagrams":candidates,
                         "source":if pending {"chord_evidence"} else {"library"},
-                        "reason":if pending {"图示识别尚有未决或冲突的指法，请对照原谱选择候选并确认小节。"} else if ambiguous {"指法图同时进入多个小节，尚不能确定归属，请按原谱选择当前拍的按法。"} else {"当前小节的同名和弦存在多种指法，请按原谱选择当前拍的按法。"}}));
+                        "reason":if pending {"图示识别尚有未决或冲突的指法，请对照原谱选择候选。"} else if ambiguous {"指法图同时进入多个小节，尚不能确定归属，请按原谱选择当前拍的按法。"} else {"当前小节的同名和弦存在多种指法，请按原谱选择当前拍的按法。"}}));
                     row["needs_review"] = json!(true);
                 }
                 if diagrams.len() == 1 && !pending && !ambiguous {

@@ -169,7 +169,7 @@ export function musicalContext(state, index, draft, selected, profile) {
   const event = draft.voices[selected.vi]?.events[selected.ei];
   return {
     track: current.part_name || "音轨",
-    meter: `${time} · ${keyName || "调号待确认"}${tempo ? ` · ♩ = ${tempo}` : " · 速度待确认"}`,
+    meter: [time, keyName, tempo ? `♩ = ${tempo}` : null].filter(Boolean).join(" · "),
     tuning: [profile.tuning?.length && ["guitar", "bass"].includes(profile.instrument) ? profile.tuning.map(pitchName).join(" ") : "",
       profile.pitch_context?.capo ? `Capo ${profile.pitch_context.capo}` : ""].filter(Boolean).join(" · "),
     position: `第 ${bar + 1} 小节 · 声部 ${(draft.voices[selected.vi]?.voice ?? 0) + 1}${event ? ` · 第 ${event.start / 960 + 1} 拍` : ""}`,

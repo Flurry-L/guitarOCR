@@ -699,9 +699,6 @@ button[aria-pressed="true"],
   border-radius: 3px;
   background: var(--surface);
 }
-.measure-map button.confirmed:not(.active) {
-  color: var(--muted);
-}
 .measure-map button.review {
   color: var(--warning);
   background: var(--warning-bg);

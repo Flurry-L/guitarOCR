@@ -53,7 +53,6 @@ pub fn save_recognition(output: &Path, source: &Value) -> Result<PathBuf> {
         if conflicts.as_object().is_some_and(|v| !v.is_empty()) {
             row["global_timing_conflicts"] = conflicts.clone();
             row["needs_review"] = json!(true);
-            row["reviewed"] = json!(false);
         } else {
             row.as_object_mut()
                 .unwrap()
@@ -131,9 +130,6 @@ mod observation_edit_tests {
             .as_str()
             .unwrap()
             .contains("@0:w:s1f5"));
-        correct_record(&mut saved, 1, &json!({"reviewed":true})).unwrap();
-        crate::recognition::reassemble(&mut saved).unwrap();
-        assert_eq!(saved["records"][0]["reviewed"], true);
         assert_eq!(saved["records"][0]["needs_review"], false);
         let manifest = save_recognition(output.path(), &saved).unwrap();
         let saved: Value = serde_json::from_slice(&fs::read(manifest).unwrap()).unwrap();
@@ -144,6 +140,9 @@ mod observation_edit_tests {
 
 /// Persist projections without changing musical records for annotation-only edits.
 fn write_recognition(output: &Path, mut result: Value) -> Result<PathBuf> {
+    for row in result["records"].as_array_mut().ok_or("识别结果缺少小节")? {
+        crate::recognition::refresh_issues(row)?;
+    }
     let rows = result["records"].as_array().ok_or("识别结果缺少小节")?;
     let text = rows
         .iter()
@@ -240,24 +239,23 @@ fn correct_record(source: &mut Value, number: usize, body: &Value) -> Result<()>
     let row = &mut rows[number - 1];
     if let Some(observation) = body.get("observation") {
         row["observation"] = scorelib::observation::parse_observation(observation)?;
+        row["recognition_errors"] = json!([]);
         row["observation_manually_edited"] = json!(true);
         row["manually_edited"] = json!(false);
-        row["reviewed"] = json!(false);
         row["needs_review"] = json!(true);
         return Ok(());
     }
     let mode = row["mode"].as_str().unwrap_or(&source_mode);
-    let reviewed = body["reviewed"].as_bool().unwrap_or(false);
     let old = row["target"].as_str().map(str::to_owned);
     let target = if let Some(measure) = body.get("measure").filter(|v| !v.is_null()) {
         format_measure_target(measure, mode, true)?
     } else if let Some(text) = body["target"].as_str() {
         text.to_owned()
-    } else if reviewed || body.get("visual_techniques").is_some() {
+    } else if body.get("visual_techniques").is_some() {
         old.clone()
             .ok_or("该小节还有未识别的音符或节奏，请先补全内容")?
     } else {
-        return Err("请输入小节内容或核对标记".into());
+        return Err("请输入小节内容".into());
     };
     if target.len() > 50000 || target.contains('\n') {
         return Err("请输入单个小节的内容".into());
@@ -280,9 +278,7 @@ fn correct_record(source: &mut Value, number: usize, body: &Value) -> Result<()>
         .into_iter()
         .filter_map(|field| {
             (parsed[field] != previous[field]
-                || (reviewed
-                    && !parsed[field].is_null()
-                    && row["global_timing_conflicts"][field].is_array()))
+                || (!parsed[field].is_null() && row["global_timing_conflicts"][field].is_array()))
             .then(|| (field, parsed[field].clone()))
         })
         .collect::<Vec<_>>();
@@ -332,23 +328,42 @@ fn correct_record(source: &mut Value, number: usize, body: &Value) -> Result<()>
     }
     row["target"] = json!(target);
     row["manually_edited"] = json!(changed || row["manually_edited"] == true);
-    if changed || reviewed {
+    if changed {
         crate::recognition::signature_state::observe_manual_metadata(row, &target)?;
+        if let Some(choices) = row["chord_diagram_choices"].as_array_mut() {
+            choices.retain(|choice| {
+                let chord = |measure: &Value| -> Vec<Value> {
+                    measure["voices"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter(|voice| voice["voice"] == choice["voice"])
+                        .flat_map(|voice| voice["events"].as_array().into_iter().flatten())
+                        .filter(|event| event["start"] == choice["start"])
+                        .flat_map(|event| event["effects"].as_array().into_iter().flatten())
+                        .filter(|effect| {
+                            effect.as_str().is_some_and(|s| {
+                                s.starts_with("chord:") || s.starts_with("diagram:")
+                            })
+                        })
+                        .cloned()
+                        .collect()
+                };
+                chord(&previous) == chord(&parsed)
+            });
+        }
     }
-    for key in ["timing_errors", "fingering_errors", "export_errors"] {
+    for key in [
+        "recognition_errors",
+        "timing_errors",
+        "fingering_errors",
+        "export_errors",
+    ] {
         row[key] = json!([]);
-    }
-    if reviewed {
-        row["needs_review"] = json!(false);
-        row["reviewed"] = json!(true);
-        row["pitch_needs_review"] = json!(false);
-    } else if changed {
-        row["reviewed"] = json!(false);
-        row["needs_review"] = json!(true);
     }
     // Time and tempo apply to all staves at this score position. Propagate
     // only these explicitly edited fields; peers keep their notes, effects,
-    // key signatures and independent review decisions.
+    // key signatures and independent edits.
     if !global_changes.is_empty() {
         for peer in rows.iter_mut() {
             if bars[&peer["measure_number"].to_string()] != bar {
@@ -445,7 +460,6 @@ fn correct_record(source: &mut Value, number: usize, body: &Value) -> Result<()>
                 .is_some_and(|v| !v.is_empty())
             {
                 peer["needs_review"] = json!(true);
-                peer["reviewed"] = json!(false);
             }
         }
     }
@@ -527,29 +541,11 @@ pub fn export(
     revision(&state, expected)?;
     let recognition = state["recognition"]
         .as_str()
-        .ok_or((409, "请先识别并校对小节".into()))?
+        .ok_or((409, "请先识别小节".into()))?
         .to_owned();
     let source: Value =
         serde_json::from_slice(&fs::read(&recognition).map_err(|e| (400, e.to_string()))?)
             .map_err(|e| (400, e.to_string()))?;
-    if std::iter::once(&source)
-        .chain(source["parts"].as_array().into_iter().flatten())
-        .any(|part| {
-            part["document_metadata"]["instrument_needs_review"] == true
-                || part["document_metadata"]["tuning_needs_review"] == true
-        })
-    {
-        return Err((409, "请先在谱面信息中确认乐器和调弦再导出。".into()));
-    }
-    if source["review_measures"]
-        .as_array()
-        .is_some_and(|rows| !rows.is_empty())
-    {
-        return Err((
-            409,
-            format!("请先校对这些小节再导出：{}", source["review_measures"]),
-        ));
-    }
     let directory = root.join(sid);
     let output = tempfile::Builder::new()
         .prefix("export_")
@@ -799,12 +795,6 @@ fn edited_single(layout: &Value, previous: &Value, values: &Value) -> Result<Val
             .map(|r| {
                 let mut r = r.clone();
                 r["instrument"] = json!(instrument);
-                if (r["instrument_needs_review"] == true || r["tuning_needs_review"] == true)
-                    && r["structure_needs_review"] != true
-                    && r["alignment_needs_review"] != true
-                {
-                    r["pitch_needs_review"] = json!(false);
-                }
                 r["instrument_needs_review"] = metadata["instrument_needs_review"].clone();
                 r["tuning_needs_review"] = metadata["tuning_needs_review"].clone();
                 r
@@ -828,7 +818,7 @@ fn edited_single(layout: &Value, previous: &Value, values: &Value) -> Result<Val
                     "measure_number",
                     "pitch_context",
                     "pitch_reference",
-                    "pitch_needs_review",
+                    "pitch_issues",
                 ] {
                     if let Some(v) = row.get(key) {
                         value.insert(key.into(), v.clone());
@@ -842,12 +832,6 @@ fn edited_single(layout: &Value, previous: &Value, values: &Value) -> Result<Val
                     "tuning_needs_review".into(),
                     metadata["tuning_needs_review"].clone(),
                 );
-                value.entry("pitch_needs_review").or_insert(json!(false));
-                if metadata["instrument_needs_review"] == true
-                    || metadata["tuning_needs_review"] == true
-                {
-                    value.insert("pitch_needs_review".into(), json!(true));
-                }
                 Value::Object(value)
             })
             .collect::<Vec<_>>())

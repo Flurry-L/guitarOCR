@@ -177,7 +177,7 @@ function renderFiles() {
   $("importMode").disabled = ui.busy || $("importAction").value !== "full";
   $("actionDescription").textContent =
     $("importAction").value === "full"
-      ? "完成后对照原谱校对，再导出。"
+      ? "识别后可直接导出，也可点选小节编辑。"
       : "先调整小节框与阅读顺序，再识别音符。";
   $("importAction").querySelector('[value="full"]').disabled =
     uploadConfig.inference_enabled === false;
@@ -454,7 +454,7 @@ $("importProject").onchange = async (event) => {
 $("openSample").onclick = () => importProject(readSample, {
   prompt: "打开示例后将替换当前未保存的编辑和已选文件，继续？",
   loading: "正在打开示例…",
-  opened: "已打开示例。点选音符可编辑，对照右侧原谱核对后导出。",
+  opened: "已打开示例。可直接导出，或点选音符对照右侧原谱编辑。",
   background: "示例已加入项目列表，可稍后打开。当前编辑仍保留。",
 });
 window.addEventListener("guitarocr:auth-required", () => { $("authRecovery").hidden = false; });
@@ -533,7 +533,7 @@ function renderExport() {
     [ui.state.pages.length, "页乐谱"],
     [count, "个小节"],
     ...(parts > 1 ? [[parts, "条音轨"]] : []),
-    [review, "个待检查"],
+    ...(review ? [[review, "个小节有问题"]] : []),
   ]) {
     const stat = el("div", undefined, "stat");
     stat.append(el("strong", value), el("span", label));
@@ -557,13 +557,13 @@ function renderExport() {
     $("downloadScoreText").download = "score.txt";
   }
   $("downloadGP5").hidden = !ui.state.gp5_url;
-  $("export").hidden = !!(ui.state.gp5_url || ui.state.musicxml_url);
-  $("export").disabled = ui.busy || !count || !!review;
+  $("export").hidden = ui.state.export === true;
+  $("export").disabled = ui.busy || !count;
   if (ui.state.gp5_url) {
     $("downloadGP5").href = ui.state.gp5_url;
     $("downloadGP5").download = ui.state.gp5_name;
   }
-  const warnings = [review ? `还有 ${review} 个小节待检查，确认后即可导出。` : "", ...(ui.state.export_warnings || [])].filter(Boolean);
+  const warnings = [review ? `检测到 ${review} 个小节有问题，可返回编辑。` : "", ...(ui.state.export_warnings || [])].filter(Boolean);
   $("exportWarning").hidden = !warnings.length;
   $("reviewBeforeExport").hidden = !review;
   $("exportWarning").textContent = warnings.join("\n");

@@ -264,7 +264,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
   $("recognize").onclick = action(async () => {
     if (
       ui.state.recognition &&
-      !confirm(`重新识别整份乐谱（${ui.state.measures.length} 个谱表小节）将替换所有人工校对内容${ui.measureDirty ? "和未保存草稿" : ""}。失败或停止会保留原结果。继续？`)
+      !confirm(`重新识别整份乐谱（${ui.state.measures.length} 个谱表小节）将替换所有人工编辑内容${ui.measureDirty ? "和未保存草稿" : ""}。失败或停止会保留原结果。继续？`)
     )
       return;
     await start("/recognize", undefined, () => {
@@ -277,8 +277,8 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
   });
   $("retryIssues").onclick = action(async () => {
     const targets = [...ui.state.review_measures];
-    if (!confirm(`重新识别 ${targets.length} 个待检查小节，将替换这些小节的人工修改，并重新连接相邻小节。失败或停止会保留原结果。继续？`)) return;
-    if (ui.measureDirty && !targets.includes(ui.measureIndex + 1) && !(await save(false))) return;
+    if (!confirm(`重新识别 ${targets.length} 个有问题的小节，将替换这些小节的人工修改，并重新连接相邻小节。失败或停止会保留原结果。继续？`)) return;
+    if (ui.measureDirty && !targets.includes(ui.measureIndex + 1) && !(await save())) return;
     await start("/recognize", { measures: targets });
   });
   $("retryMeasure").onclick = action(async () => {
@@ -300,15 +300,10 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
       track === "all" || (m.part_id || "part-1") === track ? [i] : [],
     );
     const filter = $("reviewFilter").value;
-    const visible = inTrack.filter(
-      (i) =>
-        filter === "all" ||
-        (filter === "review"
-          ? measures[i].needs_review
-          : measures[i].reviewed && !measures[i].needs_review),
-    );
+    const visible = inTrack.filter(i => filter === "all" || measures[i].needs_review);
+    const issues = inTrack.filter(i => measures[i].needs_review).length;
     $("trackSummary").textContent =
-      `${inTrack.length} 个谱表小节 · ${inTrack.filter((i) => measures[i].needs_review).length} 个待检查`;
+      `${inTrack.length} 个谱表小节${issues ? ` · ${issues} 个有问题` : ""}`;
     const groups = new Map();
     for (const i of visible) {
       const m = measures[i],
@@ -335,11 +330,11 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
               button = el(
                 "button",
                 String((m.bar_index ?? i) + 1),
-                `${reviewKind(m)} ${m.reviewed ? "confirmed" : ""} ${i === ui.measureIndex ? "active" : ""}`,
+                `${reviewKind(m)} ${i === ui.measureIndex ? "active" : ""}`,
               );
             button.title =
               measureLabel(m, i) +
-              (m.needs_review ? " · 待检查" : m.reviewed ? " · 已确认" : "");
+              (m.needs_review ? " · 有问题" : "");
             button.setAttribute("aria-label", button.title);
             button.setAttribute("aria-pressed", String(i === ui.measureIndex));
             button.disabled = ui.busy;
@@ -355,7 +350,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
   }
   $("trackSelect").onchange = async () => {
     const next = $("trackSelect").value;
-    if (ui.measureDirty && !(await save(false))) {
+    if (ui.measureDirty && !(await save())) {
       $("trackSelect").value = track;
       return;
     }
@@ -384,21 +379,6 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
       part.dispatchEvent(new Event("change"));
     }
   });
-  $("confirmNext").onclick = async () => {
-    if (!(await save(true))) return;
-    const indexes = ui.state.measures.flatMap((m, i) =>
-      (m.needs_review || !m.reviewed) && (track === "all" || (m.part_id || "part-1") === track)
-        ? [i]
-        : [],
-    );
-    if (indexes.length)
-      await selectMeasure(
-        indexes.find((i) => i > ui.measureIndex) ?? indexes[0],
-        undefined,
-        true,
-      );
-    else feedback(track === "all" ? "所有小节已确认，可以导出。" : "当前音轨已全部确认，可切换音轨或导出。");
-  };
   function renderSummary() {
     const measures = ui.state.measures || [];
     $("resumeOcr").hidden = !ui.state.ocr_task;
@@ -410,8 +390,9 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     if (!measures.length) $("recognize").closest("details").open = true;
     const bars = new Set(measures.map((m, i) => m.bar_index ?? i)).size,
       parts = new Set(measures.map((m) => m.part_id || "part-1")).size;
+    const issues = ui.state.review_measures?.length || 0;
     $("recognitionSummary").textContent =
-      `${bars} 小节${parts > 1 ? ` · ${parts} 音轨` : ""} · ${ui.state.review_measures?.length || 0} 个待检查`;
+      `${bars} 小节${parts > 1 ? ` · ${parts} 音轨` : ""}${issues ? ` · ${issues} 个小节有问题` : ""}`;
     $("scoreTitle").textContent =
       ui.state.metadata?.title || ui.state.metadata?.document_metadata?.title_fallback || ui.state.input_names?.[0] || "未命名乐谱";
     $("scoreCredits").textContent = ui.state.metadata?.artist || "";
@@ -419,7 +400,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
       ...measures.map((m, i) => {
         const o = el(
           "option",
-          `${measureLabel(m, i)}${m.needs_review ? " · 待检查" : m.reviewed ? " · 已确认" : ""}`,
+          `${measureLabel(m, i)}${m.needs_review ? " · 有问题" : ""}`,
         );
         o.value = i;
         return o;
@@ -512,7 +493,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     if (ui.busy || saving || !draft) return false;
     index = Math.max(0, Math.min(ui.state.measures.length - 1, index));
     if (index !== ui.measureIndex) {
-      if (ui.measureDirty && !(await save(false))) {
+      if (ui.measureDirty && !(await save())) {
         $("measureSelect").value = ui.measureIndex;
         return false;
       }
@@ -575,26 +556,10 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
       `原谱 · ${measureLabel(m, ui.measureIndex)}`;
     $("measureSelect").value = ui.measureIndex;
     if (sourceUrl !== m.url) loadSource(m.url);
-    $("reviewStatus").textContent = m.needs_review
-      ? "待检查"
-      : m.reviewed
-        ? "已确认"
-        : "识别完成";
+    $("reviewStatus").textContent = m.needs_review ? "检测到问题" : "识别完成";
     $("reviewStatus").className = `pill ${reviewKind(m)}`;
     $("reviewHint").hidden = !m.needs_review;
-    const timingConflicts = Object.entries(m.global_timing_conflicts || {}).map(([field, values]) =>
-      `${field === "time_signature" ? "拍号" : "速度"}：${values.join(" / ")}`);
-    $("reviewHint").textContent = m.parsed.incomplete
-      ? "该小节仍有无法确定的音符或节奏，原始识别内容已保留。请展开下方补全音符，或对照原谱重新输入整个小节；空白谱格不表示休止。"
-      : timingConflicts.length
-      ? `不同谱表的${timingConflicts.join("；")}不一致。请对照原谱修改或确认当前小节的正确值，同步位置的其他谱表会一起更新。`
-      : m.timing_errors?.length
-      ? `${m.timing_errors.join("；")}。请调整起点或时值。`
-      : m.export_errors?.length
-        ? m.export_errors.join("；")
-        : m.fingering_errors?.length
-          ? "音高或和弦与当前调弦不匹配，请核对音符和调弦。"
-          : "请对照原谱核对谱号、移调和音高，确认后即可导出。";
+    $("reviewHint").textContent = (m.issues || []).map(issue => issue.message).join("\n");
   }
   function renderObservation() {
     const panel = $("incompleteObservation"), fields = $("observationFields");
@@ -662,10 +627,8 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     $("nextIssue").disabled = busy || !(ui.state?.measures || []).some((m) =>
       m.needs_review && (track === "all" || (m.part_id || "part-1") === track));
     $("toExport").disabled = busy || !count;
-    const unconfirmed = (ui.state?.measures || []).some(m =>
-      (m.needs_review || !m.reviewed) && (track === "all" || (m.part_id || "part-1") === track));
-    $("confirmNext").disabled = busy || !count || (!ui.measureDirty && !unconfirmed);
-    $("confirmNext").textContent = unconfirmed ? "确认并继续" : ui.measureDirty ? "保存并确认" : "已全部确认";
+    $("finishEditing").disabled = busy || !count;
+    $("finishEditing").textContent = ui.measureDirty ? "保存并导出" : "下一步：导出";
     $("trackSelect").disabled = busy || !count;
     $("reviewFilter").disabled = busy || !count;
     $("saveMeasure").disabled = busy || !ui.measureDirty;
@@ -720,7 +683,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
   }
   $("editMode").onchange = async () => {
     const next = $("editMode").value;
-    if (ui.measureDirty && !(await save(false))) {
+    if (ui.measureDirty && !(await save())) {
       $("editMode").value = ui.editorMode;
       return;
     }
@@ -1232,7 +1195,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     if (ui.step !== 3 || document.querySelector('[data-screen="workbench"]').hidden) return;
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
       e.preventDefault();
-      if (!ui.busy && !saving) save(false);
+      if (!ui.busy && !saving) save();
     }
   });
   $("reviewEditor").addEventListener("keydown", (e) => {
@@ -1410,12 +1373,12 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
       e.preventDefault();
     }
   };
-  async function save(reviewed = false) {
+  async function save() {
     if (saving || ui.busy || !draft) return false;
     const invalid = invalidObservationInput();
     if (invalid) { invalid.reportValidity(); invalid.focus(); return false; }
-    if (!reviewed && !ui.measureDirty) {
-      feedback("修改已保存；核对完成后请点「确认并继续」。");
+    if (!ui.measureDirty) {
+      feedback("修改已保存。");
       return true;
     }
     const sid = ui.sid;
@@ -1431,11 +1394,9 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
       for (const key of ["incomplete", "observation", "resolved", "unresolved"]) delete music[key];
       const body = changedObservation
         ? { observation: observationDraft }
-        : !ui.measureDirty
-        ? { reviewed }
         : ui.editorMode === "text"
-          ? { target: $("measureText").value.trim(), reviewed }
-          : { measure: music, visual_techniques: visualTechniques, reviewed };
+          ? { target: $("measureText").value.trim() }
+          : { measure: music, visual_techniques: visualTechniques };
       if (!(await commitMeasureDraft({
         sid, index: ui.measureIndex, revision: draftRevision, body,
       }, api))) return false;
@@ -1464,7 +1425,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
       renderReference();
       draw();
       renderExport();
-      feedback(current().parsed.incomplete ? "已保存；还有内容需要补全。" : changedObservation ? "已保存并重新组谱，请核对。" : reviewed ? "已保存并确认。" : "已保存修改。");
+      feedback(current().parsed.incomplete ? "已保存；还有内容需要补全。" : changedObservation ? "已保存并重新组谱。" : "已保存修改。");
       return true;
     } catch (error) {
       if (ui.sid === sid) {
@@ -1482,7 +1443,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
       }
     }
   }
-  $("saveMeasure").onclick = () => save(false);
+  $("saveMeasure").onclick = save;
   $("discardMeasure").onclick = action(async () => {
     if (!confirm("放弃当前小节未保存的修改，载入已保存的内容？")) return;
     setBusy(true);
@@ -1497,9 +1458,9 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
       setBusy(false);
     }
   });
-  $("toExport").onclick = async () => {
+  $("finishEditing").onclick = $("toExport").onclick = async () => {
     const navigation = ui.navigation;
-    if (!ui.measureDirty || (await save(false))) go(4, ui.navigation === navigation);
+    if (!ui.measureDirty || (await save())) go(4, ui.navigation === navigation);
   };
   return { renderMeasures, updateMeasureControls, openIssue };
 }

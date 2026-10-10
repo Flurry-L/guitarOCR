@@ -172,12 +172,19 @@ pub fn resolve_string_count(
         && candidates["staff_network"]
             .as_u64()
             .is_some_and(|n| (1..=12).contains(&n));
+    let needs_review = manual.is_none()
+        && (value.is_null()
+            || candidates
+                .as_object()
+                .unwrap()
+                .values()
+                .any(|candidate| !candidate.is_null() && candidate != &value));
     json!({"value":value,"source":source,"candidates":candidates,
-        "needs_review":manual.is_none() && !visual_authority,
+        "needs_review":needs_review,
         "local_agreement":local_agreement,"structure_conflict":structure_conflict,
         "staff_conflict":!candidates["staff_model"].is_null() && candidates["staff_model"] != value,
         "visual_authority":visual_authority,
-        "provisional":manual.is_none() && !visual_authority && !value.is_null()})
+        "provisional":needs_review && !value.is_null()})
 }
 
 pub fn resolve_instrument_with_label(

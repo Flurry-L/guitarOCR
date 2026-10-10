@@ -1266,7 +1266,9 @@ pub fn assemble(records: &[Value], auxiliary: Option<&[Value]>) -> Result<Value,
         let mut relations = value["observation"]["relations"].clone();
         if let Some(manual) = extra.get("resolved_voices") {
             validate_manual_voices(manual)?;
-            if !same_anchors(&value["observation"]["voices"], manual) {
+            if !array(&relations).is_empty()
+                && !same_anchors(&value["observation"]["voices"], manual)
+            {
                 relations = json!([]);
                 value["unresolved"]
                     .as_array_mut()
@@ -1788,5 +1790,12 @@ mod tests {
             original[0]["observation"]
         );
         assert_eq!(records, original);
+
+        let mut plain = records[0].clone();
+        plain["observation"]["voices"] = json!([]);
+        plain["observation"]["relations"] = json!([]);
+        let edited = assemble(&[plain], Some(&[json!({"resolved_voices":manual})])).unwrap();
+        assert!(edited["records"][0]["ir"].is_string());
+        assert_eq!(edited["records"][0]["unresolved"], json!([]));
     }
 }

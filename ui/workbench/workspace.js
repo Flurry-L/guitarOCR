@@ -109,7 +109,7 @@ export function initWorkspace({ open, resume, refreshConfig }) {
     const query = $("projectSearch").value.trim().toLocaleLowerCase(), filter = $("projectFilter").value;
     let filtered = projects.filter(p => (p.title || "").toLocaleLowerCase().includes(query));
     if (filter !== "all") filtered = filtered.filter(p => ({
-      active: active(p.job), review: p.stage === "待校对" && !active(p.job),
+      active: active(p.job), review: p.stage === "识别完成" && !active(p.job),
       exported: p.stage === "已导出", failed: interrupted(p.job),
     })[filter]);
     if ($("projectSort").value === "title") filtered.sort((a, b) => (a.title || "").localeCompare(b.title || "", "zh-CN"));

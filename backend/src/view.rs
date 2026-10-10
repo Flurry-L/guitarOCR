@@ -219,7 +219,6 @@ pub fn project(root: &Path, sid: &str) -> Result<Value> {
             state["metadata"]["tuning_used"] = data["tuning_used"].clone();
             state["metadata"]["document_metadata"] = metadata(&data["document_metadata"]);
         }
-        state["review_measures"] = data.get("review_measures").cloned().unwrap_or(json!([]));
         if data["score_text"].is_string() {
             state["score_text_url"] = json!(format!("/api/sessions/{sid}/score.txt"));
         }
@@ -246,6 +245,7 @@ pub fn project(root: &Path, sid: &str) -> Result<Value> {
         let mut measures = Vec::new();
         for row in rows {
             let mut measure = row.clone();
+            crate::recognition::refresh_issues(&mut measure)?;
             let object = measure.as_object_mut().ok_or("无效的小节记录")?;
             for key in ["image", "source_page", "source_pdf"] {
                 object.remove(key);
@@ -261,6 +261,11 @@ pub fn project(root: &Path, sid: &str) -> Result<Value> {
             measure["technique_annotations"] = annotations(&row["technique_annotations"]);
             measures.push(measure);
         }
+        state["review_measures"] = json!(measures
+            .iter()
+            .filter(|m| m["needs_review"] == true)
+            .map(|m| m["measure_number"].clone())
+            .collect::<Vec<_>>());
         state["measures"] = json!(measures);
     }
     if state["export"] == true {

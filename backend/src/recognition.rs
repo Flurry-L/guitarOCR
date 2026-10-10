@@ -1636,9 +1636,10 @@ pub fn apply_pitch_regions(
         } else {
             "sounding"
         });
-        if unresolved.contains(&i) || !pending.is_empty() {
-            r["pitch_needs_review"] = json!(true);
-        }
+        r["pitch_issues"] = json!(pending.iter().map(|field|
+            json!({"code":"pitch_instruction","message":format!("音高指示尚不明确：{field}")}))
+            .chain(unresolved.contains(&i).then(|| json!({"code":"pitch_instruction","message":"无法确定谱面音高指示的含义"})))
+            .collect::<Vec<_>>());
     }
     Ok(records)
 }
@@ -2162,9 +2163,6 @@ pub fn recognize_information<G: Generator + ?Sized>(
             warnings.push(json!(
                 "TAB 弦数候选不一致或未知，请核对调弦；原模型与视觉模型候选均已保留。"
             ));
-            for r in &mut local {
-                r["pitch_needs_review"] = json!(true);
-            }
         }
         if identity_needs_review {
             for r in &mut local {
@@ -2173,13 +2171,11 @@ pub fn recognize_information<G: Generator + ?Sized>(
                 r["tuning_needs_review"] = metadata["tuning_needs_review"].clone();
                 r["instrument_tuning_candidates"] =
                     metadata["instrument_tuning_candidates"].clone();
-                r["pitch_needs_review"] = json!(true);
             }
         }
         if flag(&metadata, "tuning_needs_review") {
             for r in &mut local {
                 r["tuning_needs_review"] = json!(true);
-                r["pitch_needs_review"] = json!(true);
             }
         }
         if instrument == "pitched"
@@ -2194,9 +2190,6 @@ pub fn recognize_information<G: Generator + ?Sized>(
             warnings.push(json!(
                 "Instrument key was not explicit; written pitches were retained for review"
             ));
-            for r in &mut local {
-                r["pitch_needs_review"] = json!(true);
-            }
         }
         metadata["pitch_instructions"] = json!(local_predictions
             .iter()
@@ -2206,7 +2199,7 @@ pub fn recognize_information<G: Generator + ?Sized>(
             .iter()
             .filter(|p| p["kind"] == "annotation")
             .collect::<Vec<_>>());
-        if local.iter().any(|r| flag(r, "pitch_needs_review")) {
+        if local.iter().any(|r| !list(r, "pitch_issues").is_empty()) {
             warnings.push(json!(
                 "Some pitch instructions need review; check clef, transposition, and capo"
             ));
@@ -2241,7 +2234,7 @@ pub fn recognize_information<G: Generator + ?Sized>(
                     "pitch_context",
                     "clef_observation",
                     "pitch_reference",
-                    "pitch_needs_review",
+                    "pitch_issues",
                 ] {
                     if let Some(v) = r.get(key) {
                         c[key] = v.clone();
@@ -2778,10 +2771,115 @@ fn assembly_auxiliary(row: &Value) -> Result<Value> {
     Ok(result)
 }
 
-/// Every retry reassembles the entire score from local evidence. A changed tie
-/// or scope can therefore update its neighbours without another model call.
+/// Build the same concrete diagnostics for new results and reopened projects.
+/// Track identity/tuning questions belong to the metadata panel, not every bar.
+pub fn refresh_issues(row: &mut Value) -> Result<()> {
+    row["timing_errors"] = json!([]);
+    row["fingering_errors"] = json!([]);
+    if let Some(target) = row["target"].as_str() {
+        let measure = score::parse_measure_target(target)?;
+        let mut warnings = scorelib::gp5_constraints::timing_errors(&measure)?;
+        warnings.extend(meter_warnings(target, row)?);
+        warnings.extend(chord_recognition_errors(&measure));
+        row["timing_errors"] = json!(warnings);
+        if row["mode"] == "notation" && matches!(text(row, "instrument", ""), "guitar" | "bass") {
+            row["fingering_errors"] = json!(scorelib::gp5_constraints::notation_fingering_errors(
+                &measure,
+                &integers(&row["tuning"])?
+            )?);
+        }
+    }
+    let mut issues = Vec::new();
+    let mut add = |code: &str, message: String| {
+        let issue = json!({"code":code,"message":message});
+        if !issues.contains(&issue) {
+            issues.push(issue);
+        }
+    };
+    if !row["target"].is_string() {
+        add("incomplete", "音符或节奏尚未识别完整".into());
+    }
+    for (field, code) in [
+        ("recognition_errors", "recognition"),
+        ("timing_errors", "timing"),
+        ("fingering_errors", "fingering"),
+        ("export_errors", "encoding"),
+    ] {
+        for error in list(row, field) {
+            if let Some(message) = error.as_str() {
+                add(code, message.to_owned());
+            }
+        }
+    }
+    for unresolved in list(row, "unresolved") {
+        let code = text(unresolved, "reason", "unresolved");
+        let message = match code {
+            "note_unresolved" => "音符内容尚不完整",
+            "event_unresolved" | "voices_unresolved" | "ir_unresolved" => "音符或节奏尚未识别完整",
+            "tie_endpoint_unresolved" | "tie_identity_unresolved" | "tie_value_unresolved" => {
+                "延音线尚未连接到对应音符"
+            }
+            "sl_endpoint_unresolved" | "ss_endpoint_unresolved" => "滑音线尚未连接到对应音符",
+            "relation_kind_unresolved" => "连接线或奏法延长线的种类尚不明确",
+            "range_endpoint_unresolved" => "奏法延长线的起止位置尚不明确",
+            "manual_relation_anchors_changed" => "编辑后连接线的音符位置发生变化",
+            "pitch_conversion" => "音高转换所需的谱号或移调信息不完整",
+            "duplicate_bar_identity" => "多个小节占用了同一位置",
+            "state_value_invalid" => "拍号、调号或谱号识别值无效",
+            _ => "跨小节信息尚未连接完整",
+        };
+        add(code, message.into());
+    }
+    if flag(row, "state_needs_review") {
+        if row["score_state"]["time"].is_null() {
+            add("time_signature", "拍号尚不明确".into());
+        }
+        if row["mode"] != "tab" && row["score_state"]["key"].is_null() {
+            add("key_signature", "调号尚不明确".into());
+        }
+    }
+    for (field, code, message) in [
+        (
+            "alignment_needs_review",
+            "alignment",
+            "小节与其他谱表的位置有冲突",
+        ),
+        (
+            "structure_needs_review",
+            "structure",
+            "谱表或声部归属尚不明确",
+        ),
+    ] {
+        if flag(row, field) {
+            add(code, message.into());
+        }
+    }
+    for issue in list(row, "pitch_issues") {
+        add(
+            text(issue, "code", "pitch_instruction"),
+            text(issue, "message", "音高指示尚不明确").into(),
+        );
+    }
+    for choice in list(row, "chord_diagram_choices") {
+        add(
+            "chord_diagram",
+            text(choice, "reason", "和弦指法图尚有不同候选").into(),
+        );
+    }
+    if row["global_timing_conflicts"]
+        .as_object()
+        .is_some_and(|v| !v.is_empty())
+    {
+        add("shared_timing", "不同谱表在这里的拍号或速度不一致".into());
+    }
+    row["needs_review"] = json!(!issues.is_empty());
+    row["issues"] = json!(issues);
+    Ok(())
+}
+
+/// Reassemble all bars after recognition or editing so ties and scopes update
+/// their neighbours without another model call.
 pub fn finalize_records(records: &mut [Value], information: &mut Value) -> Result<()> {
-    let previous = records.to_vec();
     let inputs: Vec<Value> = records
         .iter()
         .map(|row| {
@@ -2879,17 +2977,6 @@ pub fn finalize_records(records: &mut [Value], information: &mut Value) -> Resul
                 || !list(row, "unresolved").is_empty()
                 || !list(row, "recognition_errors").is_empty()
         );
-        if !flag(row, "manually_edited") {
-            row["needs_review"] = json!(
-                flag(row, "recognition_needs_review")
-                    || flag(row, "state_needs_review")
-                    || flag(row, "alignment_needs_review")
-                    || flag(row, "structure_needs_review")
-                    || flag(row, "pitch_needs_review")
-                    || flag(row, "instrument_needs_review")
-                    || tuning_needs_review(row)
-            );
-        }
         row["timing_errors"] = json!([]);
     }
     let mut annotations = vec![];
@@ -2927,15 +3014,6 @@ pub fn finalize_records(records: &mut [Value], information: &mut Value) -> Resul
                 )?);
             }
         }
-        let target = text(row, "target", "");
-        let measure = score::parse_measure_target(target)?;
-        let mut warnings = scorelib::gp5_constraints::timing_errors(&measure)?;
-        warnings.extend(meter_warnings(target, row)?);
-        warnings.extend(chord_recognition_errors(&measure));
-        row["timing_errors"] = json!(warnings);
-        if !list(row, "timing_errors").is_empty() {
-            row["needs_review"] = json!(true);
-        }
     }
     let mut groups: BTreeMap<String, Vec<usize>> = BTreeMap::new();
     for (i, r) in records.iter().enumerate() {
@@ -2945,24 +3023,6 @@ pub fn finalize_records(records: &mut [Value], information: &mut Value) -> Resul
             .push(i);
     }
     for (part, indices) in groups {
-        let first = &records[indices[0]];
-        if first["mode"] == "notation"
-            && matches!(text(first, "instrument", ""), "guitar" | "bass")
-            && indices.iter().all(|&i| records[i]["mode"] == "notation")
-        {
-            for &i in &indices {
-                if let Some(target) = records[i]["target"].as_str() {
-                    let errors = scorelib::gp5_constraints::notation_fingering_errors(
-                        &score::parse_measure_target(target)?,
-                        &integers(&records[i]["tuning"])?,
-                    )?;
-                    if !errors.is_empty() {
-                        records[i]["needs_review"] = json!(true);
-                    }
-                    records[i]["fingering_errors"] = json!(errors);
-                }
-            }
-        }
         if let Some(parts) = information["parts"].as_array_mut() {
             if let Some(p) = parts.iter_mut().find(|p| text(p, "id", "") == part) {
                 p["tuning_used"] = records[indices[0]]["tuning"].clone();
@@ -2970,19 +3030,8 @@ pub fn finalize_records(records: &mut [Value], information: &mut Value) -> Resul
             }
         }
     }
-    for (row, before) in records.iter_mut().zip(&previous) {
-        if flag(row, "manually_edited") {
-            continue;
-        }
-        let changed = row["target"] != before["target"]
-            || row["assembly_relations"] != before["assembly_relations"]
-            || row["unresolved"] != before["unresolved"];
-        if !changed && flag(before, "reviewed") {
-            row["reviewed"] = json!(true);
-            row["needs_review"] = before["needs_review"].clone();
-        } else if changed || flag(row, "needs_review") {
-            row["reviewed"] = json!(false);
-        }
+    for row in records.iter_mut() {
+        refresh_issues(row)?;
     }
     if let Some(first) = records.first() {
         information["tuning_used"] = first["tuning"].clone();
@@ -3196,6 +3245,40 @@ mod observation_pipeline_tests {
     fn information() -> Value {
         json!({"parts":[],"document_metadata":{}})
     }
+    #[test]
+    fn diagnostics_follow_problems_instead_of_manual_review_flags() {
+        let count = |staff, structure| {
+            staff_evidence::resolve_string_count(
+                true,
+                &json!(staff),
+                &json!(structure),
+                &json!({}),
+                None,
+                false,
+            )
+        };
+        assert_eq!(count(6, 6)["needs_review"], false);
+        assert_eq!(count(6, 7)["needs_review"], true);
+        let mut row = record(0, json!(5), json!([]));
+        row["observation"]["voices"][0]["events"][0]["duration"] = json!("w");
+        row["pitch_needs_review"] = json!(true);
+        row["needs_review"] = json!(true);
+        row["reviewed"] = json!(false);
+        let mut rows = vec![row];
+        finalize_records(&mut rows, &mut information()).unwrap();
+        assert_eq!(rows[0]["issues"], json!([]));
+        assert_eq!(rows[0]["needs_review"], false);
+        rows[0]["reviewed"] = json!(true);
+        rows[0]["target"] = json!("M time=4/4 | V0{@0:w:s1f5 @3840:q:s1f5}");
+        refresh_issues(&mut rows[0]).unwrap();
+        assert_eq!(rows[0]["issues"][0]["code"], "timing");
+        assert_eq!(rows[0]["needs_review"], true);
+        rows[0]["target"] = json!("M time=4/4 | V0{@0:w:s1f5}");
+        rows[0]["unresolved"] = json!([{"reason":"tie_endpoint_unresolved"}]);
+        refresh_issues(&mut rows[0]).unwrap();
+        assert_eq!(rows[0]["issues"][0]["code"], "tie_endpoint_unresolved");
+        assert_eq!(rows[0]["needs_review"], true);
+    }
     struct LocalOnly {
         output: String,
         calls: usize,
@@ -3286,7 +3369,7 @@ mod observation_pipeline_tests {
             rows[0]["observation"]["voices"][0]["events"][0]["notes"][0]["fret"],
             5
         );
-        assert_eq!(rows[0]["needs_review"], true);
+        assert_eq!(rows[0]["needs_review"], false);
         assert_eq!(rows[0]["visual_techniques"][0]["source"], "manual");
         rows[1]["bar_index"] = json!(3);
         finalize_records(&mut rows, &mut information()).unwrap();

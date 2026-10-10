@@ -55,8 +55,8 @@ export function measureProfile(measure) {
   };
 }
 export function reviewKind(measure) {
-  if (!measure.needs_review) return "";
-  return measure.timing_errors?.length
+  if (!measure.issues?.length) return "";
+  return measure.parsed.incomplete || measure.timing_errors?.length || measure.export_errors?.length
     ? "failed"
     : "review";
 }

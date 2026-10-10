@@ -53,7 +53,7 @@
       </div>
       <div class="project-navigation">
         <nav id="steps" aria-label="项目导航">
-          <button data-step="3">校对</button>
+          <button data-step="3">编辑</button>
           <button data-step="4">导出</button>
           <details class="project-advanced">
             <summary>区域与信息</summary>
@@ -127,7 +127,7 @@
               <h3>识别设置</h3>
               <label
                 >处理方式<select id="importAction">
-                  <option value="full">自动识别并进入校对</option>
+                  <option value="full">自动识别并进入编辑</option>
                   <option value="import">先导入，手动检查区域</option></select
                 ><small id="actionDescription"></small></label
               >
@@ -140,7 +140,7 @@
                 </select></label
               >
               <div class="setup-note" id="taskHint">
-                识别在后台运行，关闭网页后可回来继续校对。
+                识别在后台运行，关闭网页后可回来继续编辑。
               </div>
               <span id="uploadLimits" class="import-limits"
                 >每个项目最多 100 页 · 200 MB</span
@@ -279,7 +279,7 @@
         <section data-panel="2" class="panel">
           <div class="section-head">
             <div>
-              <h2>校对谱面信息</h2>
+              <h2>谱面信息</h2>
               <p>从原图核对谱头文字、乐器和速度。</p>
             </div>
             <button id="readInfo">自动读取信息</button>
@@ -393,12 +393,12 @@
         </section>
         <section data-panel="3" class="panel">
           <div class="section-head review-heading">
-            <h2 class="visually-hidden">校对乐谱</h2>
+            <h2 class="visually-hidden">编辑乐谱</h2>
             <details class="review-options">
               <summary>识别选项</summary>
               <div class="row">
                 <button id="resumeOcr" hidden="">继续识别</button>
-                <button id="retryIssues" hidden="">重试待检查小节</button>
+                <button id="retryIssues" hidden="">重新识别有问题的小节</button>
                 <button id="recognize" class="primary">识别乐谱</button>
               </div>
             </details>
@@ -415,9 +415,9 @@
                   ><select id="measureSelect" aria-label="选择小节"></select
                   ><button id="nextMeasure" aria-label="下一小节">›</button>
                 </div>
-                <div class="row review-actions" role="group" aria-label="小节校对">
-                  <button id="confirmNext" class="primary">确认并继续</button>
-                  <button id="nextIssue" class="quiet">跳过，检查下一个</button>
+                <div class="row review-actions" role="group" aria-label="乐谱操作">
+                  <button id="finishEditing" class="primary">下一步：导出</button>
+                  <button id="nextIssue" class="quiet">下一个问题</button>
                 </div>
                 <div class="row">
                   <label class="zoom-control"
@@ -1074,8 +1074,7 @@
               <div class="track-controls">
                 <label>显示<select id="reviewFilter">
                   <option value="all">全部小节</option>
-                  <option value="review">待检查</option>
-                  <option value="confirmed">已确认</option>
+                  <option value="review">检测到问题的小节</option>
                 </select></label>
                 <span id="trackSummary" class="muted small"></span>
               </div>
@@ -1099,7 +1098,7 @@
             ></div>
           </div>
           <div class="footer">
-            <span class="muted">红色 × 表示识别失败，黄色 ! 表示需要核对。</span
+            <span class="muted">点击小节或音符即可编辑，也可直接导出。</span
             ><button id="toExport" class="primary">导出乐谱 →</button>
           </div>
         </section>
@@ -1108,16 +1107,18 @@
             <div>
               <h2>导出乐谱</h2>
             </div>
-            <button id="backToReview" data-step="3" class="quiet">← 返回校对</button>
+            <button id="backToReview" data-step="3" class="quiet">← 返回编辑</button>
           </div>
           <div id="exportSummary" class="export-summary"></div>
           <div id="exportWarning" class="hint" hidden=""></div>
-          <button id="reviewBeforeExport" hidden="">检查待处理小节</button>
+          <div class="row">
+            <button id="export" class="primary">生成导出文件</button>
+            <button id="reviewBeforeExport" hidden="">查看问题小节</button>
+          </div>
           <div class="export-formats" aria-label="主要导出格式">
             <section class="export-format">
               <h3>Guitar Pro</h3>
               <p>GP5 · 在 Guitar Pro 中继续编辑</p>
-              <button id="export" class="primary">生成 GP5</button>
               <a id="downloadGP5" class="button primary" hidden="">下载 GP5</a>
             </section>
             <section class="export-format">
@@ -1127,7 +1128,7 @@
             </section>
             <section class="export-format">
               <h3>项目备份</h3>
-              <p>ZIP · 保留原谱、识别结果与校对内容</p>
+              <p>ZIP · 保留原谱、识别结果与编辑内容</p>
               <a id="downloadProject" class="button" hidden="">下载项目 ZIP</a>
             </section>
           </div>
@@ -1150,7 +1151,7 @@
           /><select id="projectFilter" aria-label="项目状态">
             <option value="all">全部状态</option>
             <option value="active">处理中</option>
-            <option value="review">待校对</option>
+            <option value="review">已识别</option>
             <option value="exported">已导出</option>
             <option value="failed">中断或失败</option></select
           ><select id="projectSort" aria-label="项目排序">

@@ -214,6 +214,7 @@ export function initMetadata({ start, go, render, setBusy }) {
       notice(ui.state.recognition ? "谱面信息已保存，音符修改已保留。" : "谱面信息已保存，下一步识别音符与节奏。");
   });
   function showPendingIdentity() {
+    if (ui.state.recognition) return false;
     const root = ui.state.metadata;
     const pending = (root?.parts?.length ? root.parts : [root]).find(p => {
       const m = p?.document_metadata;

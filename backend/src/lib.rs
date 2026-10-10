@@ -129,7 +129,7 @@ async fn sessions(Extension(app): Extension<AppState>) -> ApiResult {
             .map(|v| v.as_secs_f64())
             .unwrap_or(0.);
         rows.push(json!({"id":sid, "title":title, "pages":saved["pages"].as_array().map(Vec::len).unwrap_or(0),
-            "stage":if saved["export"].is_string() {"已导出"} else if saved["recognition"].is_string() {"待校对"} else {"编辑中"}, "updated":updated, "job":app.tasks.snapshot(&sid)}));
+            "stage":if saved["export"].is_string() {"已导出"} else if saved["recognition"].is_string() {"识别完成"} else {"编辑中"}, "updated":updated, "job":app.tasks.snapshot(&sid)}));
     }
     let known = rows
         .iter()

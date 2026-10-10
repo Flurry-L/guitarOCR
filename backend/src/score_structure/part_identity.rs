@@ -160,11 +160,4 @@ pub(super) fn attach_page_staff_evidence(record: &mut Value, profile: &Value) {
         }
     }
     record["page_staff_evidence"] = evidence;
-    if ["instrument_evidence", "string_count_evidence"]
-        .iter()
-        .any(|key| profile[*key]["needs_review"] == true)
-    {
-        record["pitch_needs_review"] = json!(true);
-        record["needs_review"] = json!(true);
-    }
 }
