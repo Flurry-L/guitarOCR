@@ -128,7 +128,7 @@
   </g>
   <g id="deployment-caption">
     <path d="M 48 566 H 1392" stroke="#DDE1E7" stroke-width="1"/>
-    <text x="48" y="605" class="body">同架构、独立权重，按阶段加载。</text>
+    <text x="48" y="605" class="body">两条任务分支均采用 GLM-OCR 架构，各有一套权重，按阶段加载。</text>
     <text x="48" y="643" class="note">信息模型：谱头 / 谱行 / 标注图 → 名称、调弦、谱号等信息</text>
     <text x="797" y="643" class="note">小节模型：当前裁图 → state / voices / relations</text>
   </g>

@@ -62,11 +62,12 @@
 <rect x="640" y="257" width="13" height="18" rx="1" fill="white" stroke="#7079B8" stroke-width="1"/>
 <rect x="647" y="254" width="13" height="18" rx="1" fill="white" stroke="#7079B8" stroke-width="1"/>
 <rect x="654" y="251" width="13" height="18" rx="1" fill="white" stroke="#7079B8" stroke-width="1"/>
-<text x="677" y="273" font-family="'Noto Sans CJK SC','Microsoft YaHei',sans-serif" font-size="22" font-weight="600" fill="#263247" text-anchor="start">信息 GLM-OCR</text>
+<text x="677" y="273" font-family="'Noto Sans CJK SC','Microsoft YaHei',sans-serif" font-size="22" font-weight="600" fill="#263247" text-anchor="start">GLM-OCR · 信息</text>
 <path d="M 584 279 H 612" fill="none" stroke="#48556A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
 <path d="M 761 293 V 322" fill="none" stroke="#7079B8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
 <text x="625" y="351" font-family="'Noto Sans CJK SC','Microsoft YaHei',sans-serif" font-size="23" font-weight="500" fill="#263247" text-anchor="start">标题 · 调弦 · 谱表</text>
 <text x="625" y="385" font-family="'Noto Sans CJK SC','Microsoft YaHei',sans-serif" font-size="21" font-weight="400" fill="#748091" text-anchor="start">音轨归属与小节顺序</text>
+<text x="624" y="422" font-family="'Noto Sans CJK SC','Microsoft YaHei',sans-serif" font-size="20" font-weight="500" fill="#7079B8" text-anchor="start">同一架构 · 两套任务权重</text>
 <path d="M 199 244 C 285 244 299 280 338 280" fill="none" stroke="#D4876C" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
 </g>
 <g id="measure-reading">
@@ -78,7 +79,7 @@
 <rect x="640" y="481" width="13" height="18" rx="1" fill="white" stroke="#7079B8" stroke-width="1"/>
 <rect x="647" y="478" width="13" height="18" rx="1" fill="white" stroke="#7079B8" stroke-width="1"/>
 <rect x="654" y="475" width="13" height="18" rx="1" fill="white" stroke="#7079B8" stroke-width="1"/>
-<text x="677" y="497" font-family="'Noto Sans CJK SC','Microsoft YaHei',sans-serif" font-size="22" font-weight="600" fill="#263247" text-anchor="start">小节 GLM-OCR</text>
+<text x="677" y="497" font-family="'Noto Sans CJK SC','Microsoft YaHei',sans-serif" font-size="22" font-weight="600" fill="#263247" text-anchor="start">GLM-OCR · 小节</text>
 <path d="M 584 495 H 612" fill="none" stroke="#48556A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
 <path d="M 761 517 V 548" fill="none" stroke="#7079B8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
 <text x="625" y="576" font-family="'Noto Sans CJK SC','Microsoft YaHei',sans-serif" font-size="23" font-weight="600" fill="#263247" text-anchor="start">可见观察</text>
