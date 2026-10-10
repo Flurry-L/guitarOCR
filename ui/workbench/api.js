@@ -1,9 +1,34 @@
-import { request } from "./http.js";
+// Keep the deadline active while reading the response body, too.
+export async function request(path, options = {}, format = "json") {
+  const controller = new AbortController();
+  const writing = options.method && options.method !== "GET";
+  const timeout = options.body instanceof FormData ? 120000 : writing ? 60000 : 20000;
+  const timer = setTimeout(() => controller.abort(), timeout);
+  try {
+    const response = await fetch(path, { ...options, signal: controller.signal });
+    const data = response.ok
+      ? await response[format]()
+      : await response.json().catch(() => null);
+    return { ok: response.ok, status: response.status, data };
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error(writing
+        ? "请求超时，尚未收到保存或提交的确认。当前编辑和所选文件已保留，请检查项目或任务状态后再试。"
+        : "连接超时，请检查服务是否仍在运行后重试。");
+    }
+    throw new Error(error instanceof SyntaxError
+      ? "服务返回的内容无法读取，请重试。"
+      : "暂时无法连接服务。当前编辑和所选文件已保留，请检查连接后重试。");
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 const serverMode = location.pathname === "/workbench";
 let csrf;
 let userId;
 let authentication;
-export async function authenticate() {
+async function authenticate() {
   if (!serverMode) return;
   if (!authentication) authentication = (async () => {
     const auth = await request("/api/auth/me");
@@ -21,22 +46,7 @@ export async function authenticate() {
   return authentication;
 }
 function requestError(detail) {
-  if (typeof detail === "string") return detail;
-  if (!Array.isArray(detail)) return "请求失败，请重试。";
-  const fields = {
-    title: "曲名最多 500 个字符。",
-    artist: "作者最多 500 个字符。",
-    tempo_quarter: "速度须为 20 至 400 的整数。",
-    capo: "变调夹须为 0 至 24 的整数。",
-    transpose: "记谱移调须为 -36 至 36 的整数，留空则自动读取。",
-    tuning_used: "请填写 1 至 12 个弦的 MIDI 音高（0 至 127），用逗号分隔。",
-    boxes: "区域格式有误，请检查页码和位置。",
-    mode: "请选择谱面类型。",
-    measures: "请选择要识别的小节。",
-  };
-  return [...new Set(detail.map((error) =>
-    fields[error.loc?.[1]] || "输入格式有误，请检查填写的内容。",
-  ))].join("\n");
+  return typeof detail === "string" ? detail : "请求失败，请重试。";
 }
 export async function api(path, method = "GET", body, revision) {
   const opts = { method };

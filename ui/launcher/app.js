@@ -36,7 +36,7 @@ $("localEdit").onclick = () => action(async () => {
   $("logPanel").open = false;
   $("stop").hidden = false;
   try {
-    await invoke("start_local", { mode: "native" });
+    await invoke("start_local");
     if (startedAt !== generation) { await invoke("stop_local"); return; }
     status("已打开本机乐谱。");
   } catch (error) {
@@ -74,9 +74,4 @@ $("showData").onclick = () => action(() => invoke("open_data"));
   const state = await invoke("settings");
   $("serverUrl").value = state.server || "";
   $("remoteOptions").open = !!state.server;
-  if (!state.native_available) {
-    $("localEdit").hidden = $("modelHint").hidden = true;
-    $("localHint").textContent = "这台设备请通过服务器识别。";
-    $("remoteOptions").open = true;
-  }
 })().catch(error => status(String(error), true));

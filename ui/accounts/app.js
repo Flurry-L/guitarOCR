@@ -1,4 +1,39 @@
-import { api, auth, setAuth, element as el } from "./http.js";
+import { request } from "/static/api.js";
+let auth = null;
+function setAuth(value) {
+  auth = value;
+}
+async function api(path, method = "GET", body, revision) {
+  const options = { method, headers: {} };
+  if (auth && method !== "GET") options.headers["X-CSRF-Token"] = auth.csrf;
+  if (body instanceof FormData) options.body = body;
+  else if (body !== undefined) {
+    options.headers["Content-Type"] = "application/json";
+    options.body = JSON.stringify(body);
+  }
+  if (revision !== undefined) options.headers["If-Match"] = String(revision);
+  const response = await request(path, options);
+  if (!response.ok) {
+    const data = response.data || {};
+    if (response.status === 401 && auth && path !== "/api/auth/login") {
+      setAuth(null);
+      window.dispatchEvent(new Event("guitarocr:auth-required"));
+    }
+    throw new Error(
+      typeof data.detail === "string"
+        ? data.detail
+        : "填写的内容有误，请检查后重试。",
+    );
+  }
+  return response.data;
+}
+function el(tag, text, className) {
+  const node = document.createElement(tag);
+  if (text !== undefined) node.textContent = text;
+  if (className) node.className = className;
+  return node;
+}
+
 const $ = id => document.getElementById(id);
 let registering = false, view = "account", navigation = 0, refreshing = false, refreshAgain = false;
 function notice(text, error = false) {

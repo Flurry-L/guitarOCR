@@ -88,3 +88,53 @@ export const drumNames = {
   46: "开镲", 43: "低嗵鼓", 45: "中低嗵鼓", 47: "中嗵鼓", 48: "高嗵鼓", 50: "高音嗵鼓",
   49: "吊镲", 51: "叮叮镲", 52: "中国镲", 53: "镲帽", 55: "水镲", 57: "吊镲 2", 59: "叮叮镲 2",
 };
+
+const isMark = effect => effect === "pm" || effect === "let";
+const valid = overlay => overlay?.protocol === "visible_events_v1" && overlay.scope === "visible_event" && Array.isArray(overlay.events);
+export const visibleEvent = (overlay, voice, onset) => valid(overlay)
+  ? overlay.events.find(event => event.voice === voice && event.onset === onset) : undefined;
+
+// Event coverage cannot assign a technique to every tone of a chord. Keep
+// known owners, and display new marks without owners as beat text.
+export function projectVisibleTechniques(measure, overlay) {
+  if (!valid(overlay)) return measure;
+  const copy = structuredClone(measure);
+  for (const voice of copy.voices || []) for (const event of voice.events || []) {
+    const visible = visibleEvent(overlay, voice.voice, event.start);
+    if (visible?.status !== "classified" || !Array.isArray(visible.effects) || visible.effects.some(effect => !isMark(effect))) continue;
+    const desired = new Set(visible.effects), notes = event.notes || [];
+    event.effects = (event.effects || []).filter(effect => !isMark(effect));
+    for (const note of notes) {
+      note.effects = (note.effects || []).filter(effect => !isMark(effect) || desired.has(effect));
+      if (notes.length === 1) note.effects = [...new Set([...note.effects, ...desired])];
+    }
+    const unowned = [...desired].filter(effect => !notes.some(note => note.effects.includes(effect)));
+    if (unowned.length) {
+      const text = "text:" + encodeURIComponent(unowned.map(effect => effect === "pm" ? "P.M." : "let ring").join(" / "));
+      if (!event.effects.includes(text)) event.effects.push(text);
+    }
+  }
+  return copy;
+}
+
+export function setVisibleEvent(overlay, voice, onset, effects) {
+  const events = valid(overlay) ? overlay.events.filter(event => event.voice !== voice || event.onset !== onset) : [];
+  return {protocol: "visible_events_v1", scope: "visible_event",
+    events: [...events, {voice, onset, effects: [...new Set(effects.filter(isMark))], status: "classified"}]
+      .sort((a, b) => a.voice - b.voice || a.onset - b.onset)};
+}
+
+// A moved/edited beat must not inherit an obsolete image interpretation.
+// Text/chord annotations can change without changing the musical anchor.
+export function retainUnchangedVisualEvents(overlay, before, after) {
+  if (!valid(overlay)) return overlay;
+  const signature = (measure, mark) => {
+    const event = measure.voices?.find(voice => voice.voice === mark.voice)?.events?.find(event => event.start === mark.onset);
+    return event && JSON.stringify({duration: event.duration, status: event.status, notes: event.notes,
+      marks: event.effects?.filter(isMark) || []});
+  };
+  return {...overlay, events: overlay.events.filter(mark => {
+    const first = signature(before, mark), second = signature(after, mark);
+    return first && first === second;
+  })};
+}

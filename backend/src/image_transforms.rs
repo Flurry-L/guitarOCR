@@ -10,8 +10,6 @@
 //! `src/libImaging/Resample.c`:
 //! https://github.com/opencv/opencv/blob/4.13.0/modules/imgproc/src/resize.cpp
 //! https://github.com/python-pillow/Pillow/blob/12.3.0/src/libImaging/Resample.c
-//! OpenCV's 4.x branch was consulted first; the relevant routines were then
-//! checked against the fixed 4.13.0 tag used by the development goldens.
 //!
 //! Changes for GuitarOCR (2026): RGB8-only safe Rust storage and iteration,
 //! a four-row cubic cache, i64 accumulators, and no C/C++/IPP/SIMD dependency.
@@ -19,11 +17,8 @@
 //! Willow Garage Inc. (2009), and Itseez Inc. (2014-2015).
 //! PIL/Pillow copyrights: Secret Labs AB (1997-2011), Fredrik Lundh and
 //! contributors (1995-2011), Jeffrey 'Alex' Clark and contributors (2010).
-//! Full upstream copyrights, conditions and disclaimers are retained in:
-//! ../licenses/OpenCV-4.13.0-resize-NOTICE.txt (source-file license notice)
-//! ../licenses/OpenCV-4.13.0-LICENSE.txt (upstream project Apache-2.0 license)
-//! ../licenses/Pillow-12.3.0-LICENSE.txt (PIL/Pillow MIT-CMU license)
-//! See ../licenses/image-transforms-SOURCES.txt for scope and provenance.
+//! Full upstream copyrights, conditions, disclaimers and adaptation sources
+//! are retained in the repository's THIRD_PARTY_NOTICES.md.
 use image::RgbImage;
 
 const CUBIC_BITS: u32 = 11;
@@ -76,8 +71,7 @@ fn cubic_taps(source: u32, target: u32) -> Vec<CubicTap> {
 /// 11-bit weights and final rounded/saturated 22-bit shift in OpenCV 4.x:
 /// https://github.com/opencv/opencv/blob/4.13.0/modules/imgproc/src/resize.cpp
 /// OpenCV's IPP/SIMD paths can differ by one intensity level from this portable
-/// scalar path; golden fixtures exercise both, without claiming cross-build
-/// bit-exactness. This does not apply a downsampling antialias filter.
+/// scalar path. This does not apply a downsampling antialias filter.
 ///
 /// Panics if any source or destination dimension is zero. Callers must enforce
 /// their image-size/allocation limits before reaching this low-level routine.

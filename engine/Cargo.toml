@@ -10,8 +10,7 @@ libloading = "0.8"
 getrandom = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread", "time", "macros"] }
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json"] }
-serde_json = "1"
+# llama.cpp emits object properties in schema order. Keep the training order;
+# alphabetizing these keys changes the model's constrained decoding sequence.
+serde_json = { version = "1", features = ["preserve_order"] }
 ort = { version = "=2.0.0-rc.10", default-features = false, features = ["std", "load-dynamic"] }
-
-[dev-dependencies]
-tempfile = "3"

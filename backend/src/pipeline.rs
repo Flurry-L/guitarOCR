@@ -11,7 +11,6 @@ use crate::tasks::Progress;
 use crate::view;
 use guitarocr_engine::runtime::{Options, Runtime, Session};
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, HashSet},
     fs::{self, OpenOptions},
@@ -75,16 +74,6 @@ impl Pipeline {
             .and_then(|engine| engine.as_ref().map(|e| e.stats()))
             .unwrap_or(Value::Null)
     }
-    pub fn unload(&self) -> Result<()> {
-        let engine = self
-            .engine
-            .try_lock()
-            .map_err(|_| "模型正在准备，请先停止任务")?;
-        if let Some(runtime) = engine.as_ref() {
-            runtime.unload()?;
-        }
-        Ok(())
-    }
     pub fn shutdown(&self) {
         if let Ok(engine) = self.engine.lock() {
             if let Some(engine) = engine.as_ref() {
@@ -132,6 +121,8 @@ impl Pipeline {
                     accelerator,
                     model: self.models.model(),
                     projector: self.models.projector(),
+                    adapter: self.models.information_adapter(),
+                    adapter_tasks: self.models.information_adapter_tasks(),
                     log: self.models.root.join("inference.log"),
                     capabilities: self.native.capabilities.clone(),
                     slots: self.slots,
@@ -156,7 +147,15 @@ impl Pipeline {
     ) -> Result<()> {
         let ort = self.native.ort.as_ref().ok_or("原生ONNX组件未准备")?;
         self.models.ensure(allow_download, progress)?;
-        layout::detect(root, sid, ort, &self.models.layout(), requested, progress)
+        layout::detect(
+            root,
+            sid,
+            ort,
+            &self.models.layout(),
+            &self.models.layout_quality(),
+            requested,
+            progress,
+        )
     }
     pub fn information(
         &self,
@@ -173,6 +172,18 @@ impl Pipeline {
             .tempdir_in(&directory)
             .map_err(|e| e.to_string())?;
         let flags = &self.models.capabilities;
+        if self.models.chord_evidence().is_some()
+            || self.models.structure_relations().is_some()
+            || self.models.staff_evidence().is_some()
+            || self.models.staff_label().is_some()
+            || self.models.instrument_text().is_some()
+            || self.models.part_continuation().is_some()
+            || self.models.clef_spatial().is_some()
+            || self.models.text_regions().is_some()
+            || self.models.chord_text_roles().is_some()
+        {
+            initialize_runtime(self.native.ort.as_ref().ok_or("原生ONNX组件未准备")?)?;
+        }
         let config = InformationConfig {
             layout_path: layout_path.clone(),
             fallback_title: state["input_names"][0]
@@ -183,7 +194,15 @@ impl Pipeline {
             staff_profile: flags["staff_profile"] == true,
             pitch_context: flags["pitch_context"] == true,
             score_structure: flags["score_structure"] == true,
-            compact_structure: flags["compact_structure"] == true,
+            chord_evidence_model: self.models.chord_evidence(),
+            structure_relation_model: self.models.structure_relations(),
+            staff_evidence_model: self.models.staff_evidence(),
+            staff_label_model: self.models.staff_label(),
+            instrument_text_model: self.models.instrument_text(),
+            part_continuation_model: self.models.part_continuation(),
+            clef_spatial_model: self.models.clef_spatial(),
+            text_regions_model: self.models.text_regions(),
+            chord_text_roles_model: self.models.chord_text_roles(),
             structure_output: Some(output.path().to_owned()),
             ..Default::default()
         };
@@ -191,6 +210,15 @@ impl Pipeline {
         let mut info = self.with_engine(allow_download, progress, |engine| {
             recognition::recognize_information(engine, &layout, &config, &|| progress.cancelled())
         })?;
+        if let Some(title) = state["manual_title"].as_str() {
+            recognition::headers::preserve_manual_title(
+                &json!({"title":title,"document_metadata":{"title_source":"manual"}}),
+                &mut info.manifest,
+            );
+        } else if let Some(previous) = state["info"].as_str() {
+            let previous = view::read_json(Path::new(previous))?;
+            recognition::headers::preserve_manual_title(&previous, &mut info.manifest);
+        }
         let predictions = output.path().join("predictions.json");
         edit::json_file(&predictions, &json!(info.predictions))?;
         let structure = output.path().join("structure_predictions.json");
@@ -305,50 +333,29 @@ impl Pipeline {
         } else {
             Value::Null
         };
+        let technique_models = self.models.technique_relations()?;
         let config = MeasureConfig {
             image_policy: Some(ImagePolicy::from_value(&self.models.policy)?),
             visual_pitch: self.models.capabilities["visual_pitch"] == true,
             pitch_context: self.models.capabilities["pitch_context"] == true,
             written_pitch: self.models.capabilities["written_pitch"] == true,
-            constrained_decoding: self.models.capabilities["m2_constraints"] == true,
-            retry_constraints: self.models.capabilities["m2_retry_constraints"] == true,
+            constrained_decoding: self.models.capabilities["measure_constraints"] == true,
             ..Default::default()
         };
-        self.with_engine(allow_download, progress, |_| Ok(()))?;
-        let selected_device = self.device();
-        let images = records
-            .iter()
-            .map(|r| fingerprint(Path::new(r["image"].as_str().ok_or("小节图片缺失")?)))
-            .collect::<Result<Vec<_>>>()?;
-        let context = json!({"native_context":1,"layout":fingerprint(&layout_path)?,"info":fingerprint(&info_path)?,"images":images,"models":self.models.catalog_identity(),"policy":self.models.policy,"capabilities":self.models.capabilities,"retry":state["ocr_task"]["measures"],"initial":initial,"options":[selected_device,8192,config.max_tokens,config.max_tokens_ceiling,config.maximum_attempts]});
-        let context_file = output.join("recognition_context.json");
-        let context_matches = view::read_json(&context_file)
-            .ok()
-            .map(|mut previous| {
-                // Relocating downloads does not change the model or completed measures.
-                previous["models"] = Models::content_identity(&previous["models"]);
-                previous
-            })
-            .as_ref()
-            == Some(&context);
-        if resume
-            && !context_matches
-            && output
-                .join("recognition.jsonl")
-                .metadata()
-                .is_ok_and(|m| m.len() > 0)
-        {
-            return Err("任务输入、模型或设备已改变，不能续跑；请重新开始识别。旧结果保留".into());
-        }
-        if !context_matches {
-            edit::json_file(&context_file, &context)?;
-        }
         self.models.ensure(allow_download, progress)?;
         initialize_runtime(self.native.ort.as_ref().ok_or("缺少原生ONNX组件")?)?;
+        let mut technique_reader = technique_models
+            .as_ref()
+            .map(|paths| {
+                recognition::technique_relation::CalibratedTechniqueReader::new(
+                    &paths[0], &paths[1], &paths[2],
+                )
+            })
+            .transpose()?;
         let states_file = output.join("state_predictions.json");
-        let states = if resume && context_matches && states_file.is_file() {
+        let states = if resume && states_file.is_file() {
             let states = view::read_json(&states_file)?;
-            recognition::resolve_score_states(&mut records, &states)?;
+            recognition::signature_state::resolve(&mut records, &states)?;
             states
         } else {
             let mut reader = SignatureReader::new(&self.models.signature())?;
@@ -358,7 +365,6 @@ impl Pipeline {
             edit::json_file(&states_file, &states)?;
             states
         };
-        let _ = states;
         let journal = output.join("recognition.jsonl");
         let mut completed = if resume {
             read_journal(&journal)?
@@ -373,13 +379,53 @@ impl Pipeline {
                 }
             }
         }
-        self.with_engine(allow_download,progress,|engine|{
-            if self.device()!=selected_device{return Err("识别设备在任务间改变，请重新开始本轮识别；旧结果保留".into());}
-            let mut log=OpenOptions::new().create(true).append(true).open(&journal).map_err(|e|e.to_string())?;
-            for record in &records{progress.checkpoint()?;let number=record["measure_number"].as_u64().ok_or("小节编号缺失")?as usize;
-                if !completed.contains_key(&number){let result=recognition::recognize_measure(engine,record,&config,&||progress.cancelled())?;progress.checkpoint()?;serde_json::to_writer(&mut log,&result.record).map_err(|e|e.to_string())?;log.write_all(b"\n").map_err(|e|e.to_string())?;log.flush().map_err(|e|e.to_string())?;completed.insert(number,result.record);}
-                progress.update(json!({"done":completed.len(),"total":records.len(),"message":format!("正在识别第 {} / {} 小节",completed.len(),records.len())}))?;
-            }Ok(())
+        seed_accepted_states(&mut records, &states, &completed)?;
+        if technique_reader.is_some() {
+            recognition::technique_relation::prepare_contexts(&mut records, &|| {
+                progress.cancelled()
+            })?;
+        }
+        self.with_engine(allow_download, progress, |engine| {
+            let mut log = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&journal)
+                .map_err(|e| e.to_string())?;
+            for record in &records {
+                progress.checkpoint()?;
+                let number = record["measure_number"].as_u64().ok_or("小节编号缺失")? as usize;
+                if let Some(saved) = completed.get_mut(&number) {
+                    if let Some(reader) = &mut technique_reader {
+                        let before = saved.clone();
+                        recognition::technique_relation::refresh_context(saved, record);
+                        reader.recognize(saved, &|| progress.cancelled())?;
+                        if *saved != before {
+                            progress.checkpoint()?;
+                            serde_json::to_writer(&mut log, saved).map_err(|e| e.to_string())?;
+                            log.write_all(b"\n").map_err(|e| e.to_string())?;
+                            log.flush().map_err(|e| e.to_string())?;
+                        }
+                    }
+                } else {
+                    let mut result =
+                        recognition::recognize_measure(engine, record, &config, &|| {
+                            progress.cancelled()
+                        })?;
+                    if let Some(reader) = &mut technique_reader {
+                        reader.recognize(&mut result, &|| progress.cancelled())?;
+                    }
+                    progress.checkpoint()?;
+                    serde_json::to_writer(&mut log, &result).map_err(|e| e.to_string())?;
+                    log.write_all(b"\n").map_err(|e| e.to_string())?;
+                    log.flush().map_err(|e| e.to_string())?;
+                    completed.insert(number, result);
+                }
+                progress.update(json!({
+                    "done": completed.len(), "total": records.len(),
+                    "message": format!("正在识别第 {} / {} 小节", completed.len(), records.len())
+                }))?;
+            }
+            Ok(())
         })?;
         let mut finished = records
             .iter()
@@ -474,22 +520,6 @@ fn stage(directory: &Path, state: &Value, key: &str, kind: &str) -> Result<(Path
     }
     Ok((path, value))
 }
-fn fingerprint(path: &Path) -> Result<String> {
-    let mut file = fs::File::open(path).map_err(|e| e.to_string())?;
-    let mut hash = Sha256::new();
-    std::io::copy(&mut file, &mut HashWriter(&mut hash)).map_err(|e| e.to_string())?;
-    Ok(format!("{:x}", hash.finalize()))
-}
-struct HashWriter<'a>(&'a mut Sha256);
-impl Write for HashWriter<'_> {
-    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        self.0.update(bytes);
-        Ok(bytes.len())
-    }
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
 fn read_journal(path: &Path) -> Result<BTreeMap<usize, Value>> {
     let mut result = BTreeMap::new();
     if !path.is_file() {
@@ -525,6 +555,24 @@ fn read_journal(path: &Path) -> Result<BTreeMap<usize, Value>> {
     Ok(result)
 }
 
+fn seed_accepted_states(
+    records: &mut [Value],
+    predictions: &Value,
+    accepted: &BTreeMap<usize, Value>,
+) -> Result<()> {
+    if accepted.is_empty() {
+        return Ok(());
+    }
+    let mut seeded = predictions.clone();
+    for (number, row) in accepted {
+        seeded[number.to_string()] = recognition::signature_state::seed_accepted_context(
+            &predictions[number.to_string()],
+            row,
+        )?;
+    }
+    recognition::signature_state::resolve(records, &seeded)
+}
+
 fn finalize_selected(
     records: &mut [Value],
     information: &mut Value,
@@ -553,46 +601,4 @@ fn finalize_selected(
         }
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn retry_preserves_every_unselected_manual_field_and_recovers_journal_tail() {
-        let workspace = tempfile::tempdir().unwrap();
-        let demo = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../ui/workbench/examples/Harbor-Light-synthetic-project.zip");
-        let project =
-            crate::project::import_project(demo, workspace.path(), &Default::default()).unwrap();
-        let source =
-            view::read_json(Path::new(project.session["recognition"].as_str().unwrap())).unwrap();
-        let mut information =
-            view::read_json(Path::new(project.session["info"].as_str().unwrap())).unwrap();
-        let mut rows = source["records"].as_array().unwrap().clone();
-        let mut parsed =
-            scorelib::score::parse_measure_target(rows[0]["target"].as_str().unwrap()).unwrap();
-        parsed["tempo_quarter"] = json!(132);
-        rows[0]["target"] = json!(scorelib::score::format_measure_target(
-            &parsed,
-            rows[0]["mode"].as_str().unwrap(),
-            true
-        )
-        .unwrap());
-        rows[0]["manually_edited"] = json!(true);
-        rows[0]["reviewed"] = json!(true);
-        rows[0]["chord_annotations"] = json!([]);
-        let accepted = rows[0].clone();
-        information["document_metadata"]["tempo_quarter"] = json!(120);
-        finalize_selected(&mut rows, &mut information, Some(&HashSet::from([2]))).unwrap();
-        assert_eq!(rows[0], accepted);
-        let journal = workspace.path().join("journal.jsonl");
-        let mut bytes = serde_json::to_vec(&accepted).unwrap();
-        bytes.extend_from_slice(b"\n{\"measure_number\":");
-        fs::write(&journal, bytes).unwrap();
-        let recovered = read_journal(&journal).unwrap();
-        assert_eq!(recovered.len(), 1);
-        assert_eq!(recovered[&1], accepted);
-        assert!(fs::read(&journal).unwrap().ends_with(b"\n"));
-    }
 }

@@ -3,9 +3,6 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
-from hashlib import sha256
-import json
 from pathlib import Path
 import shutil
 import subprocess
@@ -110,25 +107,7 @@ def main():
                 )
             subprocess.run(command, check=True)
             shutil.copy2(build / f"{name}.dll", output / f"{name}.dll")
-    record = {
-        "built_at_utc": datetime.now(timezone.utc).isoformat(),
-        "compiler": subprocess.check_output(
-            [args.clang, "--version"], text=True
-        ).splitlines()[0],
-        "qt_root": str(qt),
-        "sdk_root": str(sdk),
-        "source_sha256": {
-            str(p.relative_to(source)): sha256(p.read_bytes()).hexdigest()
-            for p in sorted(source.rglob("*"))
-            if p.is_file() and "__pycache__" not in p.parts
-        },
-        "outputs": [
-            {"name": p.name, "sha256": sha256(p.read_bytes()).hexdigest()}
-            for p in sorted(output.glob("*.dll"))
-        ],
-        "runtime_validation": "not_run",
-    }
-    (output / "build-manifest.json").write_text(json.dumps(record, indent=2) + "\n")
+            print(f"Built {output / (name + '.dll')}")
 
 
 if __name__ == "__main__":

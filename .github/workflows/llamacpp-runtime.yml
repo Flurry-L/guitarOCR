@@ -22,7 +22,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ggml-org/llama.cpp
-          ref: 8019dc563b1ecbae6b161a70c3a1359f1b206c1e
           path: .runtime-source
       - uses: actions/setup-python@v5
         with:

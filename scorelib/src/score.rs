@@ -1,6 +1,6 @@
-//! Native M2 score syntax and hard score-IR invariants.
+//! Native M score syntax and hard score-IR invariants.
 //!
-//! The JSON shape matches `scorelib/python/scorelib/m2.py` and the score editor. Parsing never
+//! The JSON shape matches `scorelib/python/scorelib/score.py` and the score editor. Parsing never
 //! assigns strings to pitched/percussion notes, quantizes durations, or discards
 //! effects. Display-mode projection is explicit in the formatter; desktop saves
 //! should pass `preserve_playback = true`. Integers outside i64 and arithmetic
@@ -61,13 +61,13 @@ fn position_pattern() -> &'static Regex {
 }
 fn integer(text: &str) -> ScoreResult<i64> {
     text.parse::<i64>()
-        .map_err(|_| format!("Invalid or out-of-range M2 integer: {text:?}"))
+        .map_err(|_| format!("Invalid or out-of-range M integer: {text:?}"))
 }
 fn int_field(value: &Value, key: &str) -> ScoreResult<i64> {
     value
         .get(key)
         .and_then(Value::as_i64)
-        .ok_or_else(|| format!("M2 field {key:?} must be an i64 integer"))
+        .ok_or_else(|| format!("M field {key:?} must be an i64 integer"))
 }
 fn int_default(value: &Value, key: &str, default: i64) -> ScoreResult<i64> {
     if value.get(key).is_none() {
@@ -80,20 +80,20 @@ fn bool_default(value: &Value, key: &str) -> ScoreResult<bool> {
     match value.get(key) {
         None => Ok(false),
         Some(Value::Bool(b)) => Ok(*b),
-        _ => Err(format!("M2 field {key:?} must be a boolean")),
+        _ => Err(format!("M field {key:?} must be a boolean")),
     }
 }
 fn text_field<'a>(value: &'a Value, key: &str) -> ScoreResult<&'a str> {
     value
         .get(key)
         .and_then(Value::as_str)
-        .ok_or_else(|| format!("M2 field {key:?} must be text"))
+        .ok_or_else(|| format!("M field {key:?} must be text"))
 }
 fn list_default<'a>(value: &'a Value, key: &str) -> ScoreResult<&'a [Value]> {
     match value.get(key) {
         None | Some(Value::Null) => Ok(&[]),
         Some(Value::Array(items)) => Ok(items),
-        _ => Err(format!("M2 field {key:?} must be an array")),
+        _ => Err(format!("M field {key:?} must be an array")),
     }
 }
 fn strings(value: &Value, key: &str) -> ScoreResult<Vec<String>> {
@@ -102,10 +102,10 @@ fn strings(value: &Value, key: &str) -> ScoreResult<Vec<String>> {
         .map(|v| {
             let text = v
                 .as_str()
-                .ok_or_else(|| format!("M2 field {key:?} must contain only strings"))?;
+                .ok_or_else(|| format!("M field {key:?} must contain only strings"))?;
             if text.is_empty() || split_top_level(text)?.len() != 1 {
                 return Err(format!(
-                    "M2 {key} item contains an unescaped separator or is empty"
+                    "M {key} item contains an unescaped separator or is empty"
                 ));
             }
             Ok(text.to_owned())
@@ -115,10 +115,10 @@ fn strings(value: &Value, key: &str) -> ScoreResult<Vec<String>> {
 fn known_fields(value: &Value, names: &[&str], kind: &str) -> ScoreResult<()> {
     let object = value
         .as_object()
-        .ok_or_else(|| format!("M2 {kind} must be an object"))?;
+        .ok_or_else(|| format!("M {kind} must be an object"))?;
     for key in object.keys() {
         if !names.contains(&key.as_str()) {
-            return Err(format!("Unsupported M2 {kind} field: {key}"));
+            return Err(format!("Unsupported M {kind} field: {key}"));
         }
     }
     Ok(())
@@ -144,12 +144,12 @@ fn split_top_level(text: &str) -> ScoreResult<Vec<&str>> {
                     _ => '[',
                 };
                 if stack.pop() != Some(expected) {
-                    return Err(format!("Unbalanced M2 delimiters: {text:?}"));
+                    return Err(format!("Unbalanced M delimiters: {text:?}"));
                 }
             }
             ',' if stack.is_empty() => {
                 if start == index {
-                    return Err(format!("Empty M2 list item: {text:?}"));
+                    return Err(format!("Empty M list item: {text:?}"));
                 }
                 values.push(&text[start..index]);
                 start = index + 1;
@@ -158,10 +158,10 @@ fn split_top_level(text: &str) -> ScoreResult<Vec<&str>> {
         }
     }
     if !stack.is_empty() {
-        return Err(format!("Unbalanced M2 delimiters: {text:?}"));
+        return Err(format!("Unbalanced M delimiters: {text:?}"));
     }
     if start == text.len() {
-        return Err(format!("Empty M2 list item: {text:?}"));
+        return Err(format!("Empty M list item: {text:?}"));
     }
     values.push(&text[start..]);
     Ok(values)
@@ -170,7 +170,7 @@ fn split_top_level(text: &str) -> ScoreResult<Vec<&str>> {
 pub fn parse_duration_token(token: &str) -> ScoreResult<Value> {
     let captures = duration_pattern()
         .captures(token)
-        .ok_or_else(|| format!("Invalid M2 duration token: {token:?}"))?;
+        .ok_or_else(|| format!("Invalid M duration token: {token:?}"))?;
     let base = &captures[1];
     let value = match base {
         "w" => 1,
@@ -187,7 +187,7 @@ pub fn parse_duration_token(token: &str) -> ScoreResult<Value> {
     let times = captures.get(4).map_or(Ok(1), |m| integer(m.as_str()))?;
     if value <= 0 || enters <= 0 || times <= 0 {
         return Err(format!(
-            "M2 duration and tuplet counts must be positive: {token:?}"
+            "M duration and tuplet counts must be positive: {token:?}"
         ));
     }
     Ok(
@@ -200,7 +200,7 @@ pub fn duration_ticks(duration: &Value) -> ScoreResult<Rational> {
     let enters = int_default(duration, "tuplet_enters", 1)?;
     let times = int_default(duration, "tuplet_times", 1)?;
     if value <= 0 || enters <= 0 || times <= 0 {
-        return Err("M2 duration and tuplet counts must be positive".into());
+        return Err("M duration and tuplet counts must be positive".into());
     }
     let (dot_num, dot_den) = if bool_default(duration, "double_dotted")? {
         (7, 4)
@@ -212,11 +212,11 @@ pub fn duration_ticks(duration: &Value) -> ScoreResult<Rational> {
     let numerator = 3840_i128
         .checked_mul(times as i128)
         .and_then(|n| n.checked_mul(dot_num))
-        .ok_or("M2 tick numerator overflow")?;
+        .ok_or("M tick numerator overflow")?;
     let denominator = (value as i128)
         .checked_mul(enters as i128)
         .and_then(|n| n.checked_mul(dot_den))
-        .ok_or("M2 tick denominator overflow")?;
+        .ok_or("M tick denominator overflow")?;
     Rational::new(numerator, denominator)
 }
 
@@ -257,12 +257,66 @@ fn duration_token(duration: &Value) -> ScoreResult<String> {
     Ok(token)
 }
 
+/// Decompose silence into exact supported rest durations.
+pub fn rest_events(mut total: i64) -> ScoreResult<Vec<Value>> {
+    if total < 0 {
+        return Err("Negative silence span".into());
+    }
+    let mut out = vec![];
+    let mut start = 0;
+    // The 10-tick remainder cannot be written with these exact durations.
+    let durations = [
+        (3840, 1, false, 1, 1),
+        (2880, 2, true, 1, 1),
+        (1920, 2, false, 1, 1),
+        (1440, 4, true, 1, 1),
+        (960, 4, false, 1, 1),
+        (720, 8, true, 1, 1),
+        (480, 8, false, 1, 1),
+        (360, 16, true, 1, 1),
+        (240, 16, false, 1, 1),
+        (180, 32, true, 1, 1),
+        (120, 32, false, 1, 1),
+        (60, 64, false, 1, 1),
+        (40, 64, false, 3, 2),
+        (30, 128, false, 1, 1),
+        (20, 128, false, 3, 2),
+    ];
+    while total > 0 {
+        let Some(&(ticks, value, dotted, enters, times)) = durations
+            .iter()
+            .find(|(n, _, _, _, _)| *n <= total && total - n != 10)
+        else {
+            return Err("Silence gap has no exact rest representation".into());
+        };
+        out.push(json!({"start":start,"duration":{"value":value,"dotted":dotted,"double_dotted":false,"tuplet_enters":enters,"tuplet_times":times},"notes":[],"status":"rest"}));
+        start += ticks;
+        total -= ticks;
+    }
+    Ok(out)
+}
+
+/// Express a silence span in the same musical text used by training and OCR.
+pub fn rest_target(ticks: i64) -> ScoreResult<String> {
+    let events = rest_events(ticks)?
+        .iter()
+        .map(|event| {
+            Ok(format!(
+                "@{}:{}:r",
+                event["start"],
+                duration_token(&event["duration"])?
+            ))
+        })
+        .collect::<ScoreResult<Vec<_>>>()?;
+    Ok(format!("M | V0{{{}}}", events.join(" ")))
+}
+
 fn parse_note_token(token: &str) -> ScoreResult<Value> {
     let captures = note_pattern()
         .captures(token)
-        .ok_or_else(|| format!("Invalid M2 note token: {token:?}"))?;
+        .ok_or_else(|| format!("Invalid M note token: {token:?}"))?;
     if captures.get(1).is_none() && captures.get(3).is_none() {
-        return Err(format!("Invalid M2 note token: {token:?}"));
+        return Err(format!("Invalid M note token: {token:?}"));
     }
     let mut velocity = 95;
     let mut swap_accidentals = false;
@@ -308,8 +362,7 @@ fn unquote(text: &str) -> ScoreResult<String> {
         bytes.push(source[i]);
         i += 1;
     }
-    String::from_utf8(bytes)
-        .map_err(|_| "M2 metadata contains invalid percent-encoded UTF-8".into())
+    String::from_utf8(bytes).map_err(|_| "M metadata contains invalid percent-encoded UTF-8".into())
 }
 fn quote(text: &str) -> String {
     const HEX: &[u8] = b"0123456789ABCDEF";
@@ -326,32 +379,32 @@ fn quote(text: &str) -> String {
     output
 }
 
-/// Parse the entire M2 grammar, retaining all sixteen voice slots, arbitrary
+/// Parse the entire M grammar, retaining all sixteen voice slots, arbitrary
 /// extension durations, note/beat effects, velocities and accidental spellings.
 /// Semantic constraints are intentionally separate from syntactic parsing.
 pub fn parse_measure_target(text: &str) -> ScoreResult<Value> {
     let (prefix, voice_text) = text
         .trim()
         .split_once('|')
-        .ok_or("M2 target must start with 'M2' and contain '|'")?;
+        .ok_or("M target must start with 'M' and contain '|'")?;
     let mut tokens = prefix.split_whitespace();
-    if tokens.next() != Some("M2") {
-        return Err("M2 target must start with 'M2' and contain '|'".into());
+    if !matches!(tokens.next(), Some("M")) {
+        return Err("M target must start with 'M' and contain '|'".into());
     }
     let mut metadata = HashMap::new();
     for token in tokens {
         let (key, value) = token
             .split_once('=')
-            .ok_or_else(|| format!("Invalid M2 metadata token: {token:?}"))?;
+            .ok_or_else(|| format!("Invalid M metadata token: {token:?}"))?;
         if ![
             "time", "tempo", "key", "feel", "bar", "rep", "alt", "section", "dir", "from",
         ]
         .contains(&key)
         {
-            return Err(format!("Unknown M2 metadata: {key}"));
+            return Err(format!("Unknown M metadata: {key}"));
         }
         if metadata.insert(key, value).is_some() {
-            return Err(format!("Duplicate M2 metadata: {key}"));
+            return Err(format!("Duplicate M metadata: {key}"));
         }
     }
     let meta_text = |key| metadata.get(key).map_or(Value::Null, |s| json!(s));
@@ -385,15 +438,15 @@ pub fn parse_measure_target(text: &str) -> ScoreResult<Value> {
     {
         let captures = voice_pattern()
             .captures(part)
-            .ok_or_else(|| format!("Invalid M2 voice: {part:?}"))?;
+            .ok_or_else(|| format!("Invalid M voice: {part:?}"))?;
         let mut events: Vec<Value> = Vec::new();
         for event in captures[2].split_whitespace() {
             let body = event
                 .strip_prefix('@')
-                .ok_or_else(|| format!("Invalid M2 event: {event:?}"))?;
+                .ok_or_else(|| format!("Invalid M event: {event:?}"))?;
             let (start, rest) = body
                 .split_once(':')
-                .ok_or_else(|| format!("Invalid M2 event start: {event:?}"))?;
+                .ok_or_else(|| format!("Invalid M event start: {event:?}"))?;
             let duration_end = if rest.starts_with(|c: char| c.is_ascii_alphabetic()) {
                 // Find a payload separator, skipping only the duration's tuplet
                 // bracket, never brackets that belong to an effect payload.
@@ -410,14 +463,14 @@ pub fn parse_measure_target(text: &str) -> ScoreResult<Value> {
             } else {
                 None
             }
-            .ok_or_else(|| format!("Invalid M2 event duration: {event:?}"))?;
+            .ok_or_else(|| format!("Invalid M event duration: {event:?}"))?;
             let duration = parse_duration_token(&rest[..duration_end])?;
             let start = integer(start)?;
             let mut payload = &rest[duration_end + 1..];
             if payload == "^" {
                 let mut previous = events
                     .last()
-                    .ok_or("M2 repeated payload '^' cannot be the first event")?
+                    .ok_or("M repeated payload '^' cannot be the first event")?
                     .clone();
                 previous["start"] = json!(start);
                 previous["duration"] = duration;
@@ -425,13 +478,13 @@ pub fn parse_measure_target(text: &str) -> ScoreResult<Value> {
                 continue;
             }
             if payload.is_empty() {
-                return Err(format!("Missing M2 event payload: {event:?}"));
+                return Err(format!("Missing M event payload: {event:?}"));
             }
             let mut beat_effects = Vec::new();
             if payload.ends_with('>') {
                 let (notes, effects) = payload
                     .rsplit_once('<')
-                    .ok_or_else(|| format!("Invalid M2 beat effects: {payload:?}"))?;
+                    .ok_or_else(|| format!("Invalid M beat effects: {payload:?}"))?;
                 beat_effects = split_top_level(&effects[..effects.len() - 1])?;
                 payload = notes;
             }
@@ -448,7 +501,7 @@ pub fn parse_measure_target(text: &str) -> ScoreResult<Value> {
                 ),
             };
             if payload.is_empty() {
-                return Err(format!("Missing M2 event payload: {event:?}"));
+                return Err(format!("Missing M event payload: {event:?}"));
             }
             events.push(json!({"start": start, "duration": duration, "status": status, "notes": notes, "effects": beat_effects}));
         }
@@ -537,7 +590,7 @@ fn note_token(note: &Value, mode: &str, preserve_playback: bool) -> ScoreResult<
         .iter()
         .any(|e| e == "accswap" || e.starts_with("vel:"))
     {
-        return Err("M2 velocity/spelling belong in note fields, not musical effects".into());
+        return Err("M velocity/spelling belong in note fields, not musical effects".into());
     }
     let mut effects = source_effects
         .iter()
@@ -558,7 +611,7 @@ fn note_token(note: &Value, mode: &str, preserve_playback: bool) -> ScoreResult<
     Ok(token)
 }
 
-/// Format a measure in a requested display mode. As in the authoritative M2
+/// Format a measure in a requested display mode. As in the authoritative M
 /// formatter, notation strips string positions, TAB strips pitches/spelling,
 /// and `preserve_playback = false` projects ornaments/dynamics to visible marks.
 /// Unknown JSON fields and unrepresentable data are rejected rather than lost.
@@ -587,7 +640,7 @@ pub fn format_measure_target(
             "from_direction",
             "voices",
             // Source position and annotations belong to the score document;
-            // formatting projects its musical fields into the M2 token stream.
+            // formatting projects its musical fields into the M token stream.
             "index",
             "number",
             "targets",
@@ -595,9 +648,11 @@ pub fn format_measure_target(
             "mode",
             "needs_review",
             "chord_annotations",
+            "chord_diagram_choices",
             "pitch_context",
             "pitch_reference",
             "written",
+            "visual_techniques",
         ],
         "measure",
     )?;
@@ -653,7 +708,7 @@ pub fn format_measure_target(
         .iter()
         .any(|m| m.chars().any(char::is_whitespace) || m.contains('|'))
     {
-        return Err("M2 metadata contains an unescaped separator".into());
+        return Err("M metadata contains an unescaped separator".into());
     }
     let mut voices = Vec::new();
     for voice in list_default(measure, "voices")? {
@@ -674,7 +729,7 @@ pub fn format_measure_target(
             let mut payload = match status {
                 "empty" | "rest" => {
                     if !notes.is_empty() {
-                        return Err("Rest/empty M2 event cannot contain notes".into());
+                        return Err("Rest/empty M event cannot contain notes".into());
                     }
                     if status == "empty" {
                         "e".into()
@@ -718,7 +773,7 @@ pub fn format_measure_target(
                         notes.join(",")
                     }
                 }
-                _ => return Err(format!("Unsupported M2 event status: {status}")),
+                _ => return Err(format!("Unsupported M event status: {status}")),
             };
             let effects: Vec<String> = strings(event, "effects")?
                 .into_iter()
@@ -734,7 +789,7 @@ pub fn format_measure_target(
                 || payload.contains('{')
                 || payload.contains('}')
             {
-                return Err("M2 payload contains an unescaped separator".into());
+                return Err("M payload contains an unescaped separator".into());
             }
             let emitted = if previous.as_ref() == Some(&payload) {
                 "^"
@@ -754,9 +809,9 @@ pub fn format_measure_target(
         ));
     }
     let prefix = if metadata.is_empty() {
-        "M2".into()
+        "M".into()
     } else {
-        format!("M2 {}", metadata.join(" "))
+        format!("M {}", metadata.join(" "))
     };
     let output = format!("{prefix} | {}", voices.join(" || "));
     // Catch effect delimiters that cannot be represented by the textual grammar.
@@ -900,7 +955,7 @@ fn valid_beat_effect(effect: &str) -> bool {
     }
 }
 
-/// Validate syntax plus hard IR invariants, matching `scorelib/python/scorelib/constraints.py`.
+/// Validate syntax and hard IR invariants for the editor, recognizer and Python callers.
 /// Pickup/overfull measures, gaps and overlaps remain valid IR: export-specific
 /// timing restrictions belong in the exporter, not this validator.
 pub fn validate_measure_target(
@@ -1053,56 +1108,6 @@ pub fn validate_measure_target(
     (Some(measure), errors)
 }
 
-fn rename_headers(text: &str, to_display: bool) -> String {
-    let names = if to_display {
-        [("M2", "MEASURE"), ("C2", "CONTEXT")]
-    } else {
-        [("MEASURE", "M2"), ("CONTEXT", "C2")]
-    };
-    let mut output = String::with_capacity(text.len());
-    for line in text.split_inclusive('\n') {
-        let indent = line.len() - line.trim_start_matches([' ', '\t']).len();
-        let body = &line[indent..];
-        let replacement = names.iter().find(|(from, _)| {
-            body.strip_prefix(from)
-                .is_some_and(|rest| rest.is_empty() || rest.starts_with([' ', '\t', '|', '\n']))
-        });
-        if let Some((from, to)) = replacement {
-            output.push_str(&line[..indent]);
-            output.push_str(to);
-            output.push_str(&body[from.len()..]);
-        } else {
-            output.push_str(line);
-        }
-    }
-    output
-}
-
-/// Human-facing headers only; annotations and similar prefixes remain intact.
-pub fn display_score_text(text: &str) -> String {
-    rename_headers(text, true)
-}
-/// Accept readable or legacy headers without altering musical content.
-pub fn model_score_text(text: &str) -> String {
-    rename_headers(text, false)
-}
-/// Human-facing validation errors; technical logs may retain original text.
-pub fn display_error(text: &str) -> String {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"\b(M2|C2)\b").unwrap())
-        .replace_all(
-            text,
-            |c: &regex::Captures<'_>| {
-                if &c[1] == "M2" {
-                    "MEASURE"
-                } else {
-                    "CONTEXT"
-                }
-            },
-        )
-        .into_owned()
-}
-
 fn truthy(value: &Value) -> bool {
     match value {
         Value::Null => false,
@@ -1140,34 +1145,28 @@ fn record_id(record: &Value, key: &str, default: &str) -> ScoreResult<String> {
         )),
     }
 }
-fn vote<T: PartialEq>(votes: &mut HashMap<i64, Vec<(T, usize)>>, index: i64, value: T) {
-    let entries = votes.entry(index).or_default();
-    if let Some((_, count)) = entries.iter_mut().find(|(item, _)| *item == value) {
-        *count += 1;
-    } else {
-        entries.push((value, 1));
+fn add_candidate<T: PartialEq>(values: &mut HashMap<i64, Vec<T>>, index: i64, value: T) {
+    let entries = values.entry(index).or_default();
+    if !entries.contains(&value) {
+        entries.push(value);
     }
-}
-fn most_common<T>(votes: &[(T, usize)]) -> Option<&T> {
-    // Counter.most_common breaks ties by first appearance, not sorted key.
-    votes
-        .iter()
-        .reduce(|best, next| if next.1 > best.1 { next } else { best })
-        .map(|(value, _)| value)
 }
 
 /// Derive `guitarocr.score/2` from recognition records, matching the authoritative
-/// `scorelib/python/scorelib/score_document.py` grouping and continuity rules. Source records are
+/// shared score grouping and continuity rules. Source records are
 /// borrowed and never rewritten. Unknown record data stays in the recognition
 /// artifact; the derived score contains the documented score-document fields.
 pub fn score_document(result: &Value) -> ScoreResult<Value> {
+    if result["parts"].is_array() && result["timeline"].is_array() {
+        return Ok(result.clone());
+    }
     let records = result
         .get("records")
         .and_then(Value::as_array)
         .ok_or("Score result requires records array")?;
     let mut parts: Vec<Value> = Vec::new();
-    let mut signatures: HashMap<i64, Vec<(String, usize)>> = HashMap::new();
-    let mut tempos: HashMap<i64, Vec<(i64, usize)>> = HashMap::new();
+    let mut signatures: HashMap<i64, Vec<String>> = HashMap::new();
+    let mut tempos: HashMap<i64, Vec<i64>> = HashMap::new();
     let mut last_index = -1;
     let result_instrument = result
         .get("instrument")
@@ -1255,8 +1254,7 @@ pub fn score_document(result: &Value) -> ScoreResult<Value> {
         if measures.iter().any(|m| m["index"] == index) {
             return Err(format!("Duplicate bar in {part_id}/{staff_id}: {index}"));
         }
-        let target = model_score_text(text_field(record, "target")?);
-        let mut parsed = parse_measure_target(&target)?;
+        let mut parsed = parse_measure_target(text_field(record, "target")?)?;
         if truthy(&record["written_target"]) && !truthy(&record["manually_edited"]) {
             if let Some(target) = record["written_target"].as_str() {
                 if let Ok(written) = parse_measure_target(target) {
@@ -1267,11 +1265,16 @@ pub fn score_document(result: &Value) -> ScoreResult<Value> {
         last_index = last_index.max(index);
         let signature = if truthy(&parsed["time_signature"]) {
             &parsed["time_signature"]
-        } else {
+        } else if !record["score_state_evidence"]["time"].is_object()
+            || record["score_state_evidence"]["time"]["status"] == "observed"
+            || (index == 0 && record["score_state_evidence"]["time"]["status"] == "inherited")
+        {
             &record["score_state"]["time"]
+        } else {
+            &Value::Null
         };
         if truthy(signature) {
-            vote(
+            add_candidate(
                 &mut signatures,
                 index,
                 signature
@@ -1280,8 +1283,18 @@ pub fn score_document(result: &Value) -> ScoreResult<Value> {
                     .to_owned(),
             );
         }
+        if record["score_state_evidence"]["time"]["status"] == "conflict" {
+            for candidate in record["score_state_evidence"]["time"]["candidates"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+            {
+                add_candidate(&mut signatures, index, candidate.to_owned());
+            }
+        }
         if let Some(tempo) = parsed["tempo_quarter"].as_i64().filter(|t| *t != 0) {
-            vote(&mut tempos, index, tempo);
+            add_candidate(&mut tempos, index, tempo);
         }
         parsed["index"] = json!(index);
         parsed["source_record"] = record
@@ -1301,7 +1314,19 @@ pub fn score_document(result: &Value) -> ScoreResult<Value> {
             .get("chord_annotations")
             .cloned()
             .unwrap_or(json!([]));
+        if let Some(choices) = record.get("chord_diagram_choices").filter(|v| !v.is_null()) {
+            if !choices.is_array() {
+                return Err("Chord diagram choices must be an array".into());
+            }
+            // Candidate subsets belong to a specific voice/onset. The document
+            // library alone cannot reconstruct that ambiguity after a reload.
+            parsed["chord_diagram_choices"] = choices.clone();
+        }
         parsed["pitch_reference"] = json!(pitch_reference(instrument));
+        if let Some(overlay) = record.get("visual_techniques").filter(|v| !v.is_null()) {
+            crate::visual_techniques::validate_overlay(&parsed, overlay)?;
+            parsed["visual_techniques"] = overlay.clone();
+        }
         if truthy(&record["pitch_context"]) {
             parsed["pitch_context"] = record["pitch_context"].clone();
         }
@@ -1315,15 +1340,39 @@ pub fn score_document(result: &Value) -> ScoreResult<Value> {
                 .sort_by_key(|m| m["index"].as_i64().unwrap());
         }
     }
+    // A document heading is another observation of the opening tempo, not
+    // permission to replace an explicit, contradictory measure observation.
+    if let Some(tempo) = result["document_metadata"]["tempo_quarter"]
+        .as_i64()
+        .filter(|v| *v != 0)
+    {
+        if last_index >= 0 {
+            add_candidate(&mut tempos, 0, tempo);
+        }
+    }
     let mut timeline = Vec::new();
-    let mut signature = "4/4".to_owned();
+    let mut signature = json!("4/4");
     for index in 0..=last_index {
-        if let Some(value) = signatures.get(&index).and_then(|v| most_common(v)) {
-            signature = value.clone();
+        let mut conflicts = json!({});
+        if let Some(values) = signatures.get(&index) {
+            signature = if values.len() == 1 {
+                json!(values[0])
+            } else {
+                conflicts["time_signature"] = json!(values);
+                Value::Null
+            };
         }
         let mut timing = json!({"index": index, "time_signature": signature});
-        if let Some(tempo) = tempos.get(&index).and_then(|v| most_common(v)) {
-            timing["tempo_quarter"] = json!(tempo);
+        if let Some(values) = tempos.get(&index) {
+            if values.len() == 1 {
+                timing["tempo_quarter"] = json!(values[0]);
+            } else {
+                timing["tempo_quarter"] = Value::Null;
+                conflicts["tempo_quarter"] = json!(values);
+            }
+        }
+        if !conflicts.as_object().unwrap().is_empty() {
+            timing["conflicts"] = conflicts;
         }
         timeline.push(timing);
     }

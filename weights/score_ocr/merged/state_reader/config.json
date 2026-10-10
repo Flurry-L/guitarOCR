@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "architecture": "mobilenet_v3_small_spatial_v1",
+  "input": {
+    "width": 960,
+    "height": 480,
+    "views": 1,
+    "normalization": "minus_one_to_one",
+    "resize": "contain"
+  },
+  "evidence_version": 1
+}

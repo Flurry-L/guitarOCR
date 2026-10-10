@@ -20,7 +20,7 @@ from gpbridge.guitarpro_pdf import SourceTrack
 from gpbridge.guitarpro_pdf import load_render_layout
 
 _MANIFEST_FIELDS = frozenset(
-    {"document_id", "source_family_id", "split", "instrument_kind", "source"}
+    {"document_id", "source_family_id", "split", "instrument_kind", "source", "display_mode"}
 )
 _SOURCE_SUFFIXES = frozenset({".gp", ".gp3", ".gp4", ".gp5", ".gtp"})
 _SAFE_DOCUMENT = re.compile(r"[a-z0-9][a-z0-9.-]*")
@@ -33,7 +33,7 @@ class ManifestEntry:
     split: str
     instrument_kind: str
     source: str
-    display_mode: str = "tab"
+    display_mode: str
 
 def _positive_int(value: str) -> int:
     parsed = int(value)
@@ -257,7 +257,7 @@ def _export_document(
     destination: Path,
     source: Path,
     tracks: tuple[SourceTrack, ...],
-    display_mode: str = "tab",
+    display_mode: str,
 ) -> None:
     for track in tracks:
         track_dir = destination / "tracks" / _track_name(track)
@@ -276,8 +276,7 @@ def _export_document(
 def _validate_document_mode(document: Path, display_mode: str) -> None:
     for path in (document / "tracks").glob("*/layout.json"):
         layout = json.loads(path.read_text(encoding="utf-8"))
-        # The original exporter produced only TAB and omitted this field.
-        actual = layout.get("display_mode", "tab")
+        actual = layout["display_mode"]
         if actual != display_mode:
             raise ValueError(
                 f"Native export mode mismatch: {actual} != {display_mode}: {path}; "
@@ -331,7 +330,7 @@ def _validate_document_geometry(document: Path) -> None:
     for track in sorted((document / "tracks").iterdir()):
         if track.is_dir():
             layout = json.loads((track / "layout.json").read_text(encoding="utf-8"))
-            if layout.get("display_mode", "tab") != "tab":
+            if layout["display_mode"] != "tab":
                 # Fret-glyph ownership is a TAB-only annotation contract. Page,
                 # system and measure coverage are validated for every mode.
                 continue
@@ -347,7 +346,7 @@ def _load_manifest(path: Path) -> tuple[ManifestEntry, ...]:
         source.read_text(encoding="utf-8").splitlines(), start=1
     ):
         value = json.loads(line)
-        if not isinstance(value, dict) or not (_MANIFEST_FIELDS <= set(value) <= _MANIFEST_FIELDS | {"display_mode"}):
+        if not isinstance(value, dict) or set(value) != _MANIFEST_FIELDS:
             raise ValueError(f"invalid manifest fields at line {line_number}")
         entry = ManifestEntry(**value)
         _validate_manifest_entry(entry, line_number)
@@ -397,7 +396,7 @@ def _manifest_jsonl(entries: tuple[ManifestEntry, ...]) -> str:
                 "split": entry.split,
                 "instrument_kind": entry.instrument_kind,
                 "source": entry.source,
-                **({"display_mode": entry.display_mode} if entry.display_mode != "tab" else {}),
+                "display_mode": entry.display_mode,
             },
             ensure_ascii=False,
             separators=(",", ":"),

@@ -7,91 +7,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from gpbridge.score_official_score import OFFICIAL_SCORE_SCHEMA
 from gpbridge.native_session import NativeExportSession
 
 
 RENDER_LAYOUT_SCHEMA = "gpomr.render-layout"
+OFFICIAL_SCORE_SCHEMA = "gpomr.official-score"
 OFFICIAL_PRIMARY_LOAD_REJECTED = "official_primary_load_rejected"
-
-_ROOT_FIELDS = frozenset(
-    {
-        "schema",
-        "pdf_ok",
-        "source_track_index",
-        "tab_only",
-        "tab_style",
-        "tuning_style",
-        "pages",
-        "systems",
-        "rest_views",
-        "lyric_events",
-        "tempo_indications",
-    }
-)
-_TUNING_STYLE_FIELDS = frozenset(
-    {"position_code", "mode_code", "column_count", "boxed"}
-)
-_TAB_STYLE_FIELDS = frozenset(
-    {
-        "force_rhythmic_band",
-        "extend_rhythmic_in_tablature",
-        "hide_useless_rests",
-        "show_quarter_rest_as_dash",
-        "always_show_tie_notes",
-        "hide_ties_between_bar",
-        "display_fret_relative_to_capo",
-        "fret_visibility_code",
-        "trill_fret_visibility_code",
-        "artificial_harmonic_fret_visibility_code",
-    }
-)
-_PAGE_FIELDS = frozenset({"index", "bbox_mm"})
-_SYSTEM_FIELDS = frozenset(
-    {
-        "system_index",
-        "page",
-        "first_measure_index",
-        "last_measure_index",
-        "bbox_mm",
-        "measure_boxes",
-        "track_label",
-        "time_signatures",
-        "key_signatures",
-    }
-)
-_MEASURE_BOX_FIELDS = frozenset({"measure_index", "bbox_mm"})
-_TIME_SIGNATURE_FIELDS = frozenset(
-    {"staff_index", "measure_index", "numerator", "denominator"}
-)
-_KEY_SIGNATURE_FIELDS = frozenset({"staff_index", "measure_index", "accidental_count"})
-_LYRIC_EVENT_FIELDS = frozenset(
-    {
-        "staff_index",
-        "measure_index",
-        "voice_index",
-        "event_index",
-    }
-)
-_TEMPO_INDICATION_FIELDS = frozenset(
-    {
-        "page",
-        "system_index",
-        "master_measure_index",
-        "position",
-        "bbox_mm",
-        "source",
-    }
-)
-_REST_VIEW_FIELDS = frozenset(
-    {
-        "staff_index",
-        "measure_index",
-        "voice_index",
-        "event_index",
-        "visibility_code",
-    }
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,8 +21,8 @@ class PdfExportJob:
     pdf: Path
     layout: Path
     official_score: Path
+    display_mode: str
     track_index: int = 0
-    display_mode: str = "tab"
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,7 +103,7 @@ class GuitarProPdfExporter:
                     "Guitar Pro export did not create: " + ", ".join(missing)
                 )
             layout = load_render_layout(job.layout)
-            if layout.get("display_mode", "tab") != job.display_mode:
+            if layout["display_mode"] != job.display_mode:
                 raise ValueError("render layout display mode differs from the requested mode")
             official_score = _load_official_export_identity(job.official_score)
             if layout["source_track_index"] != track_index:
@@ -194,7 +115,7 @@ class GuitarProPdfExporter:
                     "official score source_track_index differs from the requested track"
                 )
             _validate_export_measure_coverage(official_score, layout)
-            validate_pdf_layout(job.pdf, layout)
+            _validate_pdf_pages(job.pdf, layout)
         except BaseException:
             for output in outputs:
                 try:
@@ -222,11 +143,7 @@ class GuitarProPdfExporter:
         indexes: set[int] = set()
         for position, value in enumerate(raw_tracks):
             label = f"track enumeration response track {position}"
-            track = _mapping(
-                value,
-                label,
-                frozenset({"source_track_index", "name", "instrument_kind"}),
-            )
+            track = _mapping(value, label)
             source_track_index = _integer(
                 track["source_track_index"],
                 f"{label}.source_track_index",
@@ -265,21 +182,13 @@ class GuitarProPdfExporter:
 
 
 def load_render_layout(path: str | Path) -> dict[str, Any]:
-    value = json.loads(
-        Path(path).read_text(encoding="utf-8"),
-        object_pairs_hook=_object_without_duplicate_keys,
-        parse_constant=_reject_nonfinite_json_number,
-    )
-    validate_render_layout(value)
+    value = json.loads(Path(path).read_text(encoding="utf-8"))
+    _validate_render_layout(value)
     return value
 
 
 def _load_official_export_identity(path: str | Path) -> Mapping[str, Any]:
-    value = json.loads(
-        Path(path).read_text(encoding="utf-8"),
-        object_pairs_hook=_object_without_duplicate_keys,
-        parse_constant=_reject_nonfinite_json_number,
-    )
+    value = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(value, Mapping):
         raise TypeError("official export root must be an object")
     if value.get("schema") != OFFICIAL_SCORE_SCHEMA:
@@ -354,14 +263,13 @@ def _validate_export_measure_coverage(
         )
 
 
-def validate_pdf_layout(pdf_path: str | Path, layout: Mapping[str, Any]) -> None:
+def _validate_pdf_pages(pdf_path: str | Path, layout: Mapping[str, Any]) -> None:
     """Require the PDF and native page table to describe the same pages."""
 
     # The native worker only reads page boxes; loading PDFium's renderer here
     # unnecessarily initializes another native runtime inside Wine.
     import pdfplumber
 
-    validate_render_layout(layout)
     source = Path(pdf_path).expanduser().resolve()
     if not source.is_file():
         raise FileNotFoundError(source)
@@ -376,7 +284,6 @@ def validate_pdf_layout(pdf_path: str | Path, layout: Mapping[str, Any]) -> None
             layout_bbox = _bbox(
                 layout_page["bbox_mm"],
                 f"render layout page {page_index} bbox",
-                nonempty=True,
             )
             pdf_width_points = float(pdf_page.width)
             pdf_height_points = float(pdf_page.height)
@@ -404,19 +311,13 @@ def _matches_pdf_page_dimension(
     )
 
 
-def validate_render_layout(layout: Any) -> None:
+def _validate_render_layout(layout: Any) -> None:
     """Validate the page, system, and explicit display gates from the exporter."""
 
     from gpbridge.score_native_note_geometry import validate_note_geometry
 
     has_geometry = isinstance(layout, Mapping) and "note_geometry" in layout
-    root = _mapping(
-        {key: value for key, value in layout.items() if key not in {"note_geometry", "display_mode", "pitch_regions"}}
-        if isinstance(layout, Mapping)
-        else layout,
-        "render layout root",
-        _ROOT_FIELDS,
-    )
+    root = _mapping(layout, "render layout root")
     if root["schema"] != RENDER_LAYOUT_SCHEMA:
         raise ValueError("render layout has an unsupported schema")
     if root["pdf_ok"] is not True:
@@ -428,16 +329,12 @@ def validate_render_layout(layout: Any) -> None:
     )
     if has_geometry:
         validate_note_geometry(layout)
-    display_mode = layout.get("display_mode", "tab")
+    display_mode = layout["display_mode"]
     if display_mode not in {"tab", "notation", "both"}:
         raise ValueError(f"Invalid render display mode: {display_mode}")
     if root["tab_only"] is not (display_mode == "tab"):
         raise ValueError("render layout tab_only disagrees with display_mode")
-    tab_style = _mapping(
-        root["tab_style"],
-        "render layout tab_style",
-        _TAB_STYLE_FIELDS,
-    )
+    tab_style = _mapping(root["tab_style"], "render layout tab_style")
     for field in (
         "force_rhythmic_band",
         "extend_rhythmic_in_tablature",
@@ -464,11 +361,7 @@ def validate_render_layout(layout: Any) -> None:
                 f"render layout tab_style.{field} must be an official visibility code"
             )
 
-    tuning_style = _mapping(
-        root["tuning_style"],
-        "render layout tuning_style",
-        _TUNING_STYLE_FIELDS,
-    )
+    tuning_style = _mapping(root["tuning_style"], "render layout tuning_style")
     position_code = _integer(
         tuning_style["position_code"],
         "render layout tuning_style.position_code",
@@ -499,11 +392,11 @@ def validate_render_layout(layout: Any) -> None:
 
     pages_by_index: dict[int, tuple[float, float, float, float]] = {}
     for position, value in enumerate(pages):
-        page = _mapping(value, f"render layout page {position}", _PAGE_FIELDS)
+        page = _mapping(value, f"render layout page {position}")
         page_index = _integer(page["index"], "page.index", positive=True)
         if page_index != position + 1:
             raise ValueError("render layout page indexes must be consecutive from 1")
-        pages_by_index[page_index] = _bbox(page["bbox_mm"], "page bbox", nonempty=True)
+        pages_by_index[page_index] = _bbox(page["bbox_mm"], "page bbox")
 
     systems = root["systems"]
     if not isinstance(systems, list):
@@ -512,7 +405,7 @@ def validate_render_layout(layout: Any) -> None:
     previous_page = 1
     for position, value in enumerate(systems):
         label = f"render layout system {position}"
-        system = _mapping(value, label, _SYSTEM_FIELDS)
+        system = _mapping(value, label)
         system_index = _integer(
             system["system_index"], f"{label}.system_index", nonnegative=True
         )
@@ -542,7 +435,7 @@ def validate_render_layout(layout: Any) -> None:
             )
         next_measure_index = last
 
-        system_bbox = _bbox(system["bbox_mm"], f"{label} bbox", nonempty=True)
+        system_bbox = _bbox(system["bbox_mm"], f"{label} bbox")
         if not _bbox_is_inside(system_bbox, pages_by_index[page]):
             raise ValueError(f"{label} bbox lies outside its declared page")
 
@@ -556,11 +449,7 @@ def validate_render_layout(layout: Any) -> None:
         previous_measure_x: float | None = None
         for measure_position, raw_measure_box in enumerate(measure_boxes):
             measure_label = f"{label}.measure_boxes[{measure_position}]"
-            measure_box = _mapping(
-                raw_measure_box,
-                measure_label,
-                _MEASURE_BOX_FIELDS,
-            )
+            measure_box = _mapping(raw_measure_box, measure_label)
             measure_index = _integer(
                 measure_box["measure_index"],
                 f"{measure_label}.measure_index",
@@ -573,7 +462,6 @@ def validate_render_layout(layout: Any) -> None:
             bbox = _bbox(
                 measure_box["bbox_mm"],
                 f"{measure_label}.bbox_mm",
-                nonempty=True,
             )
             if not _bbox_is_inside(bbox, pages_by_index[page]):
                 raise ValueError(f"{measure_label} lies outside its declared page")
@@ -583,21 +471,14 @@ def validate_render_layout(layout: Any) -> None:
 
         if system["track_label"] not in {None, "name", "short_name"}:
             raise ValueError(f"{label}.track_label is unsupported")
-        for field, locator_fields in (
-            ("time_signatures", _TIME_SIGNATURE_FIELDS),
-            ("key_signatures", _KEY_SIGNATURE_FIELDS),
-        ):
+        for field in ("time_signatures", "key_signatures"):
             locators = system[field]
             if not isinstance(locators, list):
                 raise TypeError(f"{label}.{field} must be an array")
             locations: set[tuple[int, int]] = set()
             for locator_position, raw_locator in enumerate(locators):
                 locator_label = f"{label}.{field}[{locator_position}]"
-                locator = _mapping(
-                    raw_locator,
-                    locator_label,
-                    locator_fields,
-                )
+                locator = _mapping(raw_locator, locator_label)
                 location = tuple(
                     _integer(
                         locator[locator_field],
@@ -628,33 +509,16 @@ def validate_render_layout(layout: Any) -> None:
                         f"{locator_label}.accidental_count",
                     )
 
-    _validate_layout_views(
-        root["rest_views"],
-        label="render layout rest_views",
-        fields=_REST_VIEW_FIELDS,
-        location_fields=(
-            "staff_index",
-            "measure_index",
-            "voice_index",
-            "event_index",
-        ),
-        measure_count=next_measure_index,
-        require_text=False,
-    )
-    _validate_event_locators(
-        root["lyric_events"],
-        label="render layout lyric_events",
-        fields=_LYRIC_EVENT_FIELDS,
-        measure_count=next_measure_index,
-    )
+    for field in ("rest_views", "lyric_events"):
+        _validate_event_locators(root[field], field, next_measure_index)
     for index, region in enumerate(layout.get("pitch_regions", [])):
         label = f"pitch_regions[{index}]"
-        _mapping(region, label, frozenset({"kind", "page", "staff_index", "measure_index", "type_code", "bbox_mm"}))
+        _mapping(region, label)
         if region["kind"] not in {"clef", "band"}:
             raise ValueError(f"{label} has an unknown kind")
         if region["page"] not in pages_by_index:
             raise ValueError(f"{label} has an unknown page")
-        box = _bbox(region["bbox_mm"], label, nonempty=True)
+        box = _bbox(region["bbox_mm"], label)
         if not _bbox_is_inside(box, pages_by_index[region["page"]]):
             raise ValueError(f"{label} lies outside its page")
 
@@ -682,11 +546,7 @@ def _validate_tempo_indications(
     initial_count = 0
     for record_position, raw_indication in enumerate(value):
         indication_label = f"{label}[{record_position}]"
-        indication = _mapping(
-            raw_indication,
-            indication_label,
-            _TEMPO_INDICATION_FIELDS,
-        )
+        indication = _mapping(raw_indication, indication_label)
         source = indication["source"]
         if source not in {"initial", "automation"}:
             raise ValueError(f"{indication_label}.source is unsupported")
@@ -713,7 +573,6 @@ def _validate_tempo_indications(
         bbox = _bbox(
             indication["bbox_mm"],
             f"{indication_label}.bbox_mm",
-            nonempty=True,
         )
         if not _bbox_is_inside(bbox, pages_by_index[page]):
             raise ValueError(f"{indication_label} bbox lies outside its page")
@@ -759,82 +618,26 @@ def _validate_tempo_indications(
         raise ValueError(f"{label} is not in canonical owner order")
 
 
-def _validate_event_locators(
-    value: Any,
-    *,
-    label: str,
-    fields: frozenset[str],
-    measure_count: int,
-) -> None:
+def _validate_event_locators(value: Any, field: str, measure_count: int) -> None:
     if value is None:
         return
     if not isinstance(value, list):
-        raise TypeError(f"{label} must be an array or null")
-    locations: set[tuple[int, int, int, int]] = set()
-    for position, raw_locator in enumerate(value):
-        locator_label = f"{label}[{position}]"
-        locator = _mapping(raw_locator, locator_label, fields)
-        location = tuple(
-            _integer(
-                locator[field],
-                f"{locator_label}.{field}",
-                nonnegative=True,
-            )
-            for field in (
-                "staff_index",
-                "measure_index",
-                "voice_index",
-                "event_index",
-            )
-        )
-        if location in locations:
-            raise ValueError(f"{label} must contain unique owner locators")
-        locations.add(location)
-        if location[1] >= measure_count:
-            raise ValueError(f"{locator_label} lies outside the system ranges")
-
-
-def _validate_layout_views(
-    value: Any,
-    *,
-    label: str,
-    fields: frozenset[str],
-    location_fields: tuple[str, ...],
-    measure_count: int,
-    require_text: bool,
-) -> None:
-    if value is None:
-        return
-    if not isinstance(value, list):
-        raise TypeError(f"{label} must be an array or null")
+        raise TypeError(f"{field} must be an array or null")
     locations: set[tuple[int, ...]] = set()
-    for position, raw_view in enumerate(value):
-        view_label = f"{label}[{position}]"
-        view = _mapping(raw_view, view_label, fields)
+    for position, locator in enumerate(value):
+        label = f"{field}[{position}]"
+        _mapping(locator, label)
         location = tuple(
-            _integer(
-                view[field],
-                f"{view_label}.{field}",
-                nonnegative=True,
-            )
-            for field in location_fields
+            _integer(locator[key], f"{label}.{key}", nonnegative=True)
+            for key in ("staff_index", "measure_index", "voice_index", "event_index")
         )
-        if location in locations:
-            raise ValueError(f"{label} must contain unique owner locators")
+        if location in locations or location[1] >= measure_count:
+            raise ValueError(f"{label} has a duplicate or out-of-range owner")
         locations.add(location)
-        if location[1] >= measure_count:
-            raise ValueError(f"{view_label} lies outside the system ranges")
-        visibility_code = _integer(
-            view["visibility_code"],
-            f"{view_label}.visibility_code",
-            nonnegative=True,
-        )
-        if visibility_code not in {0, 1, 2}:
-            raise ValueError(
-                f"{view_label}.visibility_code must be an official visibility code"
-            )
-        if require_text and (not isinstance(view["text"], str) or not view["text"]):
-            raise ValueError(f"{view_label}.text must be a nonempty string")
+        if field == "rest_views":
+            code = _integer(locator["visibility_code"], f"{label}.visibility_code")
+            if code not in {0, 1, 2}:
+                raise ValueError(f"{label} has an invalid visibility code")
 
 
 def _integer(
@@ -853,18 +656,9 @@ def _integer(
     return value
 
 
-def _mapping(value: Any, label: str, fields: frozenset[str]) -> Mapping[str, Any]:
+def _mapping(value: Any, label: str) -> Mapping[str, Any]:
     if not isinstance(value, Mapping):
         raise TypeError(f"{label} must be an object")
-    actual = set(value)
-    missing = fields.difference(actual)
-    unknown = actual.difference(fields)
-    if missing:
-        raise ValueError(f"{label} is missing fields: {', '.join(sorted(missing))}")
-    if unknown:
-        raise ValueError(
-            f"{label} contains unknown fields: {', '.join(sorted(unknown))}"
-        )
     return value
 
 
@@ -884,8 +678,6 @@ def _bbox_is_inside(
 def _bbox(
     value: Any,
     label: str,
-    *,
-    nonempty: bool = False,
 ) -> tuple[float, float, float, float]:
     if (
         not isinstance(value, Sequence)
@@ -900,33 +692,8 @@ def _bbox(
     result = tuple(float(item) for item in value)
     if (
         not all(math.isfinite(item) for item in result)
-        or result[2] < 0
-        or result[3] < 0
+        or result[2] <= 0
+        or result[3] <= 0
     ):
         raise ValueError(f"{label} is invalid")
-    if nonempty and (result[2] <= 0 or result[3] <= 0):
-        raise ValueError(f"{label} must be nonempty")
     return result
-
-
-def _object_without_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    result: dict[str, Any] = {}
-    for key, value in pairs:
-        if key in result:
-            raise ValueError(f"render layout contains duplicate JSON key {key!r}")
-        result[key] = value
-    return result
-
-
-def _reject_nonfinite_json_number(value: str) -> None:
-    raise ValueError(f"render layout contains non-finite JSON number {value}")
-
-
-__all__ = [
-    "GuitarProPdfExporter",
-    "PdfExportJob",
-    "RENDER_LAYOUT_SCHEMA",
-    "load_render_layout",
-    "validate_pdf_layout",
-    "validate_render_layout",
-]

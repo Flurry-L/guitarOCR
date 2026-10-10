@@ -1,5 +1,5 @@
 //! Native inference for the exported PP-DocLayout and signature networks.
-//! The layout graph already performs NMS and maps boxes to original pixels.
+//! The layout graph decodes selected boxes and maps them to original pixels.
 use crate::image_boundary::{check_dimensions, round_even, Result};
 use image::RgbImage;
 use ort::{session::Session, value::Tensor};
@@ -27,19 +27,29 @@ fn err(e: impl std::fmt::Display) -> String {
 
 pub struct LayoutDetector {
     session: Session,
+    input_size: u32,
+    quality: crate::layout_quality::LayoutQualityReader,
+}
+
+/// Aspect-preserving dimensions shared by tensor preparation and box decoding.
+pub fn layout_dimensions(width: u32, height: u32, size: u32) -> Result<(u32, u32)> {
+    check_dimensions(width, height)?;
+    validate_layout_size(size)?;
+    let ratio = size as f64 / width.max(height) as f64;
+    Ok((
+        (width as f64 * ratio + 0.5).floor().max(1.) as u32,
+        (height as f64 * ratio + 0.5).floor().max(1.) as u32,
+    ))
+}
+
+fn validate_layout_size(size: u32) -> Result<()> {
+    if !(32..=2048).contains(&size) || size % 32 != 0 {
+        return Err(format!("Unsupported layout input size: {size}"));
+    }
+    Ok(())
 }
 impl LayoutDetector {
-    /// Full detector stage including row geometry and large-page detail regions.
     pub fn detect_page(
-        &mut self,
-        page: &RgbImage,
-        threshold: f32,
-        include_tempo: bool,
-    ) -> Result<Value> {
-        self.detect_page_with_cancel(page, threshold, include_tempo, &|| false)
-    }
-
-    pub fn detect_page_with_cancel(
         &mut self,
         page: &RgbImage,
         threshold: f32,
@@ -49,8 +59,17 @@ impl LayoutDetector {
         if cancelled() {
             return Err("Layout recognition cancelled".into());
         }
-        let mut boxes =
-            crate::layout_postprocess::deduplicate_pitch_boxes(&self.predict(page, threshold)?)?;
+        let full = self.predict(page, threshold)?;
+        let (candidates, views) =
+            crate::layout_tiling::collect_model_tiles(page, full, cancelled, |tile| {
+                self.predict(tile, threshold)
+            })?;
+        let ranked = self.quality.rank(page, &candidates, &views, cancelled)?;
+        let full = crate::layout_tiling::fuse_measures(&ranked)?;
+        if cancelled() {
+            return Err("Layout recognition cancelled".into());
+        }
+        let mut boxes = crate::layout_postprocess::deduplicate_pitch_boxes(&full)?;
         if include_tempo && (page.width() > 2400 || page.height() > 3400) {
             let (width, height) = page.dimensions();
             let tw = (width as f64 * 0.55).ceil() as u32;
@@ -133,16 +152,22 @@ impl LayoutDetector {
             boxes.extend(kept);
             boxes = crate::layout_postprocess::deduplicate_pitch_boxes(&boxes)?;
         }
+        if cancelled() {
+            return Err("Layout recognition cancelled".into());
+        }
         let mut output = crate::layout_postprocess::process_page(page, &boxes, threshold as f64)?;
         if !include_tempo {
             output["tempo_regions"] = json!([]);
             output["pitch_regions"] = json!([]);
             output["header_regions"] = json!([]);
         }
+        if cancelled() {
+            return Err("Layout recognition cancelled".into());
+        }
         Ok(output)
     }
 
-    pub fn new(model: &Path) -> Result<Self> {
+    pub fn new(model: &Path, quality_model: &Path) -> Result<Self> {
         let session = session(model)?;
         for name in ["image", "im_shape", "scale_factor"] {
             if !session.inputs.iter().any(|v| v.name == name) {
@@ -152,18 +177,68 @@ impl LayoutDetector {
         if !session.outputs.iter().any(|v| v.name == "fetch_name_0") {
             return Err("Layout model missing fetch_name_0 output".into());
         }
-        Ok(Self { session })
+        let contract = session
+            .metadata()
+            .map_err(err)?
+            .custom("guitarocr.layout_preprocess")
+            .map_err(err)?;
+        if contract.as_deref() != Some("letterbox_v1") {
+            return Err(
+                "Production layout requires explicit letterbox_v1 preprocessing metadata".into(),
+            );
+        }
+        let input_size = session
+            .metadata()
+            .map_err(err)?
+            .custom("guitarocr.layout_input_size")
+            .map_err(err)?
+            .as_deref()
+            .ok_or("Missing layout input size metadata")?
+            .parse::<u32>()
+            .map_err(err)?;
+        if input_size != 1280 {
+            return Err("Layout quality requires the trained 1280 letterbox detector".into());
+        }
+        let image_input = session
+            .inputs
+            .iter()
+            .find(|value| value.name == "image")
+            .unwrap();
+        match &image_input.input_type {
+            ort::value::ValueType::Tensor { shape, .. }
+                if shape.len() == 4
+                    && shape[2..]
+                        .iter()
+                        .all(|&dimension| dimension < 0 || dimension == input_size as i64) => {}
+            _ => return Err("Layout preprocessing size does not match the graph input".into()),
+        }
+        Ok(Self {
+            session,
+            input_size,
+            quality: crate::layout_quality::LayoutQualityReader::new(quality_model)?,
+        })
     }
+
     pub fn predict(&mut self, page: &RgbImage, threshold: f32) -> Result<Vec<Value>> {
         if !threshold.is_finite() || !(0.0..=1.0).contains(&threshold) {
             return Err("Invalid layout threshold".into());
         }
-        let input = layout_input(page)?;
-        let tensor = Tensor::from_array(([1usize, 3, 800, 800], input)).map_err(err)?;
-        let shape = Tensor::from_array(([1usize, 2], vec![800f32, 800.])).map_err(err)?;
+        let input = layout_input(page, self.input_size)?;
+        let (resized_width, resized_height) = layout_dimensions(
+            page.width(),
+            page.height(),
+            self.input_size,
+        )?;
+        let size = self.input_size as usize;
+        let tensor = Tensor::from_array(([1usize, 3, size, size], input)).map_err(err)?;
+        let shape =
+            Tensor::from_array(([1usize, 2], vec![self.input_size as f32; 2])).map_err(err)?;
         let scale = Tensor::from_array((
             [1usize, 2],
-            vec![800f32 / page.height() as f32, 800f32 / page.width() as f32],
+            vec![
+                (resized_height as f64 / page.height() as f64) as f32,
+                (resized_width as f64 / page.width() as f64) as f32,
+            ],
         ))
         .map_err(err)?;
         let outputs = self
@@ -186,16 +261,18 @@ impl LayoutDetector {
     }
 }
 
-/// OpenCV INTER_CUBIC uses half-pixel centers and Keys A=-0.75, not
-/// image::CatmullRom (A=-0.5). Keep the training resize kernel explicitly.
-pub fn layout_input(page: &RgbImage) -> Result<Vec<f32>> {
-    check_dimensions(page.width(), page.height())?;
-    let resized = crate::image_transforms::resize_rgb_cubic(page, 800, 800);
-    let mut result = vec![0f32; 3 * 800 * 800];
-    for y in 0..800 {
-        for x in 0..800 {
+/// Letterbox with the same OpenCV cubic resize used in training.
+pub fn layout_input(page: &RgbImage, input_size: u32) -> Result<Vec<f32>> {
+    let (width, height) =
+        layout_dimensions(page.width(), page.height(), input_size)?;
+    let resized = crate::image_transforms::resize_rgb_cubic(page, width, height);
+    // Allocate only the bounded network canvas, even for very wide score strips.
+    let size = input_size as usize;
+    let mut result = vec![1f32; 3 * size * size];
+    for y in 0..height as usize {
+        for x in 0..width as usize {
             for c in 0..3 {
-                result[c * 800 * 800 + y * 800 + x] =
+                result[c * size * size + y * size + x] =
                     resized.get_pixel(x as u32, y as u32).0[c] as f32 / 255.;
             }
         }
@@ -248,19 +325,46 @@ pub fn decode_layout(
 
 pub struct SignatureReader {
     session: Session,
+    input_size: (u32, u32),
+    calibration: Value,
 }
 impl SignatureReader {
     pub fn new(model: &Path) -> Result<Self> {
         let session = session(model)?;
-        if !session.inputs.iter().any(|v| v.name == "images") {
-            return Err("Signature model missing images input".into());
-        }
+        let input = session
+            .inputs
+            .iter()
+            .find(|v| v.name == "images")
+            .ok_or("Signature model missing images input")?;
         for name in ["key", "numerator", "denominator"] {
             if !session.outputs.iter().any(|v| v.name == name) {
                 return Err(format!("Signature model missing output {name}"));
             }
         }
-        Ok(Self { session })
+        let read_metadata = |name: &str| -> Result<Value> {
+            session
+                .metadata()
+                .map_err(err)?
+                .custom(name)
+                .map_err(err)?
+                .map(|value| serde_json::from_str(&value).map_err(err))
+                .transpose()
+                .map(|v| v.unwrap_or(Value::Null))
+        };
+        let config = read_metadata("guitarocr.signature_config")?;
+        let calibration = read_metadata("guitarocr.signature_calibration")?;
+        let input_size = signature_input_size(&config)?;
+        let dimensions = vec![3, i64::from(input_size.1), i64::from(input_size.0)];
+        match &input.input_type {
+            ort::value::ValueType::Tensor { shape, .. }
+                if shape.len() == dimensions.len() + 1 && shape[1..] == dimensions => {}
+            _ => return Err("Signature preprocessing does not match graph input".into()),
+        }
+        Ok(Self {
+            session,
+            input_size,
+            calibration,
+        })
     }
     /// One bounded batch; callers retain cancellation control between batches.
     pub fn predict(&mut self, pages: &[RgbImage]) -> Result<Vec<Value>> {
@@ -270,28 +374,121 @@ impl SignatureReader {
         if pages.len() > 64 {
             return Err("Signature batch exceeds 64 images".into());
         }
-        let mut data = Vec::with_capacity(pages.len() * 2 * 3 * 192 * 512);
+        let (width, height) = self.input_size;
+        let mut data = Vec::new();
         for page in pages {
-            data.extend(signature_input(page)?);
+            data.extend(full_signature_input_at_size(page, width, height)?);
         }
-        let tensor = Tensor::from_array(([pages.len(), 2, 3, 192, 512], data)).map_err(err)?;
+        let shape = vec![pages.len(), 3, height as usize, width as usize];
+        let tensor = Tensor::from_array((shape, data)).map_err(err)?;
         let output = self
             .session
             .run(ort::inputs!["images"=>tensor])
             .map_err(err)?;
-        let mut labels = Vec::new();
+        let mut logits = Vec::new();
         for (name, classes) in [("key", 16), ("numerator", 33), ("denominator", 8)] {
             let (shape, values) = output[name].try_extract_tensor::<f32>().map_err(err)?;
             if shape.as_ref() != [pages.len() as i64, classes as i64] {
                 return Err(format!("Unexpected signature {name} shape: {shape:?}"));
             }
-            labels.push(argmax_rows(values, classes)?);
+            logits.push(values.to_vec());
         }
-        Ok((0..pages.len())
-            .map(|i| signature_value(labels[0][i], labels[1][i], labels[2][i]))
-            .collect())
+        signature_evidence(&logits, &self.calibration)
     }
 }
+
+pub fn full_signature_input_at_size(
+    page: &RgbImage,
+    target_width: u32,
+    target_height: u32,
+) -> Result<Vec<f32>> {
+    check_dimensions(page.width(), page.height())?;
+    check_dimensions(target_width, target_height)?;
+    let ratio = f64::from(page.width()) / f64::from(page.height());
+    let (width, height) = if ratio > f64::from(target_width) / f64::from(target_height) {
+        (
+            target_width,
+            round_even(f64::from(target_width) / ratio).max(1.) as u32,
+        )
+    } else {
+        (
+            round_even(f64::from(target_height) * ratio).max(1.) as u32,
+            target_height,
+        )
+    };
+    let resized = crate::image_transforms::resize_rgb_lanczos(page, width, height);
+    let plane = target_width as usize * target_height as usize;
+    let mut data = vec![1f32; 3 * plane];
+    let (left, top) = ((target_width - width) / 2, (target_height - height) / 2);
+    for y in 0..height {
+        for x in 0..width {
+            for c in 0..3 {
+                data[c * plane
+                    + (y + top) as usize * target_width as usize
+                    + (x + left) as usize] =
+                    (f32::from(resized.get_pixel(x, y).0[c]) / 255. - 0.5) / 0.5;
+            }
+        }
+    }
+    Ok(data)
+}
+
+pub fn signature_evidence(logits: &[Vec<f32>], calibration: &Value) -> Result<Vec<Value>> {
+    if logits.len() != 3 {
+        return Err("Signature requires three classifier heads".into());
+    }
+    let classes = [16, 33, 8];
+    let mut labels = Vec::new();
+    let mut confidence = Vec::new();
+    let batch = logits[0].len() / 16;
+    for (head, values) in logits.iter().enumerate() {
+        if values.len() != batch * classes[head] {
+            return Err("Signature classifier batch mismatch".into());
+        }
+        let winners = argmax_rows(values, classes[head])?;
+        let temperature = calibration["temperatures"][head].as_f64().unwrap_or(1.);
+        if !temperature.is_finite() || temperature <= 0. {
+            return Err("Invalid signature calibration temperature".into());
+        }
+        let probabilities: Vec<f64> = values
+            .chunks_exact(classes[head])
+            .zip(&winners)
+            .map(|(row, &winner)| {
+                let max = f64::from(row[winner]);
+                1. / row
+                    .iter()
+                    .map(|value| ((f64::from(*value) - max) / temperature).exp())
+                    .sum::<f64>()
+            })
+            .collect();
+        labels.push(winners);
+        confidence.push(probabilities);
+    }
+    let mut result = Vec::new();
+    for i in 0..batch {
+        let raw = signature_value(labels[0][i], labels[1][i], labels[2][i]);
+        let mut evidence = json!({});
+        for (field, conf) in [
+            ("key", confidence[0][i]),
+            ("time", confidence[1][i] * confidence[2][i]),
+        ] {
+            let value = &raw[field];
+            let kind = if value.is_null() { "absent" } else { "present" };
+            let threshold = calibration["thresholds"][format!("{field}_{kind}")]
+                .as_f64()
+                .unwrap_or(1.01);
+            let calibrated = calibration["calibrated"].as_bool().unwrap_or(false);
+            let inconsistent = field == "time" && (labels[1][i] > 0) != (labels[2][i] > 0);
+            let known = calibrated && conf >= threshold && !inconsistent;
+            evidence[field] = json!({"status":if known { if value.is_null() { "absent" } else { "observed" } } else { "unknown" },
+                "value":if known { value.clone() } else { Value::Null },"candidate":value,"confidence":conf,
+                "source":"visual_classifier","calibrated":calibrated});
+        }
+        result.push(json!({"key":evidence["key"]["value"],"time":evidence["time"]["value"],"evidence":evidence,"source":"visual_classifier"}));
+    }
+    Ok(result)
+}
+
 fn argmax_rows(values: &[f32], classes: usize) -> Result<Vec<usize>> {
     if values.len() % classes != 0 || !values.iter().all(|v| v.is_finite()) {
         return Err("Malformed/non-finite signature logits".into());
@@ -315,119 +512,32 @@ fn signature_value(key: usize, numerator: usize, denominator: usize) -> Value {
         "time":if numerator>0 && denominator>0 {Some(format!("{numerator}/{}",denominators[denominator]))}else{None}})
 }
 
-pub fn signature_prefix(page: &RgbImage) -> Result<RgbImage> {
-    check_dimensions(page.width(), page.height())?;
-    let mut groups: Vec<Vec<u32>> = Vec::new();
-    for y in 0..page.height() {
-        let ink = (0..page.width())
-            .filter(|&x| {
-                let p = page.get_pixel(x, y).0;
-                ((19595u32 * p[0] as u32 + 38470u32 * p[1] as u32 + 7471u32 * p[2] as u32 + 32768)
-                    >> 16)
-                    < 160
-            })
-            .count();
-        if ink as f64 / page.width() as f64 > 0.45 {
-            if groups
-                .last()
-                .and_then(|g| g.last())
-                .map(|last| *last + 1 == y)
-                .unwrap_or(false)
-            {
-                groups.last_mut().unwrap().push(y);
-            } else {
-                groups.push(vec![y]);
-            }
-        }
+fn signature_input_size(config: &Value) -> Result<(u32, u32)> {
+    if config["version"] != 2
+        || config["architecture"] != "mobilenet_v3_small_spatial_v1"
+        || config["input"]["views"] != 1
+        || config["input"]["resize"] != "contain"
+        || config["input"]["normalization"] != "minus_one_to_one"
+        || config["evidence_version"] != 1
+    {
+        return Err(
+            "Unsupported signature contract: a version 2 full-image model is required".into(),
+        );
     }
-    let lines: Vec<f64> = groups
-        .iter()
-        .map(|g| g.iter().map(|y| *y as f64).sum::<f64>() / g.len() as f64)
-        .collect();
-    for staff in lines.windows(5) {
-        let mut gaps: Vec<f64> = staff.windows(2).map(|v| v[1] - v[0]).collect();
-        gaps.sort_by(f64::total_cmp);
-        if gaps[0] >= 3. && gaps[3] < gaps[0] * 1.4 {
-            let gap = (gaps[1] + gaps[2]) / 2.;
-            let top = staff[0];
-            let y0 = (top - gap * 5.).max(0.) as u32;
-            let x1 = page.width().min((gap * 28.) as u32);
-            let y1 = page.height().min((top + gap * 10.) as u32);
-            return Ok(image::imageops::crop_imm(page, 0, y0, x1, y1 - y0).to_image());
-        }
+    let width = config["input"]["width"]
+        .as_u64()
+        .ok_or("Missing signature width")?;
+    let height = config["input"]["height"]
+        .as_u64()
+        .ok_or("Missing signature height")?;
+    if width < 32
+        || height < 32
+        || width > 1536
+        || height > 1024
+        || width % 32 != 0
+        || height % 32 != 0
+    {
+        return Err("Invalid spatial signature input size".into());
     }
-    Ok(image::imageops::crop_imm(
-        page,
-        0,
-        0,
-        page.width().min(160.max(page.height())),
-        page.height(),
-    )
-    .to_image())
-}
-
-pub fn signature_input(page: &RgbImage) -> Result<Vec<f32>> {
-    let prefix = signature_prefix(page)?;
-    let mut data = vec![1f32; 2 * 3 * 192 * 512]; // white padding maps to +1
-    for (index, view) in [page, &prefix].iter().enumerate() {
-        let (w, h) = view.dimensions();
-        let ratio = w as f64 / h as f64;
-        let (nw, nh) = if ratio > 512. / 192. {
-            (512, round_even(512. / ratio).max(1.) as u32)
-        } else {
-            (round_even(192. * ratio).max(1.) as u32, 192)
-        };
-        let resized = crate::image_transforms::resize_rgb_lanczos(view, nw, nh);
-        let top = (192 - nh) / 2;
-        for y in 0..nh {
-            for x in 0..nw {
-                for c in 0..3 {
-                    data[index * 3 * 192 * 512
-                        + c * 192 * 512
-                        + (y + top) as usize * 512
-                        + x as usize] = (resized.get_pixel(x, y).0[c] as f32 / 255. - 0.5) / 0.5;
-                }
-            }
-        }
-    }
-    Ok(data)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use image::Rgb;
-    #[test]
-    fn layout_coordinates_are_already_original_and_sorted() {
-        let rows = [
-            0., 0.9, -2., 2.5, 130., 99., 8., 2., 0.8, 1., 1., 20., 20., 1., -1., 0.99, 0., 0.,
-            30., 30., 0.,
-        ];
-        let decoded = decode_layout(&rows, 7, 100, 60, 0.25).unwrap();
-        assert_eq!(decoded.len(), 2);
-        assert_eq!(decoded[0]["label"], "measure_both");
-        assert_eq!(decoded[1]["coordinate"], json!([0, 2, 100, 60]));
-        assert!(decode_layout(&[6., 1., 0., 0., 1., 1., 0.], 7, 10, 10, 0.).is_err());
-    }
-    #[test]
-    fn signature_labels_and_padding() {
-        assert_eq!(signature_value(7, 4, 3), json!({"key":0,"time":"4/4"}));
-        assert_eq!(signature_value(15, 0, 0), json!({"key":null,"time":null}));
-        assert_eq!(argmax_rows(&[1., 1., 0.], 3).unwrap(), vec![0]);
-        let page = RgbImage::from_pixel(20, 20, Rgb([0; 3]));
-        let values = signature_input(&page).unwrap();
-        assert_eq!(values.len(), 2 * 3 * 192 * 512);
-        assert_eq!(values[0], -1.);
-        assert_eq!(values[511], 1.);
-    }
-    #[test]
-    fn staff_prefix_geometry() {
-        let mut page = RgbImage::from_pixel(600, 160, Rgb([255; 3]));
-        for y in [50, 60, 70, 80, 90] {
-            for x in 0..600 {
-                page.put_pixel(x, y, Rgb([0; 3]));
-            }
-        }
-        assert_eq!(signature_prefix(&page).unwrap().dimensions(), (280, 150));
-    }
+    Ok((width as u32, height as u32))
 }

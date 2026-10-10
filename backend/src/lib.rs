@@ -3,26 +3,29 @@ mod acceleration;
 mod accounts;
 pub mod assets;
 pub mod auxiliary_onnx;
+pub mod chord_text_roles;
 mod downloads;
 pub mod edit;
 pub mod image_boundary;
 pub mod image_transforms;
 pub mod layout;
 pub mod layout_postprocess;
+pub mod layout_quality;
+pub mod layout_tiling;
 pub mod models;
-pub mod ottava_geometry;
 pub mod pipeline;
-pub mod pixel_refinement;
 pub mod project;
 pub mod recognition;
 pub mod score_grid;
 pub mod score_structure;
-pub mod staff_classifier;
-pub mod staff_geometry;
+pub mod structure_relation;
 pub mod tasks;
+pub mod technique_grounding;
+pub mod technique_span;
+pub mod text_regions;
 pub mod uploads;
 pub mod view;
-use crate::project::{import_project, ImportOptions};
+use crate::project::import_project;
 use axum::{
     body::Body,
     extract::{DefaultBodyLimit, Multipart, Path, Request},
@@ -169,13 +172,11 @@ async fn restore(Extension(app): Extension<AppState>, mut multipart: Multipart) 
     }
     uploaded.flush().map_err(bad)?;
     let root = app.projects.clone();
-    let imported = tokio::task::spawn_blocking(move || {
-        import_project(uploaded.path(), root, &ImportOptions::default())
-    })
-    .await
-    .map_err(bad)?
-    .map_err(bad)?;
-    view::project(&app.projects, &imported.session_id)
+    let imported = tokio::task::spawn_blocking(move || import_project(uploaded.path(), root))
+        .await
+        .map_err(bad)?
+        .map_err(bad)?;
+    view::project(&app.projects, &imported)
         .map(Json)
         .map_err(bad)
 }
@@ -289,6 +290,29 @@ async fn metadata(
     app.tasks.clear(&sid).map_err(bad)?;
     view::project(&app.projects, &sid).map(Json).map_err(bad)
 }
+async fn chord_library(
+    Extension(app): Extension<AppState>,
+    Path((sid, index)): Path<(String, usize)>,
+    headers: axum::http::HeaderMap,
+    Json(body): Json<Value>,
+) -> ApiResult {
+    view::directory(&app.projects, &sid).map_err(bad)?;
+    let _guard = app.mutation.lock().map_err(|_| bad("项目状态不可用"))?;
+    app.tasks
+        .idle(&sid)
+        .map_err(|e| ApiError(StatusCode::CONFLICT, e))?;
+    edit::chord_library::edit(
+        &app.projects,
+        &sid,
+        index,
+        &body,
+        headers.get(header::IF_MATCH).and_then(|v| v.to_str().ok()),
+    )
+    .map_err(|(code, message)| ApiError(StatusCode::from_u16(code).unwrap(), message))?;
+    app.tasks.clear(&sid).map_err(bad)?;
+    view::project(&app.projects, &sid).map(Json).map_err(bad)
+}
+
 async fn boxes(
     Extension(app): Extension<AppState>,
     Path(sid): Path<String>,
@@ -367,7 +391,7 @@ async fn score_text(
             ),
             (header::CACHE_CONTROL, "no-store"),
         ],
-        scorelib::score::display_score_text(&text),
+        text,
     )
         .into_response())
 }
@@ -562,6 +586,20 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut resources = std::env::var_os("GUITAROCR_NATIVE_RESOURCES").map(PathBuf::from);
     while let Some(arg) = args.next() {
         match arg.as_str() {
+            "--model-metadata" => {
+                if std::env::args().len() != 2 {
+                    return Err("--model-metadata must be used alone".into());
+                }
+                serde_json::to_writer(std::io::stdout(), &models::compiled_metadata()?)?;
+                return Ok(());
+            }
+            "--model-catalog" => {
+                if std::env::args().len() != 2 {
+                    return Err("--model-catalog must be used alone".into());
+                }
+                std::io::stdout().write_all(models::compiled_catalog()?.as_bytes())?;
+                return Ok(());
+            }
             "--projects" => {
                 projects = PathBuf::from(args.next().ok_or("Missing --projects value")?)
             }
@@ -588,7 +626,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             "--server" => server = true,
             "--api-only" => api_only = true,
             "--help" | "-h" => {
-                println!("guitarocr-backend [--projects DIR] [--assets ui/workbench] [--resources DIR] [--models DIR] [--port PORT] [--slots 1..4]\n  Local mode binds loopback. Hosted mode: --server --bind ADDRESS --public-url URL [--api-only]\n  Create an admin: --projects DIR --create-admin USER (GUITAROCR_ADMIN_PASSWORD from environment)");
+                println!("guitarocr-backend [--projects DIR] [--assets ui/workbench] [--resources DIR] [--models DIR] [--port PORT] [--slots 1..4]\n  Local mode binds loopback. Hosted mode: --server --bind ADDRESS --public-url URL [--api-only]\n  Create an admin: --projects DIR --create-admin USER (GUITAROCR_ADMIN_PASSWORD from environment)\n  Inspect compiled model metadata without starting the server: --model-catalog or --model-metadata");
                 return Ok(());
             }
             _ => return Err(format!("Unknown argument {arg}; use --help").into()),
@@ -712,6 +750,10 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             put(boxes).layer(DefaultBodyLimit::max(2 * 1024 * 1024)),
         )
         .route("/api/sessions/{sid}/archive", get(archive))
+        .route(
+            "/api/sessions/{sid}/chord-library/{index}",
+            put(chord_library),
+        )
         .route("/api/sessions/{sid}/export", post(export))
         .route(
             "/api/sessions/{sid}/measures/{number}",

@@ -1,8 +1,19 @@
-"""PyGuitarPro source adapter to scorelib's shared music representation."""
+"""Read and construct Guitar Pro files for source data generation."""
+
 from __future__ import annotations
+
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from types import MethodType
 from typing import Any
 from urllib.parse import quote
-from scorelib.m2 import parse_measure_target, full_measure_rest_target
+
+from scorelib.instruments import DEFAULT_PROGRAMS, DEFAULT_TUNINGS
+from scorelib.score import (
+    full_measure_rest_target,
+    parse_measure_target,
+    write_score_gp5,
+)
 
 SLIDE_NAMES = {
     "legatoSlideTo": "sl",
@@ -102,13 +113,21 @@ def encode_note(note: Any) -> dict[str, Any]:
         open_pitch = int(note.realValue) - int(note.value)
         grace = getattr(effect, "grace", None)
         if grace is not None:
-            note_effects.append("grace" if int(grace.fret) < 0 else (
-                f"grace:f{int(grace.fret)}p{open_pitch + int(grace.fret)}:{int(grace.duration)}:"
-                f"{_enum_name(grace.transition)}:{int(grace.isOnBeat)}:{int(grace.isDead)}"
-            ))
+            note_effects.append(
+                "grace"
+                if int(grace.fret) < 0
+                else (
+                    f"grace:f{int(grace.fret)}p{open_pitch + int(grace.fret)}:{int(grace.duration)}:"
+                    f"{_enum_name(grace.transition)}:{int(grace.isOnBeat)}:{int(grace.isDead)}"
+                )
+            )
         trill = getattr(effect, "trill", None)
         if trill is not None:
-            note_effects.append("trill" if int(trill.fret) < 0 else f"trill:f{int(trill.fret)}p{open_pitch + int(trill.fret)}:{int(trill.duration.value)}")
+            note_effects.append(
+                "trill"
+                if int(trill.fret) < 0
+                else f"trill:f{int(trill.fret)}p{open_pitch + int(trill.fret)}:{int(trill.duration.value)}"
+            )
         tremolo = getattr(effect, "tremoloPicking", None)
         if tremolo is not None:
             note_effects.append(f"trem:{int(tremolo.duration.value)}")
@@ -135,9 +154,12 @@ def _beat_effects(beat: Any) -> list[str]:
     if effect is None:
         return []
     values: list[str] = []
-    octave = {"ottava": 12, "ottavaBassa": -12,
-              "quindicesima": 24, "quindicesimaBassa": -24}.get(
-                  _enum_name(getattr(beat, "octave", None)))
+    octave = {
+        "ottava": 12,
+        "ottavaBassa": -12,
+        "quindicesima": 24,
+        "quindicesimaBassa": -24,
+    }.get(_enum_name(getattr(beat, "octave", None)))
     if octave:
         values.append(f"ottava:{octave}")
     pick = _enum_name(getattr(effect, "pickStroke", "none"))
@@ -194,7 +216,8 @@ def encode_measure(
         for beat in voice.beats:
             status = _enum_name(getattr(beat, "status", "normal"))
             event = {
-                "start": int(getattr(beat, "start", measure_start) or measure_start) - measure_start,
+                "start": int(getattr(beat, "start", measure_start) or measure_start)
+                - measure_start,
                 "duration": _duration_dict(beat.duration),
                 "status": status,
                 "notes": [encode_note(note) for note in beat.notes],
@@ -204,12 +227,16 @@ def encode_measure(
         # GP8 can render an empty primary voice as a measure rest. Secondary
         # voices containing only placeholder empty beats are not visible and
         # must not become impossible OCR targets.
-        if events and (voice_index == 0 or any(event["status"] != "empty" for event in events)):
+        if events and (
+            voice_index == 0 or any(event["status"] != "empty" for event in events)
+        ):
             voices.append({"voice": voice_index, "events": events})
     if not voices:
         # An entirely empty source bar is printed as a full-measure rest by
-        # Guitar Pro. An empty "M2 |" target violates the OCR output contract.
-        voices = parse_measure_target(full_measure_rest_target((numerator, denominator)))["voices"]
+        # Guitar Pro. An empty "M |" target violates the OCR output contract.
+        voices = parse_measure_target(
+            full_measure_rest_target((numerator, denominator))
+        )["voices"]
     bars = []
     if bool(getattr(header, "isRepeatOpen", False)):
         bars.append("repeat_open")
@@ -239,23 +266,104 @@ def encode_measure(
                 for event in voice["events"]:
                     if int(event["start"]) == 0:
                         event["effects"] = [
-                            effect for effect in event.get("effects", [])
+                            effect
+                            for effect in event.get("effects", [])
                             if not str(effect).startswith("tempo:")
                         ]
     return {
         "index": int(measure.number) - 1,
         "number": int(measure.number),
         "time_signature": time_signature,
-        "print_time_signature": previous_time_signature is None or time_signature != previous_time_signature,
+        "print_time_signature": previous_time_signature is None
+        or time_signature != previous_time_signature,
         "key_signature": key_signature,
-        "print_key_signature": previous_key_signature is None or key_signature != previous_key_signature,
+        "print_key_signature": previous_key_signature is None
+        or key_signature != previous_key_signature,
         "tempo_quarter": visible_initial_tempo,
         "triplet_feel": triplet_feel if triplet_feel != "none" else None,
         "bars": bars,
         "repeat_count": repeat_close + 1 if repeat_close > 0 else None,
         "alternate_endings": int(getattr(header, "repeatAlternative", 0) or 0) or None,
-        "section": str(getattr(getattr(header, "marker", None), "title", "") or "").strip() or None,
+        "section": str(
+            getattr(getattr(header, "marker", None), "title", "") or ""
+        ).strip()
+        or None,
         "direction": _enum_name(getattr(header, "direction", None)),
         "from_direction": _enum_name(getattr(header, "fromDirection", None)),
         "voices": voices,
     }
+
+
+def _tied_value(self, note):
+    current = note.beat.voice.measure
+    voice_index = next(
+        i for i, voice in enumerate(current.voices) if voice is note.beat.voice
+    )
+    for measure in reversed(current.track.measures):
+        voice = measure.voices[voice_index]
+        beats = voice.beats
+        if measure is current:
+            index = next(i for i, beat in enumerate(beats) if beat is note.beat)
+            beats = beats[:index]
+        for beat in reversed(beats):
+            if beat.status.name != "empty":
+                for previous in beat.notes:
+                    if previous.string == note.string:
+                        return previous.value
+    return -1
+
+
+def read_gp(stream, encoding="cp1252"):
+    from guitarpro.io import _open
+
+    reader, close = _open(None, stream, "rb", encoding=encoding)
+    # PyGuitarPro uses list.index while the current beat is only partly read.
+    # Equal notes can then match an earlier beat whose duration differs, making
+    # a later tie incorrectly inherit an older pitch. Identity is unambiguous.
+    reader.getTiedNoteValue = MethodType(_tied_value, reader)
+    try:
+        return reader.readSong()
+    finally:
+        if close:
+            reader.close()
+
+
+def write_targets_gp5(
+    targets,
+    output,
+    *,
+    mode="both",
+    title="Guitar OCR",
+    artist="",
+    tuning=None,
+    capo=0,
+    instrument="guitar",
+    midi_program=None,
+):
+    targets = list(targets)
+    if not targets:
+        raise ValueError("At least one measure is required")
+    result = {
+        "title": title,
+        "artist": artist,
+        "mode": mode,
+        "instrument": instrument,
+        "tuning_used": list(
+            tuning if tuning is not None else DEFAULT_TUNINGS[instrument]
+        ),
+        "capo": capo,
+        "midi_program": midi_program
+        if midi_program is not None
+        else DEFAULT_PROGRAMS[instrument],
+        "records": [
+            {"target": t, "measure_number": i, "bar_index": i - 1}
+            for i, t in enumerate(targets, 1)
+        ],
+    }
+    return write_score_gp5(result, output)
+
+
+def targets_to_song(targets, **options):
+    with TemporaryDirectory(prefix="scorelib-") as directory:
+        output = write_targets_gp5(targets, Path(directory) / "score.gp5", **options)
+        return read_gp(str(output), encoding="cp936")

@@ -1,10 +1,10 @@
 """Add reversible music lexemes and initialize their embedding/output rows."""
 
 import argparse
-from collections import Counter
 import json
-from pathlib import Path
 import re
+from collections import Counter
+from pathlib import Path
 
 
 def structured_lexemes(base, training_data=None):
@@ -37,41 +37,15 @@ def select_lexemes(base, training_data, minimum_count=50, limit=2048):
     return [text for saved, text in sorted(ranked, reverse=True)[:limit] if saved > 0]
 
 
-def retokenize_dataset(base, expanded, source, output, workers=16):
-    """Replace target tokens while retaining multimodal prompt/image alignment."""
-    from datasets import DatasetDict, load_from_disk
-    from transformers import AutoTokenizer
-
-    old = AutoTokenizer.from_pretrained(base)
-    new = AutoTokenizer.from_pretrained(expanded)
-
-    def rewrite(batch):
-        result = {k: [] for k in ('input_ids', 'labels', 'attention_mask', 'length')}
-        for ids, labels in zip(batch['input_ids'], batch['labels'], strict=True):
-            start = next(i for i, token in enumerate(labels) if token != -100)
-            text = old.decode(labels[start:], skip_special_tokens=True)
-            tokens = new.encode(text, add_special_tokens=False)
-            if new.decode(tokens, skip_special_tokens=False) != text:
-                raise ValueError('Vocabulary changed the score text')
-            tokens.append(new.eos_token_id)
-            values = ids[:start] + tokens
-            result['input_ids'].append(values)
-            result['labels'].append([-100] * start + tokens)
-            result['attention_mask'].append([1] * len(values))
-            result['length'].append(len(values))
-        return result
-
-    data = load_from_disk(str(source))
-    DatasetDict({split: rows.map(rewrite, batched=True, batch_size=128, num_proc=workers,
-                                desc='Music vocabulary ' + split) for split, rows in data.items()}).save_to_disk(str(output))
-
-
 def prepare_vocabulary(base, adapter, output, lexemes):
     import torch
-    from research.training.checkpoint import load_checkpoint
-    from research.training.checkpoint import save_checkpoint
     from transformers import AddedToken, AutoConfig, AutoProcessor
-    from research.export.export_glm import export_model
+
+    from research.export.export_glm import (
+        export_model,
+        load_checkpoint,
+        save_checkpoint,
+    )
 
     output = Path(output)
     export_model(base, adapter, output)
@@ -121,14 +95,7 @@ if __name__ == '__main__':
     selection.add_argument('--lexemes', type=Path)
     selection.add_argument('--training-data', type=Path, help='Select frequent lexemes from training JSONL')
     parser.add_argument('--structured', action='store_true', help='Complete supported pitch/fingering/rhythm fields')
-    parser.add_argument('--tokenized-input', type=Path)
-    parser.add_argument('--tokenized-output', type=Path)
-    parser.add_argument('--workers', type=int, default=16)
     args = parser.parse_args()
-    if bool(args.tokenized_input) != bool(args.tokenized_output):
-        parser.error('Both tokenized input and output are required for retokenization')
     lexemes = (structured_lexemes(args.base, args.training_data) if args.structured else
                json.loads(args.lexemes.read_text())['lexemes'] if args.lexemes else select_lexemes(args.base, args.training_data))
     prepare_vocabulary(args.base, args.adapter, args.output, lexemes)
-    if args.tokenized_input:
-        retokenize_dataset(args.base, args.output, args.tokenized_input, args.tokenized_output, args.workers)

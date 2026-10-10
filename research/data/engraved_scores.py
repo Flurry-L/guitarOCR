@@ -1,35 +1,29 @@
 """Generate musical notation and multi-staff supervision with native SVG geometry."""
 
 import argparse
-from collections import defaultdict
-from concurrent.futures import ProcessPoolExecutor
 import json
-from pathlib import Path
 import random
 import re
 import xml.etree.ElementTree as ET
+from collections import defaultdict
+from concurrent.futures import ProcessPoolExecutor
+from pathlib import Path
 
 from PIL import Image
-
-from research.data.training_samples import dataset_entry
-from research.inference.information.prompts import CLEF_PROMPT
-from research.inference.information.prompts import HEADER_PROMPT
-from research.inference.information.prompts import STAFF_PROMPT
-from research.inference.layout.structure import STRUCTURE_PROMPT
-from research.inference.layout.structure import structure_image
-from scorelib.m2 import format_measure_target
-from scorelib.m2 import parse_measure_target
-from scorelib.musicxml import duration_ticks
-from scorelib.musicxml import write_musicxml
-from scorelib.pitch_context import convert_pitch_target
-from scorelib.pitch_context import transpose_key
-from scorelib.score_state import SIGNATURE_PROMPT
-from scorelib.score_state import attach_neighbours
-from scorelib.score_state import key_fifths
-from scorelib.score_state import signature_target
-from scorelib.score_state import state_prompt
+from scorelib.score import format_measure_target, parse_measure_target
+from scorelib.score import duration_ticks, write_musicxml
+from scorelib.pitch_context import convert_pitch_target, transpose_key
+from research.data.prompts import (
+    SIGNATURE_PROMPT,
+    attach_neighbours,
+    key_fifths,
+    signature_target,
+    state_prompt,
+)
 from scorelib.techniques import canonical_chord_marks
 
+from research.data.prompts import CLEF_PROMPT, HEADER_PROMPT, STAFF_PROMPT
+from research.data.training_samples import dataset_entry
 
 PROFILES = [
     ('Piano', 'pitched', 0, 'G2', 0, 64), ('Violin', 'pitched', 40, 'G2', 0, 72),
@@ -68,7 +62,7 @@ def generate(index, split, bars=16):
             pitch_pool = [p for p in range(centre - 10, centre + 14) if p % 12 in pitch_classes]
             last = {}
             for bi in range(bars):
-                data = parse_measure_target('M2 | V0{@0:w:r}')
+                data = parse_measure_target('M | V0{@0:w:r}')
                 data.update(time_signature=time if bi == 0 else None, key_signature=key if bi == 0 else None,
                             print_time_signature=bi == 0, print_key_signature=bi == 0,
                             tempo_quarter=None,
@@ -106,7 +100,7 @@ def generate(index, split, bars=16):
                                     event['notes'].append({'pitch': pitch, 'effects': effects})
                                 last[vi] = pitches
                             events.append(event)
-                            start += duration_ticks(duration)
+                            start += int(duration_ticks(duration))
                     data['voices'].append({'voice': vi, 'events': events})
                 written = format_measure_target(canonical_chord_marks(data), 'notation')
                 sounding = convert_pitch_target(written, context)
@@ -120,16 +114,25 @@ def generate(index, split, bars=16):
 
 def render(job):
     index, split, output = job
+    root = Path(output) / split / f'score-{index:05d}'
+    return render_score(generate(index, split), root, f'engraved-{split}-{index}', split,
+                        font=['Leipzig', 'Bravura', 'Gootville'][index % 3],
+                        spacing=[(10, 4), (16, 6), (12, 5)][index % 3])
+
+
+def render_score(score, root, family, split, *, font='Leipzig', spacing=None):
+    """Render an authored score using the same geometry and task serializers."""
     import cairosvg
     import verovio
 
-    root = Path(output) / split / f'score-{index:05d}'
+    root = Path(root)
     root.mkdir(parents=True, exist_ok=True)
-    score = generate(index, split)
     xml = write_musicxml(score, root / 'score.musicxml')
     renderer = verovio.toolkit()
     renderer.setOptions({'scale': 70, 'pageWidth': 2100, 'pageHeight': 2970, 'svgBoundingBoxes': True,
-                         'header': 'auto', 'footer': 'none', 'font': ['Leipzig', 'Bravura', 'Gootville'][index % 3]})
+                         'header': 'auto', 'footer': 'none', 'font': font})
+    if spacing is not None:
+        renderer.setOptions({'spacingStaff': spacing[0], 'spacingSystem': spacing[1]})
     if not renderer.loadFile(str(xml)):
         raise ValueError(f'Native engraving failed: {xml}')
     flat = [(pi, si, p, s) for pi, p in enumerate(score['parts']) for si, s in enumerate(p['staves'])]
@@ -164,7 +167,7 @@ def render(job):
                         x0, y0 = max(0, (left + 500) * scale - 3), max(0, (top + 500) * scale - 22)
                         x1, y1 = min(image.width, (right + 500) * scale + 3), min(image.height, (bottom + 500) * scale + 22)
                         box = [x0, y0, x1 - x0, y1 - y0]
-                        source_id = f'engraved-{split}-{index}-p{pi}-s{si}'
+                        source_id = f'{family}-p{pi}-s{si}'
                         crop = root / 'crops' / f'{pi}-{si}-{bi}.png'
                         crop.parent.mkdir(exist_ok=True)
                         image.crop((int(x0), int(y0), int(x1 + 1), int(y1 + 1))).save(crop)
@@ -173,8 +176,8 @@ def render(job):
                         state = {'time': score['timeline'][bi]['time_signature'], 'key': key_fifths(written_key)}
                         visible = {n.get('class') for n in staff_node.iter() if n.get('class') in {'meterSig', 'keySig'}
                                    and (n.findall('.//s:use', ns) or n.findall('.//s:text', ns))}
-                        row = {'id': f'{source_id}-{bi}', 'source_id': source_id, 'family': f'engraved-{split}-{index}',
-                               'split': split, 'measure_index': bi, 'bar_index': bi, 'source_measures': 16,
+                        row = {'id': f'{source_id}-{bi}', 'source_id': source_id, 'family': family,
+                               'split': split, 'measure_index': bi, 'bar_index': bi, 'source_measures': len(staff['measures']),
                                'measure_number': len(records) + 1, 'mode': 'notation', 'visual_pitch': True,
                                'page': page, 'system_index': system_index, 'bbox': box, 'source_page': str(image_path.resolve()),
                                'image': str(crop.resolve()), 'part_id': part['id'], 'staff_id': staff['id'],
@@ -198,10 +201,14 @@ def render(job):
                             metadata.append(chat(clef_path, CLEF_PROMPT, {'clef': data['pitch_context']['clef'], 'clef_octave': 0}))
                         page_rows[(system_index, pi, si)].append(row)
                         page_labels[(system_index, pi, si)] = [system_index, pi, si]
-            marked = structure_image(image_path, list(page_rows.values()), root / f'structure-{page}.png')
             parts = [{'name': p['name'], 'instrument': p['instrument'], 'strings': None, 'program': p['midi_program']} for p in score['parts']]
-            structures.append({'messages': [{'role': 'user', 'content': '<image>' + STRUCTURE_PROMPT + f'There are {len(page_rows)} marked rows.'},
-                                            {'role': 'assistant', 'content': json.dumps({'parts': parts, 'rows': list(page_labels.values())}, separators=(',', ':'))}], 'images': [marked]})
+            structures.append({'image': str(image_path.resolve()),
+                               'centers': [(min(r['bbox'][1] for r in rows) +
+                                            max(r['bbox'][1] + r['bbox'][3] for r in rows)) / 2
+                                           for rows in page_rows.values()],
+                               'expected': {'parts': parts, 'rows': list(page_labels.values())},
+                               'row_modes': ['notation'] * len(page_rows),
+                               'family': family, 'split': split})
             for (_system, pi, si), rows in page_rows.items():
                 if rows[0]['bar_index'] != 0:
                     continue
@@ -222,7 +229,7 @@ def render(job):
     images[0].save(pdf, save_all=True, append_images=images[1:], resolution=180)
     for im in images:
         im.close()
-    payload = {'id': f'engraved-{split}-{index}', 'split': split, 'pdf': str(pdf.resolve()), 'records': records, 'pages': pages, 'parts': score['parts']}
+    payload = {'id': family, 'split': split, 'pdf': str(pdf.resolve()), 'records': records, 'pages': pages, 'parts': score['parts']}
     (root / 'score.json').write_text(json.dumps(payload))
     chats = [{'messages': [{'role': 'user', 'content': '<image><image><image>' + state_prompt('notation', r['instrument'], r['score_state'], r['pitch_context'], first=r['bar_index'] == 0, visual_pitch=True)},
                            {'role': 'assistant', 'content': r['target']}], 'images': [r['image'], r['previous_image'], r['next_image']]} for r in records]
@@ -255,7 +262,7 @@ def build(output, train=1600, validation=160, test=160, workers=12):
                 if i % 50 == 0:
                     print(split, i, '/', count, counts, flush=True)
         summary[split] = counts
-        for kind in ('measure', 'structure', 'info'):
+        for kind in ('measure', 'info'):
             info[f'{kind}_{split}'] = dataset_entry(f'{kind}_{split}.jsonl')
         (output / 'summary.json').write_text(json.dumps(summary, indent=2))
         (output / 'dataset_info.json').write_text(json.dumps(info, indent=2))
@@ -263,7 +270,7 @@ def build(output, train=1600, validation=160, test=160, workers=12):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--output', type=Path, default=Path('database/engraved_scores'))
+    parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--train', type=int, default=1600)
     parser.add_argument('--validation', type=int, default=160)
     parser.add_argument('--test', type=int, default=160)

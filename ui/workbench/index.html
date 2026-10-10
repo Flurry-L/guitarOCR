@@ -244,6 +244,7 @@
               </figure>
               <div class="coords" id="coords" hidden="">
                 <label>区域类型<select id="boxKind"></select></label>
+                <p id="boxBoundaryReview" class="muted" hidden="">相邻检测框有重叠，边界已对齐，可核对。</p>
                 <details>
                   <summary>精确位置（像素）</summary>
                   <label>X<input id="boxX" type="number" step="1" /></label
@@ -356,6 +357,34 @@
             >
           </div>
           <div id="infoWarnings" class="hint" hidden=""></div>
+          <details id="libraryChordReview" class="measure-settings library-chord-review" hidden open>
+            <summary>谱面指法库</summary>
+            <p class="small muted">对照原谱确认指法。未用于正文的指法图会保存在 GP 的静音参考轨中。</p>
+            <label>图示<select id="libraryChordEntry"></select></label>
+            <div class="library-chord-images">
+              <div><p id="libraryChordSourceLabel" class="small muted"></p><canvas id="libraryChordSource" hidden aria-label="指法原谱裁图"></canvas></div>
+              <div id="libraryChordPreview" class="chord-preview"></div>
+            </div>
+            <label>识别候选<select id="libraryChordCandidate"></select></label>
+            <div class="metadata">
+              <label>和弦名称<input id="libraryChordName" maxlength="160" placeholder="例如 B♭maj7、D/F♯" /></label>
+              <label>指法（低音弦 → 高音弦）<input id="libraryChordFrets" placeholder="例如 x 3 2 0 1 0" /></label>
+              <label>图示起始品<input id="libraryChordBase" type="number" min="1" max="36" value="1" /></label>
+              <label>手指数字（- 表示无标注）<input id="libraryChordFingers" placeholder="例如 - 3 2 - 1 -" /></label>
+              <label>横按（品位:弦号-弦号）<input id="libraryChordBarres" placeholder="例如 1:6-1；1 弦为最高音弦" /></label>
+            </div>
+            <div class="tool-group">
+              <button id="libraryChordConfirm" class="primary">确认并保存指法</button>
+              <button id="libraryChordReject" class="quiet">排除此候选</button>
+              <button id="libraryChordReset" class="quiet">恢复原识别</button>
+              <button id="libraryChordDiscard" class="quiet" hidden>放弃修改</button>
+            </div>
+            <p id="libraryChordStatus" class="small muted" role="status"></p>
+          </details>
+          <div class="row">
+            <label id="confirmInstrumentField" hidden><input id="confirmInstrument" type="checkbox" />已对照原谱，确认当前乐器</label>
+            <label id="confirmTuningField" hidden><input id="confirmTuning" type="checkbox" />已对照原谱，确认当前调弦</label>
+          </div>
           <div class="footer">
             <span id="infoSaveStatus" class="muted" role="status">更改乐器、调弦或移调后需重新识别小节。</span>
             <div class="row"><button id="discardInfo" hidden>放弃修改</button>
@@ -725,6 +754,13 @@
                     data-icon="rest"
                   ></button>
                 </div>
+                    <label class="voice-control"><select id="editorVoice" aria-label="声部">
+                      <option value="0">1</option>
+                      <option value="1">2</option>
+                    </select></label>
+                <label class="dynamic-control">力度<select id="beatDynamic" aria-label="当前拍的力度标记">
+                  <option value="">沿用</option><option value="15">ppp</option><option value="31">pp</option><option value="47">p</option><option value="63">mp</option><option value="79">mf</option><option value="95">f</option><option value="111">ff</option><option value="127">fff</option>
+                </select></label>
                 <details class="more-commands">
                   <summary aria-label="更多编辑工具">更多</summary>
                   <div class="command-menu">
@@ -743,10 +779,7 @@
                       <button id="addEvent" title="插入空拍（Insert）"><span data-icon="addBeat" aria-hidden="true"></span>插入空拍</button>
                       <button id="deleteEvent" title="删除当前拍（Shift Delete）"><span data-icon="deleteBeat" aria-hidden="true"></span>删除当前拍</button>
                     </div>
-                    <label class="voice-control">声部<select id="editorVoice" aria-label="声部">
-                      <option value="0">1</option>
-                      <option value="1">2</option>
-                    </select></label>
+
                   </div>
                 </details>
               </div>
@@ -759,10 +792,17 @@
               ></div>
             </div>
 
+            <div class="score-context" aria-label="当前乐谱信息">
+              <button id="contextTrack" title="查看音轨属性"></button>
+              <button id="contextMeter" title="编辑当前小节的拍号、调号和速度"></button>
+              <span id="contextTuning"></span>
+              <span id="contextPosition"></span>
+            </div>
             <div id="scoreEditor" class="score-workspace">
               <div class="score-document">
                 <div class="score-viewport">
                   <div class="score-paper">
+                    <p id="scoreHeaderNotes" class="score-header-notes" hidden></p>
                     <div
                       id="scoreCanvas"
                       tabindex="0"
@@ -802,6 +842,7 @@
                     ><button data-effect="hammer" title="击勾弦">击勾弦</button
                     ><button data-effect="sl" title="滑音">滑音</button
                     ><button data-effect="pm" title="掌闷音">掌闷音</button
+                    ><button data-effect="let" title="持续发声（let ring）">持续发声</button
                     ><button data-effect="vib" title="颤音">颤音</button
                     ><button data-effect="stacc" title="断奏">断奏</button
                     ><button data-effect="accent" title="重音">重音</button
@@ -812,6 +853,42 @@
                       <option value="bend:bendRelease:100">推弦回落</option>
                     </select>
                   </div>
+                  <details id="noteEffectProperties" class="measure-settings">
+                    <summary>推弦、泛音与装饰音</summary>
+                    <div class="measure-property-fields">
+                      <label>推弦轮廓<select id="bendShape"><option value="">无</option><option value="bend">上推</option><option value="bendRelease">上推后回落</option><option value="bendReleaseBend">上推、回落、再上推</option><option value="prebend">预推</option><option value="prebendRelease">预推后回落</option></select></label>
+                      <label>推弦幅度（半音）<input id="bendSemitones" type="number" min="0.5" max="6" step="0.5" value="2" /></label>
+                      <button id="applyBend" type="button">设置推弦</button>
+                      <label>滑入<select id="slideIn"><option value="">无</option><option value="sib">从下方滑入</option><option value="sia">从上方滑入</option></select></label>
+                      <label>滑出<select id="slideOut"><option value="">无</option><option value="sl">连奏滑向下一音</option><option value="ss">换把滑向下一音</option><option value="sod">向下滑出</option><option value="sou">向上滑出</option></select></label>
+                      <label>泛音类型<select id="harmonicKind"><option value="">无</option><option value="natural">自然泛音</option><option value="artificial">人工泛音</option><option value="pinch">拨片泛音</option><option value="tapped">点弦泛音</option><option value="semi">半泛音</option></select></label>
+                      <label id="harmonicFretField" hidden>触弦品位<input id="harmonicFret" type="number" min="0" max="30" /></label>
+                      <div id="artificialHarmonicFields" class="measure-property-fields" hidden>
+                        <label>泛音音级<select id="harmonicPitch"><option value="0">C</option><option value="1">C♯</option><option value="2">D</option><option value="3">D♯</option><option value="4">E</option><option value="5">F</option><option value="6">F♯</option><option value="7">G</option><option value="8">G♯</option><option value="9">A</option><option value="10">B♭</option><option value="11">B</option></select></label>
+                        <label>相对八度<select id="harmonicOctave"><option value="0">同八度</option><option value="1">高一个八度</option><option value="2">高两个八度</option><option value="3">高三个八度</option><option value="4">高四个八度</option></select></label>
+                      </div>
+                      <button id="applyHarmonic" type="button">设置泛音</button>
+                    </div>
+                    <details class="measure-settings">
+                      <summary>装饰音 <span id="graceStatus" class="muted small"></span></summary>
+                      <div class="measure-property-fields">
+                        <label><span id="gracePositionLabel">辅助音品位</span><input id="gracePosition" /></label>
+                        <label>时值<select id="graceDuration"><option value="8">八分</option><option value="16">十六分</option><option value="32">三十二分</option><option value="64">六十四分</option><option value="128">一百二十八分</option></select></label>
+                        <label>过渡<select id="graceTransition"><option value="none">无</option><option value="slide">滑音</option><option value="hammer">击勾弦</option><option value="bend">推弦</option></select></label>
+                        <label class="check-field"><input id="graceOnBeat" type="checkbox" />拍内装饰音</label>
+                        <label class="check-field"><input id="graceDead" type="checkbox" />闷音</label>
+                        <button id="graceApply" type="button">设置装饰音</button><button id="graceRemove" type="button">移除装饰音</button>
+                      </div>
+                    </details>
+                    <details class="measure-settings">
+                      <summary>颤音辅助音 <span id="trillStatus" class="muted small"></span></summary>
+                      <div class="measure-property-fields">
+                        <label><span id="trillPositionLabel">辅助音品位</span><input id="trillPosition" /></label>
+                        <label>交替时值<select id="trillDuration"><option value="16">十六分</option><option value="32">三十二分</option><option value="64">六十四分</option></select></label>
+                        <button id="trillApply" type="button">设置颤音</button><button id="trillRemove" type="button">移除颤音</button>
+                      </div>
+                    </details>
+                  </details>
                   <details class="note-input-panel">
                     <summary>输入音符</summary>
                     <div class="note-inputs">
@@ -857,8 +934,9 @@
                   class="rhythm-status"
                   role="status"
                 ></div>
-                <details class="measure-settings chord-settings" data-inspector-section="beat">
+                <details class="measure-settings chord-settings" data-inspector-section="beat" open>
                   <summary>当前拍的和弦标记</summary>
+                  <p id="chordChoiceHint" class="small muted" hidden></p>
                   <div
                     id="chordLibrary"
                     class="chord-library"
@@ -901,8 +979,8 @@
                   </div>
                 </details>
                 <details class="measure-settings">
-                  <summary>小节与节拍设置</summary>
-                  <div class="score-toolbar">
+                  <summary id="measureSettingsSummary">小节与节拍设置</summary>
+                  <div class="score-toolbar measure-property-fields">
                     <label
                       >拍号
                       <input
@@ -910,6 +988,7 @@
                         placeholder="沿用上一小节"
                         size="8"
                     /></label>
+                    <label id="measureKeyField">调号<select id="measureKey"></select></label>
                     <label
                       >速度
                       <input
@@ -927,6 +1006,42 @@
                         min="0"
                         step="0.0625"
                     /></label>
+                    <label>段落名称<input id="measureSection" placeholder="例如 主歌、Chorus" /></label>
+                    <label>本小节摇摆节奏<select id="tripletFeel"><option value="">未标注</option><option value="none">直奏</option><option value="eighth">八分音符 Swing</option><option value="sixteenth">十六分音符 Swing</option></select></label>
+                    <label>当前拍文字<input id="beatText" placeholder="例如 轻柔、渐慢" /></label>
+                  </div>
+                </details>
+                <details class="measure-settings">
+                  <summary>当前拍的可见技巧</summary>
+                  <p id="visibleTechniqueStatus" class="muted small"></p>
+                  <div class="measure-property-fields">
+                    <label class="check-field"><input id="visiblePalmMute" type="checkbox" />P.M. 掌闷音范围</label>
+                    <label class="check-field"><input id="visibleLetRing" type="checkbox" />let ring 持续发声范围</label>
+                  </div>
+                </details>
+                <details class="measure-settings" id="beatEffectProperties">
+                  <summary>当前拍的演奏参数</summary>
+                  <div class="measure-property-fields">
+                    <label>从本拍开始的速度（BPM）<input id="beatTempo" type="number" min="1" max="999" placeholder="沿用原速度" /></label>
+                    <label>八度记号<select id="beatOttava"><option value="">无</option><option value="12">8va</option><option value="24">15ma</option><option value="-12">8vb</option><option value="-24">15mb</option></select></label>
+                    <label>拨弦方向<select id="beatPick"><option value="">无</option><option value="pick_up">上拨</option><option value="pick_down">下拨</option></select></label>
+                    <label>扫弦方向<select id="beatStroke"><option value="">无</option><option value="stroke_up">上扫</option><option value="stroke_down">下扫</option></select></label>
+                    <label>拍弦 / 点弦<select id="beatSlap"><option value="">无</option><option value="slap:tapping">点弦 Tapping</option><option value="slap:slapping">拍弦 Slap</option><option value="slap:popping">勾弦 Pop</option></select></label>
+                    <label class="check-field"><input id="beatRasgueado" type="checkbox" />轮指扫弦 Rasgueado</label>
+                    <label class="check-field"><input id="beatFade" type="checkbox" />音量渐入</label>
+                  </div>
+                </details>
+                <details class="measure-settings">
+                  <summary>反复与跳转</summary>
+                  <div class="measure-property-fields">
+                    <label class="check-field"><input id="repeatStart" type="checkbox" />反复开始</label>
+                    <label class="check-field"><input id="repeatEnd" type="checkbox" />反复结束</label>
+                    <label>演奏次数<input id="repeatCount" type="number" min="2" max="99" placeholder="2" /></label>
+                    <label>跳房子<input id="alternateEndings" placeholder="例如 1, 2" /></label>
+                    <label class="check-field"><input id="doubleBar" type="checkbox" />双小节线</label>
+                    <label class="check-field"><input id="finalBar" type="checkbox" />终止线</label>
+                    <label>定位记号<select id="measureDirection"></select></label>
+                    <label>跳转指令<select id="measureJump"></select></label>
                   </div>
                 </details>
                 <details class="measure-settings">

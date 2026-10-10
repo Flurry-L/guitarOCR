@@ -1,10 +1,9 @@
 //! GP5 projection restrictions, deliberately separate from legal score IR.
-use crate::score::{duration_ticks, parse_measure_target};
+use crate::score::duration_ticks;
 use serde_json::Value;
 use std::collections::HashSet;
 
-pub fn timing_errors(target: &str) -> Result<Vec<String>, String> {
-    let score = parse_measure_target(target)?;
+pub fn timing_errors(score: &Value) -> Result<Vec<String>, String> {
     let mut errors = Vec::new();
     for voice in score["voices"].as_array().ok_or("Missing voices")? {
         let mut end = 0i128;

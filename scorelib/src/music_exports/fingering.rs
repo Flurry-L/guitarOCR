@@ -10,7 +10,6 @@ struct Chain {
 }
 fn solve(
     order: &[usize],
-    _at: usize,
     chains: &[Chain],
     assigned: &mut [Option<usize>],
     budget: &mut usize,
@@ -268,7 +267,7 @@ pub(super) fn assign(score: &mut Value) -> R<()> {
                 });
                 let mut assigned = vec![None; chains.len()];
                 let mut budget = 20_000_000;
-                if !solve(&order, 0, &chains, &mut assigned, &mut budget) {
+                if !solve(&order, &chains, &mut assigned, &mut budget) {
                     return Err(if budget==0{"Native GP5 fingering search limit reached; no approximate assignment written"}else{"No tie-safe GP5 string assignment exists for this tuning"}.into());
                 }
                 for (ci, c) in chains.iter().enumerate() {

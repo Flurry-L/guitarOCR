@@ -3,9 +3,8 @@
 import json
 from pathlib import Path
 
-from research.inference.information.prompts import ANNOTATION_PROMPT
-from research.inference.measures.prompts import recognition_prompt
-from scorelib.score_state import state_prompt
+from research.data.prompts import state_prompt
+
 
 
 def dataset_entry(filename):
@@ -22,32 +21,23 @@ def dataset_entry(filename):
     }
 
 
-def measure_sample(row):
-    return {
-        "messages": [
-            {
-                "role": "user",
-                "content": "<image>"
-                + recognition_prompt(
-                    row["mode"],
-                    row["previous_context"],
-                    row.get("instrument", "guitar"),
-                    row.get("pitch_context"),
-                    written_pitch=row.get("written_pitch", False),
-                ),
-            },
-            {"role": "assistant", "content": row["target"]},
-        ],
-        "images": [row["image"].replace("\\", "/")],
-    }
-
-
 def visual_measure_sample(row, *, first=None):
     """Serialize a written-pitch target with its previous/next visual context.
 
     Builders may supply score-start status when their local measure numbering
     differs from the composed page's bar index.
     """
+    from research.data.native_supervision import prepare_visual_metadata
+    from research.data.technique_visibility import verified_visual_target
+    row = verified_visual_target(row)
+    row = prepare_visual_metadata(row)
+    sample = visual_measure_inputs(row, first=first)
+    sample['messages'].append({'role': 'assistant', 'content': row['target']})
+    return sample
+
+
+def visual_measure_inputs(row, *, first=None):
+    """Build inference inputs without consulting or validating answer labels."""
     state = dict(row["score_state"])
     if row["mode"] != "tab":
         state.pop("tuning", None)
@@ -62,7 +52,6 @@ def visual_measure_sample(row, *, first=None):
                     row.get("pitch_context"), first=first, visual_pitch=True,
                 ),
             },
-            {"role": "assistant", "content": row["target"]},
         ],
         "images": [
             row["image"], row.get("previous_image", row["image"]),
@@ -71,15 +60,30 @@ def visual_measure_sample(row, *, first=None):
     }
 
 
-def annotation_sample(image, value):
-    """Serialize a visible score annotation without changing its label data."""
+def iter_training_samples(rows, *, review_path, serializer=visual_measure_sample):
+    """Skip unverified optical answers, retaining every rejected source record."""
+    from research.data.technique_visibility import UnverifiedTechniqueVisibility
+    review_path = Path(review_path)
+    review_path.parent.mkdir(parents=True, exist_ok=True)
+    with review_path.open('w') as review:
+        for row in rows:
+            try:
+                yield serializer(row)
+            except UnverifiedTechniqueVisibility as error:
+                review.write(json.dumps(error.row, ensure_ascii=False) + '\n')
+
+
+def chat(images, prompt, target, **provenance):
     return {
         "messages": [
-            {"role": "user", "content": "<image>" + ANNOTATION_PROMPT},
+            {"role": "user", "content": "<image>" * len(images) + prompt},
             {
                 "role": "assistant",
-                "content": json.dumps(value, ensure_ascii=False, separators=(",", ":")),
+                "content": json.dumps(
+                    target, ensure_ascii=False, separators=(",", ":")
+                ),
             },
         ],
-        "images": [str(Path(image).resolve())],
+        "images": [str(Path(p).resolve()) for p in images],
+        "provenance": provenance,
     }

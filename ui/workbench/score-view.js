@@ -1,5 +1,6 @@
 import {
   alphaTab,
+  scoreDisplaySettings,
   engrave,
   measureProfile,
   reviewKind,
@@ -24,7 +25,7 @@ function rectangle(node, bounds) {
 // translates those bounds back to the original measures, voices and notes.
 function engravedSection(
   host,
-  { onSelect, onPlace, onError, onContext },
+  { onSelect, onPlace, onError, onContext, onWarning },
   range,
 ) {
   const surface = el("div", undefined, "engraved-score");
@@ -45,6 +46,7 @@ function engravedSection(
       },
     },
     display: {
+      ...scoreDisplaySettings,
       startBar: range.start + 1,
       barCount: range.end - range.start,
       scale: 1.1,
@@ -59,16 +61,16 @@ function engravedSection(
     },
     notation: {
       elements: {
-        scoreTitle: false,
-        scoreSubTitle: false,
-        scoreArtist: false,
+        scoreTitle: range.start === 0,
+        scoreSubTitle: range.start === 0,
+        scoreArtist: range.start === 0,
         scoreAlbum: false,
         scoreWords: false,
         scoreMusic: false,
         scoreCopyright: false,
         guitarTuning: false,
         trackNames: true,
-        effectDynamics: false,
+        effectDynamics: true,
       },
     },
     player: {
@@ -326,13 +328,19 @@ function engravedSection(
     }
     decorate();
   });
-  let width = 0;
+  let width = 0, resizeFrame;
   const resize = new ResizeObserver(([entry]) => {
     const next = Math.round(entry.contentRect.width);
     if (next !== width) {
       width = next;
-      if (next > 0 && rendered)
-        api.renderScore(rendered.score, visibleTracks());
+      cancelAnimationFrame(resizeFrame);
+      // Engraving changes the observed layout. Defer it until the current
+      // ResizeObserver delivery has finished, and coalesce width changes.
+      resizeFrame = requestAnimationFrame(() => {
+        resizeFrame = undefined;
+        if (width > 0 && rendered && host.isConnected)
+          api.renderScore(rendered.score, visibleTracks());
+      });
     }
   });
   resize.observe(host);
@@ -401,16 +409,18 @@ function engravedSection(
       focusedPart = part;
       const changed =
         edited &&
-        JSON.stringify(edited.measure) !==
-          JSON.stringify(next.measures[edited.index]?.parsed)
+        (JSON.stringify(edited.measure) !== JSON.stringify(next.measures[edited.index]?.parsed) ||
+          (Object.hasOwn(edited, "visualTechniques") && JSON.stringify(edited.visualTechniques ?? null) !==
+            JSON.stringify(next.measures[edited.index]?.visual_techniques ?? null)))
           ? edited
           : null;
       const key = `${state.id}:${state.revision}:${part}:${JSON.stringify(changed)}`;
-      if (key === signature) return;
+      if (key === signature) { onWarning?.(rendered?.warnings.join("\n") || ""); return; }
       signature = key;
       try {
         rememberViewport();
         rendered = engrave(state, api.settings, changed, range.mode);
+        onWarning?.(rendered.warnings.join("\n"));
         if (host.clientWidth > 0)
           api.renderScore(rendered.score, visibleTracks());
       } catch (error) {
@@ -433,10 +443,10 @@ function engravedSection(
     },
     destroy() {
       resize.disconnect();
+      cancelAnimationFrame(resizeFrame);
       window.removeEventListener("pointerup", releasePointer);
       api.destroy();
     },
-    hitAt,
   };
 }
 
@@ -500,16 +510,6 @@ export function scoreView(host, callbacks) {
     zoom(value) {
       scale = value;
       sections.forEach((s) => s.view.zoom(value));
-    },
-    hitAt(x, y) {
-      const origin = host.getBoundingClientRect();
-      for (const s of sections) {
-        const b = s.node.getBoundingClientRect(),
-          offset = b.top - origin.top;
-        if (y >= offset && y <= offset + b.height)
-          return s.view.hitAt(x - b.left + origin.left, y - offset);
-      }
-      return null;
     },
   };
 }

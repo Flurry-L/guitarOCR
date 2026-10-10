@@ -1,5 +1,4 @@
 @import url("/static/theme.css");
-@import url("/static/shell.css");
 
 .signed-out .app-sidebar,
 .signed-out .app-header {

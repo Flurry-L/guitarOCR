@@ -116,24 +116,6 @@ if ($LASTEXITCODE -ne 0) { throw "Guitar Pro native preload build failed" }
 
 Write-Output "Built $OutputDll"
 Write-Output "Built $OutputPreloadDll"
-$sourceHashes = @{}
-Get-ChildItem -LiteralPath $PSScriptRoot -Recurse -File | ForEach-Object {
-    $relative = $_.FullName.Substring($PSScriptRoot.Length + 1).Replace('\', '/')
-    $sourceHashes[$relative] = (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLower()
-}
-$buildRecord = @{
-    built_at_utc = [DateTime]::UtcNow.ToString('o')
-    compiler = (Get-Command cl.exe).Source
-    compiler_version = (Get-Item (Get-Command cl.exe).Source).VersionInfo.FileVersion
-    qt_root = $qt
-    source_sha256 = $sourceHashes
-    outputs = @(
-        @{ name = [IO.Path]::GetFileName($OutputDll); sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $OutputDll).Hash.ToLower() },
-        @{ name = [IO.Path]::GetFileName($OutputPreloadDll); sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $OutputPreloadDll).Hash.ToLower() }
-    )
-    runtime_validation = 'not_run'
-}
-$buildRecord | ConvertTo-Json -Depth 6 | Set-Content -Encoding UTF8 -LiteralPath (Join-Path (Split-Path -Parent $OutputDll) 'build-manifest.json')
 } finally {
     Set-Location -LiteralPath $originalLocation.Path
     if ($build -and (Test-Path -LiteralPath $build)) {

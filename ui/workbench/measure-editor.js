@@ -1,12 +1,18 @@
-import { ui, endpoint, receiveProject, commitMeasureDraft, resumeCheckpoint } from "./state.js";
+import { ui, endpoint, receiveProject, commitMeasureDraft } from "./state.js";
 import { $, el, action, notice } from "./dom.js";
 import { api } from "./api.js";
 import { editorMenu } from "./editor-menu.js";
 import { scoreView } from "./score-view.js";
 import { measureProfile, reviewKind } from "./score-engraving.js";
-import { chordEditor } from "./score-chords.js";
+import { dynamicValue } from "./score-effects.js";
+import { musicalContext } from "./score-structure.js";
+import { measureProperties, effectProperties } from "./properties.js";
+import { chordEditor, unresolvedChordChoices } from "./score-chords.js";
 import {
   clone,
+  visibleEvent,
+  setVisibleEvent,
+  retainUnchangedVisualEvents,
   ticks,
   pitchName,
   parsePitch,
@@ -22,6 +28,7 @@ import {
 
 export function initMeasures({ start, go, renderExport, setBusy }) {
   let draft,
+    visualTechniques,
     selected,
     profile,
     undo = [],
@@ -36,6 +43,8 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     track = "all";
   let selectionScope = "measure";
   let sourceUrl, sourceRequest = 0, sourceTimer;
+  const properties = measureProperties({ getDraft: () => draft, getProfile: () => profile, getEvent: () => event(), change });
+  const effects = effectProperties({ getNote: () => event()?.notes[selected?.ni], getEvent: () => event(), getProfile: () => profile, change });
   function loadSource(url) {
     sourceUrl = url;
     const request = ++sourceRequest;
@@ -69,7 +78,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     if (!draft || !ui.sid) return;
     try {
       if (ui.measureDirty) sessionStorage.setItem(draftKey(), JSON.stringify({
-        index: ui.measureIndex, revision: draftRevision, draft, selected,
+        index: ui.measureIndex, revision: draftRevision, draft, visualTechniques, selected,
         mode: ui.editorMode, text: $("measureText").value, track,
       }));
       else sessionStorage.removeItem(draftKey());
@@ -152,6 +161,10 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
         selected.string = event().notes[selected.ni].string || 1;
       });
     },
+    onWarning: (message) => {
+      $("scoreWarning").hidden = !message;
+      $("scoreWarning").textContent = message;
+    },
     onError: (message) => {
       $("scoreWarning").hidden = false;
       $("scoreWarning").textContent =
@@ -187,7 +200,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     $("measureFeedback").classList.toggle("error", error);
   }
   function snapshot() {
-    return { draft: clone(draft), selected: clone(selected) };
+    return { draft: clone(draft), visualTechniques: clone(visualTechniques), selected: clone(selected) };
   }
   function change(fn, { merge = false, typed = false } = {}) {
     if (ui.busy || saving || !draft || ui.editorMode !== "score") return;
@@ -201,11 +214,14 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
       fn();
     } catch (error) {
       draft = before.draft;
+      visualTechniques = before.visualTechniques;
       selected = before.selected;
       feedback(error.message, true);
       return;
     }
-    if (JSON.stringify(before.draft) === JSON.stringify(draft)) return;
+    visualTechniques = retainUnchangedVisualEvents(visualTechniques, before.draft, draft);
+    if (JSON.stringify(before.draft) === JSON.stringify(draft) &&
+        JSON.stringify(before.visualTechniques) === JSON.stringify(visualTechniques)) return;
     if (!merge || !undo.length) undo.push(before);
     if (undo.length > 100) undo.shift();
     redo = [];
@@ -216,9 +232,10 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
   }
   function updateDirty() {
     ui.measureDirty =
-      ui.editorMode === "text"
+      (ui.editorMode === "text"
         ? $("measureText").value.trim() !== current()?.score_text?.trim()
-        : JSON.stringify(draft) !== JSON.stringify(current()?.parsed);
+        : JSON.stringify(draft) !== JSON.stringify(current()?.parsed)) ||
+      JSON.stringify(visualTechniques ?? null) !== JSON.stringify(current()?.visual_techniques ?? null);
     persistDraft();
   }
   function restore(from, to) {
@@ -228,6 +245,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     to.push(snapshot());
     const before = from.pop();
     draft = before.draft;
+    visualTechniques = before.visualTechniques;
     selected = before.selected;
     updateDirty();
     feedback();
@@ -245,9 +263,10 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
       ui.measureDirty = false;
     });
   });
-  $("resumeOcr").onclick = action(() => resumeCheckpoint({
-    dirty: ui.measureDirty, confirm: (message) => confirm(message), start,
-  }));
+  $("resumeOcr").onclick = action(async () => {
+    if (ui.measureDirty && !confirm("继续会从中断记录恢复，成功会替换当前未保存草稿；失败或取消会保留草稿。继续？")) return;
+    await start("/recognize", { resume: true });
+  });
   $("retryIssues").onclick = action(async () => {
     const targets = [...ui.state.review_measures];
     if (!confirm(`重新识别 ${targets.length} 个待检查小节，将替换这些小节的人工修改；其他小节不变。失败或停止会保留原结果。继续？`)) return;
@@ -350,7 +369,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
   };
   $("reviewFilter").onchange = renderNavigator;
   $("trackProperties")?.querySelector("button").addEventListener("click", () => {
-    if (ui.measureDirty || ui.metadataDirty) return;
+    if (ui.measureDirty || ui.metadataDirty || ui.libraryDirty) return;
     const part = $("metadataPart");
     if ([...part.options].some((option) => option.value === current()?.part_id)) {
       part.value = current().part_id;
@@ -386,7 +405,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     $("recognitionSummary").textContent =
       `${bars} 小节${parts > 1 ? ` · ${parts} 音轨` : ""} · ${ui.state.review_measures?.length || 0} 个待检查`;
     $("scoreTitle").textContent =
-      ui.state.metadata?.title || ui.state.input_names?.[0] || "未命名乐谱";
+      ui.state.metadata?.title || ui.state.metadata?.document_metadata?.title_fallback || ui.state.input_names?.[0] || "未命名乐谱";
     $("scoreCredits").textContent = ui.state.metadata?.artist || "";
     $("measureSelect").replaceChildren(
       ...measures.map((m, i) => {
@@ -447,6 +466,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
           ui.measureIndex = cached.index;
           loadMeasure();
           draft = cached.draft;
+          if (Object.hasOwn(cached, "visualTechniques")) visualTechniques = cached.visualTechniques;
           selected = cached.selected;
           draftRevision = cached.revision;
           ui.editorMode = cached.mode;
@@ -526,6 +546,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
   function loadMeasure() {
     profile = measureProfile(current(), ui.state);
     draft = clone(current().parsed);
+    visualTechniques = clone(current().visual_techniques ?? null);
     draftRevision = ui.state.revision;
     const history = histories.get(ui.measureIndex);
     undo = history?.undo || [];
@@ -549,7 +570,11 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
         : "识别完成";
     $("reviewStatus").className = `pill ${reviewKind(m)}`;
     $("fallback").hidden = !m.needs_review;
-    $("fallback").textContent = m.timing_errors?.length
+    const timingConflicts = Object.entries(m.global_timing_conflicts || {}).map(([field, values]) =>
+      `${field === "time_signature" ? "拍号" : "速度"}：${values.join(" / ")}`);
+    $("fallback").textContent = timingConflicts.length
+      ? `不同谱表的${timingConflicts.join("；")}不一致。请对照原谱修改或确认当前小节的正确值，同步位置的其他谱表会一起更新。`
+      : m.timing_errors?.length
       ? `${m.timing_errors.join("；")}。请调整起点或时值。`
       : m.export_errors?.length
         ? m.export_errors.join("；")
@@ -564,6 +589,12 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
   function updateMeasureControls() {
     const count = ui.state?.measures?.length || 0,
       busy = ui.busy || saving;
+    if (draft) {
+      properties.render(busy || ui.editorMode !== "score");
+      effects.render(busy || ui.editorMode !== "score");
+    }
+    for (const id of ["visiblePalmMute", "visibleLetRing"])
+      $(id).disabled = busy || !event()?.notes?.length || ui.editorMode !== "score";
     $("prevMeasure").disabled =
       busy || !count || neighbour(-1) === ui.measureIndex;
     $("nextMeasure").disabled =
@@ -641,11 +672,24 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     if (selected.ni >= (event()?.notes.length || 0)) selected.ni = -1;
     $("timeSignature").value = draft.time_signature || "";
     $("measureTempo").value = draft.tempo_quarter || "";
+    const headerNotes = ui.state.metadata?.document_metadata?.header_notes || "";
+    $("scoreHeaderNotes").textContent = headerNotes;
+    $("scoreHeaderNotes").hidden = !headerNotes;
     $("scoreWarning").hidden = true;
-    view.render(ui.state, { index: ui.measureIndex, measure: draft }, track);
+    view.render(ui.state, { index: ui.measureIndex, measure: draft, visualTechniques }, track);
     view.select(selected);
     const e = event(),
       n = e?.notes[selected?.ni];
+    const visible = visibleEvent(visualTechniques, draft.voices[selected.vi]?.voice, e?.start);
+    const visibleMarks = visible?.status === "classified" ? visible.effects :
+      [...(e?.effects || []), ...(e?.notes || []).flatMap(note => note.effects || [])];
+    $("visiblePalmMute").checked = visibleMarks?.includes("pm") || false;
+    $("visibleLetRing").checked = visibleMarks?.includes("let") || false;
+    $("visibleTechniqueStatus").textContent = visible?.status === "unresolved"
+      ? "印刷范围待核对，当前显示原有奏法。"
+      : visible?.status === "classified"
+        ? "按当前拍的印刷范围显示。保留已知音符归属；未确定归属的和弦技巧以拍文字导出。"
+        : "当前按音符奏法显示；可在此校对整拍的印刷范围。";
     const scopeTitle = $("inspectorScopeTitle");
     if (scopeTitle) scopeTitle.textContent = selectionScope === "note" && n ? "音符属性" : "当前拍 / 小节";
     document.querySelector(".note-properties").hidden = selectionScope === "track";
@@ -655,6 +699,14 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
       trackProperties.hidden = selectionScope !== "track";
       $("trackPropertiesText").textContent = `${current().part_name || "音轨"} · ${({guitar:"吉他",bass:"贝斯",pitched:"旋律乐器",drums:"打击乐器"})[profile.instrument] || profile.instrument} · ${({tab:"TAB",notation:"五线谱",both:"五线谱 + TAB"})[profile.mode] || profile.mode}${profile.tuning?.length ? ` · ${profile.tuning.length} 弦` : ""}`;
     }
+    const context = musicalContext(ui.state, ui.measureIndex, draft, selected, profile);
+    for (const [key, value] of Object.entries(context)) $("context" + key[0].toUpperCase() + key.slice(1)).textContent = value;
+    const dynamic = e?.effects?.find(effect => effect.startsWith("dyn:"));
+    $("beatDynamic").value = dynamic ? String((dynamicValue(Number(dynamic.slice(4))) + 1) * 16 - 1) : "";
+    $("beatDynamic").disabled = ui.busy || saving || !e || ui.editorMode !== "score";
+    const choices = unresolvedChordChoices(current(), draft.voices[selected.vi]?.voice, e);
+    $("chordChoiceHint").hidden = !choices.length;
+    $("chordChoiceHint").textContent = choices.map(choice => `${choice.name || "和弦"}：${choice.reason || "有多种指法，请从指法库选择当前拍使用的图示。"}`).join(" ");
     chords.render(e);
     chords.library(ui.state, current()?.part_id || "part-1");
     if (e) {
@@ -1054,6 +1106,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     });
   $("measureTempo").onchange = () =>
     change(() => {
+      if (!$("measureTempo").validity.valid) throw new Error("速度须为 1 至 999 的整数。");
       draft.tempo_quarter = $("measureTempo").value
         ? +$("measureTempo").value
         : null;
@@ -1081,6 +1134,28 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
       n.effects = (n.effects || []).filter((e) => !e.startsWith("bend:"));
       if ($("bendValue").value) n.effects.push($("bendValue").value);
     });
+  $("beatDynamic").onchange = () => change(() => {
+    const e = event();
+    if (!e) return;
+    e.effects = (e.effects || []).filter(effect => !effect.startsWith("dyn:"));
+    if ($("beatDynamic").value) e.effects.push(`dyn:${$("beatDynamic").value}`);
+  });
+  for (const id of ["visiblePalmMute", "visibleLetRing"]) $(id).onchange = () => change(() => {
+    const e = event();
+    if (!e?.notes?.length) return;
+    const effects = [$("visiblePalmMute").checked ? "pm" : null, $("visibleLetRing").checked ? "let" : null].filter(Boolean);
+    visualTechniques = setVisibleEvent(visualTechniques, draft.voices[selected.vi].voice, e.start, effects);
+  });
+  $("contextMeter").onclick = () => {
+    inspector(true);
+    $("measureSettingsSummary").parentElement.open = true;
+    $("timeSignature").focus();
+  };
+  $("contextTrack").onclick = () => {
+    selectionScope = "track";
+    inspector(true);
+    draw();
+  };
   $("scoreZoom").onchange = () => view.zoom(+$("scoreZoom").value);
   $("sourceZoom").onclick = () => {
     if ($("measureImage").hidden) { loadSource(current().url); return; }
@@ -1289,7 +1364,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
         ? { reviewed }
         : ui.editorMode === "text"
           ? { target: $("measureText").value.trim(), reviewed }
-          : { measure: draft, reviewed };
+          : { measure: draft, visual_techniques: visualTechniques, reviewed };
       if (!(await commitMeasureDraft({
         sid, index: ui.measureIndex, revision: draftRevision, body,
       }, api))) return false;
@@ -1297,6 +1372,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
       persistDraft();
       projectRevision = ui.state.revision;
       draft = clone(current().parsed);
+      visualTechniques = clone(current().visual_techniques ?? null);
       if (ui.editorMode === "text") {
         undo = [];
         redo = [];

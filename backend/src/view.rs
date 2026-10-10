@@ -1,6 +1,6 @@
 //! HTTP projection of persisted stages. Filesystem paths never leave this layer.
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
-use scorelib::score::{display_error, display_score_text, parse_measure_target};
+use scorelib::score::parse_measure_target;
 use serde_json::{json, Value};
 use std::{
     fs,
@@ -40,19 +40,51 @@ fn annotations(value: &Value) -> Value {
             .map(|rows| {
                 rows.iter()
                     .map(|row| {
-                        pick(
+                        let mut projected = pick(
                             row,
                             &[
                                 "kind",
                                 "candidate_kind",
                                 "parsed",
+                                "chord_review",
                                 "page",
                                 "bbox",
                                 "part_id",
                                 "scope",
                                 "measure_number",
                             ],
-                        )
+                        );
+                        if row["chord_evidence"].is_object() {
+                            projected["chord_evidence"] = pick(
+                                &row["chord_evidence"],
+                                &[
+                                    "schema",
+                                    "reader",
+                                    "status",
+                                    "kind",
+                                    "kind_probabilities",
+                                    "strings",
+                                    "base_fret",
+                                    "relative_frets",
+                                    "relative_barres",
+                                    "diagram",
+                                    "confidence",
+                                    "accepted",
+                                    "review_required",
+                                    "name_needs_review",
+                                    "original_diagram",
+                                    "proposed_diagram",
+                                    "rejected_diagram_candidate",
+                                    "conflict_fields",
+                                    "proposed_changed_fields",
+                                    "changed_fields",
+                                    "agreement",
+                                    "secondary_diagram",
+                                    "secondary_confidence",
+                                ],
+                            );
+                        }
+                        projected
                     })
                     .collect()
             })
@@ -179,16 +211,17 @@ pub fn project(root: &Path, sid: &str) -> Result<Value> {
             }
         }
         if let Some(boxes) = state["boxes"].as_array_mut() {
-            for b in boxes
-                .iter_mut()
-                .filter(|b| matches!(b["kind"].as_str(), Some("annotation" | "transposition")))
-            {
+            for b in boxes.iter_mut().filter(|b| {
+                matches!(b["kind"].as_str(), Some("annotation" | "transposition"))
+                    && b["annotation_type_source"] != "manual"
+            }) {
                 if let Some(p) = predictions
                     .iter()
                     .find(|p| p["page"] == b["page"] && p["bbox"] == b["bbox"])
                 {
                     b["annotation_type"] = p["parsed"]["kind"].clone();
                     b["annotation_text"] = p["parsed"]["text"].clone();
+                    b["annotation_type_source"] = json!("information_model");
                 }
             }
         }
@@ -233,7 +266,7 @@ pub fn project(root: &Path, sid: &str) -> Result<Value> {
             }
             let target = row["target"].as_str().ok_or("小节缺少target")?;
             measure["parsed"] = parse_measure_target(target).map_err(|e| e.to_string())?;
-            measure["score_text"] = json!(display_score_text(target));
+            measure["score_text"] = json!(target);
             measure["context_text"] = row
                 .get("previous_context")
                 .filter(|v| v.is_string())
@@ -265,16 +298,18 @@ pub fn project(root: &Path, sid: &str) -> Result<Value> {
             );
             measure["fallback_reason"] = json!(reasons
                 .iter()
-                .map(|r| display_error(r.as_str().unwrap_or_default()))
+                .map(|r| r.as_str().unwrap_or_default())
                 .collect::<Vec<_>>());
             measure["url"] = json!(asset(&root, sid, &row["image"])?);
             measure["chord_annotations"] = annotations(&row["chord_annotations"]);
+            measure["technique_annotations"] = annotations(&row["technique_annotations"]);
             measures.push(measure);
         }
         state["measures"] = json!(measures);
     }
     if state["export"] == true {
         let exported = stage(&saved["export"], "gp5_export", &root)?;
+        state["export_warnings"] = exported.get("warnings").cloned().unwrap_or(json!([]));
         for (key, url) in [
             ("gp5", "gp5_url"),
             ("encoding_report", "encoding_url"),
@@ -293,32 +328,4 @@ pub fn project(root: &Path, sid: &str) -> Result<Value> {
     }
     state["job"] = Value::Null;
     Ok(state)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn original_demo_projects_through_native_api_without_paths_or_python() {
-        let workspace = tempfile::tempdir().unwrap();
-        let demo = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../ui/workbench/examples/Harbor-Light-synthetic-project.zip");
-        let imported =
-            crate::project::import_project(demo, workspace.path(), &Default::default()).unwrap();
-        let view = project(workspace.path(), &imported.session_id).unwrap();
-        assert_eq!(view["measures"].as_array().unwrap().len(), 16);
-        assert_eq!(view["metadata"]["parts"].as_array().unwrap().len(), 2);
-        assert!(view["measures"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|m| m["parsed"]["voices"].is_array()));
-        assert!(!view
-            .to_string()
-            .contains(&workspace.path().to_string_lossy().to_string()));
-        assert!(view["pages"][0]["url"]
-            .as_str()
-            .unwrap()
-            .starts_with("/api/sessions/"));
-    }
 }

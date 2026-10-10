@@ -1,20 +1,20 @@
 # 小节文本格式
 
-小节文本记录音符、节奏和奏法。每个小节占一行 UTF-8 文本，以 `MEASURE`（小节）开头；整首谱按阅读顺序逐行排列，下载文件为 `score.txt`。
+小节文本记录音符、节奏和奏法。每个小节占一行 UTF-8 文本，以 `M`（measure，小节）开头；整首谱按阅读顺序逐行排列，下载文件为 `score.txt`。
 
 ```text
-MEASURE time=4/4 tempo=120 | V0{@0:q:s1f0 @960:q:s2f1 @1920:h:r}
+M time=4/4 tempo=120 | V0{@0:q:s1f0 @960:q:s2f1 @1920:h:r}
 ```
 
 它表示 4/4 拍、四分音符 120 BPM：第一拍弹第 1 弦空弦，第二拍弹第 2 弦第 1 品，第三拍开始休止两拍。
 
 ## 表示与职责边界
 
-- `scorelib/src/score.rs` 解析、格式化和校验 `M2`，并生成整谱 IR；Python 通过 `scorelib` 调用同一实现。
-- 识别记录包含原谱位置、目标文本、人工修改及校对状态；项目由 `backend` 保存，研究脚本的阶段交换字段位于 `research/common/schema.py`。
+- `scorelib/src/score.rs` 解析、格式化和校验 `M`，并生成整谱 IR；Python 通过 `scorelib` 调用同一实现。
+- 识别记录包含原谱位置、目标文本、人工修改及校对状态；项目由 `backend` 保存，研究客户端读取原生 API 返回的同一份项目。
 - `guitarocr.score/2` 统一时间轴、音轨、谱表与音高语义。`score.json`、小节文本、MusicXML 和 GP5 从识别记录生成；格式限制由 `scorelib/src/music_exports` 处理。
 
-音乐语义不加载模型或 Web 服务。产品的编辑和项目事务属于 `backend`；`research/inference/measures/result.py` 只组织研究任务的输出。保存原图、上下文与校对状态时使用项目 ZIP，单独文本或 `score.json` 不替代完整项目。
+音乐语义不加载模型或 Web 服务。识别、编辑和项目事务统一属于 `backend`，研究端整谱任务调用相同的原生 API。保存原图、上下文与校对状态时使用项目 ZIP，单独文本或 `score.json` 不替代完整项目。
 
 ## 单位和声部
 
@@ -56,27 +56,28 @@ Guitar Pro 原生渲染对照确认，装饰音播放时长和颤音播放速度
 
 小节内显式起点 `@960` 之前的空隙会在 GP5 中补休止，避免因 GP5 的隐式时序把音符前移。同一声部的重叠事件会报错。吉他、贝斯按调弦分配指法；钢琴及其他旋律乐器保留音高，鼓组使用打击乐通道。GP5 每轨最多七根弦、两个声部，每个声部最多七个同时发声的音符；整谱导出按声部、弦数及音域拆成同步音轨，并回读核对音符。
 
-GP5 表示能力与原始谱面并非完全一致。请对照原图检查连线、反复、变调夹和复杂技巧。GP5 文字编码使用 cp936，无法表示的字符会列入 `.encoding.json`；小节文本保留原文。
+GP5 表示能力与原始谱面并非完全一致。请对照原图检查连线、反复、变调夹和复杂技巧。GP5 文字编码使用 cp936，无法表示的字符会列入 `.encoding.json`；小节文本保留原文。该旧格式没有编码声明，使用其他编码读取的软件可能将中文等文字显示为乱码；改写成 UTF-8 不能保证修复。导出界面和报告会提示这个限制，MusicXML 与项目 JSON 保留 Unicode。
+
+未指定按法的和弦名在 GP5 中写为拍文字，并与该拍原有文字合并，避免 Guitar Pro 8 将它画成全弦静音的空指法图。导出报告记录这个转换，项目和 MusicXML 中的和弦语义仍保留。未关联到正文的实际指法图保存在静音的 `Chord diagrams` 参考轨，参考休止位置不表示演奏位置。GP8 可能按手指重新推导横按显示，不能保证还原 GP5 中的每个显式横按端点。
 
 ## 格式与模型输出
 
 语法有效不等于识别正确。模型输出结构无效时重试，多次失败后生成休止占位。结构有效但单声部占用超过当前拍号的小节保留全部音符并标为待核对；弱起／不完全小节不因时长较短报警，多声部各自计算，连音使用精确时值。这是 OCR 质量提示，不收紧历史 IR 的合法语义；识别清单以 needs_review、fallback_reason、review_measures 记录结果。标为待检查的小节必须确认后才能导出。小节文本文件本身不承载这些校对状态，因此备份工作时优先下载完整项目 ZIP。
 
-格式前缀必须恰好是 `MEASURE`。未知或重复的小节头字段会报错，避免解析后静默丢失。原生 GP 的全空小节按打印的整小节休止生成标签。
+小节文本只接受 `M` 前缀。未知或重复的小节头字段会报错，避免解析后静默丢失。原生 GP 的全空小节按打印的整小节休止生成标签。
 
-默认模型读取当前及相邻小节图像，并接收批量识别后按谱序传播的拍号、调号；各小节文本独立生成，跨节延音统一处理。旧模型的 `CONTEXT` 表示上一小节摘要，不属于乐谱正文。谱面类型由版面检测传给 OCR，不由文本标记判断。
+默认模型读取当前及相邻小节图像，并接收批量识别后按谱序传播的拍号、调号；各小节文本独立生成，跨节延音统一处理。上下文摘要的 `C` 表示上一小节摘要，不属于乐谱正文。谱面类型由版面检测传给 OCR，不由文本标记判断。
 
-旧项目和旧格式文本仍可读取。内部表示与显示名称的转换由 `scorelib/python/scorelib/score_text.py` 处理，不改变模型训练协议。
+训练、推理、编辑和保存使用同一份 `M` 文本协议；不迁移旧格式或旧识别日志。数据生成器应重新生成不符合当前协议的样本。
 
 通过 Python 库将单轨小节文本转为 GP5：
 
 ```python
 from pathlib import Path
-from scorelib.gp5.writer import write_targets_gp5
-from scorelib.score_text import model_score_text
+from scorelib.guitarpro import write_targets_gp5
 
 lines = Path("score.txt").read_text(encoding="utf-8").splitlines()
-write_targets_gp5([model_score_text(line) for line in lines if line.strip()], "output/score.gp5", mode="tab")
+write_targets_gp5([line for line in lines if line.strip()], "output/score.gp5", mode="tab")
 ```
 
 `instrument` 可以指定 `guitar`、`bass`、`pitched` 或 `drums`，`tuning` 为调弦列表，`midi_program` 为从 0 开始的 MIDI 乐器编号。多轨项目应通过工作台导出，以保留音轨和谱表分组。

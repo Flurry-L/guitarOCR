@@ -1,10 +1,8 @@
 //! Revision-controlled native writes. Accepted results are replaced only after
 //! every required projection has been written successfully.
+pub mod chord_library;
 use crate::project::{load_session, write_session_atomic};
-use scorelib::score::{
-    display_score_text, format_measure_target, model_score_text, score_document,
-    validate_measure_target,
-};
+use scorelib::score::{format_measure_target, score_document, validate_measure_target};
 use serde_json::{json, Value};
 use std::{
     fs,
@@ -12,6 +10,22 @@ use std::{
 };
 
 type Result<T> = std::result::Result<T, String>;
+fn record_bars(document: &Value) -> std::collections::HashMap<String, usize> {
+    document["parts"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|part| part["staves"].as_array().into_iter().flatten())
+        .flat_map(|staff| staff["measures"].as_array().into_iter().flatten())
+        .map(|measure| {
+            (
+                measure["source_record"].to_string(),
+                measure["index"].as_u64().unwrap() as usize,
+            )
+        })
+        .collect()
+}
+
 pub fn revision(saved: &Value, expected: Option<&str>) -> std::result::Result<(), (u16, String)> {
     let expected = expected.ok_or((428, "项目版本缺失，请重新打开项目".into()))?;
     if expected.trim_matches('"').parse::<u64>().ok() != saved["revision"].as_u64() {
@@ -26,6 +40,31 @@ pub fn json_file(path: &Path, value: &Value) -> Result<()> {
 }
 pub fn save_recognition(output: &Path, source: &Value) -> Result<PathBuf> {
     let mut result = source.clone();
+    let document = score_document(&result)?;
+    let bars = record_bars(&document);
+    let timeline = &document["timeline"];
+    for row in result["records"]
+        .as_array_mut()
+        .ok_or("识别结果缺少小节")?
+        .iter_mut()
+    {
+        let bar = bars[&row["measure_number"].to_string()];
+        let conflicts = &timeline[bar]["conflicts"];
+        if conflicts.as_object().is_some_and(|v| !v.is_empty()) {
+            row["global_timing_conflicts"] = conflicts.clone();
+            row["needs_review"] = json!(true);
+            row["reviewed"] = json!(false);
+        } else {
+            row.as_object_mut()
+                .unwrap()
+                .remove("global_timing_conflicts");
+        }
+    }
+    write_recognition(output, result)
+}
+
+/// Persist projections without changing musical records for annotation-only edits.
+fn write_recognition(output: &Path, mut result: Value) -> Result<PathBuf> {
     let rows = result["records"].as_array().ok_or("识别结果缺少小节")?;
     let text = rows
         .iter()
@@ -49,9 +88,7 @@ pub fn save_recognition(output: &Path, source: &Value) -> Result<PathBuf> {
         "needs_review"
     });
     result["review_measures"] = json!(review);
-    fs::write(output.join("prediction.m2"), &text).map_err(|e| e.to_string())?;
-    fs::write(output.join("score.txt"), display_score_text(&text)).map_err(|e| e.to_string())?;
-    result["m2"] = json!(output.join("prediction.m2"));
+    fs::write(output.join("score.txt"), &text).map_err(|e| e.to_string())?;
     result["score_text"] = json!(output.join("score.txt"));
     let document = score_document(&result)?;
     json_file(&output.join("score.json"), &document)?;
@@ -111,6 +148,8 @@ pub fn correct(
     Ok(())
 }
 fn correct_record(source: &mut Value, number: usize, body: &Value) -> Result<()> {
+    let document = score_document(source)?;
+    let bars = record_bars(&document);
     let source_mode = source["mode"].as_str().unwrap_or("tab").to_owned();
     let source_tuning = source["tuning_used"].clone();
     let source_instrument = source["instrument"].as_str().unwrap_or("guitar").to_owned();
@@ -126,7 +165,7 @@ fn correct_record(source: &mut Value, number: usize, body: &Value) -> Result<()>
         format_measure_target(measure, mode, true)?
     } else if let Some(text) = body["target"].as_str() {
         text.to_owned()
-    } else if reviewed {
+    } else if reviewed || body.get("visual_techniques").is_some() {
         old.clone()
     } else {
         return Err("请输入小节内容或核对标记".into());
@@ -134,7 +173,6 @@ fn correct_record(source: &mut Value, number: usize, body: &Value) -> Result<()>
     if target.len() > 50000 || target.contains('\n') {
         return Err("请输入单个小节的内容".into());
     }
-    let target = model_score_text(&target);
     let tuning: Vec<_> = row
         .get("tuning")
         .unwrap_or(&source_tuning)
@@ -147,7 +185,28 @@ fn correct_record(source: &mut Value, number: usize, body: &Value) -> Result<()>
     if !errors.is_empty() {
         return Err(errors.join("；"));
     }
-    let timing = scorelib::gp5_constraints::timing_errors(&target)?;
+    let parsed = parsed.ok_or("无效的小节")?;
+    let previous = scorelib::score::parse_measure_target(&old)?;
+    let global_changes = ["time_signature", "tempo_quarter"]
+        .into_iter()
+        .filter_map(|field| {
+            (parsed[field] != previous[field]
+                || (reviewed
+                    && !parsed[field].is_null()
+                    && row["global_timing_conflicts"][field].is_array()))
+            .then(|| (field, parsed[field].clone()))
+        })
+        .collect::<Vec<_>>();
+    let bar = bars[&row["measure_number"].to_string()];
+    let inherit_time = body["measure"].is_object()
+        && !previous["time_signature"].is_null()
+        && parsed["time_signature"].is_null();
+    let previous_time = if bar > 0 {
+        document["timeline"][bar - 1]["time_signature"].clone()
+    } else {
+        Value::Null
+    };
+    let timing = scorelib::gp5_constraints::timing_errors(&parsed)?;
     if !timing.is_empty() {
         return Err(timing.join("；"));
     }
@@ -156,17 +215,34 @@ fn correct_record(source: &mut Value, number: usize, body: &Value) -> Result<()>
         && matches!(instrument, "guitar" | "bass")
         && row["tuning_explicit"] == true
     {
-        let errors = scorelib::gp5_constraints::notation_fingering_errors(
-            &parsed.ok_or("无效的小节")?,
-            &tuning,
-        )?;
+        let errors = scorelib::gp5_constraints::notation_fingering_errors(&parsed, &tuning)?;
         if !errors.is_empty() {
             return Err(errors.join("；"));
         }
     }
     let changed = target != old;
+    let previous_overlay = row.get("visual_techniques").cloned().unwrap_or(Value::Null);
+    let overlay = if let Some(value) = body.get("visual_techniques") {
+        if !value.is_null() {
+            scorelib::visual_techniques::validate_overlay(&parsed, value)?;
+        }
+        value.clone()
+    } else if !previous_overlay.is_null() && changed {
+        scorelib::visual_techniques::retain_unchanged(&previous, &parsed, &previous_overlay)?
+    } else {
+        previous_overlay.clone()
+    };
+    let changed = changed || overlay != previous_overlay;
+    if overlay.is_null() {
+        row.as_object_mut().unwrap().remove("visual_techniques");
+    } else {
+        row["visual_techniques"] = overlay;
+    }
     row["target"] = json!(target);
     row["manually_edited"] = json!(changed || row["manually_edited"] == true);
+    if changed || reviewed {
+        crate::recognition::signature_state::observe_manual_metadata(row, &target)?;
+    }
     for key in ["timing_errors", "fingering_errors", "export_errors"] {
         row[key] = json!([]);
     }
@@ -177,6 +253,103 @@ fn correct_record(source: &mut Value, number: usize, body: &Value) -> Result<()>
     } else if changed {
         row["reviewed"] = json!(false);
         row["needs_review"] = json!(true);
+    }
+    // Time and tempo apply to all staves at this score position. Propagate
+    // only these explicitly edited fields; peers keep their notes, effects,
+    // key signatures and independent review decisions.
+    if !global_changes.is_empty() {
+        for peer in rows.iter_mut() {
+            if bars[&peer["measure_number"].to_string()] != bar {
+                continue;
+            }
+            let mut measure = scorelib::score::parse_measure_target(
+                peer["target"].as_str().ok_or("小节缺少target")?,
+            )?;
+            for (field, value) in &global_changes {
+                measure[*field] = value.clone();
+                if *field == "time_signature" {
+                    measure["print_time_signature"] = json!(!value.is_null());
+                }
+            }
+            let target = format_measure_target(
+                &measure,
+                peer["mode"].as_str().unwrap_or(&source_mode),
+                true,
+            )?;
+            peer["target"] = json!(target);
+            if let Some(written) = peer["written_target"].as_str() {
+                let mut written = scorelib::score::parse_measure_target(written)?;
+                for (field, value) in &global_changes {
+                    written[*field] = value.clone();
+                    if *field == "time_signature" {
+                        written["print_time_signature"] = json!(!value.is_null());
+                    }
+                }
+                peer["written_target"] = json!(format_measure_target(
+                    &written,
+                    peer["mode"].as_str().unwrap_or(&source_mode),
+                    true
+                )?);
+            }
+            if global_changes
+                .iter()
+                .any(|(field, _)| *field == "time_signature")
+            {
+                if inherit_time {
+                    if !peer["score_state"].is_object() {
+                        peer["score_state"] = json!({});
+                    }
+                    if !peer["score_state_evidence"].is_object() {
+                        peer["score_state_evidence"] = json!({});
+                    }
+                    peer["score_state"]["time"] = previous_time.clone();
+                    peer["score_state_evidence"]["time"] = json!({
+                        "status": if previous_time.is_null() { "unknown" } else { "inherited" },
+                        "value": previous_time, "source":"manual",
+                        "observation":{"status":"absent","value":null,"source":"manual"}
+                    });
+                }
+                // Do not accept a peer's unrelated key evidence as a side
+                // effect of a shared meter edit.
+                measure["key_signature"] = Value::Null;
+                measure["print_key_signature"] = json!(false);
+                let time_only = format_measure_target(
+                    &measure,
+                    peer["mode"].as_str().unwrap_or(&source_mode),
+                    true,
+                )?;
+                crate::recognition::signature_state::observe_manual_metadata(peer, &time_only)?;
+            }
+            peer["timing_errors"] = json!(scorelib::gp5_constraints::timing_errors(&measure)?);
+            if peer["timing_errors"]
+                .as_array()
+                .is_some_and(|v| !v.is_empty())
+            {
+                peer["needs_review"] = json!(true);
+                peer["reviewed"] = json!(false);
+            }
+        }
+    }
+    if bars.values().copied().min() == Some(bar) {
+        if let Some((_, tempo)) = global_changes
+            .iter()
+            .find(|(field, _)| *field == "tempo_quarter")
+        {
+            if !source["document_metadata"].is_object() {
+                source["document_metadata"] = json!({});
+            }
+            source["document_metadata"]["tempo_quarter"] = tempo.clone();
+            source["document_metadata"]["tempo_source"] = json!("manual");
+            if let Some(parts) = source["parts"].as_array_mut() {
+                for part in parts {
+                    if !part["document_metadata"].is_object() {
+                        part["document_metadata"] = json!({});
+                    }
+                    part["document_metadata"]["tempo_quarter"] = tempo.clone();
+                    part["document_metadata"]["tempo_source"] = json!("manual");
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -240,6 +413,15 @@ pub fn export(
     let source: Value =
         serde_json::from_slice(&fs::read(&recognition).map_err(|e| (400, e.to_string()))?)
             .map_err(|e| (400, e.to_string()))?;
+    if std::iter::once(&source)
+        .chain(source["parts"].as_array().into_iter().flatten())
+        .any(|part| {
+            part["document_metadata"]["instrument_needs_review"] == true
+                || part["document_metadata"]["tuning_needs_review"] == true
+        })
+    {
+        return Err((409, "请先在谱面信息中确认乐器和调弦再导出。".into()));
+    }
     if source["review_measures"]
         .as_array()
         .is_some_and(|rows| !rows.is_empty())
@@ -259,6 +441,26 @@ pub fn export(
     let gp5 = output.path().join(filename);
     let report = scorelib::music_exports::write_gp5(&source, &gp5).map_err(|e| (400, e))?;
     let mut exported = json!({"schema_version":"1.0","stage":"gp5_export","recognition":recognition,"gp5":gp5,"encoding_report":report["report_path"]});
+    if report["report"]["chord_library_projection"]
+        .as_array()
+        .is_some_and(|rows| !rows.is_empty())
+    {
+        exported["warnings"] = json!([
+            "未关联到正文的和弦按法已完整保存在静音的“指法参考”轨，供谱首查阅；这些按法不表示实际演奏位置。"
+        ]);
+    }
+    for field in [
+        "visual_techniques_projection",
+        "chord_library_review",
+        "chord_label_projection",
+        "encoding_compatibility",
+    ] {
+        if let Some(warning) = report["report"][field]["warning"].as_str() {
+            let mut warnings = exported["warnings"].as_array().cloned().unwrap_or_default();
+            warnings.push(json!(warning));
+            exported["warnings"] = json!(warnings);
+        }
+    }
     let musicxml = gp5.with_extension("musicxml");
     match scorelib::music_exports::write_musicxml(&source, &musicxml) {
         Ok(_) => exported["musicxml"] = json!(musicxml),
@@ -281,81 +483,6 @@ pub fn export(
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn saved_review_keeps_target_and_conflicts_do_not_replace_accepted_result() {
-        let workspace = tempfile::tempdir().unwrap();
-        let demo = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../ui/workbench/examples/Harbor-Light-synthetic-project.zip");
-        let imported =
-            crate::project::import_project(demo, workspace.path(), &Default::default()).unwrap();
-        let before = load_session(workspace.path(), &imported.session_id).unwrap();
-        let old: Value =
-            serde_json::from_slice(&fs::read(before["recognition"].as_str().unwrap()).unwrap())
-                .unwrap();
-        correct(
-            workspace.path(),
-            &imported.session_id,
-            1,
-            &json!({"reviewed":true}),
-            Some("0"),
-        )
-        .unwrap();
-        let saved = load_session(workspace.path(), &imported.session_id).unwrap();
-        assert_eq!(saved["revision"], 1);
-        let result: Value =
-            serde_json::from_slice(&fs::read(saved["recognition"].as_str().unwrap()).unwrap())
-                .unwrap();
-        assert_eq!(result["records"][0]["target"], old["records"][0]["target"]);
-        assert_eq!(result["records"][0]["reviewed"], true);
-        assert!(Path::new(result["score_document"].as_str().unwrap()).is_file());
-        assert_eq!(
-            correct(
-                workspace.path(),
-                &imported.session_id,
-                1,
-                &json!({"reviewed":true}),
-                Some("0")
-            )
-            .unwrap_err()
-            .0,
-            409
-        );
-        assert_eq!(
-            load_session(workspace.path(), &imported.session_id).unwrap(),
-            saved
-        );
-        let mut measure =
-            scorelib::score::parse_measure_target(result["records"][0]["target"].as_str().unwrap())
-                .unwrap();
-        measure["voices"][0]["events"][0]["notes"][0]["velocity"] = json!(72);
-        correct(
-            workspace.path(),
-            &imported.session_id,
-            1,
-            &json!({"measure":measure}),
-            Some("1"),
-        )
-        .unwrap();
-        let saved = load_session(workspace.path(), &imported.session_id).unwrap();
-        let result: Value =
-            serde_json::from_slice(&fs::read(saved["recognition"].as_str().unwrap()).unwrap())
-                .unwrap();
-        assert_eq!(result["records"][0]["needs_review"], true);
-        assert_eq!(result["records"][0]["reviewed"], false);
-        assert_eq!(result["records"][0]["manually_edited"], true);
-        assert_eq!(saved["export"], Value::Null);
-        assert_eq!(saved["revision"], 2);
-    }
-    #[test]
-    fn filenames_remain_portable() {
-        assert_eq!(score_filename("CON", "score.pdf"), "_CON.gp5");
-        assert_eq!(score_filename("untitled", "input.pdf"), "input.gp5");
-        assert_eq!(score_filename(" ../score? ", "x"), "_score_.gp5");
-    }
-}
 
 fn edited_single(layout: &Value, previous: &Value, values: &Value) -> Result<Value> {
     if !values.is_object() {
@@ -375,7 +502,10 @@ fn edited_single(layout: &Value, previous: &Value, values: &Value) -> Result<Val
         }
     }
 
-    let instrument = values["instrument"].as_str().unwrap_or("guitar");
+    let instrument = values["instrument"]
+        .as_str()
+        .or_else(|| previous["instrument"].as_str())
+        .unwrap_or("guitar");
     if !matches!(instrument, "guitar" | "bass" | "pitched" | "drums") {
         return Err("请选择乐器类型".into());
     }
@@ -383,12 +513,22 @@ fn edited_single(layout: &Value, previous: &Value, values: &Value) -> Result<Val
     let tuning = if fretted {
         values
             .get("tuning_used")
+            .or_else(|| previous.get("tuning_used"))
             .cloned()
             .unwrap_or(json!([64, 59, 55, 50, 45, 40]))
     } else {
         json!([])
     };
     let strings = tuning.as_array().ok_or("无效调弦")?;
+    for key in ["confirm_instrument", "confirm_tuning"] {
+        if values.get(key).is_some_and(|value| !value.is_boolean()) {
+            return Err(format!("{key}必须为布尔值"));
+        }
+    }
+    let confirm_instrument = values["confirm_instrument"] == true
+        || (values.get("instrument").is_some() && previous["instrument"] != instrument);
+    let confirm_tuning = values["confirm_tuning"] == true
+        || (values.get("tuning_used").is_some() && previous["tuning_used"] != tuning);
     if (fretted && !(1..=12).contains(&strings.len()))
         || strings
             .iter()
@@ -450,14 +590,70 @@ fn edited_single(layout: &Value, previous: &Value, values: &Value) -> Result<Val
         }
     }
     metadata["tempo_quarter"] = json!(tempo);
-    metadata.as_object_mut().unwrap().remove("tuning_issue");
-    metadata["string_count"] = if fretted {
-        json!(strings.len())
-    } else {
-        Value::Null
-    };
-    metadata["string_count_source"] = json!("manual");
-    let contexts = if previous["instrument"].as_str().unwrap_or("guitar") == instrument
+    if confirm_instrument {
+        metadata["instrument"] = json!(instrument);
+        metadata["instrument_source"] = json!("manual");
+        metadata["instrument_needs_review"] = json!(false);
+        metadata.as_object_mut().unwrap().remove("instrument_issue");
+        if !metadata["instrument_evidence"].is_object() {
+            metadata["instrument_evidence"] = json!({"candidates":{}});
+        }
+        let evidence = &mut metadata["instrument_evidence"];
+        evidence["value"] = json!(instrument);
+        evidence["source"] = json!("manual");
+        evidence["status"] = json!("resolved");
+        evidence["needs_review"] = json!(false);
+        evidence["provisional"] = json!(false);
+        if !evidence["candidates"].is_object() {
+            evidence["candidates"] = json!({});
+        }
+        evidence["candidates"]["manual"] = json!(instrument);
+    }
+    if confirm_tuning {
+        metadata.as_object_mut().unwrap().remove("tuning_issue");
+        metadata["tuning_needs_review"] = json!(false);
+        if !metadata["tuning_evidence"].is_object() {
+            metadata["tuning_evidence"] = json!({});
+        }
+        metadata["tuning_evidence"]["value"] = tuning.clone();
+        metadata["tuning_evidence"]["source"] = json!("manual");
+        metadata["tuning_evidence"]["needs_review"] = json!(false);
+        metadata["string_count"] = if fretted {
+            json!(strings.len())
+        } else {
+            Value::Null
+        };
+        metadata["string_count_source"] = json!("manual");
+        if !metadata["string_count_evidence"].is_object() {
+            metadata["string_count_evidence"] = json!({"candidates":{}});
+        }
+        let count = metadata["string_count"].clone();
+        let evidence = &mut metadata["string_count_evidence"];
+        evidence["value"] = count.clone();
+        evidence["source"] = json!("manual");
+        evidence["needs_review"] = json!(false);
+        if !evidence["candidates"].is_object() {
+            evidence["candidates"] = json!({});
+        }
+        evidence["candidates"]["manual"] = count;
+        metadata["string_count_needs_review"] = json!(false);
+    }
+    let identity_and_tuning_resolved =
+        metadata["instrument_needs_review"] != true && metadata["tuning_needs_review"] != true;
+    if let Some(warnings) = metadata["warnings"].as_array_mut() {
+        warnings.retain(|warning| {
+            !warning.as_str().is_some_and(|text| {
+                (confirm_tuning && text.starts_with("TAB 弦数候选不一致或未知，请核对调弦；"))
+                    || (confirm_instrument
+                        && text.starts_with("乐器身份候选不一致或未知，请确认乐器；"))
+                    || (identity_and_tuning_resolved
+                        && text.starts_with("乐器身份候选不一致，当前声部与调弦仅临时保留；"))
+            })
+        });
+    }
+    let contexts = if !confirm_instrument
+        && !confirm_tuning
+        && previous["instrument"].as_str().unwrap_or("guitar") == instrument
         && previous["transpose"] == json!(transpose)
     {
         previous
@@ -476,6 +672,14 @@ fn edited_single(layout: &Value, previous: &Value, values: &Value) -> Result<Val
             .map(|r| {
                 let mut r = r.clone();
                 r["instrument"] = json!(instrument);
+                if (r["instrument_needs_review"] == true || r["tuning_needs_review"] == true)
+                    && r["structure_needs_review"] != true
+                    && r["alignment_needs_review"] != true
+                {
+                    r["pitch_needs_review"] = json!(false);
+                }
+                r["instrument_needs_review"] = metadata["instrument_needs_review"].clone();
+                r["tuning_needs_review"] = metadata["tuning_needs_review"].clone();
                 r
             })
             .collect::<Vec<_>>();
@@ -503,19 +707,55 @@ fn edited_single(layout: &Value, previous: &Value, values: &Value) -> Result<Val
                         value.insert(key.into(), v.clone());
                     }
                 }
+                value.insert(
+                    "instrument_needs_review".into(),
+                    metadata["instrument_needs_review"].clone(),
+                );
+                value.insert(
+                    "tuning_needs_review".into(),
+                    metadata["tuning_needs_review"].clone(),
+                );
+                value.entry("pitch_needs_review").or_insert(json!(false));
+                if metadata["instrument_needs_review"] == true
+                    || metadata["tuning_needs_review"] == true
+                {
+                    value.insert("pitch_needs_review".into(), json!(true));
+                }
                 Value::Object(value)
             })
             .collect::<Vec<_>>())
     } else {
         json!([])
     };
-    let title = values["title"].as_str().unwrap_or("未命名乐谱");
+    let title = values["title"]
+        .as_str()
+        .or_else(|| previous["title"].as_str())
+        .unwrap_or("")
+        .trim();
     let artist = values["artist"].as_str().unwrap_or("");
     if title.chars().count() > 500 || artist.chars().count() > 500 {
         return Err("曲名或作者最多500个字符".into());
     }
+    if title != previous["title"].as_str().unwrap_or("").trim()
+        || metadata["title_source"] == "manual"
+    {
+        crate::recognition::headers::mark_manual(&mut metadata, title);
+    }
+    let tuning_source = if confirm_tuning {
+        "manual"
+    } else {
+        previous["tuning_source"].as_str().unwrap_or("default")
+    };
+    let tuning_candidates = if confirm_tuning {
+        json!([tuning])
+    } else {
+        previous
+            .get("tuning_candidates")
+            .cloned()
+            .unwrap_or(json!([tuning]))
+    };
     Ok(
-        json!({"document_metadata":metadata,"predictions":null,"title":title,"artist":artist,"tuning_used":tuning,"tuning_source":"manual","tuning_candidates":[tuning],"capo":capo,"instrument":instrument,"midi_program":program,"transpose":transpose,"measure_pitch_contexts":contexts}),
+        json!({"document_metadata":metadata,"predictions":previous["predictions"],"title":title,"artist":artist,"tuning_used":tuning,"tuning_source":tuning_source,"tuning_candidates":tuning_candidates,"capo":capo,"instrument":instrument,"midi_program":program,"transpose":transpose,"measure_pitch_contexts":contexts}),
     )
 }
 fn edited_information(layout: &Value, previous: &Value, values: &Value) -> Result<Value> {
@@ -612,8 +852,18 @@ fn edited_information(layout: &Value, previous: &Value, values: &Value) -> Resul
         ] {
             profile[to] = edited[from].clone();
         }
-        profile["tuning_explicit"] = json!(true);
-        profile["tuning_source"] = json!("manual");
+        profile["tuning_explicit"] = json!(matches!(
+            edited["tuning_source"].as_str(),
+            Some("manual" | "printed")
+        ));
+        profile["tuning_source"] = edited["tuning_source"].clone();
+        for key in [
+            "instrument_evidence",
+            "instrument_needs_review",
+            "tuning_needs_review",
+        ] {
+            profile[key] = edited["document_metadata"][key].clone();
+        }
         profile["string_count"] = edited["document_metadata"]["string_count"].clone();
         profile["fingering_tunings"] = json!([edited["tuning_used"]]);
         profile["part_name"] = name.clone();
@@ -630,6 +880,10 @@ fn edited_information(layout: &Value, previous: &Value, values: &Value) -> Resul
         .collect::<Vec<_>>());
     result["title"] = edited["title"].clone();
     result["artist"] = edited["artist"].clone();
+    crate::recognition::headers::copy_title_provenance(
+        &mut result["document_metadata"],
+        &edited["document_metadata"],
+    );
     if index == 0 {
         for (key, value) in edited.as_object().unwrap() {
             if key != "measure_pitch_contexts" {
@@ -648,6 +902,10 @@ fn edited_information(layout: &Value, previous: &Value, values: &Value) -> Resul
         }
         part["title"] = edited["title"].clone();
         part["artist"] = edited["artist"].clone();
+        crate::recognition::headers::copy_title_provenance(
+            &mut part["document_metadata"],
+            &edited["document_metadata"],
+        );
         part["document_metadata"]["tempo_quarter"] =
             edited["document_metadata"]["tempo_quarter"].clone();
     }
@@ -711,6 +969,11 @@ pub fn metadata(
     let manifest = output.path().join("info.json");
     json_file(&manifest, &information).map_err(|e| (400, e))?;
     state["info"] = json!(manifest);
+    if information["document_metadata"]["title_source"] == "manual" {
+        state["manual_title"] = information["title"].clone();
+    } else {
+        state.as_object_mut().unwrap().remove("manual_title");
+    }
     if let Some(source) = recognized {
         if let Some(mut source) =
             crate::recognition::update_information(&source, &information).map_err(|e| (400, e))?

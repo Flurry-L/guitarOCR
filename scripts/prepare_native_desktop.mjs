@@ -1,17 +1,32 @@
 /** Stage native-only Tauri resources. No downloads, Python runtime, or model execution. */
-import { createHash } from 'node:crypto';
-import { cp, mkdir, readFile, readdir, lstat, chmod, rm, rename, writeFile } from 'node:fs/promises';
+import { cp, copyFile, mkdir, readFile, readdir, lstat, chmod, rm, rename, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+export async function syncUiAssets({root = ROOT, resources = path.join(root, 'desktop/src-tauri/resources')} = {}) {
+  const ui = path.join(root, 'ui'), launcher = path.join(ui, 'launcher');
+  for (const name of ['theme.css', 'theme.js'])
+    await copyFile(path.join(ui, 'workbench', name), path.join(launcher, name));
+  const destination = path.join(resources, 'ui'), staging = path.join(resources, 'ui.next');
+  await rm(staging, {recursive: true, force: true});
+  try {
+    await mkdir(staging, {recursive: true});
+    for (const section of ['accounts', 'workbench'])
+      await cp(path.join(ui, section), path.join(staging, section), {recursive: true});
+    await rm(destination, {recursive: true, force: true});
+    await rename(staging, destination);
+  } finally {
+    await rm(staging, {recursive: true, force: true});
+  }
+}
+
 const SOURCES = {
   onnxruntime: 'https://github.com/microsoft/onnxruntime',
   pdfium: 'https://pdfium.googlesource.com/pdfium',
   'llama.cpp': 'https://github.com/ggml-org/llama.cpp',
 };
-const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 export function safeRelative(name) {
   if (typeof name !== 'string' || !name || name.includes('\\') || name.includes(':') || name.startsWith('/') || name.split('/').some(p => !p || p === '.' || p === '..')) {
     throw new Error(`Unsafe resource path: ${name}`);
@@ -22,7 +37,7 @@ export function validateManifest(manifest, platform = process.platform, arch = p
   if (manifest.schema !== 1 || manifest.target !== `${platform}-${arch}` || !Array.isArray(manifest.components)) throw new Error('Native manifest schema/target mismatch');
   const names = new Set();
   for (const component of manifest.components) {
-    if (names.has(component.name) || SOURCES[component.name] !== component.source || !component.version) throw new Error('Unknown/duplicate native component or untrusted source');
+    if (names.has(component.name) || SOURCES[component.name] !== component.source) throw new Error('Unknown/duplicate native component or untrusted source');
     names.add(component.name);
     if (component.capabilities !== undefined) {
       if (component.name !== 'llama.cpp' || !component.capabilities || typeof component.capabilities !== 'object' || Array.isArray(component.capabilities) || Object.entries(component.capabilities).some(([name, value]) => !['cpu', 'cuda', 'metal'].includes(name) || typeof value !== 'boolean')) throw new Error('Invalid native backend capabilities');
@@ -31,7 +46,7 @@ export function validateManifest(manifest, platform = process.platform, arch = p
     const paths = new Set();
     for (const file of component.files) {
       safeRelative(file.path);
-      if (paths.has(file.path) || !/^[a-f0-9]{64}$/.test(file.sha256) || !['library', 'executable', 'license', 'notice'].includes(file.role)) throw new Error('Invalid native file inventory');
+      if (paths.has(file.path) || !Number.isSafeInteger(file.bytes) || file.bytes < 0 || !['library', 'executable', 'license', 'notice'].includes(file.role)) throw new Error('Invalid native file inventory');
       paths.add(file.path);
     }
     if (!component.files.some(f => f.role === 'license')) throw new Error(`Missing license: ${component.name}`);
@@ -72,8 +87,8 @@ async function verifiedLocal(root, relative) {
   if (!(await lstat(current)).isFile()) throw new Error(`Not a regular file: ${relative}`);
   return current;
 }
-function cargo(args) {
-  const result = spawnSync('cargo', args, { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+function cargo(args, env = process.env) {
+  const result = spawnSync('cargo', args, { cwd: ROOT, env, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
   if (result.error || result.status !== 0) throw new Error(`cargo ${args[0]} failed: ${result.error || result.stderr}`);
   return result.stdout;
 }
@@ -82,8 +97,10 @@ export function isLicenseNotice(filename) {
   return /^(LICEN[CS]E|COPYING|NOTICE|COPYRIGHT)/i.test(path.basename(filename))
     && !/\.(rs|c|h|cpp|hpp|py|js|mjs|ts|tsx|jsx|toml|json)$/i.test(filename);
 }
-export async function stageCargoLicenses(destination, overrides, target) {
+export async function stageCargoLicenses(destination, target) {
   await mkdir(destination, { recursive: true });
+  await cp(path.join(ROOT, 'THIRD_PARTY_NOTICES.md'), path.join(destination, 'THIRD_PARTY_NOTICES.md'));
+  const supplements = new Set(JSON.parse(await readFile(path.join(ROOT, 'desktop/license-supplements.json'))));
   if (!target) {
     const host = spawnSync('rustc', ['-vV'], { encoding: 'utf8' });
     target = host.stdout?.match(/^host: (.+)$/m)?.[1];
@@ -108,99 +125,135 @@ export async function stageCargoLicenses(destination, overrides, target) {
       if (inventory.has(key)) continue;
       const dir = path.dirname(pkg.manifest_path);
       const selected = (await walk(dir)).filter(p => isLicenseNotice(p) || (pkg.license_file && p === path.resolve(dir, pkg.license_file)));
-      if (!selected.length && overrides) {
-        const supplement = path.resolve(overrides, key);
-        try {
-          const supplementFiles = await walk(supplement);
-          if (!supplementFiles.some(file => isLicenseNotice(file))) throw new Error(`No license text in supplement: ${key}`);
-          for (const file of supplementFiles) {
-            const target = path.join(destination, key, path.relative(supplement, file));
-            await mkdir(path.dirname(target), { recursive: true });
-            await cp(file, target);
-          }
-          inventory.set(key, { package: key, license: pkg.license, source: `https://crates.io/crates/${pkg.name}/${pkg.version}`, licenseFiles: supplementFiles.map(p => path.relative(supplement, p)), supplemental: true });
-          continue;
-        } catch (error) { if (error.code !== 'ENOENT') throw error; }
+      if (!selected.length && supplements.has(key)) {
+        inventory.set(key, { package: key, license: pkg.license, source: `https://crates.io/crates/${pkg.name}/${pkg.version}`, licenseFiles: ['THIRD_PARTY_NOTICES.md'], supplemental: true });
+        continue;
       }
       for (const file of selected) {
         const target = path.join(destination, key, path.relative(dir, file));
         await mkdir(path.dirname(target), { recursive: true });
         await cp(file, target);
       }
-      inventory.set(key, { package: key, license: pkg.license, source: `https://crates.io/crates/${pkg.name}/${pkg.version}`, licenseFiles: selected.map(p => path.relative(dir, p)) });
+      inventory.set(key, { package: key, license: pkg.license, source: `https://crates.io/crates/${pkg.name}/${pkg.version}`, licenseFiles: selected.map(p => path.join(key, path.relative(dir, p))) });
     }
   }
   await writeFile(path.join(destination, 'components.json'), JSON.stringify([...inventory.values()], null, 2) + '\n');
   return [...inventory.values()].filter(component => !component.licenseFiles.length).map(component => component.package);
 }
-export const NATIVE_CORE_NOTICES = [
-  'OpenCV-4.13.0-resize-NOTICE.txt',
-  'OpenCV-4.13.0-LICENSE.txt',
-  'Pillow-12.3.0-LICENSE.txt',
-  'image-transforms-SOURCES.txt',
-];
-export async function stageNativeCoreNotices(destination, sourceRoot = ROOT) {
-  // Source-informed adaptations have notices outside Cargo's registry graph.
-  // Read all required files before writing; a missing file is a hard error.
+export async function readModelMetadata(modelCatalog = null) {
   const records = [];
-  for (const name of NATIVE_CORE_NOTICES) {
-    const source = `backend/licenses/${name}`;
-    const bytes = await readFile(await verifiedLocal(sourceRoot, source));
-    if (!bytes.length) throw new Error(`Empty required native-core notice: ${name}`);
-    records.push({ name, source, sha256: sha(bytes), bytes });
+  for (const relative of ['weights/distribution.json', 'weights/score_ocr/merged/score_image_policy.json', 'weights/score_ocr/merged/capabilities.json']) {
+    const customCatalog = relative === 'weights/distribution.json' && modelCatalog;
+    const bytes = await readFile(customCatalog || await verifiedLocal(ROOT, relative));
+    JSON.parse(bytes.toString('utf8'));
+    const file = 'models/' + path.basename(relative);
+    records.push({ file, source: customCatalog ? 'build-time-model-catalog' : relative, bytes });
   }
-  await mkdir(destination, { recursive: true });
-  for (const record of records) await writeFile(path.join(destination, record.name), record.bytes);
-  const inventory = records.map(({ bytes, ...record }) => record);
-  await writeFile(path.join(destination, 'components.json'), JSON.stringify(inventory, null, 2) + '\n');
-  return inventory;
+  return records;
+}
+export async function stageModelMetadata(destination, modelCatalog = null, snapshot = null) {
+  const records = snapshot || await readModelMetadata(modelCatalog);
+  await mkdir(path.join(destination, 'models'), { recursive: true });
+  for (const { file, bytes } of records) await writeFile(path.join(destination, file), bytes);
+  return records.map(({ bytes, ...record }) => record);
+}
+// Declarations are relative to their source model; packaged assets use one root.
+function auxiliaryAsset(value) {
+  return typeof value === 'string' ? value.match(/(?:^|\/)(auxiliary\/.+)$/)?.[1] : undefined;
+}
+export function validateDeclaredModelAssets(records) {
+  const metadata = Object.fromEntries(records.map(({ file, bytes }) => [path.basename(file), JSON.parse(bytes.toString('utf8'))]));
+  const catalog = new Set(Object.values(metadata['distribution.json'].files || {}).flat().map(file => file.path));
+  const adapter = metadata['capabilities.json'].information_adapter;
+  if ((metadata['capabilities.json'].staff_label_model == null) !==
+      (metadata['capabilities.json'].instrument_text_model == null)) {
+    throw new Error('staff_label_model and instrument_text_model must be declared together');
+  }
+  if (metadata['capabilities.json'].part_continuation_model != null &&
+      (metadata['capabilities.json'].staff_label_model == null || metadata['capabilities.json'].staff_profile !== true)) {
+    throw new Error('Part continuation requires observed staff label profiles');
+  }
+  for (const [field, asset, description] of [
+    ['layout_quality_model', 'auxiliary/layout_quality.onnx', 'layout quality'],
+    ['staff_label_model', 'auxiliary/staff_label.onnx', 'staff label'],
+    ['instrument_text_model', 'auxiliary/instrument_text.onnx', 'instrument text'],
+    ['part_continuation_model', 'auxiliary/part_continuation.onnx', 'part continuation'],
+    ['clef_spatial_model', 'auxiliary/clef_spatial.onnx', 'spatial clef'],
+  ]) {
+    const declared = metadata['capabilities.json'][field];
+    if (declared != null && auxiliaryAsset(declared) !== asset) throw new Error(`Unsupported ${description} model declaration`);
+  }
+  if (adapter != null) {
+    if (adapter.gguf !== '../gguf/information-adapter.gguf' || adapter.peft !== 'information_adapter' ||
+        !Array.isArray(adapter.tasks) || !adapter.tasks.length || new Set(adapter.tasks).size !== adapter.tasks.length ||
+        !adapter.tasks.every(task => ['clef', 'staff'].includes(task))) {
+      throw new Error('Unsupported information adapter contract');
+    }
+    if (!catalog.has('weights/score_ocr/gguf/information-adapter.gguf')) throw new Error('Selected model catalog omits declared information adapter');
+  }
+  for (const [capability, declaration] of Object.entries(metadata['capabilities.json'])) {
+    const asset = auxiliaryAsset(declaration);
+    if (asset != null && !catalog.has(asset)) {
+      throw new Error(`Selected model catalog omits declared ${capability}: ${asset}; use --model-catalog with the matching model generation`);
+    }
+  }
+}
+export function verifyBinaryModelMetadata(binary, records, run = spawnSync) {
+  const result = run(binary, ['--model-metadata'], { cwd: ROOT, timeout: 15000, maxBuffer: 1024 * 1024 });
+  let compiled;
+  try {
+    if (result.error || result.status !== 0 || !Buffer.isBuffer(result.stdout)) throw new Error();
+    compiled = JSON.parse(result.stdout.toString('utf8'));
+  } catch {
+    throw new Error('Backend cannot report its compiled model metadata; rebuild the backend before packaging');
+  }
+  for (const { file, bytes } of records) {
+    const name = path.basename(file);
+    if (typeof compiled[name] !== 'string' || !Buffer.from(compiled[name], 'utf8').equals(bytes)) {
+      throw new Error(`Backend ${name} does not match packaged metadata; rebuild with the selected inference metadata`);
+    }
+  }
 }
 export async function prepare(options = {}) {
   const destination = path.resolve(options.destination || path.join(ROOT, 'desktop/src-tauri/resources'));
   const staging = destination + '.staging';
+  const override = options.modelCatalog || process.env.GUITAROCR_BUILD_MODEL_CATALOG;
+  if (override && (!options.build || options.binary)) {
+    throw new Error('A custom model catalog requires --build and cannot be combined with --binary');
+  }
+  const modelCatalog = override ? path.resolve(ROOT, override) : null;
+  if (modelCatalog) {
+    if (!(await lstat(modelCatalog)).isFile() || (await lstat(modelCatalog)).isSymbolicLink()) throw new Error('Model catalog override must be a regular local file');
+    JSON.parse(await readFile(modelCatalog, 'utf8'));
+  }
+  const modelMetadata = await readModelMetadata(modelCatalog);
+  validateDeclaredModelAssets(modelMetadata);
+  const buildEnv = modelCatalog ? { ...process.env, GUITAROCR_BUILD_MODEL_CATALOG: modelCatalog } : process.env;
   // Build only on explicit request; packaging never downloads an unverified binary.
-  if (options.build) cargo(['build', '--locked', '--release', '--manifest-path', 'backend/Cargo.toml']);
+  if (options.build) cargo(['build', '--locked', '--release', '--manifest-path', 'backend/Cargo.toml'], buildEnv);
   const filename = process.platform === 'win32' ? 'guitarocr-backend.exe' : 'guitarocr-backend';
   const binary = path.resolve(options.binary || path.join(ROOT, 'target/release', filename));
   if (!(await lstat(binary)).isFile() || (await lstat(binary)).isSymbolicLink()) throw new Error('Build the backend first (npm run native:build), or pass --binary PATH');
-  validateNativeBinary(await readFile(binary));
+  const binaryBytes = await readFile(binary);
+  validateNativeBinary(binaryBytes);
+  verifyBinaryModelMetadata(binary, modelMetadata);
   const manifest = options.manifest ? validateManifest(JSON.parse(await readFile(options.manifest, 'utf8')), process.platform, process.arch, options.requireInference) : validateManifest({ schema: 1, target: `${process.platform}-${process.arch}`, components: [] }, process.platform, process.arch, options.requireInference);
-  const llama = manifest.components.find(component => component.name === 'llama.cpp');
-  if (llama) {
-    const pinned = JSON.parse(await readFile(path.join(ROOT, 'scripts/llamacpp-runtime.json'), 'utf8'));
-    if (llama.version !== pinned.commit) throw new Error('llama.cpp must match the repository-pinned commit');
-  }
   await rm(staging, { recursive: true, force: true });
   await mkdir(path.join(staging, 'native'), { recursive: true });
   await mkdir(path.join(staging, 'licenses'), { recursive: true });
   try {
-    // This whitelist intentionally excludes all backend Python, uv, research and model files.
-    const staticDir = path.join(ROOT, 'ui');
-    for (const file of await walk(staticDir)) {
-      const relative = path.relative(staticDir, file);
-      if (!/^(workbench|accounts)[\\/]/.test(relative)) continue;
-      if (/\.(py|pyc|pyo|whl)$/i.test(relative)) throw new Error(`Unexpected Python resource: ${relative}`);
-      const target = path.join(staging, 'ui', relative);
-      await mkdir(path.dirname(target), { recursive: true });
-      await cp(file, target);
-    }
-    manifest.modelMetadata = [];
-    for (const relative of ['weights/distribution.json', 'weights/score_ocr/merged/score_image_policy.json', 'weights/score_ocr/merged/capabilities.json']) {
-      const bytes = await readFile(await verifiedLocal(ROOT, relative));
-      JSON.parse(bytes.toString('utf8'));
-      const file = 'models/' + path.basename(relative);
-      await mkdir(path.join(staging, 'native/models'), { recursive: true });
-      await writeFile(path.join(staging, 'native', file), bytes);
-      manifest.modelMetadata.push({ file, sha256: sha(bytes), source: relative });
-    }
-    await cp(binary, path.join(staging, 'native', filename));
+    // The same refresh runs before every Tauri build, preventing an older
+    // prepared resource tree from silently embedding a stale workbench.
+    await syncUiAssets({root: ROOT, resources: staging});
+    manifest.modelMetadata = await stageModelMetadata(path.join(staging, 'native'), modelCatalog, modelMetadata);
+    await writeFile(path.join(staging, 'native', filename), binaryBytes);
     if (process.platform !== 'win32') await chmod(path.join(staging, 'native', filename), 0o755);
     for (const component of manifest.components) {
       for (const file of component.files) {
         const source = await verifiedLocal(path.dirname(path.resolve(options.manifest)), file.path);
         const bytes = await readFile(source);
         if (file.role === 'executable' || file.role === 'library') validateNativeBinary(bytes);
-        if (sha(bytes) !== file.sha256) throw new Error(`Native resource checksum mismatch: ${file.path}`);
+        if (bytes.length !== file.bytes) throw new Error(`Native resource size mismatch: ${file.path}`);
         const target = path.join(staging, 'native', component.name, file.path);
         await mkdir(path.dirname(target), { recursive: true });
         await writeFile(target, bytes);
@@ -212,12 +265,9 @@ export async function prepare(options = {}) {
         if (file.role === 'executable' && process.platform !== 'win32') await chmod(target, 0o755);
       }
     }
-    manifest.nativeCoreNotices = await stageNativeCoreNotices(path.join(staging, 'licenses/native-core'));
-    manifest.licenseReviewRequired = await stageCargoLicenses(path.join(staging, 'licenses'), options.licenseOverrides || path.join(ROOT, 'desktop/native-licenses'));
-    if (options.requireInference && manifest.licenseReviewRequired.length) throw new Error(`Missing Cargo license texts: ${manifest.licenseReviewRequired.join(', ')}; supply reviewed --license-overrides DIR/<package-version>/ files`);
-    await cp(path.join(ROOT, 'THIRD_PARTY_NOTICES.md'), path.join(staging, 'licenses/THIRD_PARTY_NOTICES.md'));
-    await cp(path.join(ROOT, 'weights/licenses'), path.join(staging, 'licenses/models'), { recursive: true });
-    manifest.service = { file: filename, sha256: sha(await readFile(binary)), source: 'backend', build: 'local-cargo' };
+    manifest.licenseReviewRequired = await stageCargoLicenses(path.join(staging, 'licenses'));
+    if (options.requireInference && manifest.licenseReviewRequired.length) throw new Error(`Missing Cargo license texts: ${manifest.licenseReviewRequired.join(', ')}; add their notices to THIRD_PARTY_NOTICES.md and desktop/license-supplements.json`);
+    manifest.service = { file: filename, source: 'backend', build: 'local-cargo' };
     manifest.version = "0.1.0";
     manifest.inferenceInventoryComplete = Object.keys(SOURCES).every(name => manifest.components.some(component => component.name === name)) && manifest.licenseReviewRequired.length === 0;
     await writeFile(path.join(staging, 'native/manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
@@ -230,17 +280,22 @@ export async function prepare(options = {}) {
   }
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const options = {};
-  const args = process.argv.slice(2);
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg === '--build') options.build = true;
-    else if (arg === '--require-inference') options.requireInference = true;
-    else if (arg === '--license-overrides' && args[i + 1]) options.licenseOverrides = args[++i];
-    else if (['--binary', '--manifest', '--destination'].includes(arg) && args[i + 1]) options[arg.slice(2)] = args[++i];
-    else throw new Error(`Unknown or incomplete option: ${arg}`);
+  if (process.argv.slice(2).join(' ') === '--ui-only') {
+    await syncUiAssets();
+    console.log('Desktop UI resources refreshed.');
+  } else {
+    const options = {};
+    const args = process.argv.slice(2);
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i];
+      if (arg === '--build') options.build = true;
+      else if (arg === '--require-inference') options.requireInference = true;
+      else if (arg === '--model-catalog' && args[i + 1]) options.modelCatalog = args[++i];
+      else if (['--binary', '--manifest', '--destination'].includes(arg) && args[i + 1]) options[arg.slice(2)] = args[++i];
+      else throw new Error(`Unknown or incomplete option: ${arg}`);
+    }
+    const result = await prepare(options);
+    if (result.licenseReviewRequired.length) console.warn(`Release license review required: ${result.licenseReviewRequired.length} crates lack bundled license texts (see native/manifest.json)`);
+    console.log(`Prepared native-only ${result.target} resources (${result.inferenceInventoryComplete ? 'inference ready' : 'editor only'}).`);
   }
-  const result = await prepare(options);
-  if (result.licenseReviewRequired.length) console.warn(`Release license review required: ${result.licenseReviewRequired.length} crates lack bundled license texts (see native/manifest.json)`);
-  console.log(`Prepared native-only ${result.target} resources (${result.inferenceInventoryComplete ? 'inference ready' : 'editor only'}).`);
 }

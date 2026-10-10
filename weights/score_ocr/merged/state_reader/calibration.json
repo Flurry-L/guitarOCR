@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "calibrated": true,
+  "temperatures": [
+    1.002739026069406,
+    0.999987784533684,
+    0.9970145155187361
+  ],
+  "thresholds": {
+    "key_present": 0.9991648682797954,
+    "key_absent": 0.3818834885928995,
+    "time_present": 0.5610606286809504,
+    "time_absent": 0.17833862480717874
+  },
+  "selection": {
+    "key_present": {
+      "accepted": 654,
+      "available": 697,
+      "accuracy": 1.0
+    },
+    "key_absent": {
+      "accepted": 11303,
+      "available": 11303,
+      "accuracy": 1.0
+    },
+    "time_present": {
+      "accepted": 780,
+      "available": 786,
+      "accuracy": 0.9961538461538462
+    },
+    "time_absent": {
+      "accepted": 11210,
+      "available": 11210,
+      "accuracy": 1.0
+    }
+  },
+  "target_precision": 0.995,
+  "source": "validation_only",
+  "validation_samples": 12000,
+  "validation_sources": 915,
+  "operating_point": {
+    "key_present_target_precision": 0.999,
+    "other_fields_target_precision": 0.995,
+    "selected_on": "validation_only",
+    "reason": "Reduce propagated false key changes while retaining nonzero positive coverage"
+  }
+}

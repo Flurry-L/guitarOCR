@@ -8,18 +8,59 @@ from pathlib import Path
 from typing import Any
 
 from PIL import Image
+from scorelib.pitch_context import transpose_key
 
-from research.data.annotations import measure_boxes
+from research.common.images import crop_measure
+from research.data.catalog import write_json, write_jsonl
 from research.data.native_alignment import native_text_target
-from research.data.sampling import balanced_hardcase_rows
-from research.data.sampling import measure_semantic_tags
-from research.data.training_samples import dataset_entry
-from research.data.training_samples import measure_sample
-from research.data.source_profile import source_profile
-from research.common.artifacts import write_json
-from research.common.artifacts import write_jsonl
-from research.common.crops import crop_measure
-from scorelib.m2 import format_previous_measure_context
+from research.data.native_supervision import (
+    measure_boxes,
+    native_pitch_contexts,
+    native_layout,
+    prepare_native_measure,
+    prepare_written_target,
+    source_profile,
+    visible_text_box,
+)
+from research.data.prompts import attach_neighbours, key_fifths
+from research.data.technique_visibility import prepare_visual_techniques
+from research.data.training_samples import (
+    dataset_entry,
+    iter_training_samples,
+    visual_measure_sample,
+)
+
+
+def measure_semantic_tags(measure: dict[str, Any]) -> list[str]:
+    tags: set[str] = set()
+    nonempty_voices = 0
+    for voice in measure.get("voices", []):
+        events = voice.get("events", [])
+        if events:
+            nonempty_voices += 1
+        for event in events:
+            status = str(event.get("status", "normal"))
+            if status in {"rest", "empty"}:
+                tags.add(status)
+            duration = event.get("duration") or {}
+            if duration.get("dotted") or duration.get("double_dotted"):
+                tags.add("dotted")
+            if (
+                int(duration.get("tuplet_enters", 1) or 1) != 1
+                or int(duration.get("tuplet_times", 1) or 1) != 1
+            ):
+                tags.add("tuplet")
+            notes = event.get("notes") or []
+            if len(notes) > 1:
+                tags.add("chord")
+            for effect in event.get("effects", []):
+                tags.add(str(effect).split(":", 1)[0])
+            for note in notes:
+                for effect in note.get("effects", []):
+                    tags.add(str(effect).split(":", 1)[0])
+    if nonempty_voices > 1:
+        tags.add("multi_voice")
+    return sorted(tags)
 
 
 def _render_pdf_pages(pdf_path: Path, dpi: int) -> list[Image.Image]:
@@ -37,9 +78,9 @@ def _crop_source(job):
     for mode in modes:
         if mode not in label.get("modes", modes):
             continue
-        pdf_path = output / "pdf" / mode / f"{source_id}.pdf"
-        layout_path = output / 'layout' / mode / f"{source_id}.layout.json"
-        if not pdf_path.is_file() or not layout_path.is_file():
+        layout, layout_path = native_layout(label_path, mode)
+        pdf_path = Path(layout_path).with_name("score.pdf") if layout_path else None
+        if layout is None or not pdf_path.is_file():
             failures.append(
                 {
                     "source_id": source_id,
@@ -48,7 +89,12 @@ def _crop_source(job):
                 }
             )
             continue
-        layout = json.loads(layout_path.read_text(encoding="utf-8"))
+        if layout['display_mode'] != mode:
+            raise ValueError(f'Native display mode differs from {mode}: {layout_path}')
+        contexts = {}
+        if mode != 'tab' and profile['instrument'] != 'drums':
+            score = json.loads(Path(layout_path).with_name('official-score.json').read_text())
+            contexts = native_pitch_contexts(score, label['track']['capo'])
         boxes = measure_boxes(layout)
         if len(boxes) != len(label["measures"]):
             failures.append(
@@ -73,6 +119,8 @@ def _crop_source(job):
 
         with open_pdf(pdf_path) as document:
             page_count = len(document)
+            instruction_visible = bool(label.get("instruction")
+                and visible_text_box(document[0], label["instruction"]))
         # Relabeling changes targets but not official PDF geometry. Avoid
         # rasterizing thousands of PDFs again when every crop already
         # exists; only the manifests/ShareGPT records need rewriting.
@@ -105,16 +153,22 @@ def _crop_source(job):
                     pages[page_index], [v * dpi / 25.4 for v in box["bbox_mm"]], dpi
                 )
                 crop.save(crop_path, format="PNG", compress_level=3)
-            target = native_text_target(measure["targets"][mode], label_path, mode, index)
-            previous_context = "START"
-            if index > 0:
-                previous_context = format_previous_measure_context(
-                    native_text_target(label["measures"][index - 1]["targets"][mode],
-                                       label_path, mode, index - 1),
-                    mode,
-                    active_metadata=label["measures"][index - 1],
-                )
-            rows.append(
+            visible = prepare_visual_techniques({'target': measure['targets'][mode],
+                                                  'mode': mode, 'renderer': 'guitar_pro',
+                                                  'label_json': str(label_path)})
+            target = native_text_target(visible['target'], label_path, mode, index)
+            prepared = prepare_written_target({
+                'mode': mode, 'instrument': profile['instrument'], 'target': target,
+                'pitch_reference': 'sounding', 'pitch_context': contexts.get(index),
+            })
+            key = measure.get('key_signature') or 'CMajor'
+            if prepared.get('written_pitch'):
+                key = transpose_key(key, -contexts[index]['instrument_transpose'])
+            state = {'time': measure['time_signature'],
+                     'key': 0 if mode == 'tab' else key_fifths(key)}
+            if profile['tuning']:
+                state['tuning'] = profile['tuning']
+            rows.append(prepare_native_measure(
                 {
                     "id": f"{source_id}_{mode}_m{index + 1:04d}",
                     "source_id": source_id,
@@ -126,17 +180,33 @@ def _crop_source(job):
                     "string_count": profile["string_count"],
                     "family": label.get("family", source_id),
                     "image": str(crop_path.resolve()),
-                    "target": target,
-                    "previous_context": previous_context,
-                    "target_utf8_bytes": len(target.encode("utf-8")),
+                    **prepared,
+                    **({'image_supervision': {'status': 'review',
+                        'reason': 'unverified_instrument_transposition'}}
+                       if profile['instrument'] == 'pitched' and mode != 'tab'
+                       and contexts[index]['instrument_transpose'] and not instruction_visible else {}),
+                    "tuning": profile['tuning'],
+                    "score_state": state,
+                    "source_measures": len(label['measures']),
+                    "source_target": measure["targets"][mode],
+                    "renderer": "guitar_pro",
+                    **({'technique_visibility': visible['technique_visibility']}
+                       if visible.get('technique_visibility') else {}),
+                    "target_utf8_bytes": len(prepared["target"].encode("utf-8")),
                     "page": int(box["page"]),
                     "bbox_mm": box["bbox_mm"],
                     "staff_types": box["staff_types"],
                     "semantic_tags": measure_semantic_tags(measure),
                     "label_json": str(label_path.resolve()),
                     "source_gp": label["source_path"],
+                    "source_pdf": str(pdf_path.resolve()),
+                    "part_id": "part-1",
+                    "staff_id": "staff-1",
+                    "bar_index": index,
                 }
-            )
+            ))
+    for mode in modes:
+        attach_neighbours([row for row in rows if row['mode'] == mode])
     return label["source_id"], rows, failures
 
 
@@ -164,7 +234,6 @@ def crop_and_manifest(
         )
         for split in ("train", "validation", "test")
     }
-    write_json(output / "source_splits.json", source_splits)
     source_formats: Counter[str] = Counter()
     technique_counts: Counter[str] = Counter()
     multi_voice_sources = 0
@@ -176,7 +245,9 @@ def crop_and_manifest(
         if int(label["statistics"].get("multi_voice_measure_count", 0)):
             multi_voice_sources += 1
     jobs = (
-        (path, label, output, modes, dpi, source_splits[label["source_id"]])
+        (path, {**label, "family": catalog[label["source_id"]]["family"],
+                "instruction": catalog[label["source_id"]].get("instruction")},
+         output, modes, dpi, source_splits[label["source_id"]])
         for path, label in zip(label_paths, label_values)
     )
     with (
@@ -217,24 +288,19 @@ def crop_and_manifest(
 
     llama_root = output / "llamafactory"
     llama_root.mkdir(parents=True, exist_ok=True)
-    hardcase_rows, hardcase_coverage = balanced_hardcase_rows(rows, seed)
+    visibility_review = {}
     for split_name in ("train", "validation", "test"):
         split_rows = [row for row in rows if row["split"] == split_name]
-        values = [measure_sample(row) for row in split_rows]
+        values = list(iter_training_samples(split_rows, serializer=visual_measure_sample,
+                      review_path=output / 'manifests' / f'visibility_review_{split_name}.jsonl'))
+        visibility_review[split_name] = len(split_rows) - len(values)
         write_json(llama_root / f"gp8_measure_sequence_{split_name}.json", values)
-    hardcase_values = [measure_sample(row) for row in hardcase_rows]
-    write_json(
-        llama_root / "gp8_measure_sequence_train_hardcases.json", hardcase_values
-    )
     dataset_info = {
         f"gp8_measure_sequence_{split_name}": dataset_entry(
             f"gp8_measure_sequence_{split_name}.json"
         )
         for split_name in ("train", "validation", "test")
     }
-    dataset_info["gp8_measure_sequence_train_hardcases"] = dataset_entry(
-        "gp8_measure_sequence_train_hardcases.json"
-    )
     write_json(llama_root / "dataset_info.json", dataset_info)
     split_sources = {
         name: sorted({row["source_id"] for row in rows if row["split"] == name})
@@ -250,9 +316,9 @@ def crop_and_manifest(
     ):
         raise RuntimeError("Source leakage detected across dataset splits")
     summary = {
-        "schema_version": "2.0",
         "sources": len({row["source_id"] for row in rows}),
         "samples": len(rows),
+        "visibility_review_rows": visibility_review,
         "source_formats": dict(sorted(source_formats.items())),
         "multi_voice_sources": multi_voice_sources,
         "technique_occurrences": dict(sorted(technique_counts.items())),
@@ -265,8 +331,6 @@ def crop_and_manifest(
             for name in split_sources
         },
         "split_technique_sources": split_technique_sources,
-        "hardcase_samples": len(hardcase_rows),
-        "hardcase_coverage": hardcase_coverage,
         "maximum_target_utf8_bytes": max(
             (row["target_utf8_bytes"] for row in rows), default=0
         ),

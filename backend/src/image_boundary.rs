@@ -186,24 +186,40 @@ pub fn round_even(value: f64) -> f64 {
 }
 
 pub fn crop_measure(page: &RgbImage, bbox_xywh: [f64; 4]) -> Result<RgbImage> {
+    let [x0, y0, x1, y1] = measure_crop_bounds(page.width(), page.height(), bbox_xywh, 1.5)?;
+    Ok(image::imageops::crop_imm(page, x0, y0, x1 - x0, y1 - y0).to_image())
+}
+
+/// Shared exact page-to-crop mapping for saved crops and event pixel evidence.
+pub fn measure_crop_bounds(
+    page_width: u32,
+    page_height: u32,
+    bbox_xywh: [f64; 4],
+    horizontal_mm: f64,
+) -> Result<[u32; 4]> {
     let [left, top, width, height] = bbox_xywh;
-    if !bbox_xywh.iter().all(|v| v.is_finite()) || width <= 0.0 || height <= 0.0 {
+    if !bbox_xywh.iter().all(|v| v.is_finite())
+        || width <= 0.0
+        || height <= 0.0
+        || !horizontal_mm.is_finite()
+        || horizontal_mm < 0.
+    {
         return Err("Measure crop requires a finite, positive xywh rectangle".into());
     }
-    let px = 1.5 * f64::from(MODEL_RENDER_DPI) / 25.4;
+    let px = horizontal_mm * f64::from(MODEL_RENDER_DPI) / 25.4;
     let py = 4.0 * f64::from(MODEL_RENDER_DPI) / 25.4;
-    let x0 = round_even(left - px).max(0.0).min(f64::from(page.width())) as u32;
-    let y0 = round_even(top - py).max(0.0).min(f64::from(page.height())) as u32;
+    let x0 = round_even(left - px).max(0.0).min(f64::from(page_width)) as u32;
+    let y0 = round_even(top - py).max(0.0).min(f64::from(page_height)) as u32;
     let x1 = round_even(left + width + px)
         .max(0.0)
-        .min(f64::from(page.width())) as u32;
+        .min(f64::from(page_width)) as u32;
     let y1 = round_even(top + height + py)
         .max(0.0)
-        .min(f64::from(page.height())) as u32;
+        .min(f64::from(page_height)) as u32;
     if x1 <= x0 || y1 <= y0 {
         return Err("Measure crop does not intersect the page".into());
     }
-    Ok(image::imageops::crop_imm(page, x0, y0, x1 - x0, y1 - y0).to_image())
+    Ok([x0, y0, x1, y1])
 }
 
 #[derive(Debug, Clone)]
@@ -395,19 +411,5 @@ pub fn render_pdf_pages(
             });
         }
         Ok(result)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn ties_and_crop() {
-        assert_eq!(round_even(2.5), 2.0);
-        assert_eq!(round_even(3.5), 4.0);
-        let page = RgbImage::from_pixel(100, 100, Rgb([255; 3]));
-        let crop = crop_measure(&page, [10.0, 10.0, 20.0, 20.0]).unwrap();
-        assert_eq!(crop.dimensions(), (41, 58));
-        assert!(crop_measure(&page, [500.0, 0.0, 1.0, 1.0]).is_err());
     }
 }

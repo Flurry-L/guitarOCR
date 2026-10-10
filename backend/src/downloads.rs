@@ -1,10 +1,11 @@
 //! Resumable downloads shared by models and optional acceleration libraries.
-use crate::{assets::check_hash_cancellable, tasks::Progress};
+use crate::tasks::Progress;
 use reqwest::Client;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::{
-    fs::{self, OpenOptions},
-    io::Write,
+    fs::{self, File, OpenOptions},
+    io::{Read, Write},
     path::Path,
     time::Duration,
 };
@@ -57,9 +58,32 @@ async fn prepare_files(
         {
             return Err("Unsafe model path".into());
         }
+        let destination = root.join(relative);
+        if catalog["availability"] == "local_unpublished" && file["sha256"].is_null() {
+            let metadata = destination
+                .metadata()
+                .map_err(|_| format!("本地模型资源缺失，请安装到 {}", destination.display()))?;
+            if !metadata.is_file()
+                || metadata.len() == 0
+                || file["bytes"]
+                    .as_u64()
+                    .is_some_and(|size| size != metadata.len())
+            {
+                return Err(format!(
+                    "本地模型资源为空或不完整：{}",
+                    destination.display()
+                ));
+            }
+            let mut header = [0u8; 80];
+            let mut input = std::fs::File::open(&destination).map_err(|e| e.to_string())?;
+            let count = std::io::Read::read(&mut input, &mut header).map_err(|e| e.to_string())?;
+            if header[..count].starts_with(b"version https://git-lfs.github.com/spec/") {
+                return Err(format!("尚未下载 Git LFS 权重：{}", destination.display()));
+            }
+            continue;
+        }
         let expected = file["sha256"].as_str().ok_or("Model checksum missing")?;
         let size = file["bytes"].as_u64().ok_or("Model size missing")?;
-        let destination = root.join(relative);
         progress
             .update(json!({"message":format!("正在准备{label}"),"done":completed,"total":total}))?;
         if destination.is_file()
@@ -69,6 +93,12 @@ async fn prepare_files(
             continue;
         }
         progress.checkpoint()?;
+        if catalog["availability"] == "local_unpublished" {
+            return Err(format!(
+                "本地模型尚未发布，请将配套的本地模型资源安装到 {}",
+                root.display()
+            ));
+        }
         if !allow_download {
             return Err("识别资源尚未准备，请先确认下载".into());
         }
@@ -209,4 +239,34 @@ async fn cancellable<T>(
     loop {
         tokio::select! {result=&mut future=>return result.map_err(|e|format!("模型下载失败：{}",e.without_url())),_=tokio::time::sleep(Duration::from_millis(100))=>progress.checkpoint()?}
     }
+}
+
+fn check_hash_cancellable(
+    path: &Path,
+    expected: &str,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<(), String> {
+    if expected.len() != 64 || !expected.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err("Invalid file hash".into());
+    }
+    let mut file = File::open(path).map_err(|e| e.to_string())?;
+    let mut hasher = Sha256::new();
+    let mut block = [0u8; 64 * 1024];
+    loop {
+        if cancelled() {
+            return Err("校验已取消".into());
+        }
+        let count = file.read(&mut block).map_err(|e| e.to_string())?;
+        if count == 0 {
+            break;
+        }
+        hasher.update(&block[..count]);
+    }
+    if format!("{:x}", hasher.finalize()) != expected.to_lowercase() {
+        return Err(format!(
+            "Downloaded file failed integrity check: {}",
+            path.display()
+        ));
+    }
+    Ok(())
 }

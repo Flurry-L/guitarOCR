@@ -1,0 +1,64 @@
+{
+  "calibration_split": "validation_only_shape_and_document_disjoint",
+  "minimum_precision": 1.0,
+  "branch_calibration": [
+    {
+      "temperature": {
+        "kind": 1.0,
+        "strings": 1.0,
+        "base": 1.0,
+        "frets": 1.0,
+        "fingers": 1.0,
+        "barres": 1.0
+      },
+      "thresholds": {
+        "kind": 0.9970736972932045,
+        "strings": 0.9985673142524594,
+        "base": 0.8130377225331629,
+        "frets": 0.8681486299944157,
+        "fingers": 0.9641603815306822,
+        "barres": 0.959275250580434
+      },
+      "joint_thresholds": {
+        "geometry": 0.9479778170420208,
+        "full": 0.9731448008418023
+      }
+    },
+    {
+      "temperature": {
+        "kind": 1.0,
+        "strings": 1.0,
+        "base": 1.0,
+        "frets": 1.0,
+        "fingers": 1.0,
+        "barres": 1.0
+      },
+      "thresholds": {
+        "kind": 0.9999550082651937,
+        "strings": 0.9907584604916372,
+        "base": 0.7180328700190364,
+        "frets": 0.5115990617001147,
+        "fingers": 0.8556898238698079,
+        "barres": 0.5867245399965979
+      },
+      "joint_thresholds": {
+        "geometry": 0.6544943523984565,
+        "full": 0.8847488952707361
+      }
+    }
+  ],
+  "thresholds": {
+    "geometry": 0.0,
+    "full": 0.0
+  },
+  "field_thresholds": {
+    "kind": 0.0,
+    "strings": 0.9994624257087708,
+    "base": 0.9729716181755066,
+    "frets": 0.9994563460350037,
+    "fingers": 0.0,
+    "barres": 0.9816990494728088
+  },
+  "method": "fields",
+  "protocol": "Frozen readers and branch thresholds; maximum coverage with zero validation errors, never test selection"
+}

@@ -1,11 +1,10 @@
-//! Import the version-1 portable ZIP format emitted by `research/inference/pipeline/archive.py`.
+//! Import the current portable project ZIP format.
 //!
 //! JSON objects are kept as `serde_json::Value` so newly added score fields survive
 //! an import. `session.json` is written last; an unsuccessful import removes only
 //! the new directory it created, never an existing session.
 
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
@@ -28,7 +27,6 @@ const PATH_FIELDS: &[&str] = &[
     "info",
     "recognition",
     "export",
-    "m2",
     "score_text",
     "score_document",
     "musicxml",
@@ -46,35 +44,6 @@ const STAGES: &[(&str, &str)] = &[
     ("recognition", "measure_ocr"),
     ("export", "gp5_export"),
 ];
-
-/// Caller storage/page policy, capped at the portable format's hard limits.
-#[derive(Clone, Debug)]
-pub struct ImportOptions {
-    /// A fresh lowercase 32-digit hexadecimal ID, or None to generate one.
-    pub session_id: Option<String>,
-    pub max_bytes: u64,
-    pub max_pages: usize,
-}
-
-impl Default for ImportOptions {
-    fn default() -> Self {
-        Self {
-            session_id: None,
-            max_bytes: MAX_BYTES,
-            max_pages: MAX_PAGES,
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct ImportedProject {
-    pub session_id: String,
-    /// Absolute project directory inside the caller-selected workspace.
-    pub directory: PathBuf,
-    /// The exact persisted state, with portable references remapped.
-    pub session: Value,
-    pub imported_files: usize,
-}
 
 #[derive(Debug)]
 pub enum ImportError {
@@ -130,31 +99,13 @@ fn invalid(message: impl Into<String>) -> ImportError {
 /// created directory. A trusted caller must keep the workspace private to this
 /// process while importing; this is not a defense against concurrent local users
 /// replacing directories. ZIP64, split, self-extracting, encrypted, and non-portable
-/// Windows filenames are rejected intentionally; the Python exporter emits none
+/// Windows filenames are rejected intentionally; the project exporter emits none
 /// of these for projects within the import limits.
-pub fn import_project(
-    source: impl AsRef<Path>,
-    workspace: impl AsRef<Path>,
-    options: &ImportOptions,
-) -> Result<ImportedProject> {
-    let sid = match &options.session_id {
-        Some(id) => id.clone(),
-        None => {
-            let mut bytes = [0u8; 16];
-            getrandom::fill(&mut bytes).map_err(|e| invalid(format!("Session ID entropy: {e}")))?;
-            bytes.iter().map(|byte| format!("{byte:02x}")).collect()
-        }
-    };
-    if sid.len() != 32
-        || !sid
-            .bytes()
-            .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
-    {
-        return Err(invalid(
-            "Invalid project ID: expected 32 lowercase hexadecimal digits",
-        ));
-    }
-    let limit = options.max_bytes.min(MAX_BYTES);
+pub fn import_project(source: impl AsRef<Path>, workspace: impl AsRef<Path>) -> Result<String> {
+    let mut bytes = [0u8; 16];
+    getrandom::fill(&mut bytes).map_err(|e| invalid(format!("Session ID entropy: {e}")))?;
+    let sid: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+    let limit = MAX_BYTES;
     let mut input = File::open(source)?;
     let (count, directory_start) = preflight_zip(&mut input, limit)?;
     let mut archive = ZipArchive::new(input)?;
@@ -222,7 +173,7 @@ pub fn import_project(
         .and_then(Value::as_array)
         .ok_or_else(|| invalid("Project pages must be an array"))?;
     let page_count = pages.len();
-    if page_count == 0 || page_count > options.max_pages.min(MAX_PAGES) {
+    if page_count == 0 || page_count > MAX_PAGES {
         return Err(invalid("Project page count exceeds the allowed range"));
     }
     validate_page_references(&state, page_count)?;
@@ -243,35 +194,17 @@ pub fn import_project(
             .and_then(Value::as_str)
             .ok_or_else(|| invalid("Project file entry has no path"))?;
         safe_relative(path)?;
-        let hash = item
-            .get("sha256")
-            .and_then(Value::as_str)
-            .ok_or_else(|| invalid("Project file entry has no SHA-256"))?;
-        if hash.len() != 64
-            || !hash
-                .bytes()
-                .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
-        {
-            return Err(invalid("Invalid project SHA-256"));
-        }
         if path == "project.json" || !listed.insert(path.to_owned()) {
             return Err(invalid("Duplicate or reserved entry in project file list"));
         }
-        entries.push((path, hash));
+        entries.push(path);
     }
     let mut expected = listed.clone();
     expected.insert("project.json".to_owned());
     if expected != names {
         return Err(invalid("Project ZIP members do not match its manifest"));
     }
-    // Old native exports included model/device/input fingerprints. They are not
-    // portable results or paths and cannot be resumed after importing a project.
-    // Keep verifying their archive bytes, but neither restore nor reference them.
-    let portable_files: HashSet<String> = listed
-        .iter()
-        .filter(|name| !machine_checkpoint(Path::new(name)))
-        .cloned()
-        .collect();
+    let portable_files = listed.clone();
 
     fs::create_dir_all(workspace.as_ref())?;
     let workspace = fs::canonicalize(workspace)?;
@@ -284,15 +217,8 @@ pub fn import_project(
         committed: false,
     };
     let operation = (|| {
-        for (name, expected_hash) in &entries {
+        for name in &entries {
             let contents = read_entry(&mut archive, name, limit)?;
-            let hash = format!("{:x}", Sha256::digest(&contents));
-            if &hash != expected_hash {
-                return Err(invalid(format!("Project SHA-256 mismatch: {name}")));
-            }
-            if machine_checkpoint(Path::new(name)) {
-                continue;
-            }
             let contents = transform_file(&contents, name, &root, &portable_files, page_count)?;
             let path = root.join(name);
             fs::create_dir_all(path.parent().expect("validated project path has a parent"))?;
@@ -331,12 +257,7 @@ pub fn import_project(
         return Err(error);
     }
     cleanup.committed = true;
-    Ok(ImportedProject {
-        session_id: sid,
-        directory: root,
-        session: state,
-        imported_files: portable_files.len(),
-    })
+    Ok(sid)
 }
 
 struct NewProject {
@@ -550,7 +471,7 @@ fn validate_saved_state(state: &Value, pages: usize) -> Result<()> {
                     let target = row
                         .get("target")
                         .and_then(Value::as_str)
-                        .ok_or_else(|| invalid("Recognition record has no M2 target"))?;
+                        .ok_or_else(|| invalid("Recognition record has no M target"))?;
                     scorelib::score::parse_measure_target(target).map_err(invalid)?;
                 }
             }
@@ -669,13 +590,12 @@ pub fn write_session_atomic(workspace: impl AsRef<Path>, sid: &str, state: &Valu
     })
 }
 
-/// Export the Python-compatible project ZIP, preserving all JSON fields and
+/// Export the project ZIP, preserving all JSON fields and
 /// rewriting references below the session root to project:// paths.
 ///
-/// Source files are never changed. Machine checkpoint state, job/session files,
-/// symlinks, tmp directories, .tmp files, and ZIPs are excluded. Only an
-/// interrupted final JSONL record without a final LF can be discarded, matching
-/// the Python exporter's journal recovery. Existing destination files are
+/// Source files are never changed. Job/session files, symlinks, tmp directories,
+/// .tmp files, and ZIPs are excluded. An interrupted final JSONL record without
+/// a final LF is discarded. Existing destination files are
 /// atomically replaced after the ZIP is finished successfully.
 pub fn export_project(
     workspace: impl AsRef<Path>,
@@ -724,7 +644,6 @@ pub fn export_project(
                 .replace('\\', "/");
             safe_relative(&name)?;
             zip.start_file(&name, options)?;
-            let mut hash = Sha256::new();
             let suffix = path
                 .extension()
                 .and_then(|s| s.to_str())
@@ -738,7 +657,6 @@ pub fn export_project(
                 if total > MAX_BYTES {
                     return Err(invalid("Project exceeds the portable ZIP size limit"));
                 }
-                hash.update(&contents);
                 zip.write_all(&contents)?;
             } else {
                 let mut input = File::open(path)?;
@@ -754,11 +672,10 @@ pub fn export_project(
                     if total > MAX_BYTES {
                         return Err(invalid("Project exceeds the portable ZIP size limit"));
                     }
-                    hash.update(&buffer[..length]);
                     zip.write_all(&buffer[..length])?;
                 }
             }
-            files.push(serde_json::json!({"path":name,"sha256":format!("{:x}",hash.finalize())}));
+            files.push(serde_json::json!({"path":name}));
         }
         let manifest = serde_json::to_vec(
             &serde_json::json!({"format":"guitarocr-project", "version":1,"session":state,"files":files}),
@@ -827,22 +744,13 @@ fn atomic_write(path: &Path, write: impl FnOnce(&mut File) -> Result<()>) -> Res
     }
     result
 }
-fn machine_checkpoint(path: &Path) -> bool {
-    path.file_name()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| name.eq_ignore_ascii_case("recognition_context.json"))
-}
-
 fn collect_project_files(root: &Path, directory: &Path, paths: &mut Vec<PathBuf>) -> Result<()> {
     for entry in fs::read_dir(directory)? {
         let entry = entry?;
         let kind = entry.file_type()?;
         let path = entry.path();
         let relative = path.strip_prefix(root).expect("inside project root");
-        if kind.is_symlink()
-            || machine_checkpoint(&path)
-            || relative.components().any(|c| c.as_os_str() == "tmp")
-        {
+        if kind.is_symlink() || relative.components().any(|c| c.as_os_str() == "tmp") {
             continue;
         }
         if kind.is_dir() {

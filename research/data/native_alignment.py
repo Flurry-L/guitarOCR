@@ -1,17 +1,27 @@
 """Align supervision with the score actually imported and rendered by Guitar Pro."""
 
+import argparse
+import json
+import re
+from concurrent.futures import ProcessPoolExecutor
 from fractions import Fraction
 from functools import lru_cache
-import argparse
-from concurrent.futures import ProcessPoolExecutor
-import json
 from pathlib import Path
-import re
 from urllib.parse import quote
 
-from scorelib.m2 import parse_measure_target
-from scorelib.m2 import format_measure_target
-from scorelib.percussion import DRUM_KEY_ALIASES
+from scorelib.score import format_measure_target, parse_measure_target
+from scorelib.instruments import DRUM_KEY_ALIASES
+
+from research.data.catalog import native_document
+
+
+def chord_words(page):
+    """Chord spellings actually painted by GP, including altered extensions."""
+    translate = str.maketrans({'\ue260': 'b', '\ue262': '#', '♭': 'b', '♯': '#'})
+    pattern = (r'[A-GH][#b]?(?:(?:maj|min|dim|aug|sus|add|omit|no|alt|dom|m|M)'
+               r'|[0-9#b+°øΔ(),/\-])*(?:/[A-GH][#b]?)?')
+    return [(*word[:4], text) for word in page.words()
+            if re.fullmatch(pattern, text := word[4].translate(translate))]
 
 
 def align_printed_chords(result, folder):
@@ -21,7 +31,6 @@ def align_printed_chords(result, folder):
     chord onsets. Require equal counts and matching roots; never invent timing
     or use OCR predictions as supervision.
     """
-    from research.data.native_chords import chord_words
     from research.common.pdf import open_pdf
 
     layout_path, pdf_path = folder / 'layout.json', folder / 'score.pdf'
@@ -71,13 +80,7 @@ def native_text(label_path, mode):
     Legacy GP files can be decoded differently by the source parser and the
     engraver. Note/rhythm targets are unaffected by this text-only alignment.
     """
-    path = Path(label_path)
-    root = path.parent.parent
-    siblings = {'pitch_training': 'pitch_native', 'pitch_named': 'pitch_named_native',
-                'parallel_synthetic': 'parallel_synthetic_native',
-                'parallel_techniques': 'parallel_techniques_native'}
-    export = root.parent / siblings[root.name] if root.name in siblings else root / 'native-export'
-    folder = export / 'documents' / f'{mode}-{path.stem}'
+    folder = native_document(label_path, mode)
     exports = list(folder.glob('tracks/*/official-score.json'))
     if len(exports) != 1:
         return {}
@@ -88,6 +91,8 @@ def native_text(label_path, mode):
     sections = {m['master_measure_index']: m.get('section_text') or m.get('section_letter')
                 for m in model['document']['master_measures']}
     result = {}
+    from research.data.technique_visibility import native_pm_evidence
+    evidence = native_pm_evidence(str(label_path), mode)
     for measure in tracks[0]['staves'][0]['measures']:
         index = measure['measure_index']
         events = {}
@@ -95,21 +100,29 @@ def native_text(label_path, mode):
             for event in voice['events']:
                 if event['grace'] or event['placeholder']:
                     continue
-                # Native offsets are quarter-note fractions; M2 uses 960
+                # Native offsets are quarter-note fractions; M uses 960
                 # ticks per quarter, including tuplets.
                 onset = round(Fraction(*event['offset']) * 960)
                 events[voice['voice_index'], onset] = {
                     'text': event.get('free_text'), 'chord': event.get('chord'),
                 }
         result[index] = {'section': sections.get(index), 'events': events}
+        if evidence is not None:
+            result[index]['technique_evidence'] = evidence
     align_printed_chords(result, exports[0].parent)
     return result
 
 
-def native_text_target(target, label_path, mode, measure_index):
+def native_text_target(target, label_path, mode, measure_index, *, printed_techniques=(), visual=True):
     reference = native_text(str(label_path), mode).get(int(measure_index))
     if reference is None:
         return target
+    # A matching official export establishes the renderer. Pure M/ScoreIR and
+    # other engravers keep their playback flags; only this visual target changes.
+    from research.data.technique_visibility import visible_target
+    if visual:
+        target, _ = visible_target(target, mode, 'guitar_pro', printed_techniques=printed_techniques,
+                                   visibility_evidence=reference.get('technique_evidence'))
     measure = parse_measure_target(target)
     changed = measure.get('section') != reference['section']
     measure['section'] = reference['section']
@@ -125,7 +138,7 @@ def native_text_target(target, label_path, mode, measure_index):
             if sorted(previous) != sorted(effects):
                 event['effects'] = effects
                 changed = True
-    return format_measure_target(measure, mode) if changed else target
+    return format_measure_target(measure, mode, preserve_playback=not visual) if changed else target
 
 
 def note_differences(label, native):
@@ -218,7 +231,6 @@ def main():
             "different_events": sum(row["different_events"] for row in results),
         }
     )
-
 
 if __name__ == "__main__":
     main()

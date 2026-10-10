@@ -1,6 +1,42 @@
 import { ui, endpoint, receiveProject } from "./state.js";
 import { $, el, action, notice } from "./dom.js";
 import { api } from "./api.js";
+
+// Place only a newly drawn region. Existing order can be an intentional manual
+// reading order (including several staves), so never re-sort the whole page.
+function insertionIndex(boxes, box) {
+  const page = boxes.map((item, index) => ({item, index})).filter(({item}) => item.page === box.page);
+  const peers = page.filter(({item}) => item.kind === box.kind);
+  if (box.kind !== "measure" || !peers.length)
+    return page.length ? page.at(-1).index + 1 : (() => {
+      const next = boxes.findIndex(item => item.page > box.page);
+      return next < 0 ? boxes.length : next;
+    })();
+  const [x, y, , height] = box.bbox;
+  const center = y + height / 2;
+  const overlap = (item) => {
+    const [, top, , h] = item.bbox;
+    return Math.max(0, Math.min(y + height, top + h) - Math.max(y, top)) / Math.min(height, h);
+  };
+  let row = peers.filter(({item}) => overlap(item) >= 0.5);
+  if (row.length) {
+    // If a tall box overlaps two separate staves, use its nearest center.
+    const nearest = row.reduce((a, b) => Math.abs(a.item.bbox[1] + a.item.bbox[3] / 2 - center) <= Math.abs(b.item.bbox[1] + b.item.bbox[3] / 2 - center) ? a : b).item;
+    const [, top, , h] = nearest.bbox;
+    row = row.filter(({item}) => Math.abs(item.bbox[1] + item.bbox[3] / 2 - top - h / 2) < Math.min(item.bbox[3], h) * 0.5);
+    const left = row.filter(({item}) => item.bbox[0] <= x).sort((a, b) => b.item.bbox[0] - a.item.bbox[0])[0];
+    if (left) return left.index + 1;
+    return row.sort((a, b) => a.item.bbox[0] - b.item.bbox[0])[0].index;
+  }
+  const above = peers.filter(({item}) => item.bbox[1] + item.bbox[3] / 2 < center);
+  if (above.length) {
+    const nearestY = Math.max(...above.map(({item}) => item.bbox[1] + item.bbox[3] / 2));
+    const previousRow = above.filter(({item}) => nearestY - item.bbox[1] - item.bbox[3] / 2 < item.bbox[3] * 0.5);
+    return previousRow.sort((a, b) => b.item.bbox[0] - a.item.bbox[0])[0].index + 1;
+  }
+  return peers.reduce((a, b) => a.item.bbox[1] < b.item.bbox[1] || a.item.bbox[1] === b.item.bbox[1] && a.item.bbox[0] < b.item.bbox[0] ? a : b).index;
+}
+
 const colors = { measure: "#4267c5", header: "#6189ac", title: "#6189ac", subtitle: "#6189ac", credit: "#6189ac", tuning: "#6189ac", header_text: "#6189ac", tempo: "#b07628", clef: "#7756a4", transposition: "#2468aa", annotation: "#2468aa" };
 const names = { measure: "小节", header: "谱头", title: "曲名", subtitle: "副标题", credit: "署名", tuning: "调弦文字", header_text: "其他谱头文字", tempo: "速度", clef: "谱号", transposition: "谱面标记", annotation: "谱面标记" };
 const modeNames = { tab: "TAB", notation: "五线谱", both: "五线谱 + TAB" };
@@ -17,6 +53,57 @@ function boxName(box) {
 }
 
 export function initBoxes({ start, go, render, setBusy }) {
+  function renderPages() {
+    const list = $("pageList");
+    list.replaceChildren();
+    $("pageSelect").replaceChildren();
+    $("pageListTitle").textContent = `全部 ${ui.state.pages.length} 页`;
+    ui.state.pages.forEach((p, i) => {
+      const b = el(
+        "button",
+        undefined,
+        "page-thumb" + (i === ui.pageIndex ? " active" : ""),
+      );
+      const option = el("option", `第 ${i + 1} / ${ui.state.pages.length} 页`);
+      option.value = i;
+      $("pageSelect").append(option);
+      const img = el("img");
+      img.src = p.url;
+      img.loading = "lazy";
+      img.alt = `第 ${i + 1} 页`;
+      b.setAttribute("aria-label", `打开第 ${i + 1} 页`);
+      b.append(img, el("span", `第 ${i + 1} 页`));
+      b.onclick = () => selectPage(i);
+      list.append(b);
+    });
+    updatePageNavigation();
+  }
+  function updatePageNavigation() {
+    $("prevPage").disabled = ui.busy || !ui.state?.pages || ui.pageIndex <= 0;
+    $("nextPage").disabled =
+      ui.busy || !ui.state?.pages || ui.pageIndex >= ui.state.pages.length - 1;
+    $("pageSelect").disabled = ui.busy || !ui.state?.pages;
+    $("pageSelect").value = ui.pageIndex;
+    [...$("pageList").children].forEach((button, i) => {
+      button.classList.toggle("active", i === ui.pageIndex);
+      button.setAttribute("aria-current", i === ui.pageIndex ? "page" : "false");
+      button.disabled = ui.busy;
+    });
+  }
+  function selectPage(index) {
+    if (ui.busy || !ui.state?.pages) return;
+    ui.pageIndex = Math.max(0, Math.min(ui.state.pages.length - 1, index));
+    ui.selected = -1;
+    $("canvasScroll").scrollTop = 0;
+    updatePageNavigation();
+    loadPage();
+    $("pageList").children[ui.pageIndex]?.scrollIntoView({ block: "nearest" });
+  }
+  $("prevPage").onclick = () => selectPage(ui.pageIndex - 1);
+  $("nextPage").onclick = () => selectPage(ui.pageIndex + 1);
+  $("pageSelect").onchange = () => selectPage(+$("pageSelect").value);
+
+
   let undo = [], redo = [], dragStart, savedRevision, pageRequest = 0, imageTimer;
   $("boxKind").replaceChildren(...Object.entries(names).filter(([kind]) => kind !== "transposition").map(([kind, name]) => {
     const option = new Option(name, kind);
@@ -27,8 +114,26 @@ export function initBoxes({ start, go, render, setBusy }) {
   function remember(before = snapshot()) {
     undo.push(before); if(undo.length>50)undo.shift(); redo=[];
   }
+  function cancelDrag() {
+    if (!ui.drag) return false;
+    const pointer = ui.drag.pointerId;
+    ui.boxes = dragStart.boxes;
+    ui.selected = dragStart.selected;
+    ui.boxDirty = dragStart.dirty;
+    ui.drag = dragStart = null;
+    if (ui.boxes[ui.selected]?.page !== ui.pageIndex + 1) ui.selected = -1;
+    const canvas = $("canvas");
+    if (canvas.hasPointerCapture(pointer)) canvas.releasePointerCapture(pointer);
+    $("boxTool").value = "select";
+    return true;
+  }
+  function cancelInteraction() {
+    if (cancelDrag()) { renderBoxList(); draw(); }
+  }
   function restore(from,to) {
-    if(ui.busy||!from.length)return;
+    if(ui.busy)return;
+    if(cancelDrag()){renderBoxList();draw();return;}
+    if(!from.length)return;
     to.push(snapshot());const previous=from.pop();
     ui.boxes=previous.boxes;ui.selected=previous.selected;
     if(ui.boxes[ui.selected]?.page!==ui.pageIndex+1)ui.selected=-1;
@@ -43,6 +148,7 @@ export function initBoxes({ start, go, render, setBusy }) {
   }
   function loadPage() {
     if (!ui.state?.pages) return;
+    cancelDrag();
     const revision=`${ui.sid}:${ui.state.revision}`;
     if(revision!==savedRevision){undo=[];redo=[];savedRevision=revision;}
     const p = ui.state.pages[ui.pageIndex];
@@ -51,7 +157,6 @@ export function initBoxes({ start, go, render, setBusy }) {
     const request = ++pageRequest;
     clearTimeout(imageTimer);
     ui.pageImage = null;
-    ui.drag = null;
     $("pageSurface").hidden = true;
     $("boxPreview").hidden = true;
     $("canvas").setAttribute("aria-busy", "true");
@@ -171,6 +276,7 @@ export function initBoxes({ start, go, render, setBusy }) {
     });
     $("coords").hidden = ui.selected < 0;
     const selected = ui.boxes[ui.selected];
+    $("boxBoundaryReview").hidden = !selected?.boundary_review?.length;
     if (selected) $("boxKind").value = selected.kind === "transposition" ? "annotation" : selected.kind;
     $("boxModeField").hidden = !selected || selected.kind !== "measure";
     if (selected?.kind === "measure") {
@@ -216,7 +322,7 @@ export function initBoxes({ start, go, render, setBusy }) {
     ];
   }
   $("canvas").onpointerdown = (e) => {
-    if (ui.busy || !ui.pageImage) return;
+    if (ui.busy || !ui.pageImage || ui.drag || e.button !== 0) return;
     e.preventDefault();
     $("canvas").focus({preventScroll:true});
     dragStart={...snapshot(),dirty:ui.boxDirty};
@@ -257,18 +363,18 @@ export function initBoxes({ start, go, render, setBusy }) {
       }
       ui.selected = hit;
       if (hit >= 0)
-        ui.drag = { x, y, old: [...ui.boxes[hit].bbox], corner, kind: "edit" };
+        ui.drag = { x, y, old: [...ui.boxes[hit].bbox], corner, kind: "edit", pointerId: e.pointerId };
     } else {
       ui.boxes.push({ page: ui.pageIndex + 1, kind: tool, bbox: [x, y, 0, 0] });
       ui.selected = ui.boxes.length - 1;
-      ui.drag = { x, y, kind: "new" };
+      ui.drag = { x, y, kind: "new", pointerId: e.pointerId };
     }
     if (ui.drag) $("canvas").setPointerCapture(e.pointerId);
     renderBoxList();
     draw();
   };
   $("canvas").onpointermove = (e) => {
-    if (!ui.drag || !ui.pageImage) return;
+    if (!ui.drag || !ui.pageImage || e.pointerId !== ui.drag.pointerId) return;
     const [x, y] = point(e);
     const b = ui.boxes[ui.selected];
     if (ui.drag.kind === "new")
@@ -301,8 +407,8 @@ export function initBoxes({ start, go, render, setBusy }) {
     ui.boxDirty = true;
     draw();
   };
-  function endDrag() {
-    if (!ui.drag) return;
+  function endDrag(e) {
+    if (!ui.drag || e.pointerId !== ui.drag.pointerId) return;
     if (
       ui.boxes[ui.selected].bbox[2] < 2 ||
       ui.boxes[ui.selected].bbox[3] < 2
@@ -312,7 +418,10 @@ export function initBoxes({ start, go, render, setBusy }) {
       ui.selected = -1;
     }
     const selected=ui.boxes[ui.selected];
-    ui.boxes.sort((a, b) => a.page - b.page);
+    if (selected && ui.drag.kind === "new") {
+      ui.boxes.splice(ui.selected, 1);
+      ui.boxes.splice(insertionIndex(ui.boxes, selected), 0, selected);
+    }
     ui.drag = null;
     ui.selected = selected?ui.boxes.indexOf(selected):-1;
     if(JSON.stringify(dragStart.boxes)!==JSON.stringify(ui.boxes)){
@@ -323,13 +432,19 @@ export function initBoxes({ start, go, render, setBusy }) {
     draw();
   }
   $("canvas").onpointerup = endDrag;
-  $("canvas").onpointercancel = () => {
-    if(!ui.drag)return;
-    ui.boxes=dragStart.boxes;ui.selected=dragStart.selected;ui.boxDirty=dragStart.dirty;
-    ui.drag=null;renderBoxList();draw();
+  $("canvas").onpointercancel = $("canvas").onlostpointercapture = (e) => {
+    if (ui.drag?.pointerId === e.pointerId) cancelInteraction();
   };
+  $("canvas").onblur = cancelInteraction;
+  window.addEventListener("blur", cancelInteraction);
   $("deleteBox").onclick = () => {
-    if (ui.selected < 0) return;
+    if (ui.busy) return;
+    if (ui.drag) {
+      const selected = ui.drag.kind === "edit" ? ui.selected : -1;
+      cancelDrag();
+      ui.selected = selected;
+    }
+    if (ui.selected < 0) { renderBoxList(); draw(); return; }
     remember();
     ui.boxes.splice(ui.selected, 1);
     ui.selected = -1;
@@ -454,5 +569,5 @@ export function initBoxes({ start, go, render, setBusy }) {
     }
   };
 
-  return { loadPage, renderBoxList, updateBoxControls };
+  return { loadPage, renderPages, updatePageNavigation, updateBoxControls };
 }

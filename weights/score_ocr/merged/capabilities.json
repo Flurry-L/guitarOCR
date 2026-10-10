@@ -1,1 +1,33 @@
-{"independent_measures": true, "pitch_context": true, "written_pitch": true, "ottava": true, "batch_size": 64, "capo_pitch": true, "state_reader": "state_reader/state.safetensors", "visual_pitch": true, "m2_constraints": false, "m2_retry_constraints": true, "staff_profile": true, "score_structure": true, "compact_structure": false, "annotation_classification": true, "unified_ocr": true, "focused_staff": true, "visible_instrument_name": true}
+{
+  "pitch_context": true,
+  "written_pitch": true,
+  "ottava": true,
+  "batch_size": 64,
+  "capo_pitch": true,
+  "state_reader": "state_reader/state.safetensors",
+  "visual_pitch": true,
+  "measure_constraints": true,
+  "staff_profile": true,
+  "score_structure": true,
+  "structure_relation_model": "../../auxiliary/structure_relations.onnx",
+  "chord_evidence_model": "../../auxiliary/chord_evidence.onnx",
+  "staff_evidence_model": "../../auxiliary/staff_evidence.onnx",
+  "text_regions_model": "../../auxiliary/text_regions.onnx",
+  "chord_text_roles_model": "../../auxiliary/chord_text_roles.onnx",
+  "technique_grounding_model": "../../auxiliary/technique_grounding.onnx",
+  "technique_relation_model": "../../auxiliary/technique_relation.onnx",
+  "technique_relation_calibration": "../../auxiliary/technique_relation_calibration.json",
+  "staff_label_model": "../../auxiliary/staff_label.onnx",
+  "instrument_text_model": "../../auxiliary/instrument_text.onnx",
+  "part_continuation_model": "../../auxiliary/part_continuation.onnx",
+  "clef_spatial_model": "../../auxiliary/clef_spatial.onnx",
+  "information_adapter": {
+    "gguf": "../gguf/information-adapter.gguf",
+    "peft": "information_adapter",
+    "tasks": [
+      "staff",
+      "clef"
+    ]
+  },
+  "layout_quality_model": "../../auxiliary/layout_quality.onnx"
+}

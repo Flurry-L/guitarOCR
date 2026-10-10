@@ -1,4 +1,4 @@
-//! GP5 note and beat technique payloads. The public M2 effect strings remain
+//! GP5 note and beat technique payloads. The public M effect strings remain
 //! authoritative; payload construction rejects unknown values rather than guessing.
 use super::*;
 #[derive(Default)]

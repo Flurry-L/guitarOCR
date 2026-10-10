@@ -254,6 +254,12 @@ canvas {
   padding: 5px;
   height: 32px;
 }
+/* WebKit's native select clips CJK glyphs when vertical padding consumes
+   the fixed 32px toolbar height. Let the native widget center its text. */
+.editor-navigation select,
+.command-toolbar select {
+  padding-block: 0;
+}
 .command-toolbar button {
   padding: 3px;
   width: 32px;
@@ -350,19 +356,19 @@ button[aria-pressed="true"],
   background: var(--inset);
 }
 .score-viewport {
-  height: clamp(380px, calc(100dvh - 345px), 900px);
+  height: clamp(380px, calc(100dvh - 310px), 900px);
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
-  padding: 20px;
+  padding: 10px;
 }
 .score-paper {
   background: var(--score-paper);
   color: var(--score-ink);
   min-height: 100%;
   min-width: 600px;
-  padding: 12px 0;
+  padding: 4px 0;
   box-shadow: 0 1px 5px #18181b10;
 }
 .score-paper > p {
@@ -452,7 +458,7 @@ button[aria-pressed="true"],
   padding: 14px;
   border-left: 1px solid var(--line);
   background: var(--paper);
-  max-height: clamp(380px, calc(100dvh - 345px), 900px);
+  max-height: clamp(380px, calc(100dvh - 310px), 900px);
   overflow-y: auto;
   scrollbar-width: thin;
 }
@@ -537,6 +543,12 @@ button[aria-pressed="true"],
   flex-wrap: wrap;
   margin: 8px 0;
 }
+.measure-property-fields { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin: 10px 0; }
+.measure-property-fields label { display: grid; gap: 4px; font-size: 11px; min-width: 0; }
+.measure-property-fields :is(input, select) { min-width: 0; width: 100%; box-sizing: border-box; }
+.measure-property-fields .check-field { display: flex; align-items: center; gap: 8px; }
+.measure-property-fields input[type="checkbox"] { width: 16px; height: 16px; margin: 0; }
+.score-header-notes { margin: 20px 28px 0; color: var(--score-ink); white-space: pre-wrap; line-height: 1.6; font-size: 13px; }
 .score-toolbar :is(button, select, input),
 .track-properties button {
   padding: 4px 6px;
@@ -1051,6 +1063,13 @@ body[data-inference="disabled"]
   min-width: 58px;
   padding: 6px 10px;
 }
+.chord-candidate-status {
+  display: block;
+  padding: 3px 5px;
+  color: #8a5700;
+  font-size: 11px;
+  white-space: normal;
+}
 .chord-card svg,
 .chord-preview svg {
   display: block;
@@ -1067,3 +1086,29 @@ body[data-inference="disabled"]
   gap: 4px;
   margin: 10px 0;
 }
+
+.score-context {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 5px 12px;
+  overflow-x: auto;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+}
+.score-context button { background: transparent; border: 0; padding: 3px 0; font-size: inherit; color: var(--ink); }
+.score-context button:hover { color: var(--accent); }
+#contextPosition { margin-left: auto; }
+.command-toolbar .voice-control, .command-toolbar .dynamic-control { gap: 4px; color: var(--muted); font-size: 11px; }
+.library-chord-images {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+}
+.library-chord-images canvas { max-width: 100%; background: white; }
+.library-chord-images .chord-preview { width: 150px; }
+.library-chord-review .metadata input { width: 100%; max-width: none; }
+.library-chord-review .tool-group { flex-wrap: wrap; }

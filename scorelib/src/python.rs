@@ -1,5 +1,5 @@
 //! Python bindings use JSON only at the language boundary; Rust owns semantics.
-use crate::{gp5_constraints, music_exports, score};
+use crate::{chords, music_exports, score};
 use pyo3::{exceptions::PyValueError, prelude::*};
 use serde_json::Value;
 fn value(text: &str) -> PyResult<Value> {
@@ -17,13 +17,13 @@ fn parse_measure_target(target: &str) -> PyResult<String> {
     result(score::parse_measure_target(target))
 }
 #[pyfunction]
-fn parse_duration_token(token: &str) -> PyResult<String> {
-    result(score::parse_duration_token(token))
-}
-#[pyfunction]
 fn duration_ticks(duration: &str) -> PyResult<(i128, i128)> {
     let ticks = score::duration_ticks(&value(duration)?).map_err(error)?;
     Ok((ticks.numerator, ticks.denominator))
+}
+#[pyfunction]
+fn rest_target(ticks: i64) -> PyResult<String> {
+    score::rest_target(ticks).map_err(error)
 }
 #[pyfunction]
 fn format_measure_target(measure: &str, mode: &str, preserve_playback: bool) -> PyResult<String> {
@@ -43,7 +43,9 @@ fn validate_measure_target(
 }
 #[pyfunction]
 fn score_document(input: &str) -> PyResult<String> {
-    result(music_exports::score_document(&value(input)?))
+    // Editable IR may contain unresolved evidence. Export validation belongs
+    // to the file writers, not to project persistence or this shared binding.
+    result(score::score_document(&value(input)?))
 }
 #[pyfunction]
 fn score_musicxml(py: Python<'_>, input: &str) -> PyResult<String> {
@@ -64,40 +66,35 @@ fn write_musicxml(py: Python<'_>, input: &str, output: &str) -> PyResult<String>
     result(py.allow_threads(|| music_exports::write_musicxml(&input, std::path::Path::new(output))))
 }
 #[pyfunction]
-fn timing_errors(target: &str) -> PyResult<Vec<String>> {
-    gp5_constraints::timing_errors(target).map_err(error)
+fn normalize_diagram(input: &str) -> PyResult<String> {
+    Ok(chords::normalize_diagram(&value(input)?).to_string())
 }
 #[pyfunction]
-fn notation_fingering_errors(target: &str, tuning: Vec<i64>) -> PyResult<Vec<String>> {
-    gp5_constraints::notation_fingering_errors(&value(target)?, &tuning).map_err(error)
+fn diagram_effect(input: &str) -> PyResult<String> {
+    chords::diagram_effect(&value(input)?).map_err(error)
 }
 #[pyfunction]
-fn display_score_text(text: &str) -> String {
-    score::display_score_text(text)
-}
-#[pyfunction]
-fn model_score_text(text: &str) -> String {
-    score::model_score_text(text)
-}
-#[pyfunction]
-fn display_error(text: &str) -> String {
-    score::display_error(text)
+fn parse_diagram_effect(effect: &str) -> String {
+    effect
+        .strip_prefix("diagram:")
+        .and_then(|text| chords::parse_diagram(text).ok())
+        .map(|diagram| diagram.value())
+        .unwrap_or(Value::Null)
+        .to_string()
 }
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(parse_measure_target, m)?)?;
-    m.add_function(wrap_pyfunction!(parse_duration_token, m)?)?;
     m.add_function(wrap_pyfunction!(duration_ticks, m)?)?;
+    m.add_function(wrap_pyfunction!(rest_target, m)?)?;
     m.add_function(wrap_pyfunction!(format_measure_target, m)?)?;
     m.add_function(wrap_pyfunction!(validate_measure_target, m)?)?;
     m.add_function(wrap_pyfunction!(score_document, m)?)?;
     m.add_function(wrap_pyfunction!(score_musicxml, m)?)?;
     m.add_function(wrap_pyfunction!(write_gp5, m)?)?;
     m.add_function(wrap_pyfunction!(write_musicxml, m)?)?;
-    m.add_function(wrap_pyfunction!(timing_errors, m)?)?;
-    m.add_function(wrap_pyfunction!(notation_fingering_errors, m)?)?;
-    m.add_function(wrap_pyfunction!(display_score_text, m)?)?;
-    m.add_function(wrap_pyfunction!(model_score_text, m)?)?;
-    m.add_function(wrap_pyfunction!(display_error, m)?)?;
+    m.add_function(wrap_pyfunction!(normalize_diagram, m)?)?;
+    m.add_function(wrap_pyfunction!(diagram_effect, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_diagram_effect, m)?)?;
     Ok(())
 }

@@ -1,7 +1,5 @@
-//! Simultaneous-staff consensus and notation/TAB fusion, ported from
-//! research/inference/layout/score_grid.py. Part and staff identities are never flattened.
+//! Align simultaneous measures and fuse paired notation/TAB rows without changing part identities.
 use crate::image_boundary::{crop_measure, open_rgb, Result};
-use image::RgbImage;
 use serde_json::{json, Value};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -10,15 +8,6 @@ use std::{
 };
 pub type Member = (Vec<Value>, usize, usize);
 pub type AlignedMember = (Vec<(Value, usize)>, usize, usize);
-fn median(mut v: Vec<f64>) -> f64 {
-    v.sort_by(f64::total_cmp);
-    let n = v.len();
-    if n % 2 == 0 {
-        (v[n / 2 - 1] + v[n / 2]) / 2.
-    } else {
-        v[n / 2]
-    }
-}
 fn bbox(row: &Value) -> Result<[f64; 4]> {
     let a = row["bbox"].as_array().ok_or("Measure needs bbox")?;
     if a.len() != 4 {
@@ -57,179 +46,14 @@ fn save_crop(record: &mut Value, bounds: [f64; 4], path: &Path) -> Result<()> {
         .to_string_lossy());
     Ok(())
 }
-pub fn common_columns(rows: &[Vec<Value>]) -> Result<(Vec<f64>, f64)> {
-    if rows.is_empty() || rows.iter().any(|r| r.is_empty()) {
+pub fn align_system(members: &[Member]) -> Result<(Vec<AlignedMember>, usize)> {
+    let mut rows: Vec<Vec<Value>> = members.iter().map(|(rows, _, _)| rows.clone()).collect();
+    if rows.is_empty() || rows.iter().any(Vec::is_empty) {
         return Err("A score system must contain nonempty staff rows".into());
     }
-    let coordinates: Vec<Vec<[f64; 4]>> = rows
-        .iter()
-        .map(|r| r.iter().map(bbox).collect())
-        .collect::<Result<_>>()?;
-    if rows.len() == 1 {
-        return Ok((
-            coordinates[0].iter().map(|b| b[0]).collect(),
-            coordinates[0]
-                .iter()
-                .map(|b| b[0] + b[2])
-                .fold(f64::NEG_INFINITY, f64::max),
-        ));
-    }
-    let tolerance = 10f64.max(median(coordinates.iter().flatten().map(|b| b[2]).collect()) * 0.065);
-    let mut points: Vec<(f64, usize, f64)> = rows
-        .iter()
-        .enumerate()
-        .flat_map(|(i, row)| {
-            row.iter().enumerate().map({
-                let c = &coordinates;
-                move |(j, r)| (c[i][j][0], i, score(r))
-            })
-        })
-        .collect();
-    points.sort_by(|a, b| {
-        a.0.total_cmp(&b.0)
-            .then(a.1.cmp(&b.1))
-            .then(a.2.total_cmp(&b.2))
-    });
-    let mut clusters: Vec<Vec<(f64, usize, f64)>> = vec![];
-    for p in points {
-        if clusters
-            .last()
-            .map(|c| p.0 - median(c.iter().map(|p| p.0).collect()) <= tolerance)
-            .unwrap_or(false)
-        {
-            clusters.last_mut().unwrap().push(p);
-        } else {
-            clusters.push(vec![p]);
-        }
-    }
-    let support: Vec<usize> = clusters
-        .iter()
-        .map(|c| c.iter().map(|p| p.1).collect::<BTreeSet<_>>().len())
-        .collect();
-    let quorum = rows.len() / 2 + 1;
-    let mut selected: Vec<f64> = clusters
-        .iter()
-        .zip(&support)
-        .filter(|(_, votes)| **votes >= quorum)
-        .map(|(c, _)| median(c.iter().map(|p| p.0).collect()))
-        .collect();
-    let typical = median(rows.iter().map(|r| r.len() as f64).collect());
-    if (selected.len() as f64) < 1f64.max(typical * 0.6) {
-        let mut counts: BTreeMap<usize, usize> = BTreeMap::new();
-        for r in rows {
-            *counts.entry(r.len()).or_default() += 1;
-        }
-        let common = *counts
-            .iter()
-            .min_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)))
-            .unwrap()
-            .0;
-        let mut reference = rows
-            .iter()
-            .enumerate()
-            .find(|(_, r)| r.len() == common)
-            .unwrap()
-            .0;
-        for (i, r) in rows.iter().enumerate() {
-            if r.len() == common
-                && r.iter().map(score).sum::<f64>() > rows[reference].iter().map(score).sum::<f64>()
-            {
-                reference = i;
-            }
-        }
-        selected = coordinates[reference].iter().map(|r| r[0]).collect();
-    } else {
-        let first = median(coordinates.iter().map(|r| r[0][0]).collect());
-        if selected[0] - first > tolerance * 2. {
-            selected.insert(0, first);
-        }
-        for (c, &votes) in clusters.iter().zip(&support) {
-            let x = median(c.iter().map(|p| p.0).collect());
-            if votes < 2 || selected.iter().any(|s| (x - s).abs() <= tolerance) {
-                continue;
-            }
-            let crossing = coordinates
-                .iter()
-                .filter(|row| {
-                    row.iter()
-                        .any(|b| b[0] + tolerance * 2. < x && x < b[0] + b[2] - tolerance * 2.)
-                })
-                .count();
-            if crossing < votes && x > selected[0] {
-                selected.push(x);
-            }
-        }
-    }
-    selected.sort_by(f64::total_cmp);
-    let right = median(
-        coordinates
-            .iter()
-            .map(|r| {
-                r.iter()
-                    .map(|b| b[0] + b[2])
-                    .fold(f64::NEG_INFINITY, f64::max)
-            })
-            .collect(),
-    );
-    let final_right = right.max(selected.last().unwrap() + tolerance * 2.);
-    Ok((selected, final_right))
-}
-
-pub fn missing_bar_box(
-    image: &RgbImage,
-    row: &[Value],
-    left: f64,
-    right: f64,
-) -> Result<Option<[f64; 4]>> {
-    let modes: BTreeSet<&str> = row.iter().filter_map(|r| r["mode"].as_str()).collect();
-    if modes.len() != 1 {
-        return Ok(None);
-    }
-    let mode = *modes.first().unwrap();
-    if mode != "tab" && mode != "notation" {
-        return Ok(None);
-    }
-    let coords: Vec<_> = row.iter().map(bbox).collect::<Result<_>>()?;
-    let top = coords.iter().map(|b| b[1]).fold(f64::INFINITY, f64::min);
-    let bottom = coords
-        .iter()
-        .map(|b| b[1] + b[3])
-        .fold(f64::NEG_INFINITY, f64::max);
-    let x0 = (left as i64 - 12).clamp(0, image.width() as i64) as u32;
-    let x1 = (right as i64 + 12).clamp(0, image.width() as i64) as u32;
-    let y0 = (top as i64).clamp(0, image.height() as i64) as u32;
-    let y1 = (bottom as i64).clamp(0, image.height() as i64) as u32;
-    if x1 <= x0 || y1 <= y0 {
-        return Ok(None);
-    }
-    let crop = image::imageops::crop_imm(image, x0, y0, x1 - x0, y1 - y0).to_image();
-    let staffs = crate::staff_geometry::detect_staffs(&crop, Some(5.), false)?;
-    if staffs.len() != 1
-        || staffs[0].boundaries.len() != 2
-        || (mode == "notation" && staffs[0].string_y.len() != 5)
-    {
-        return Ok(None);
-    }
-    let start = staffs[0].boundaries[0];
-    let stop = staffs[0].boundaries[1];
-    if start > 36f64.max((right - left) * 0.12) {
-        return Ok(None);
-    }
-    let a = (x0 as f64).max(x0 as f64 + start - 10.);
-    let b = (x1 as f64).min(x0 as f64 + stop + 10.);
-    Ok(Some([a, y0 as f64, b - a, (y1 - y0) as f64]))
-}
-
-pub fn align_system(
-    members: &[Member],
-    output: &Path,
-    page: usize,
-    system: usize,
-) -> Result<(Vec<AlignedMember>, usize)> {
-    let mut rows: Vec<Vec<Value>> = members.iter().map(|(r, _, _)| r.clone()).collect();
     for row in &mut rows {
-        for b in row.iter() {
-            bbox(b)?;
+        for record in row.iter() {
+            bbox(record)?;
         }
         row.sort_by(|a, b| {
             a["bbox"][0]
@@ -238,138 +62,122 @@ pub fn align_system(
                 .total_cmp(&b["bbox"][0].as_f64().unwrap())
         });
     }
-    let (columns, right) = common_columns(&rows)?;
-    let mut boundaries = columns.clone();
-    boundaries.push(right);
+    let reference = rows
+        .iter()
+        .max_by(|a, b| {
+            a.len().cmp(&b.len()).then_with(|| {
+                a.iter()
+                    .map(score)
+                    .sum::<f64>()
+                    .total_cmp(&b.iter().map(score).sum::<f64>())
+            })
+        })
+        .unwrap();
+    let count = reference.len();
+    let reasons = if rows.iter().any(|row| row.len() != count) {
+        vec!["conflicting_measure_counts"]
+    } else if !corresponding_columns(&rows)? {
+        vec!["ambiguous_measure_columns"]
+    } else {
+        vec![]
+    };
     let mut result = vec![];
-    for (row_index, (row, (_, part, staff))) in rows.iter().zip(members).enumerate() {
-        let mut grouped: BTreeMap<usize, Vec<(Value, [f64; 4])>> = BTreeMap::new();
-        for record in row {
-            let [x, y, width, height] = bbox(record)?;
-            let end = x + width;
-            let margin = 12f64.max(width * 0.15);
-            let mut edges = vec![x];
-            edges.extend(
-                columns
-                    .iter()
-                    .skip(1)
-                    .filter(|&&b| x + margin < b && b < end - margin)
-                    .copied(),
-            );
-            edges.push(end);
-            for w in edges.windows(2) {
-                let left = w[0];
-                let stop = w[1];
-                let mut column = (0..columns.len())
-                    .min_by(|&a, &b| {
-                        (left - columns[a])
-                            .abs()
-                            .total_cmp(&(left - columns[b]).abs())
-                    })
-                    .unwrap();
-                if (left - columns[column]).abs()
-                    > 18f64.max((boundaries[column + 1] - columns[column]) * 0.18)
-                {
-                    column = columns
-                        .iter()
-                        .position(|&c| c > left)
-                        .map(|i| i.saturating_sub(1))
-                        .unwrap_or(columns.len() - 1);
-                }
-                grouped
-                    .entry(column)
-                    .or_default()
-                    .push((record.clone(), [left, y, stop - left, height]));
-            }
-        }
-        let mut corrected = vec![];
-        for (&column, fragments) in &grouped {
-            let mut first = &fragments[0].0;
-            for (r, _) in fragments {
-                if score(r) > score(first) {
-                    first = r;
-                }
-            }
-            let left = fragments
-                .iter()
-                .map(|(_, b)| b[0])
-                .fold(f64::INFINITY, f64::min);
-            let top = fragments
-                .iter()
-                .map(|(_, b)| b[1])
-                .fold(f64::INFINITY, f64::min);
-            let end = fragments
-                .iter()
-                .map(|(_, b)| b[0] + b[2])
-                .fold(f64::NEG_INFINITY, f64::max);
-            let bottom = fragments
-                .iter()
-                .map(|(_, b)| b[1] + b[3])
-                .fold(f64::NEG_INFINITY, f64::max);
-            let bounds = [left, top, end - left, bottom - top];
-            let mut record = first.clone();
-            let numbers: BTreeSet<u64> = fragments
-                .iter()
-                .map(|(r, _)| {
-                    r["measure_number"]
-                        .as_u64()
-                        .ok_or("Measure number must be a nonnegative integer")
-                })
-                .collect::<std::result::Result<_, _>>()?;
-            record["source_measure_numbers"] = json!(numbers);
+    for (row, (_, part, staff)) in rows.iter().zip(members) {
+        let columns = if row.len() == count {
+            (0..count).collect()
+        } else {
+            ordered_match(row, reference)?
+        };
+        let mut records = vec![];
+        for (original, column) in row.iter().zip(columns) {
+            let mut record = original.clone();
             record["system_measure_index"] = json!(column);
             record["grid_column"] = json!(column);
-            record["grid_columns"] = json!(columns.len());
-            if fragments.len() != 1
-                || bbox(first)?
-                    .iter()
-                    .zip(bounds)
-                    .any(|(a, b)| (a - b).abs() > 1.)
-            {
-                let path = output
-                    .join("resolved_crops")
-                    .join(format!("p{page}-s{system}-r{row_index}-b{column}.png"));
-                save_crop(&mut record, bounds, &path)?;
-                record["geometry_source"] = json!("staff_consensus");
+            record["grid_columns"] = json!(count);
+            if !reasons.is_empty() {
+                record["alignment_needs_review"] = json!(true);
+                record["needs_review"] = json!(true);
+                record["alignment_review_reasons"] = json!(reasons);
+                record["alignment_source"] = json!("monotone_bbox_candidate");
             }
-            corrected.push((record, column));
+            records.push((record, column));
         }
-        let missing: Vec<usize> = (0..columns.len())
-            .filter(|i| !grouped.contains_key(i))
-            .collect();
-        if !missing.is_empty() && rows.len() >= 3 && row[0]["source_page"].as_str().is_some() {
-            let image = open_rgb(Path::new(row[0]["source_page"].as_str().unwrap()))?;
-            for column in missing {
-                let Some(bounds) =
-                    missing_bar_box(&image, row, boundaries[column], boundaries[column + 1])?
-                else {
-                    continue;
-                };
-                let nearest = row
-                    .iter()
-                    .min_by(|a, b| {
-                        (a["bbox"][0].as_f64().unwrap() - boundaries[column])
-                            .abs()
-                            .total_cmp(&(b["bbox"][0].as_f64().unwrap() - boundaries[column]).abs())
-                    })
-                    .unwrap();
-                let mut record = nearest.clone();
-                let path = output.join("resolved_crops").join(format!(
-                    "p{page}-s{system}-r{row_index}-b{column}-recovered.png"
-                ));
-                save_crop(&mut record, bounds, &path)?;
-                record["source_measure_numbers"] = json!([]);
-                record["system_measure_index"] = json!(column);
-                record["grid_column"] = json!(column);
-                record["grid_columns"] = json!(columns.len());
-                record["geometry_source"] = json!("staff_lines_and_consensus");
-                corrected.push((record, column));
-            }
-        }
-        corrected.sort_by_key(|(_, column)| *column);
-        result.push((corrected, *part, *staff));
+        result.push((records, *part, *staff));
     }
-    Ok((result, columns.len()))
+    Ok((result, count))
+}
+
+/// Equal counts do not establish column identity when different bars are missing.
+/// Require a mutual unique positive horizontal IoU match for every paired column.
+fn corresponding_columns(rows: &[Vec<Value>]) -> Result<bool> {
+    fn unique_best(values: impl Iterator<Item = f64>, index: usize) -> bool {
+        let values: Vec<_> = values.collect();
+        let best = values.iter().copied().fold(0., f64::max);
+        best > 0. && values[index] == best && values.iter().filter(|&&v| v == best).count() == 1
+    }
+    let bounds: Vec<Vec<_>> = rows
+        .iter()
+        .map(|row| row.iter().map(bbox).collect::<Result<_>>())
+        .collect::<Result<_>>()?;
+    for (index, row) in bounds.iter().enumerate() {
+        for other in &bounds[index + 1..] {
+            let scores: Vec<Vec<f64>> = row
+                .iter()
+                .map(|a| {
+                    other
+                        .iter()
+                        .map(|b| {
+                            let overlap = ((a[0] + a[2]).min(b[0] + b[2]) - a[0].max(b[0])).max(0.);
+                            overlap / (a[2] + b[2] - overlap)
+                        })
+                        .collect()
+                })
+                .collect();
+            for column in 0..row.len() {
+                if !unique_best(scores[column].iter().copied(), column)
+                    || !unique_best(scores.iter().map(|values| values[column]), column)
+                {
+                    return Ok(false);
+                }
+            }
+        }
+    }
+    Ok(true)
+}
+
+/// Associate original boxes monotonically; no crop is merged, split, or replaced.
+fn ordered_match(row: &[Value], reference: &[Value]) -> Result<Vec<usize>> {
+    let (count, width) = (row.len(), reference.len());
+    let mut scores = vec![vec![f64::NEG_INFINITY; width + 1]; count + 1];
+    let mut choices = vec![vec![false; width + 1]; count + 1];
+    scores[0].fill(0.);
+    for i in 1..=count {
+        let a = bbox(&row[i - 1])?;
+        for j in 1..=width {
+            let b = bbox(&reference[j - 1])?;
+            let overlap = ((a[0] + a[2]).min(b[0] + b[2]) - a[0].max(b[0])).max(0.);
+            let similarity = overlap / (a[2] + b[2] - overlap).max(1e-12);
+            let matched = scores[i - 1][j - 1] + similarity;
+            let skipped = scores[i][j - 1];
+            if matched > skipped {
+                scores[i][j] = matched;
+                choices[i][j] = true;
+            } else {
+                scores[i][j] = skipped;
+            }
+        }
+    }
+    let (mut i, mut j) = (count, width);
+    let mut columns = vec![];
+    while i > 0 {
+        if choices[i][j] {
+            columns.push(j - 1);
+            i -= 1;
+        }
+        j -= 1;
+    }
+    columns.reverse();
+    Ok(columns)
 }
 
 pub fn fuse_paired_staves(
@@ -391,6 +199,14 @@ pub fn fuse_paired_staves(
     for ((part, staff), groups) in groups {
         if groups.len() == 1 {
             result.push((groups.into_iter().next().unwrap(), part, staff));
+            continue;
+        }
+        if groups
+            .iter()
+            .flatten()
+            .any(|(record, _)| record["alignment_needs_review"] == true)
+        {
+            result.extend(groups.into_iter().map(|group| (group, part, staff)));
             continue;
         }
         let mut columns: BTreeMap<usize, Vec<Value>> = BTreeMap::new();
@@ -449,18 +265,8 @@ pub fn fuse_paired_staves(
     Ok(result)
 }
 
-/// Resolve all structure predictions before OCR, keeping global part identities,
-/// simultaneous bar columns, and distinct grand-staff lanes across page turns.
-pub fn resolve_document(
-    records: &[Value],
-    predictions: &[Value],
-    output: &Path,
-) -> Result<(Vec<Value>, Vec<Value>)> {
-    resolve_document_reconciled(records, &mut predictions.to_vec(), output)
-}
-
 /// Also preserve reconciled page profiles and model_parts in stage diagnostics.
-pub fn resolve_document_reconciled(
+pub fn resolve_document(
     records: &[Value],
     predictions: &mut [Value],
     output: &Path,
@@ -500,13 +306,39 @@ pub fn resolve_document_reconciled(
             .iter_mut()
             .find(|p| p["page"].as_u64() == Some(page.page))
             .ok_or("Missing page diagnostics")?;
+        if prediction["parsed"]["parts"] != page.structure["parts"] {
+            let change = json!({"reason":"cross_page_profile_majority",
+                "before":prediction["parsed"]["parts"],"after":page.structure["parts"]});
+            if let Some(changes) = prediction["resolution_audit"]["changes"].as_array_mut() {
+                changes.push(change);
+            }
+        }
         prediction["parsed"] = page.structure.clone();
+        let identities = page.structure["part_identity"].clone();
+        if !prediction["resolution_audit"].is_object() {
+            prediction["resolution_audit"] = json!({});
+        }
+        prediction["resolution_audit"]["part_identity"] = identities.clone();
+        let mut reasons = prediction["resolution_audit"]["review_reasons"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        for evidence in identities.as_array().into_iter().flatten() {
+            if let Some(reason) = evidence["review_reason"].as_str() {
+                if !reasons.contains(&json!(reason)) {
+                    reasons.push(json!(reason));
+                }
+                prediction["structure_needs_review"] = json!(true);
+                prediction["resolution_audit"]["needs_review"] = json!(true);
+            }
+        }
+        prediction["resolution_audit"]["review_reasons"] = json!(reasons);
     }
     let mut result = vec![];
     let mut bar_offset = 0usize;
     for system in resolved.systems {
         let (aligned, count) =
-            align_system(&system.members, output, system.page as usize, system.system)?;
+            align_system(&system.members)?;
         let fused = fuse_paired_staves(&aligned, output, system.page as usize, system.system)?;
         for (boxes, part, staff) in fused {
             let profile = resolved
@@ -527,6 +359,18 @@ pub fn resolve_document_reconciled(
                 row["system_index"] = json!(system.system);
                 row["bar_index"] = json!(bar_offset + column);
                 row["measure_number"] = json!(result.len() + 1);
+                if let Some(audit) = predictions
+                    .iter()
+                    .find(|p| {
+                        p["page"].as_u64() == Some(system.page)
+                            && p["structure_needs_review"] == true
+                    })
+                    .map(|p| &p["resolution_audit"])
+                {
+                    row["structure_needs_review"] = json!(true);
+                    row["structure_review_reasons"] = audit["review_reasons"].clone();
+                    row["needs_review"] = json!(true);
+                }
                 result.push(row);
             }
         }

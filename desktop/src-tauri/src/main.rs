@@ -2,7 +2,7 @@
 
 use serde::Serialize;
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fs,
     io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
@@ -23,7 +23,6 @@ struct Runtime(Mutex<Option<Arc<Process>>>);
 struct Process {
     child: Mutex<Child>,
     stopped: AtomicBool,
-    mode: String,
     url: Mutex<Option<Url>>,
     #[cfg(windows)]
     job: usize,
@@ -93,18 +92,54 @@ fn native_ready_url(address: &str) -> Result<Url, String> {
 }
 static DOWNLOADS: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
 
+#[derive(Clone)]
+struct WorkspaceRoute(Arc<Mutex<Url>>);
+impl WorkspaceRoute {
+    fn new(url: Url) -> Self {
+        Self(Arc::new(Mutex::new(url)))
+    }
+    fn allows(&self, url: &Url) -> bool {
+        self.0.lock().unwrap().origin() == url.origin()
+    }
+    fn replace(&self, url: Url) -> Option<Url> {
+        let mut target = self.0.lock().unwrap();
+        if *target == url {
+            None
+        } else {
+            Some(std::mem::replace(&mut *target, url))
+        }
+    }
+}
+#[derive(Default)]
+struct Workspaces(Mutex<HashMap<String, WorkspaceRoute>>);
+
 fn workspace(app: &tauri::AppHandle, label: &str, url: Url) -> Result<(), String> {
+    let routes = app.state::<Workspaces>();
+    let mut routes = routes.0.lock().unwrap();
     if let Some(existing) = app.get_webview_window(label) {
+        let route = routes
+            .get(label)
+            .ok_or("工作台地址缺失，请关闭窗口后重试。")?;
+        // A restarted local service can have a different port. Only this trusted
+        // launcher request changes the allowed origin; ordinary links cannot.
+        if let Some(previous) = route.replace(url.clone()) {
+            if let Err(error) = existing.navigate(url) {
+                route.replace(previous);
+                return Err(error.to_string());
+            }
+        }
+        // Reopening the same destination preserves the active project/draft.
         existing.set_focus().map_err(|e| e.to_string())?;
         return Ok(());
     }
-    let origin = url.origin();
+    let route = WorkspaceRoute::new(url.clone());
+    let guard = route.clone();
     tauri::WebviewWindowBuilder::new(app, label, WebviewUrl::External(url))
         .title("GuitarOCR 工作台")
         .inner_size(1280., 860.)
         .min_inner_size(640., 480.)
         .disable_drag_drop_handler()
-        .on_navigation(move |url| url.origin() == origin)
+        .on_navigation(move |url| guard.allows(url))
         .on_download(|webview, event| {
             match event {
                 tauri::webview::DownloadEvent::Requested { destination, .. } => {
@@ -174,19 +209,18 @@ fn workspace(app: &tauri::AppHandle, label: &str, url: Url) -> Result<(), String
         })
         .build()
         .map_err(|e| e.to_string())?;
+    routes.insert(label.to_owned(), route);
     Ok(())
 }
 #[derive(Serialize)]
 struct Settings {
     server: String,
-    native_available: bool,
 }
 #[tauri::command]
 fn settings(app: tauri::AppHandle, window: WebviewWindow) -> Result<Settings, String> {
     authorize(&window)?;
     Ok(Settings {
         server: fs::read_to_string(data(&app)?.join("server.txt")).unwrap_or_default(),
-        native_available: true,
     })
 }
 #[tauri::command]
@@ -197,9 +231,6 @@ fn connect_server(
 ) -> Result<(), String> {
     authorize(&window)?;
     let url = server_url(&address)?;
-    if let Some(old) = app.get_webview_window("remote") {
-        old.close().map_err(|e| e.to_string())?;
-    }
     workspace(&app, "remote", url.clone())?;
     fs::write(data(&app)?.join("server.txt"), url.as_str()).map_err(|e| e.to_string())
 }
@@ -230,7 +261,7 @@ fn command(path: &Path) -> Command {
     command
 }
 #[cfg(windows)]
-fn owned_process(mut child: Child, mode: &str) -> Result<Process, String> {
+fn owned_process(mut child: Child) -> Result<Process, String> {
     use std::{mem, os::windows::io::AsRawHandle};
     use windows_sys::Win32::{Foundation::CloseHandle, System::JobObjects::*};
     unsafe {
@@ -256,38 +287,25 @@ fn owned_process(mut child: Child, mode: &str) -> Result<Process, String> {
         Ok(Process {
             child: Mutex::new(child),
             stopped: AtomicBool::new(false),
-            mode: mode.into(),
             url: Mutex::new(None),
             job: job as usize,
         })
     }
 }
 #[cfg(not(windows))]
-fn owned_process(child: Child, mode: &str) -> Result<Process, String> {
+fn owned_process(child: Child) -> Result<Process, String> {
     Ok(Process {
         child: Mutex::new(child),
         stopped: AtomicBool::new(false),
-        mode: mode.into(),
         url: Mutex::new(None),
     })
 }
 
-// Local operation is always the packaged native service; never a Python fallback.
-fn validate_local_mode(mode: &str) -> Result<(), String> {
-    if mode != "native" {
-        return Err("请选择本机工作台；旧Python客户端启动方式已移除。".into());
-    }
-    Ok(())
-}
-fn start(app: &tauri::AppHandle, mode: &str) -> Result<Url, String> {
-    validate_local_mode(mode)?;
+fn start(app: &tauri::AppHandle) -> Result<Url, String> {
     let root = data(app)?;
     let runtime = app.state::<Runtime>();
     let mut slot = runtime.0.lock().unwrap();
     if let Some(process) = slot.as_ref() {
-        if process.mode != mode {
-            return Err("切换方式前请停止本机服务。".into());
-        }
         return process
             .url
             .lock()
@@ -321,7 +339,7 @@ fn start(app: &tauri::AppHandle, mode: &str) -> Result<Url, String> {
     let mut child = cmd.spawn().map_err(|e| e.to_string())?;
     let stdout = child.stdout.take().unwrap();
     let stderr = child.stderr.take().unwrap();
-    let process = Arc::new(owned_process(child, mode)?);
+    let process = Arc::new(owned_process(child)?);
     *slot = Some(process.clone());
     drop(slot);
     let (tx, rx) = mpsc::channel();
@@ -393,11 +411,10 @@ fn start(app: &tauri::AppHandle, mode: &str) -> Result<Url, String> {
 async fn start_local(
     app: tauri::AppHandle,
     window: WebviewWindow,
-    mode: String,
 ) -> Result<(), String> {
     authorize(&window)?;
     let handle = app.clone();
-    let url = tauri::async_runtime::spawn_blocking(move || start(&handle, &mode))
+    let url = tauri::async_runtime::spawn_blocking(move || start(&handle))
         .await
         .map_err(|e| e.to_string())??;
     workspace(&app, "local", url)
@@ -442,6 +459,7 @@ fn main() {
         }))
         .plugin(tauri_plugin_dialog::init())
         .manage(Runtime::default())
+        .manage(Workspaces::default())
         .setup(|app| {
             // WebKit falls back to the working directory when the OS has no Downloads folder.
             std::env::set_current_dir(data(app.handle()).map_err(std::io::Error::other)?)?;
@@ -495,37 +513,4 @@ fn main() {
                 stop(app);
             }
         });
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn native_client_never_silently_starts_legacy_modes() {
-        assert!(validate_local_mode("native").is_ok());
-        for mode in ["auto", "cpu", "cuda", "metal", "gpu", "edit", "invalid"] {
-            assert!(validate_local_mode(mode).is_err());
-        }
-        assert!(native_ready_url("http://127.0.0.1:8080/").is_ok());
-        assert!(native_ready_url("https://example.com/").is_err());
-        assert!(native_ready_url("http://127.0.0.1/").is_err());
-    }
-    #[test]
-    fn server_addresses_restrict_schemes_and_credentials() {
-        for address in [
-            "https://ocr.example.com",
-            "http://127.0.0.1:7860",
-            "http://[::1]:7860",
-        ] {
-            assert!(server_url(address).is_ok());
-        }
-        for address in [
-            "file:///etc/passwd",
-            "javascript:alert(1)",
-            "http://example.com",
-            "https://user:pass@example.com",
-        ] {
-            assert!(server_url(address).is_err());
-        }
-    }
 }

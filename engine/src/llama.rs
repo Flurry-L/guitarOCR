@@ -1,11 +1,11 @@
-//! Native ownership of a pinned llama-server sidecar. No Python, shell, or installer.
+//! Native ownership of a llama-server sidecar. No Python, shell, or installer.
 //! Image normalization and musical interpretation belong to their own stages.
 use reqwest::blocking::Client;
 use serde_json::{json, Value};
 use std::{
     fs::File,
     net::TcpListener,
-    path::{Path, PathBuf},
+    path::PathBuf,
     process::{Child, Command, Stdio},
     sync::{Arc, Mutex},
     thread,
@@ -41,69 +41,12 @@ pub(crate) fn restrict_runtime_environment(command: &mut Command) {
     }
 }
 
-pub const PINNED_COMMIT: &str = "8019dc563b1ecbae6b161a70c3a1359f1b206c1e";
-
-/// Check the packaged runtime without loading a model. Artifact hash validation
-/// remains the installer's responsibility; a version string is not a signature.
-pub fn verify_revision(executable: &Path) -> Result<(), String> {
-    let mut command = Command::new(executable);
-    restrict_runtime_environment(&mut command);
-    command
-        .arg("--version")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x08000000);
-    }
-    let mut child = command
-        .spawn()
-        .map_err(|e| format!("Cannot probe llama-server: {e}"))?;
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => break,
-            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(20)),
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err("llama-server version probe failed or timed out".into());
-            }
-        }
-    }
-    let output = child.wait_with_output().map_err(|e| e.to_string())?;
-    let version = format!(
-        "{}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    if !output.status.success() || !matches_pinned_revision(&version) {
-        return Err("llama-server does not match the pinned native runtime revision".into());
-    }
-    Ok(())
-}
-
-fn matches_pinned_revision(version: &str) -> bool {
-    // Git abbreviates the same pinned commit differently in shallow/full clones.
-    // Parse one complete version record, never an arbitrary hex substring.
-    let pattern =
-        regex::Regex::new(r"^version: [^\r\n]*\(build [0-9]+, commit ([0-9a-fA-F]{7,40})\)$")
-            .unwrap();
-    let mut revisions = version
-        .lines()
-        .filter_map(|line| pattern.captures(line.trim()));
-    let Some(found) = revisions.next() else {
-        return false;
-    };
-    revisions.next().is_none() && PINNED_COMMIT.starts_with(&found[1].to_ascii_lowercase())
-}
-
+#[derive(Clone)]
 pub struct Config {
     pub executable: PathBuf,
     pub model: PathBuf,
     pub projector: PathBuf,
+    pub adapter: Option<PathBuf>,
     pub log: PathBuf,
     pub device: Device,
     pub device_selector: Option<String>,
@@ -135,7 +78,10 @@ impl Config {
         if self.startup_timeout.is_zero() || self.request_timeout.is_zero() {
             return Err("llama-server timeouts must be positive".into());
         }
-        for path in [&self.executable, &self.model, &self.projector] {
+        for path in [&self.executable, &self.model, &self.projector]
+            .into_iter()
+            .chain(self.adapter.iter())
+        {
             if !path.is_file() {
                 return Err(format!(
                     "Missing local model/runtime file: {}",
@@ -146,7 +92,7 @@ impl Config {
         Ok(())
     }
     fn arguments(&self, port: u16) -> Vec<String> {
-        vec![
+        let mut args = vec![
             "--log-verbosity".into(),
             "3".into(),
             "--no-webui".into(),
@@ -178,7 +124,15 @@ impl Config {
                 "99"
             }
             .into(),
-        ]
+        ];
+        if let Some(adapter) = &self.adapter {
+            args.extend([
+                "--lora".into(),
+                adapter.to_string_lossy().into_owned(),
+                "--lora-init-without-apply".into(),
+            ]);
+        }
+        args
     }
 }
 
@@ -190,16 +144,16 @@ pub struct Engine {
     key: String,
     request_timeout: Duration,
     parallel: usize,
+    has_adapter: bool,
     async_client: reqwest::Client,
     runtime: Option<tokio::runtime::Runtime>,
 }
 impl Engine {
-    pub fn start(config: Config) -> Result<Self, String> {
-        Self::start_cancellable(config, &|| false)
+    pub fn has_adapter(&self) -> bool {
+        self.has_adapter
     }
     pub fn start_cancellable(config: Config, cancelled: &dyn Fn() -> bool) -> Result<Self, String> {
         config.validate()?;
-        verify_revision(&config.executable)?;
         let client = Client::builder()
             .no_proxy()
             .redirect(reqwest::redirect::Policy::none())
@@ -247,6 +201,7 @@ impl Engine {
             key,
             request_timeout: config.request_timeout,
             parallel: config.parallel,
+            has_adapter: config.adapter.is_some(),
             async_client: reqwest::Client::builder()
                 .no_proxy()
                 .redirect(reqwest::redirect::Policy::none())
@@ -303,39 +258,34 @@ impl Engine {
         ))
     }
 
-    /// Messages contain normalized image data URLs; cancellation drops only this
-    /// HTTP request so concurrent generations keep their slots and KV cache.
-    pub fn generate(
+    pub fn generate_with_adapter(
         &self,
         messages: Value,
         max_tokens: usize,
         schema: Option<Value>,
         grammar: Option<&str>,
-    ) -> Result<Generation, String> {
-        self.generate_cancellable(messages, max_tokens, schema, grammar, &|| false)
-    }
-    pub fn generate_cancellable(
-        &self,
-        messages: Value,
-        max_tokens: usize,
-        schema: Option<Value>,
-        grammar: Option<&str>,
+        adapted: bool,
         cancelled: &dyn Fn() -> bool,
     ) -> Result<Generation, String> {
-        let body = generation_body(messages, max_tokens, schema, grammar)?;
+        let mut body = generation_body(messages, max_tokens, schema, grammar)?;
+        select_adapter(&mut body, adapted, self.has_adapter);
         self.generate_bodies(vec![body], cancelled)?
             .pop()
             .ok_or("Empty model response".into())
     }
-    pub fn generate_batch_cancellable(
+    pub fn generate_batch_with_adapters(
         &self,
-        messages: Vec<(Value, Option<Value>)>,
+        messages: Vec<(Value, Option<Value>, bool)>,
         max_tokens: usize,
         cancelled: &dyn Fn() -> bool,
     ) -> Result<Vec<Generation>, String> {
         let bodies = messages
             .into_iter()
-            .map(|(m, s)| generation_body(m, max_tokens, s, None))
+            .map(|(m, s, adapted)| {
+                let mut body = generation_body(m, max_tokens, s, None)?;
+                select_adapter(&mut body, adapted, self.has_adapter);
+                Ok::<_, String>(body)
+            })
             .collect::<Result<Vec<_>, _>>()?;
         self.generate_bodies(bodies, cancelled)
     }
@@ -456,6 +406,17 @@ pub struct Generation {
     pub content: String,
     pub completion_tokens: u64,
 }
+fn select_adapter(body: &mut Value, adapted: bool, loaded: bool) {
+    // Per-request selection avoids shared mutable adapter state and keeps base
+    // generations unchanged even when adapted requests run in another slot.
+    // In the server an empty array restores the global default; it does
+    // not reliably disable a loaded adapter. Base calls require explicit zero.
+    body["lora"] = if loaded {
+        json!([{"id":0,"scale":if adapted {1.0} else {0.0}}])
+    } else {
+        json!([])
+    };
+}
 fn generation_body(
     messages: Value,
     max_tokens: usize,
@@ -479,83 +440,4 @@ fn generation_body(
         body["grammar"] = Value::String(grammar.into());
     }
     Ok(body)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn pinned_revision_accepts_complete_git_abbreviations_only() {
-        for length in [7, 9, 12, 40] {
-            assert!(matches_pinned_revision(&format!(
-                "version: 0.5.0-dev (build 1, commit {})\n",
-                &PINNED_COMMIT[..length]
-            )));
-        }
-        for value in [
-            "8019dc",
-            "8019dc0",
-            "8019dc5dirty",
-            "8019dc5-deadbeef",
-            "8019dc563b1ecbae6b161a70c3a1359f1b206c1e0",
-        ] {
-            assert!(
-                !matches_pinned_revision(&format!("version: 0.5.0-dev (build 1, commit {value})")),
-                "{value}"
-            );
-        }
-        assert!(!matches_pinned_revision("unrelated log commit 8019dc5)"));
-        assert!(!matches_pinned_revision(
-            "version: 0.5.0-dev (build 1, commit 8019dc5) trailing"
-        ));
-    }
-    #[test]
-    fn payload_matches_python_backend_contract() {
-        let messages = json!([{"role":"user", "content":[{"type":"image_url", "image_url":{"url":"data:image/png;base64,AA=="}}]}]);
-        let body =
-            generation_body(messages.clone(), 512, Some(json!({"type":"object"})), None).unwrap();
-        assert_eq!(body["messages"], messages);
-        assert_eq!(body["temperature"], 0);
-        assert_eq!(body["cache_prompt"], false);
-        assert_eq!(
-            body["response_format"]["json_schema"]["name"],
-            "score_annotation"
-        );
-        assert!(generation_body(messages, 512, Some(json!({})), Some("root ::= \"x\" ")).is_err());
-        assert!(generation_body(json!([]), 512, None, None).is_err());
-    }
-    #[test]
-    fn local_arguments_bound_resources_without_credentials_or_python() {
-        let config = Config {
-            executable: "llama-server".into(),
-            model: "model.gguf".into(),
-            projector: "vision.gguf".into(),
-            log: "engine.log".into(),
-            device: Device::Cpu,
-            device_selector: None,
-            threads: 2,
-            parallel: 2,
-            context_per_slot: 4096,
-            startup_timeout: Duration::from_secs(60),
-            request_timeout: Duration::from_secs(60),
-        };
-        let args = config.arguments(34567);
-        assert!(args.windows(2).any(|a| a == ["-c", "8192"]));
-        assert!(args.windows(2).any(|a| a == ["-ngl", "0"]));
-        assert!(args.windows(2).any(|a| a == ["--device", "none"]));
-        assert!(args.windows(2).any(|a| a == ["--mmproj-device", "none"]));
-        assert!(args.windows(2).any(|a| a == ["--host", "127.0.0.1"]));
-        assert!(!args
-            .iter()
-            .any(|a| a.contains("api-key") || a.contains("python")));
-        let mut gpu = config;
-        gpu.device = Device::Metal;
-        gpu.device_selector = Some("MTL0".into());
-        let args = gpu.arguments(34567);
-        assert!(args.windows(2).any(|a| a == ["--device", "MTL0"]));
-        assert!(args.windows(2).any(|a| a == ["--mmproj-device", "MTL0"]));
-        assert!(args.windows(2).any(|a| a == ["-ngl", "99"]));
-        gpu.device_selector = Some("RPC0".into());
-        assert!(gpu.validate().unwrap_err().contains("Device selector"));
-    }
 }

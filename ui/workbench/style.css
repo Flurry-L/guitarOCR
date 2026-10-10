@@ -1,7 +1,6 @@
 @import url("./theme.css");
-@import url("./shell.css");
 @import url("./editor.css");
-/* Project library, task setup and workflow panels. The frame lives in shell.css. */
+/* Project library, task setup and workflow panels. Shared appearance and frame live in theme.css. */
 /* Primary project navigation lives alongside the project title. */
 #steps {
   display: flex;

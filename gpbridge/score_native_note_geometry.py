@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import math
-import re
-from decimal import Decimal
 from collections import defaultdict
 from collections.abc import Mapping
 
@@ -31,34 +29,6 @@ OWNER_FIELDS = (
     "event_index",
     "note_index",
 )
-
-_FRET_TEXT = re.compile(
-    r"(?P<paren>\()?(?:<(?P<hf>[0-9]+(?:\.[0-9]+)?)>|(?P<fret>[0-9]+)|(?P<dead>[Xx]))(?(paren)\))"
-)
-
-
-def validate_printed_note_values(note: Mapping, glyphs: list[dict]) -> None:
-    actual = set()
-    for glyph in glyphs:
-        match = _FRET_TEXT.fullmatch(glyph["text"])
-        if match is None:
-            raise ValueError(f"unaudited native fret text: {glyph['text']!r}")
-        if match["hf"] is not None:
-            actual.add(("printed_harmonic_fret", Decimal(match["hf"])))
-        elif match["fret"] is not None:
-            actual.add(("fret_token", Decimal(match["fret"])))
-        else:
-            actual.add(("fret_token", "x"))
-    expected = {
-        (key, "x" if value == "x" else Decimal(str(value)))
-        for key, value in note.items()
-        if key in ("fret_token", "printed_harmonic_fret")
-    }
-    if actual != expected:
-        raise ValueError(
-            f"visible core digits disagree with the actual native fret/harmonic glyphs: core={dict(note)}, drawn={[glyph['text'] for glyph in glyphs]}"
-        )
-
 
 def _numbers(value, length, label):
     if (
@@ -206,37 +176,3 @@ def group_glyphs_by_owner(
                 )
         grouped[key].append(glyph)
     return dict(grouped)
-
-
-def quantize_page_box(box_mm: list[float], crop_mm: list[float]) -> list[int]:
-    x, y, w, h = _numbers(box_mm, 4, "page box")
-    cx, cy, cw, ch = _numbers(crop_mm, 4, "crop")
-    if min(w, h, cw, ch) <= 0:
-        raise ValueError("boxes must have positive dimensions")
-    raw = [(x - cx) / cw, (y - cy) / ch, (x + w - cx) / cw, (y + h - cy) / ch]
-    if min(raw) < -1e-7 or max(raw) > 1 + 1e-7:
-        raise ValueError("spatial crop would clip supervised ink")
-    result = [min(1000, max(0, round(value * 1000))) for value in raw]
-    if result[0] >= result[2] or result[1] >= result[3]:
-        raise ValueError("glyph collapses at the spatial quantization resolution")
-    return result
-
-
-def page_box_from_quantized(box: list[int], crop_mm: list[float]) -> list[float]:
-    if (
-        not isinstance(box, list)
-        or len(box) != 4
-        or any(type(x) is not int or not 0 <= x <= 1000 for x in box)
-        or box[0] >= box[2]
-        or box[1] >= box[3]
-    ):
-        raise ValueError("invalid quantized spatial box")
-    x, y, w, h = _numbers(crop_mm, 4, "crop")
-    if min(w, h) <= 0:
-        raise ValueError("crop must have positive dimensions")
-    return [
-        x + box[0] * w / 1000,
-        y + box[1] * h / 1000,
-        (box[2] - box[0]) * w / 1000,
-        (box[3] - box[1]) * h / 1000,
-    ]

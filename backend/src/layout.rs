@@ -160,12 +160,17 @@ fn materialize(
             )?;
             crop.save(&path).map_err(|e| e.to_string())?;
             let mut region = item.clone();
-            region.as_object_mut().unwrap().remove("annotation_type");
-            region.as_object_mut().unwrap().remove("annotation_text");
-            if matches!(kind, "annotation" | "transposition")
-                && crate::pixel_refinement::diagram_strings(&crop).is_some()
-            {
-                region["annotation_type"] = json!("chord_diagram");
+            // Layout retains detector categories and explicit user choices.
+            // Information models establish annotation semantics; raster grid
+            // counts must not silently classify a saved region.
+            if automatic || region["annotation_type_source"] != "manual" {
+                for key in [
+                    "annotation_type",
+                    "annotation_text",
+                    "annotation_type_source",
+                ] {
+                    region.as_object_mut().unwrap().remove(key);
+                }
             }
             region["image"] = json!(path);
             regions.push(region);
@@ -225,14 +230,29 @@ fn publish(
         .as_array()
         .unwrap()
         .iter()
-        .map(|r| json!({"kind":"measure","page":r["page"],"bbox":r["bbox"],"mode":r["mode"]}))
-        .chain(
-            stage["regions"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|r| json!({"kind":r["kind"],"page":r["page"],"bbox":r["bbox"],"annotation_type":r["annotation_type"]}))
-        )
+        .map(|r| {
+            let mut box_value =
+                json!({"kind":"measure","page":r["page"],"bbox":r["bbox"],"mode":r["mode"]});
+            for key in ["boundary_review", "original_coordinate"] {
+                if let Some(value) = r.get(key) {
+                    box_value[key] = value.clone();
+                }
+            }
+            box_value
+        })
+        .chain(stage["regions"].as_array().unwrap().iter().map(|r| {
+            let mut region = json!({"kind":r["kind"],"page":r["page"],"bbox":r["bbox"]});
+            for key in [
+                "annotation_type",
+                "annotation_text",
+                "annotation_type_source",
+            ] {
+                if let Some(value) = r.get(key) {
+                    region[key] = value.clone();
+                }
+            }
+            region
+        }))
         .collect::<Vec<_>>());
     for key in ["info", "recognition", "export"] {
         state[key] = Value::Null;
@@ -243,6 +263,7 @@ fn publish(
     let _ = output.keep();
     Ok(())
 }
+
 pub fn save_boxes(
     root: &Path,
     sid: &str,
@@ -266,20 +287,28 @@ pub fn detect(
     sid: &str,
     ort: &Path,
     model: &Path,
+    quality_model: &Path,
     requested: &str,
     progress: &Progress,
 ) -> Result<()> {
     mode(requested)?;
     initialize_runtime(ort)?;
-    let mut detector = LayoutDetector::new(model)?;
+    let mut detector = LayoutDetector::new(model, quality_model)?;
     let state = load_session(root, sid).map_err(|e| e.to_string())?;
     let pages = state["pages"].as_array().ok_or("项目缺少页面")?;
     let mut boxes = Vec::new();
     for (index, page) in pages.iter().enumerate() {
         progress.checkpoint()?;
         let image = images::open_rgb(Path::new(page["image"].as_str().ok_or("图片缺失")?))?;
+        let detail = if image.width().max(image.height()) > 1920 {
+            "；密集页面可能需要数十秒"
+        } else {
+            ""
+        };
+        progress.update(json!({"done":index,"total":pages.len(),"message":
+            format!("正在分析第 {} / {} 页的小节与谱面信息{}", index + 1, pages.len(), detail)}))?;
         let mut found =
-            detector.detect_page_with_cancel(&image, 0.25, true, &|| progress.cancelled())?;
+            detector.detect_page(&image, 0.25, true, &|| progress.cancelled())?;
         geometry::prepare_page_prediction(&image, &mut found, requested, true)?;
         for item in found["measures"].as_array().into_iter().flatten() {
             let mut item = item.clone();

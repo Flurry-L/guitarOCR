@@ -7,7 +7,6 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
-LLAMA_CPP_REVISION = '8019dc563b1ecbae6b161a70c3a1359f1b206c1e'
 
 
 def strip_unused_mtp(path, llama_cpp):
@@ -49,41 +48,28 @@ def strip_unused_mtp(path, llama_cpp):
     temporary.replace(path)
 
 
-def export(llama_cpp, output, tasks, weights_root=ROOT / 'weights'):
-    revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=llama_cpp, text=True).strip()
-    if revision != LLAMA_CPP_REVISION:
-        raise ValueError(f'Use the verified llama.cpp revision: git checkout {LLAMA_CPP_REVISION}')
-    source_commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
-    source_dirty = bool(subprocess.check_output(
-        ['git', 'status', '--porcelain', '--untracked-files=normal'], cwd=ROOT, text=True).strip())
-    for task in tasks:
-        source = weights_root / task / 'merged'
-        folder = output / task
-        folder.mkdir(parents=True, exist_ok=True)
-        for vision, name, dtype in [(False, 'model-Q8_0.gguf', 'q8_0'), (True, 'vision-F16.gguf', 'f16')]:
-            subprocess.run([sys.executable, str(llama_cpp / 'convert_hf_to_gguf.py'), str(source),
-                            '--outfile', str(folder / name), '--outtype', dtype,
-                            *(['--mmproj'] if vision else [])], check=True)
-        strip_unused_mtp(folder / 'model-Q8_0.gguf', llama_cpp)
-        metadata = {'task': task, 'source_commit': source_commit, 'source_dirty': source_dirty,
-                    'llama_cpp_commit': revision,
-                    'text_quantization': 'Q8_0', 'vision_dtype': 'F16',
-                    'mtp_runtime': False, 'scope': 'OCR only; layout and signature classifier are separate'}
-        (folder / 'export.json').write_text(json.dumps(metadata, indent=2) + '\n')
-        for path in folder.glob('*.gguf'):
-            if path.stat().st_size >= 2**31:
-                raise ValueError(f'{path} exceeds the GitHub release asset limit')
-            print(f'{path}: {path.stat().st_size / 1e9:.2f} GB', flush=True)
+def export(llama_cpp, source, output):
+    output.mkdir(parents=True, exist_ok=True)
+    for vision, name, dtype in [(False, 'model-Q8_0.gguf', 'q8_0'), (True, 'vision-F16.gguf', 'f16')]:
+        subprocess.run([sys.executable, str(llama_cpp / 'convert_hf_to_gguf.py'), str(source),
+                        '--outfile', str(output / name), '--outtype', dtype,
+                        *(['--mmproj'] if vision else [])], check=True)
+    strip_unused_mtp(output / 'model-Q8_0.gguf', llama_cpp)
+    metadata = {'task': 'score_ocr',
+                'text_quantization': 'Q8_0', 'vision_dtype': 'F16',
+                'mtp_runtime': False, 'scope': 'OCR only; layout and signature classifier are separate'}
+    (output / 'export.json').write_text(json.dumps(metadata, indent=2) + '\n')
+    for path in output.glob('*.gguf'):
+        if path.stat().st_size >= 2**31:
+            raise ValueError(f'{path} exceeds the GitHub release asset limit')
+        print(f'{path}: {path.stat().st_size / 1e9:.2f} GB', flush=True)
 
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--llama-cpp', type=Path, required=True)
-    parser.add_argument('--output', type=Path, default=ROOT / 'output/gguf')
-    parser.add_argument('--weights-root', type=Path, default=ROOT / 'weights',
-                        help='Model directory; allows export before installing staged weights')
-    parser.add_argument('--tasks', nargs='+', choices=('score_ocr', 'measure_ocr', 'document_info'),
-                        default=['score_ocr'])
+    parser.add_argument('--model', type=Path, default=ROOT / 'weights/score_ocr/merged')
+    parser.add_argument('--output', type=Path, default=ROOT / 'output/gguf/score_ocr')
     args = parser.parse_args()
-    export(args.llama_cpp.resolve(), args.output.resolve(), args.tasks, args.weights_root.resolve())
+    export(args.llama_cpp.resolve(), args.model.resolve(), args.output.resolve())

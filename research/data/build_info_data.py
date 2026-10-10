@@ -2,35 +2,17 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections import Counter
 from pathlib import Path
 
 from PIL import Image
 
-from research.data.catalog import source_catalog
-from research.data.inventory import build_inventory
-from research.data.annotations import header_target
-from research.data.annotations import printed_text
-from research.data.annotations import tempo_target
-from research.data.training_samples import dataset_entry
-from research.inference.information.prompts import HEADER_PROMPT
-from research.inference.information.prompts import TEMPO_PROMPT
-from research.common.crops import crop_region
+from research.common.images import crop_region
 from research.common.pdf import open_pdf
-
-
-def _target(field: str, value: object) -> dict:
-    return {
-        "messages": [
-            {
-                "role": "user",
-                "content": f"<image>{HEADER_PROMPT if field == 'header' else TEMPO_PROMPT}",
-            },
-            {
-                "role": "assistant",
-                "content": json.dumps(value, ensure_ascii=False, separators=(",", ":")),
-            },
-        ]
-    }
+from research.data.inventory import build_inventory
+from research.data.native_supervision import header_target, printed_text, tempo_target
+from research.data.prompts import HEADER_PROMPT, TEMPO_PROMPT, CLEF_PROMPT, TRANSPOSITION_PROMPT
+from research.data.training_samples import chat, dataset_entry
 
 
 def _overlapping_tempos(indications: list[dict]) -> set[int]:
@@ -50,114 +32,6 @@ def _overlapping_tempos(indications: list[dict]) -> set[int]:
                 ambiguous.update((index, other_index))
     return ambiguous
 
-
-def _gp8_samples(
-    export_root: Path, output_root: Path, samples: dict, counts: dict, families: dict
-) -> tuple[int, int]:
-    added = 0
-    rejected = 0
-    catalog = source_catalog(export_root)
-    for document in sorted((export_root / "native-export" / "documents").glob("tab-*")):
-        source_id = document.name.removeprefix("tab-")
-        assignment = catalog[source_id]
-        family, split = assignment["family"], assignment["split"]
-        if split == "test":
-            continue
-        if family in families["validation" if split == "train" else "train"]:
-            raise ValueError(f"Source family crosses dataset splits: {family}")
-        families[split].add(family)
-        tracks = sorted((document / "tracks").glob("*/layout.json"))
-        if len(tracks) != 1:
-            raise ValueError(f"Expected one exported track: {document}")
-        layout = json.loads(tracks[0].read_text(encoding="utf-8"))
-        score = json.loads(
-            tracks[0].with_name("official-score.json").read_text(encoding="utf-8")
-        )
-        by_page: dict[int, list[dict]] = {}
-        for row in layout["tempo_indications"]:
-            by_page.setdefault(int(row["page"]), []).append(row)
-        with open_pdf(tracks[0].with_name("score.pdf")) as pdf:
-            for page_index, page in enumerate(pdf):
-                page_number = page_index + 1
-                indications = by_page.get(page_number, [])
-                if page_number != 1 and not indications:
-                    continue
-                image = page.render(180)
-                page_mm = layout["pages"][page_index]["bbox_mm"]
-
-                def pixel_box(bbox_mm: list[float]) -> list[float]:
-                    x, y, width, height = (float(value) for value in bbox_mm)
-                    x0 = (x - page_mm[0]) * image.width / page_mm[2]
-                    y0 = (y - page_mm[1]) * image.height / page_mm[3]
-                    return [
-                        x0,
-                        y0,
-                        x0 + width * image.width / page_mm[2],
-                        y0 + height * image.height / page_mm[3],
-                    ]
-
-                if page_number == 1:
-                    first_measure_tops = [
-                        pixel_box(box["bbox_mm"])[1]
-                        for system in layout["systems"]
-                        if system["page"] == 1
-                        for box in system["measure_boxes"]
-                    ]
-                    if first_measure_tops:
-                        header_bottom = min(first_measure_tops)
-                        target = header_target(score)
-                        if any(value is not None for value in target.values()):
-                            printed = page.text(
-                                (
-                                    0,
-                                    0,
-                                    page.width,
-                                    header_bottom / image.height * page.height,
-                                )
-                            )
-                            if any(
-                                printed_text(value) not in printed_text(printed)
-                                for value in target.values()
-                                if value
-                            ):
-                                rejected += 1
-                            else:
-                                destination = (
-                                    output_root
-                                    / "images"
-                                    / f"gp8_header_{source_id}.png"
-                                )
-                                destination.parent.mkdir(parents=True, exist_ok=True)
-                                crop_region(
-                                    image, [0, 0, image.width, header_bottom], 0
-                                ).save(destination)
-                                sample = _target("header", target)
-                                sample["images"] = [str(destination.resolve())]
-                                samples[split].append(sample)
-                                counts["header"] += 1
-                                added += 1
-                ambiguous = _overlapping_tempos(indications)
-                for indication_index, indication in enumerate(indications):
-                    if indication_index in ambiguous:
-                        continue
-                    target = tempo_target(score, indication)
-                    if target is None:
-                        continue
-                    destination = (
-                        output_root
-                        / "images"
-                        / f"gp8_tempo_{source_id}_p{page_number:03d}_{indication_index:03d}.png"
-                    )
-                    destination.parent.mkdir(parents=True, exist_ok=True)
-                    crop_region(image, pixel_box(indication["bbox_mm"]), 6).save(destination)
-                    sample = _target("tempo", target)
-                    sample["images"] = [str(destination.resolve())]
-                    samples[split].append(sample)
-                    counts["tempo"] += 1
-                    added += 1
-    return added, rejected
-
-
 def build_dataset(
     source_root: Path | None, output_root: Path, gp8_export: Path | None = None,
     *, include_test: bool = False, only_split: str | None = None,
@@ -167,7 +41,8 @@ def build_dataset(
             raise ValueError("Provide --source inventory or --gp8-export")
         source_root = output_root / "inventory"
         build_inventory(gp8_export, source_root)
-        gp8_export = None
+    elif gp8_export is not None:
+        raise ValueError("Use either an inventory or a native export")
     source_root = source_root.resolve()
     output_root.mkdir(parents=True, exist_ok=True)
     tracks = [
@@ -182,7 +57,7 @@ def build_dataset(
         if only_split not in {"train", "validation", "test"}:
             raise ValueError("Invalid split")
         samples = {only_split: []}
-    counts = {"header": 0, "tempo": 0}
+    counts = Counter()
     rejected_headers = 0
     families = {split: set() for split in samples}
     for track in tracks:
@@ -234,9 +109,8 @@ def build_dataset(
                         )
                         destination.parent.mkdir(parents=True, exist_ok=True)
                         header_image.save(destination)
-                        sample = _target("header", target)
-                        sample["images"] = [str(destination.resolve())]
-                        sample["provenance"] = {key: track.get(key) for key in ("source_id", "family", "mode", "split")}
+                        sample = chat([destination], HEADER_PROMPT, target,
+                                      **{key: track.get(key) for key in ("source_id", "family", "mode", "split")})
                         samples[split].append(sample)
                         counts["header"] += 1
         ambiguous = _overlapping_tempos(layout["tempo_indications"])
@@ -266,17 +140,24 @@ def build_dataset(
             )
             destination.parent.mkdir(parents=True, exist_ok=True)
             tempo_image.save(destination)
-            sample = _target("tempo", target)
-            sample["images"] = [str(destination.resolve())]
-            sample["provenance"] = {key: track.get(key) for key in ("source_id", "family", "mode", "split")}
+            sample = chat([destination], TEMPO_PROMPT, target,
+                          **{key: track.get(key) for key in ("source_id", "family", "mode", "split")})
             samples[split].append(sample)
             counts["tempo"] += 1
-    gp8_added = 0
-    if gp8_export is not None:
-        gp8_added, gp8_rejected = _gp8_samples(
-            gp8_export.resolve(), output_root, samples, counts, families
-        )
-        rejected_headers += gp8_rejected
+        for page in pages:
+            regions = [row for row in page['annotations'] if 'target' in row]
+            if not regions:
+                continue
+            with Image.open(source_root / page['image']) as image:
+                for row in regions:
+                    task = row['task']
+                    destination = output_root / 'images' / f"{task}_{track['family']}_{counts[task]:05d}.png"
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    crop_region(image, row['box'], 6).save(destination)
+                    prompt = CLEF_PROMPT if task == 'clef' else TRANSPOSITION_PROMPT
+                    samples[split].append(chat([destination], prompt, row['target'],
+                        **{key: track.get(key) for key in ('source_id', 'family', 'mode', 'split')}))
+                    counts[task] += 1
     if any(families[left] & families[right] for left in families for right in families if left != right):
         raise ValueError("Source families overlap between dataset splits")
     llamafactory = output_root / "llamafactory"
@@ -293,7 +174,6 @@ def build_dataset(
     )
     return {
         **{split: len(rows) for split, rows in samples.items()},
-        "gp8_samples": gp8_added,
         "rejected_headers": rejected_headers,
     }
 

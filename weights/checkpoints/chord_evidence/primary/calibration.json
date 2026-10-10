@@ -1,0 +1,47 @@
+{
+  "contract": {
+    "schema": "guitarocr.chord-evidence/1",
+    "reader": "chord_evidence",
+    "preprocessing": "rgb_imagenet_letterbox_lanczos_v1",
+    "input_size": 256,
+    "temperature": {
+      "kind": 1.0,
+      "strings": 1.0,
+      "base": 1.0,
+      "frets": 1.0,
+      "fingers": 1.0,
+      "barres": 1.0
+    },
+    "thresholds": {
+      "kind": 0.9970736972932045,
+      "strings": 0.9985673142524594,
+      "base": 0.8130377225331629,
+      "frets": 0.8681486299944157,
+      "fingers": 0.9641603815306822,
+      "barres": 0.959275250580434
+    },
+    "kind_labels": [
+      "diagram",
+      "text",
+      "other"
+    ],
+    "calibration_split": "validation_only_shape_and_document_disjoint",
+    "max_strings": 12,
+    "max_relative_frets": 7,
+    "source": "learned_visual_evidence",
+    "user_pdf_training": false,
+    "calibration_case_provenance": {
+      "split": "validation_shape_and_document",
+      "dependencies": [
+        {},
+        {}
+      ],
+      "purpose": "Fixed prior and new context VALIDATION only"
+    },
+    "calibration_method": "conditional_kind_strings_v1",
+    "joint_thresholds": {
+      "geometry": 0.9479778170420208,
+      "full": 0.9731448008418023
+    }
+  }
+}

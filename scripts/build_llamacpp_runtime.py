@@ -1,12 +1,8 @@
-"""Build and package a pinned native CPU/CUDA/Metal runtime without publishing it.
-
-Run on the target OS/architecture (the workflow supplies Linux, Windows and macOS
-builders). Packaging verifies the executable revision and every archive member.
-The version smoke test is not a substitute for model inference or device testing.
-"""
+"""Build and package a native CPU/CUDA/Metal runtime on its target platform."""
 from __future__ import annotations
 
 import argparse
+from hashlib import sha256
 import json
 import os
 from pathlib import Path
@@ -14,14 +10,59 @@ import platform
 import re
 import shutil
 import subprocess
-import sys
 import tempfile
 import urllib.request
+from zipfile import ZIP_DEFLATED, ZipFile
 
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
-from scripts.llamacpp_runtime import COMMIT, probe, target  # noqa: E402
-from scripts.package_llamacpp_runtime import package  # noqa: E402
+
+def target(device):
+    system = {'Darwin': 'macos', 'Windows': 'windows', 'Linux': 'linux'}.get(platform.system())
+    arch = {'amd64': 'x64', 'x86_64': 'x64', 'arm64': 'arm64', 'aarch64': 'arm64'}.get(platform.machine().lower())
+    if not system or not arch:
+        raise ValueError('此系统暂未提供本机 runtime，请使用远程识别或仅校对与导出')
+    return f'{system}-{arch}-{device}'
+
+
+def probe(executable):
+    try:
+        result = subprocess.run([str(executable), '--version'], capture_output=True, text=True,
+                                encoding='utf-8', errors='replace', timeout=20)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise ValueError(f'llama-server 无法运行：{error}') from error
+    version = result.stdout + result.stderr
+    if result.returncode:
+        raise ValueError(f'llama-server 无法运行；退出码：{result.returncode}；检测结果：{version[-800:]}')
+    return str(Path(executable).absolute())
+
+
+def package(source, staging, output, key, url):
+    if not re.fullmatch(r'(linux|windows|macos)-(x64|arm64)-(cpu|cuda|metal)', key):
+        raise ValueError('Invalid runtime target')
+    if output.resolve().is_relative_to(staging.resolve()):
+        raise ValueError('Output must be outside the staging directory')
+    if (staging / 'LICENSE').read_bytes() != (source / 'LICENSE').read_bytes():
+        raise ValueError('Include the exact upstream MIT LICENSE')
+    executable = 'llama-server.exe' if key.startswith('windows-') else 'llama-server'
+    probe(staging / executable)
+    files = []
+    output.mkdir(parents=True, exist_ok=True)
+    archive = output / f'llamacpp-{key}.zip'
+    with ZipFile(archive, 'w', compression=ZIP_DEFLATED) as bundle:
+        for path in sorted(staging.rglob('*')):
+            if path.is_symlink():
+                raise ValueError('Stage actual library files instead of symbolic links')
+            if not path.is_file():
+                continue
+            name = path.relative_to(staging).as_posix()
+            files.append(dict(name=name, bytes=path.stat().st_size))
+            bundle.write(path, name)
+    entry = dict(url=url, bytes=archive.stat().st_size, sha256=sha256(archive.read_bytes()).hexdigest(),
+                 executable=executable, files=files)
+    if key == 'windows-x64-cuda':
+        entry['cuda_driver'] = 12080
+    manifest = output / f'{key}.json'
+    manifest.write_text(json.dumps({key: entry}, indent=2) + '\n', encoding='utf-8')
+    return manifest
 
 
 def configure(source, build, key):
@@ -32,10 +73,12 @@ def configure(source, build, key):
         raise ValueError('CUDA builds target Linux or Windows')
     if backend == 'metal' and (system, arch) != ('macos', 'arm64'):
         raise ValueError('Metal release builds target Apple Silicon')
+    cpu_dispatch = arch == 'x64' and backend == 'cpu'
     options = {
         'CMAKE_BUILD_TYPE': 'Release',
-        'BUILD_SHARED_LIBS': 'OFF',
-        'GGML_BACKEND_DL': 'OFF',
+        'BUILD_SHARED_LIBS': 'ON' if cpu_dispatch else 'OFF',
+        'GGML_BACKEND_DL': 'ON' if cpu_dispatch else 'OFF',
+        'GGML_CPU_ALL_VARIANTS': 'ON' if cpu_dispatch else 'OFF',
         'GGML_NATIVE': 'OFF',
         'GGML_OPENMP': 'OFF',
         'GGML_CUDA': 'ON' if backend == 'cuda' else 'OFF',
@@ -53,10 +96,24 @@ def configure(source, build, key):
     if backend == 'cuda':
         options['CMAKE_CUDA_ARCHITECTURES'] = os.environ.get('GUITAROCR_CUDA_ARCHS', '75-virtual;80-virtual;86-real;89-real;90-virtual')
     if arch == 'x64':
-        # A generic CPU package must not inherit the hosted runner's ISA. Keep
-        # the baseline runnable on x86-64 machines without AVX2/FMA support.
-        for feature in ('SSE42', 'AVX', 'AVX2', 'AVX512', 'AVX_VNNI', 'FMA', 'F16C', 'BMI2'):
+        # Keep the baseline portable. ALL_VARIANTS applies explicit ISA flags
+        # only to its individual CPU modules, selected by upstream at runtime.
+        for feature in ('SSE42', 'AVX', 'AVX2', 'AVX512', 'AVX_VNNI', 'FMA', 'F16C', 'BMI2',
+                        'AVX512_VBMI', 'AVX512_VNNI', 'AVX512_BF16', 'AMX_TILE', 'AMX_INT8', 'AMX_BF16'):
             options[f'GGML_{feature}'] = 'OFF'
+    if cpu_dispatch:
+        # Modules are discovered beside the executable, never in a build tree.
+        options['GGML_BLAS'] = 'OFF'
+        options['GGML_BACKEND_DIR'] = ''
+        options['CMAKE_BUILD_WITH_INSTALL_RPATH'] = 'ON'
+        options['CMAKE_INSTALL_RPATH_USE_LINK_PATH'] = 'OFF'
+        if system == 'linux':
+            options['CMAKE_BUILD_RPATH_USE_ORIGIN'] = 'ON'
+            options['CMAKE_INSTALL_RPATH'] = '$ORIGIN'
+        elif system == 'macos':
+            options['CMAKE_INSTALL_RPATH'] = '@loader_path'
+            options['CMAKE_INSTALL_NAME_DIR'] = '@rpath'
+            options['CMAKE_BUILD_WITH_INSTALL_NAME_DIR'] = 'ON'
     if system == 'windows':
         options['CMAKE_MSVC_RUNTIME_LIBRARY'] = 'MultiThreaded'
         if backend == 'cuda':
@@ -67,6 +124,32 @@ def configure(source, build, key):
         options['GGML_ACCELERATE'] = 'OFF'  # New LAPACK symbols require macOS 13.3.
     return ['cmake', '-S', str(source), '-B', str(build),
             *[f'-D{name}={value}' for name, value in options.items()]]
+
+
+def stage_cpu_libraries(binary, staging, key):
+    """Copy all colocated shared dependencies and CPU modules as regular files."""
+    if not key.endswith('-x64-cpu'):
+        return
+    names = []
+    for library in sorted(binary.parent.iterdir()):
+        if not re.search(r'\.(?:dll|dylib|so(?:\.[0-9.]+)?)$', library.name, re.I):
+            continue
+        module = re.match(r'(?:lib)?ggml-(.+?)\.(?:dll|dylib|so(?:\.[0-9.]+)?)$', library.name, re.I)
+        if module and module[1].lower() != 'base' and not re.match(r'cpu(?:-|$)', module[1], re.I):
+            raise ValueError(f'CPU build contains a non-CPU backend; use a clean build directory: {library.name}')
+        # Preserve both SONAME aliases and versioned filenames, but no symlinks
+        # may enter the verified portable archive.
+        resolved = library.resolve(strict=True)
+        if not resolved.is_file():
+            raise ValueError(f'Runtime library is not a regular file: {library}')
+        shutil.copy2(resolved, staging / library.name)
+        names.append(library.name)
+    prefix = '' if key.startswith('windows-') else 'lib'
+    suffix = '.dll' if key.startswith('windows-') else '.so'
+    baseline = f'{prefix}ggml-cpu-x64{suffix}'
+    variants = [name for name in names if name.startswith(f'{prefix}ggml-cpu-') and name.endswith(suffix)]
+    if baseline not in variants or len(variants) < 2:
+        raise ValueError('CPU runtime must contain the x64 baseline and optimized backend modules')
 
 
 def stage_windows_crt(staging):
@@ -90,12 +173,6 @@ def stage_windows_crt(staging):
 def build_runtime(source, build, output, key, release_tag, jobs):
     if not re.fullmatch(r'v[0-9]+\.[0-9]+\.[0-9]+(?:[-.][A-Za-z0-9.-]+)?', release_tag):
         raise ValueError('A versioned project release tag is required')
-    revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=source, text=True).strip()
-    if revision != COMMIT:
-        raise ValueError(f'Check out the official llama.cpp revision {COMMIT}')
-    if subprocess.check_output(['git', 'status', '--porcelain', '--untracked-files=no'],
-                               cwd=source, text=True).strip():
-        raise ValueError('The pinned source has tracked modifications')
     command = configure(source, build, key)
     subprocess.run(command, check=True)
     subprocess.run(['cmake', '--build', str(build), '--config', 'Release',
@@ -106,11 +183,11 @@ def build_runtime(source, build, output, key, release_tag, jobs):
     if binary is None:
         raise ValueError('The build did not produce llama-server')
     output.mkdir(parents=True, exist_ok=True)
-    # Stage in a fresh directory, outside the source/build trees. Static ggml
-    # and llama libraries avoid omitted DLL/dylib chains in the release ZIP.
+    # Stage outside the build tree so the executable resolves packaged libraries.
     with tempfile.TemporaryDirectory(prefix='llamacpp-stage-', dir=output) as temp:
         staging = Path(temp)
         shutil.copy2(binary, staging / executable)
+        stage_cpu_libraries(binary, staging, key)
         shutil.copy2(source / 'LICENSE', staging / 'LICENSE')
         if key.startswith('windows-'):
             stage_windows_crt(staging)
@@ -134,13 +211,13 @@ def build_runtime(source, build, output, key, release_tag, jobs):
                     dest = staging / 'notices' / path.relative_to(source)
                     dest.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(path, dest)
-        probe(staging / executable)
         (staging / 'build.json').write_text(json.dumps({
-            'source': 'https://github.com/ggml-org/llama.cpp', 'commit': COMMIT,
+            'source': 'https://github.com/ggml-org/llama.cpp',
             'target': key, 'platform': platform.platform(), 'configure': command,
-            'version_smoke_test': 'passed',
+            'runtime_shared_libraries': sorted(path.name for path in staging.iterdir()
+                if re.search(r'\.(?:dll|dylib|so(?:\.[0-9.]+)?)$', path.name, re.I)),
         }, indent=2) + '\n', encoding='utf-8')
-        filename = f'llamacpp-{COMMIT[:12]}-{key}.zip'
+        filename = f'llamacpp-{key}.zip'
         url = f'https://github.com/Flurry-L/guitarOCR/releases/download/{release_tag}/{filename}'
         return package(source, staging, output, key, url)
 

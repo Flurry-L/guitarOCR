@@ -10,6 +10,7 @@ from pathlib import Path
 from research.common.pdf import open_pdf
 
 from research.data.catalog import source_catalog
+from research.data.native_supervision import native_pitch_annotations
 
 def _inventory_track(job):
     export_root, output, dpi, sid, assignment, mode = job
@@ -22,7 +23,8 @@ def _inventory_track(job):
         )
     source = layouts[0].parent
     layout = json.loads(layouts[0].read_text(encoding="utf-8"))
-    if layout.get("display_mode", "tab") != mode:
+    score = json.loads((source / "official-score.json").read_text())
+    if layout["display_mode"] != mode:
         raise ValueError(f"Rendered display mode differs from {mode}: {source}")
     folder = Path("tracks") / mode / sid
     destination = output / folder
@@ -31,11 +33,11 @@ def _inventory_track(job):
     for system in layout["systems"]:
         for box in system["measure_boxes"]:
             annotations.setdefault(int(system["page"]), []).append(
-                ("measure", box["bbox_mm"])
+                {"label": "measure", "bbox_mm": box["bbox_mm"]}
             )
     for tempo in layout.get("tempo_indications", []):
         annotations.setdefault(int(tempo["page"]), []).append(
-            ("tempo_region", tempo["bbox_mm"])
+            {"label": "tempo_region", "bbox_mm": tempo["bbox_mm"]}
         )
     pages = []
     with open_pdf(source / "score.pdf") as pdf:
@@ -51,10 +53,12 @@ def _inventory_track(job):
             pix.save(output / image)
             sx, sy = pix.width / page_mm[2], pix.height / page_mm[3]
             rows = []
-            for kind, (x, y, w, h) in annotations.get(number, []):
+            regions = annotations.get(number, []) + native_pitch_annotations(page, number, layout, score, assignment)
+            for region in regions:
+                x, y, w, h = region["bbox_mm"]
                 rows.append(
                     {
-                        "label": kind,
+                        **{key: value for key, value in region.items() if key != "bbox_mm"},
                         "box": [
                             (x - page_mm[0]) * sx,
                             (y - page_mm[1]) * sy,

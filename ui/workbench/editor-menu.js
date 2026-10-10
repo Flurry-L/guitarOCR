@@ -17,7 +17,7 @@ export function editorMenu(menu, canvas) {
     ["deleteNote", "删除音符", "Delete"],
     ["deleteEvent", "删除当前拍", "⇧ Delete"],
     null,
-    ["saveMeasure", "保存并确认小节", "Ctrl S"],
+    ["saveMeasure", "保存小节", "Ctrl S"],
     ["sourceZoom", "查看原谱", ""],
   ];
   const run = (id) => {

@@ -9,10 +9,28 @@ min_subgraph_size: 3
 mask: true
 Preprocess:
 - interp: 2
+  keep_ratio: true
+  target_size:
+  - 1280
+  - 1280
+  type: Resize
+- fill_value:
+  - 255.0
+  - 255.0
+  - 255.0
+  offsets:
+  - 0
+  - 0
+  pad_mode: -1
+  size:
+  - 1280
+  - 1280
+  type: Pad
+- interp: 2
   keep_ratio: false
   target_size:
-  - 800
-  - 800
+  - 1280
+  - 1280
   type: Resize
 - mean:
   - 0.0
@@ -44,16 +62,16 @@ Hpi:
         image:
         - - 1
           - 3
-          - 800
-          - 800
+          - 1280
+          - 1280
         - - 1
           - 3
-          - 800
-          - 800
+          - 1280
+          - 1280
         - - 8
           - 3
-          - 800
-          - 800
+          - 1280
+          - 1280
         scale_factor:
         - - 1
           - 2

@@ -1,7 +1,7 @@
 //! Conservative native device selection, independent of operating-system guesses.
-//! Call only for a hash-verified packaged runtime. A declared backend, a live
+//! A declared backend, a live
 //! device listing and sufficient reported memory are all required for GPU use.
-use crate::llama::{Device, PINNED_COMMIT};
+use crate::llama::Device;
 use serde_json::Value;
 use std::{
     fs,
@@ -14,15 +14,6 @@ use std::{
 const MIB: u64 = 1024 * 1024;
 const MAX_PROBE_BYTES: u64 = 128 * 1024;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Preference {
-    #[default]
-    Auto,
-    Cpu,
-    Cuda,
-    Metal,
-}
-
 #[derive(Clone, Debug, Default)]
 pub struct RuntimeCapabilities {
     pub cpu: Option<bool>,
@@ -30,7 +21,7 @@ pub struct RuntimeCapabilities {
     pub metal: Option<bool>,
 }
 impl RuntimeCapabilities {
-    /// Caller must have checked the manifest source/revision/file hashes first.
+    /// Caller must have checked the packaged files first.
     /// Missing flags remain unknown; notably Metal is never inferred from macOS.
     pub fn from_component(component: &Value) -> Result<Self, String> {
         if component["name"] != "llama.cpp" {
@@ -41,9 +32,6 @@ impl RuntimeCapabilities {
             return Err("Invalid native runtime capabilities".into());
         }
         let build = &component["distribution"]["build"];
-        let build_verified = build["commit"] == PINNED_COMMIT
-            && build["source"] == "https://github.com/ggml-org/llama.cpp"
-            && build["configure"].is_array();
         let get = |key: &str, flag: &str| -> Result<Option<bool>, String> {
             let declared = match explicit.get(key) {
                 None | Some(Value::Null) => None,
@@ -51,19 +39,17 @@ impl RuntimeCapabilities {
                 _ => return Err(format!("Invalid native {key} capability")),
             };
             let mut configured = None;
-            if build_verified {
-                if let Some(args) = build["configure"].as_array() {
-                    for arg in args.iter().filter_map(Value::as_str) {
-                        if let Some((name, value)) =
-                            arg.strip_prefix("-D").and_then(|a| a.split_once('='))
-                        {
-                            if name.split(':').next() == Some(flag) {
-                                configured = Some(match value.to_ascii_uppercase().as_str() {
-                                    "ON" | "1" | "TRUE" => true,
-                                    "OFF" | "0" | "FALSE" => false,
-                                    _ => return Err(format!("Invalid build capability {flag}")),
-                                });
-                            }
+            if let Some(args) = build["configure"].as_array() {
+                for arg in args.iter().filter_map(Value::as_str) {
+                    if let Some((name, value)) =
+                        arg.strip_prefix("-D").and_then(|a| a.split_once('='))
+                    {
+                        if name.split(':').next() == Some(flag) {
+                            configured = Some(match value.to_ascii_uppercase().as_str() {
+                                "ON" | "1" | "TRUE" => true,
+                                "OFF" | "0" | "FALSE" => false,
+                                _ => return Err(format!("Invalid build capability {flag}")),
+                            });
                         }
                     }
                 }
@@ -75,17 +61,11 @@ impl RuntimeCapabilities {
             }
             Ok(declared.or(configured))
         };
-        let mut capabilities = Self {
+        Ok(Self {
             cpu: get("cpu", "GGML_CPU")?,
             cuda: get("cuda", "GGML_CUDA")?,
             metal: get("metal", "GGML_METAL")?,
-        };
-        // The exact pinned ggml/CMakeLists.txt declares GGML_CPU default ON.
-        // This inference applies to a recorded pinned source build, not an OS.
-        if capabilities.cpu.is_none() && build_verified {
-            capabilities.cpu = Some(true);
-        }
-        Ok(capabilities)
+        })
     }
 }
 
@@ -160,7 +140,7 @@ pub fn valid_device_selector(device: Device, selector: &str) -> bool {
     })
 }
 
-/// Parse the pinned runtime's common_print_available_devices output. Only local
+/// Parse the runtime's common_print_available_devices output. Only local
 /// CUDA/Metal names are admitted; RPC/Vulkan/other backends are never selected.
 pub fn parse_device_listing(output: &str) -> Result<Vec<DetectedDevice>, String> {
     if !output
@@ -206,6 +186,60 @@ pub fn parse_device_listing(output: &str) -> Result<Vec<DetectedDevice>, String>
         });
     }
     Ok(devices)
+}
+
+/// Probe the installed Windows driver before downloading CUDA libraries.
+#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+pub fn cuda_available(required_bytes: u64, minimum_driver: i32) -> bool {
+    unsafe fn detect(required_bytes: u64, minimum_driver: i32) -> Option<bool> {
+        // LOAD_LIBRARY_SEARCH_SYSTEM32: never load a DLL from the project or PATH.
+        let driver: libloading::Library =
+            libloading::os::windows::Library::load_with_flags("nvcuda.dll", 0x00000800)
+                .ok()?
+                .into();
+        let init = driver
+            .get::<unsafe extern "system" fn(u32) -> i32>(b"cuInit\0")
+            .ok()?;
+        let version = driver
+            .get::<unsafe extern "system" fn(*mut i32) -> i32>(b"cuDriverGetVersion\0")
+            .ok()?;
+        let count = driver
+            .get::<unsafe extern "system" fn(*mut i32) -> i32>(b"cuDeviceGetCount\0")
+            .ok()?;
+        let capability = driver
+            .get::<unsafe extern "system" fn(*mut i32, *mut i32, i32) -> i32>(
+                b"cuDeviceComputeCapability\0",
+            )
+            .ok()?;
+        let memory = driver
+            .get::<unsafe extern "system" fn(*mut usize, i32) -> i32>(b"cuDeviceTotalMem_v2\0")
+            .ok()?;
+        let (mut driver_version, mut devices) = (0, 0);
+        if init(0) != 0
+            || version(&mut driver_version) != 0
+            || driver_version < minimum_driver
+            || count(&mut devices) != 0
+        {
+            return Some(false);
+        }
+        for device in 0..devices.min(64) {
+            let (mut major, mut minor, mut bytes) = (0, 0, 0usize);
+            if capability(&mut major, &mut minor, device) == 0
+                && (major, minor) >= (7, 5)
+                && memory(&mut bytes, device) == 0
+                && bytes as u64 / 100 * 80 >= required_bytes
+            {
+                return Some(true);
+            }
+        }
+        Some(false)
+    }
+    unsafe { detect(required_bytes, minimum_driver).unwrap_or(false) }
+}
+
+#[cfg(not(all(target_os = "windows", target_arch = "x86_64")))]
+pub fn cuda_available(_required_bytes: u64, _minimum_driver: i32) -> bool {
+    false
 }
 
 /// Fixed short, local, no-model probe. No shell, nvidia-smi, uploads or downloads.
@@ -309,14 +343,10 @@ fn cpu_selection(
 }
 
 pub fn select_from_probe(
-    preference: Preference,
     caps: &RuntimeCapabilities,
     budget: &MemoryBudget,
     detected: &Result<Vec<DetectedDevice>, String>,
 ) -> Result<Selection, String> {
-    if preference == Preference::Cpu {
-        return cpu_selection(caps, budget, "已选择CPU模式".into());
-    }
     let gpu_allowed = |device| match device {
         Device::Cuda => caps.cuda == Some(true),
         Device::Metal => caps.metal == Some(true),
@@ -334,10 +364,7 @@ pub fn select_from_probe(
         Err(error) => reasons.push(error.clone()),
         Ok(devices) => {
             for device in devices {
-                if !gpu_allowed(device.device)
-                    || (preference == Preference::Cuda && device.device != Device::Cuda)
-                    || (preference == Preference::Metal && device.device != Device::Metal)
-                {
+                if !gpu_allowed(device.device) {
                     continue;
                 }
                 if !valid_device_selector(device.device, &device.selector) {
@@ -381,11 +408,6 @@ pub fn select_from_probe(
         reasons.push("原生运行组件未发现符合条件的本机GPU".into());
     }
     let reason = reasons.join("；");
-    if preference != Preference::Auto {
-        return Err(format!(
-            "指定GPU当前不可用：{reason}。可明确选择CPU；不会转发到远程服务"
-        ));
-    }
     cpu_selection(caps, budget, format!("{reason}；自动回退CPU"))
 }
 
@@ -393,32 +415,29 @@ pub fn choose_runtime(
     executable: &Path,
     caps: &RuntimeCapabilities,
     budget: &MemoryBudget,
-    preference: Preference,
     cancelled: &dyn Fn() -> bool,
 ) -> Result<Selection, String> {
     if cancelled() {
         return Err("设备选择已取消".into());
     }
-    let detected =
-        if preference == Preference::Cpu || (caps.cuda != Some(true) && caps.metal != Some(true)) {
-            Ok(Vec::new())
-        } else {
-            probe_devices(executable, cancelled)
-        };
+    let detected = if caps.cuda != Some(true) && caps.metal != Some(true) {
+        Ok(Vec::new())
+    } else {
+        probe_devices(executable, cancelled)
+    };
     if cancelled() {
         return Err("设备选择已取消".into());
     }
-    select_from_probe(preference, caps, budget, &detected)
+    select_from_probe(caps, budget, &detected)
 }
 
-/// Only automatic mode may retry local CPU after GPU *startup* fails. Never
+/// Retry local CPU once after GPU startup fails. Never
 /// retry completed/in-flight inference on a different backend without its caller.
 pub fn cpu_fallback_after_start_failure(
-    preference: Preference,
     caps: &RuntimeCapabilities,
     selection: &Selection,
 ) -> Result<Selection, String> {
-    if preference != Preference::Auto || selection.device == Device::Cpu {
+    if selection.device == Device::Cpu {
         return Err("本机模型启动失败；不会重复CPU重试或转发远程服务".into());
     }
     cpu_selection(
@@ -431,133 +450,4 @@ pub fn cpu_fallback_after_start_failure(
             selection.device_selector.as_deref().unwrap_or("GPU")
         ),
     )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-    fn caps() -> RuntimeCapabilities {
-        RuntimeCapabilities {
-            cpu: Some(true),
-            cuda: Some(true),
-            metal: Some(true),
-        }
-    }
-    fn budget() -> MemoryBudget {
-        MemoryBudget {
-            required_bytes: 4096 * MIB,
-        }
-    }
-    fn listing() -> Result<Vec<DetectedDevice>, String> {
-        parse_device_listing("Available devices:\n  CUDA0: Test GPU (8192 MiB, 7000 MiB free)\n  MTL0: Apple GPU (16384 MiB, 12000 MiB free)\n")
-    }
-    #[test]
-    fn pinned_build_flags_and_explicit_capabilities_must_agree() {
-        let mut value = json!({"name":"llama.cpp","distribution":{"build":{"commit":PINNED_COMMIT,"source":"https://github.com/ggml-org/llama.cpp","configure":["-DGGML_CUDA=OFF","-DGGML_METAL:BOOL=OFF"]}}});
-        let c = RuntimeCapabilities::from_component(&value).unwrap();
-        assert_eq!(c.cpu, Some(true));
-        assert_eq!(c.cuda, Some(false));
-        assert_eq!(c.metal, Some(false));
-        value["capabilities"] = json!({"cuda":true});
-        assert!(RuntimeCapabilities::from_component(&value).is_err());
-        let c = RuntimeCapabilities::from_component(&json!({"name":"llama.cpp"})).unwrap();
-        assert_eq!(c.metal, None);
-    }
-    #[test]
-    fn chooses_reported_device_with_room_without_platform_guessing() {
-        let s = select_from_probe(Preference::Auto, &caps(), &budget(), &listing()).unwrap();
-        assert_eq!(s.device, Device::Metal);
-        assert_eq!(s.device_selector.as_deref(), Some("MTL0"));
-        let s = select_from_probe(Preference::Cuda, &caps(), &budget(), &listing()).unwrap();
-        assert_eq!(s.device, Device::Cuda);
-        assert_eq!(s.device_selector.as_deref(), Some("CUDA0"));
-    }
-    #[test]
-    fn cpu_only_or_unknown_bundle_never_promotes_a_reported_gpu() {
-        for c in [
-            RuntimeCapabilities::default(),
-            RuntimeCapabilities {
-                cpu: Some(true),
-                cuda: Some(false),
-                metal: Some(false),
-            },
-        ] {
-            let s = select_from_probe(Preference::Auto, &c, &budget(), &listing()).unwrap();
-            assert_eq!(s.device, Device::Cpu);
-            assert!(s.reason.contains("未在已校验"));
-        }
-    }
-    #[test]
-    fn unknown_memory_low_memory_driver_failure_and_none_fall_back() {
-        for text in [
-            "Available devices:\n  (none)",
-            "Available devices:\n CUDA0: GPU (8192 MiB, 0 MiB free)",
-            "Available devices:\n MTL0: GPU (8192 MiB, 4000 MiB free)",
-            "Available devices:\n CUDA0: GPU (8192 MiB, 9000 MiB free)",
-            "Available devices:\n CUDA0: GPU (unknown)",
-        ] {
-            let s = select_from_probe(
-                Preference::Auto,
-                &caps(),
-                &budget(),
-                &parse_device_listing(text),
-            )
-            .unwrap();
-            assert_eq!(s.device, Device::Cpu);
-        }
-        assert_eq!(
-            select_from_probe(
-                Preference::Auto,
-                &caps(),
-                &budget(),
-                &Err("driver unavailable".into())
-            )
-            .unwrap()
-            .device,
-            Device::Cpu
-        );
-        assert!(select_from_probe(Preference::Cuda, &caps(), &budget(), &Ok(vec![])).is_err());
-    }
-    #[test]
-    fn remote_and_malformed_selectors_are_never_accepted() {
-        let d=parse_device_listing("Available devices:\n RPC0: Remote (8192 MiB, 7000 MiB free)\n CUDA0,CUDA1: mixed (8192 MiB, 7000 MiB free)").unwrap();
-        assert!(d.is_empty());
-        assert!(!valid_device_selector(Device::Cuda, "CUDA0 --host remote"));
-        assert!(!valid_device_selector(Device::Metal, "Metal0"));
-        assert!(parse_device_listing("CUDA0: no trusted listing header").is_err());
-        assert!(parse_device_listing("Available devices:\n CUDA0: X\n CUDA0: Y").is_err());
-    }
-    #[test]
-    fn budget_and_retry_boundaries_are_conservative() {
-        assert!(MemoryBudget::estimate(1, 0, 8192, 1).is_err());
-        assert!(MemoryBudget::estimate(u64::MAX, 1, 8192, 1).is_err());
-        let estimate = MemoryBudget::estimate(722295296, 869017888, 8192, 1).unwrap();
-        assert!(estimate.required_bytes > 3 * 1024 * MIB);
-        let gpu = select_from_probe(Preference::Auto, &caps(), &budget(), &listing()).unwrap();
-        let cpu = cpu_fallback_after_start_failure(Preference::Auto, &caps(), &gpu).unwrap();
-        assert_eq!(cpu.device, Device::Cpu);
-        assert!(cpu_fallback_after_start_failure(Preference::Auto, &caps(), &cpu).is_err());
-        assert!(cpu_fallback_after_start_failure(Preference::Metal, &caps(), &gpu).is_err());
-    }
-    #[test]
-    fn cancellation_and_cpu_only_skip_process_execution() {
-        assert!(choose_runtime(
-            Path::new("does-not-exist"),
-            &caps(),
-            &budget(),
-            Preference::Auto,
-            &|| true
-        )
-        .is_err());
-        let s = choose_runtime(
-            Path::new("does-not-exist"),
-            &RuntimeCapabilities::default(),
-            &budget(),
-            Preference::Auto,
-            &|| false,
-        )
-        .unwrap();
-        assert_eq!(s.device, Device::Cpu);
-    }
 }

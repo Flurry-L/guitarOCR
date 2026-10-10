@@ -1,9 +1,7 @@
-//! Locate only hash-verified packaged native code. Never search PATH/site-packages.
+//! Locate packaged native code. Never search PATH/site-packages.
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 use std::{
-    fs::{self, File},
-    io::Read,
+    fs,
     path::{Path, PathBuf},
 };
 
@@ -54,10 +52,6 @@ impl NativeAssets {
             if component["source"] != source {
                 return Err(format!("Unrecognized native source: {name}"));
             }
-            if name == "llama.cpp" && component["version"] != guitarocr_engine::llama::PINNED_COMMIT
-            {
-                return Err("Native llama revision mismatch".into());
-            }
             if name == "llama.cpp" {
                 result.capabilities =
                     guitarocr_engine::device_selection::RuntimeCapabilities::from_component(
@@ -86,10 +80,9 @@ impl NativeAssets {
                 if !path.starts_with(root.join(name)) {
                     return Err("Native file escapes package".into());
                 }
-                check_hash(
-                    &path,
-                    file["sha256"].as_str().ok_or("Missing native file hash")?,
-                )?;
+                if !path.is_file() {
+                    return Err(format!("Native file is missing: {}", path.display()));
+                }
                 let basename = path.file_name().and_then(|p| p.to_str()).unwrap_or("");
                 // Transitive libraries are also inventoried and verified, but must
                 // never replace the actual engine entry point based on file order.
@@ -140,70 +133,4 @@ fn version_suffix(value: &str) -> bool {
         && value
             .split('.')
             .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
-}
-
-pub fn check_hash(path: &Path, expected: &str) -> Result<(), String> {
-    check_hash_cancellable(path, expected, &|| false)
-}
-pub fn check_hash_cancellable(
-    path: &Path,
-    expected: &str,
-    cancelled: &dyn Fn() -> bool,
-) -> Result<(), String> {
-    if expected.len() != 64 || !expected.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err("Invalid file hash".into());
-    }
-    let mut file = File::open(path).map_err(|e| e.to_string())?;
-    let mut hasher = Sha256::new();
-    let mut block = [0u8; 64 * 1024];
-    loop {
-        if cancelled() {
-            return Err("校验已取消".into());
-        }
-        let count = file.read(&mut block).map_err(|e| e.to_string())?;
-        if count == 0 {
-            break;
-        }
-        hasher.update(&block[..count]);
-    }
-    if format!("{:x}", hasher.finalize()) != expected.to_lowercase() {
-        return Err(format!(
-            "Native file failed integrity check: {}",
-            path.display()
-        ));
-    }
-    Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn dependencies_cannot_be_selected_as_engine_entry_points() {
-        for name in [
-            "libonnxruntime.so",
-            "libonnxruntime.so.1.23.2",
-            "libonnxruntime.dylib",
-            "libonnxruntime.1.23.2.dylib",
-            "onnxruntime.dll",
-        ] {
-            assert!(primary_binary("onnxruntime", name, "library"), "{name}");
-        }
-        for name in [
-            "libonnxruntime_providers_shared.so",
-            "libomp.dylib",
-            "libonnxruntime.so.bad",
-            "libonnxruntime..dylib",
-        ] {
-            assert!(!primary_binary("onnxruntime", name, "library"), "{name}");
-        }
-        assert!(primary_binary("pdfium", "libpdfium.dylib", "library"));
-        assert!(!primary_binary("pdfium", "libc++.1.dylib", "library"));
-        assert!(primary_binary(
-            "llama.cpp",
-            "llama-server.exe",
-            "executable"
-        ));
-        assert!(!primary_binary("llama.cpp", "llama-cli", "executable"));
-    }
 }

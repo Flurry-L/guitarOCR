@@ -5,15 +5,32 @@ from copy import deepcopy
 import json
 from pathlib import Path
 import random
+from urllib.parse import quote
 
 import guitarpro as gp
 from guitarpro import models as m
 
 from research.data.gp_sources import analyze_source
-from research.data.prepare_pitch_data import INSTRUMENT_LABELS
-from research.data.prepare_pitch_data import PROGRAM_OFFSETS
-from scorelib.percussion import VISIBLE_DRUM_KEYS
-from scorelib.percussion import DRUM_KEY_ALIASES
+from scorelib.instruments import VISIBLE_DRUM_KEYS
+from scorelib.instruments import DRUM_KEY_ALIASES
+from scorelib.chords import diagram_effect
+from scorelib.guitarpro import targets_to_song
+from scorelib.score import format_measure_target, parse_measure_target
+
+
+# Verified with the bundled native GP8 importer. These are data-generation
+# settings, never an inference lookup from a hidden MIDI program.
+PROGRAM_OFFSETS = {0: 0, 24: -12, 33: -12, 56: -2, 60: -7,
+                   64: -2, 65: -9, 66: -14, 67: -21, 69: -7, 71: 0}
+INSTRUMENT_LABELS = {
+    56: ["Trumpet in Bb", "B-flat Trumpet"],
+    60: ["Horn in F", "F Horn"],
+    64: ["Soprano Sax in Bb", "Bb Soprano Saxophone"],
+    65: ["Alto Sax in Eb", "E-flat Alto Saxophone"],
+    66: ["Tenor Sax in Bb", "Bb Tenor Saxophone"],
+    67: ["Baritone Sax in Eb", "E-flat Baritone Saxophone"],
+    69: ["English Horn in F", "Cor anglais in F"],
+}
 
 
 METERS = [(4, 4), (3, 4), (2, 4), (6, 8), (5, 4), (7, 8), (9, 8), (12, 8), (5, 8), (3, 8), (2, 2)]
@@ -199,13 +216,88 @@ def create_technique_score(index, seed, bars):
     return song, instrument, program, shift, f'Capo {capo}' if capo else None
 
 
+SHAPES = [
+    ('C', ['x', 3, 2, 0, 1, 0], [None, 3, 2, None, 1, None], []),
+    ('G', [3, 2, 0, 0, 0, 3], [2, 1, None, None, None, 3], []),
+    ('D', ['x', 'x', 0, 2, 3, 2], [None, None, None, 1, 3, 2], []),
+    ('Am', ['x', 0, 2, 2, 1, 0], [None, None, 2, 3, 1, None], []),
+    ('Em', [0, 2, 2, 0, 0, 0], [None, 2, 3, None, None, None], []),
+    ('A7', ['x', 0, 2, 0, 2, 0], [None, None, 1, None, 2, None], []),
+    ('D7', ['x', 'x', 0, 2, 1, 2], [None, None, None, 2, 1, 3], []),
+    ('Cmaj7', ['x', 3, 2, 0, 0, 0], [None, 3, 2, None, None, None], []),
+    ('Dsus4', ['x', 'x', 0, 2, 3, 3], [None, None, None, 1, 2, 3], []),
+    ('C/G', [3, 3, 2, 0, 1, 0], [3, 4, 2, None, 1, None], []),
+    ('D/F#', [2, 'x', 0, 2, 3, 2], [0, None, None, 1, 3, 2], []),
+    ('F', [1, 3, 3, 2, 1, 1], [1, 3, 4, 2, 1, 1], [[1, 0, 5]]),
+    ('Fm', [1, 3, 3, 1, 1, 1], [1, 3, 4, 1, 1, 1], [[1, 0, 5]]),
+    ('F7', [1, 3, 1, 2, 1, 1], [1, 3, 1, 2, 1, 1], [[1, 0, 5]]),
+    ('Fm7', [1, 3, 1, 1, 1, 1], [1, 3, 1, 1, 1, 1], [[1, 0, 5]]),
+    ('B', ['x', 2, 4, 4, 4, 2], [None, 1, 3, 3, 3, 1], [[2, 1, 5], [4, 2, 4]]),
+    ('Bm', ['x', 2, 4, 4, 3, 2], [None, 1, 3, 4, 2, 1], [[2, 1, 5]]),
+    ('B7', ['x', 2, 4, 2, 4, 2], [None, 1, 3, 1, 4, 1], [[2, 1, 5]]),
+]
+
+
+NAMES = [('C',), ('C#', 'Db'), ('D',), ('D#', 'Eb'), ('E',), ('F',),
+         ('F#', 'Gb'), ('G',), ('G#', 'Ab'), ('A',), ('A#', 'Bb'), ('B',)]
+
+
+def sample_diagram(rng):
+    name, frets, fingers, barres = rng.choice(SHAPES)
+    frets, fingers, barres = list(frets), list(fingers), [list(b) for b in barres]
+    if barres:
+        shift = rng.randrange(11)
+        base_pc = 5 if name.startswith('F') else 11
+        name = rng.choice(NAMES[(base_pc + shift) % 12]) + name[1:]
+        frets = [f + shift if type(f) is int else f for f in frets]
+        barres = [[f + shift, a, b] for f, a, b in barres]
+    base = min((f for f in frets if type(f) is int and f > 0), default=1)
+    if base <= 3 or 0 in frets:
+        base = 1
+    if rng.random() < .55:
+        fingers = [None] * len(frets)
+    return name, {'base_fret': base, 'frets': frets, 'fingers': fingers, 'barres': barres}
+
+
+def create_chord_score(index, seed, bars):
+    rng = random.Random(seed + index)
+    tuning = [64, 59, 55, 50, 45, 40]
+    targets = []
+    for bar in range(bars):
+        measure = parse_measure_target('M time=4/4 key=CMajor | V0{@0:w:r}')
+        events = []
+        name, diagram = sample_diagram(rng)
+        for beat in range(8):
+            changed = beat == 0 or (beat in {2, 4, 6} and rng.random() < .5)
+            if changed and beat:
+                name, diagram = sample_diagram(rng)
+            available = [(6 - i, fret) for i, fret in enumerate(diagram['frets']) if fret != 'x']
+            selected = available if index % 3 == 0 else rng.sample(available, rng.choice([1, 1, min(3, len(available))]))
+            notes = [{'string': s, 'fret': f, 'pitch': tuning[s - 1] + f,
+                      'effects': ['let'] if index % 7 == 0 else ['pm'] if index % 11 == 0 else []}
+                     for s, f in selected]
+            effects = ['chord:' + quote(name, safe=''), diagram_effect(diagram)] if changed else []
+            events.append({'start': beat * 480, 'duration': {'value': 8}, 'status': 'normal',
+                           'notes': notes, 'effects': effects})
+        measure['voices'][0]['events'] = events
+        targets.append(format_measure_target(measure, 'both'))
+    song = targets_to_song(targets, mode='both', title=f'Chord Study {index + 1}',
+                           artist='Score Studies', tuning=tuning, midi_program=24)
+    # Train both in-score names and actual diagrams; the header library is
+    # deliberately separate from the timed event sequence.
+    song.tracks[0].settings.diagramList = index % 3 == 0
+    song.tracks[0].settings.diagramsInScore = index % 2 == 0
+    return song, 'guitar', 24, -12, None
+
+
 def build(output, sources=1200, bars=24, seed=20260928, profile='general'):
     output = output.resolve()
     (output / 'sources').mkdir(parents=True, exist_ok=True)
     (output / 'labels').mkdir(exist_ok=True)
     catalog, manifest = [], []
     for index in range(sources):
-        creator = create_technique_score if profile == 'techniques' else create_score
+        creator = {'general': create_score, 'techniques': create_technique_score,
+                   'chords': create_chord_score}[profile]
         song, instrument, program, shift, instruction = creator(index, seed, bars)
         source_id = f'{seed:08x}{index:08x}'
         # Rotate holdouts so every instrument has independently generated scores.
@@ -225,7 +317,7 @@ def build(output, sources=1200, bars=24, seed=20260928, profile='general'):
         catalog.append(row)
         manifest.extend({'document_id': f'{mode}-{source_id}', 'source_family_id': family,
                          'split': 'dev' if split == 'validation' else split, 'instrument_kind': instrument,
-                         'source': f'sources/{source_id}.gp5', 'display_mode': mode} for mode in modes)
+                         'source': f'{source_id}.gp5', 'display_mode': mode} for mode in modes)
         if (index + 1) % 100 == 0:
             print('Generated', index + 1, 'scores', flush=True)
     (output / 'source_catalog.json').write_text(json.dumps({'sources': catalog}, indent=2))
@@ -235,9 +327,9 @@ def build(output, sources=1200, bars=24, seed=20260928, profile='general'):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--output', type=Path, default=Path('database/parallel_synthetic'))
+    parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--sources', type=int, default=1200)
     parser.add_argument('--bars', type=int, default=24)
     parser.add_argument('--seed', type=int, default=20260928)
-    parser.add_argument('--profile', choices=['general', 'techniques'], default='general')
+    parser.add_argument('--profile', choices=['general', 'techniques', 'chords'], default='general')
     build(**vars(parser.parse_args()))

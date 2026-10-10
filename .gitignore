@@ -3,7 +3,6 @@
 venv/
 __pycache__/
 *.py[cod]
-.pytest_cache/
 .ruff_cache/
 *.egg-info/
 build/
@@ -12,7 +11,7 @@ dist/
 # Downloaded third-party runtimes
 tools/
 
-# Original corpora and local acceptance-test material
+# Original score corpora
 music-scores-collection/
 
 # Generated datasets, annotations, logs, checkpoints and inference artifacts
@@ -43,6 +42,14 @@ weights/*/gguf/*.gguf
 /gpbridge/bin/*.lib
 /gpbridge/bin/*.exp
 /gpbridge/bin/*.pdb
+/gpbridge/bin/build-manifest.json
 *.so
 *.dylib
 *.pyd
+
+# Desktop dependencies and generated resources
+/desktop/node_modules/
+/desktop/src-tauri/gen/
+/desktop/src-tauri/resources/
+/ui/launcher/theme.css
+/ui/launcher/theme.js

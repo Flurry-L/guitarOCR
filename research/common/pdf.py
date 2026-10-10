@@ -1,7 +1,6 @@
 """PDF rendering and extraction in visible-page, top-left coordinates."""
 
 from contextlib import closing, contextmanager
-import ctypes
 from pathlib import Path
 from threading import RLock
 
@@ -60,14 +59,7 @@ class PdfPage:
         with closing(document._native[index]) as page:
             self.width, self.height = page.get_size()
             self._rotation = page.get_rotation()
-            left, bottom, right, top = page.get_bbox()
-            ml, mb, mr, mt = page.get_mediabox()
-            self._crop_origin = {
-                0: (left - ml, mt - top),
-                90: (bottom - mb, left - ml),
-                180: (mr - right, bottom - mb),
-                270: (mt - top, mr - right),
-            }[self._rotation]
+            self._bbox = page.get_bbox()
 
     def render(self, dpi=180, *, grayscale=True):
         with closing(self._document._native[self._index]) as page:
@@ -77,58 +69,20 @@ class PdfPage:
             finally:
                 bitmap.close()
 
-    def has_vectors(self, minimum=6):
-        with closing(self._document._native[self._index]) as page:
-            for count, _ in enumerate(page.get_objects(filter=[raw.FPDF_PAGEOBJ_PATH]), 1):
-                if count >= minimum:
-                    return True
-        return False
-
-    def line_paths(self):
-        """Keep each PDF path together, including transformed Form XObjects."""
-        paths = []
-        with closing(self._document._native[self._index]) as page:
-            left, bottom, right, top = page.get_bbox()
-            rotation = page.get_rotation()
-
-            def point(obj, x, y):
-                parent = obj
-                while parent is not None:
-                    x, y = parent.get_matrix().on_point(x, y)
-                    parent = parent.container
-                if rotation == 90:
-                    return y - bottom, x - left
-                if rotation == 180:
-                    return right - x, y - bottom
-                if rotation == 270:
-                    return top - y, right - x
-                return x - left, top - y
-
-            for obj in page.get_objects(filter=[raw.FPDF_PAGEOBJ_PATH]):
-                segments, previous, start = [], None, None
-                for index in range(raw.FPDFPath_CountSegments(obj)):
-                    segment = raw.FPDFPath_GetPathSegment(obj, index)
-                    x, y = ctypes.c_float(), ctypes.c_float()
-                    if not raw.FPDFPathSegment_GetPoint(segment, x, y):
-                        previous = None
-                        continue
-                    current = point(obj, x.value, y.value)
-                    kind = raw.FPDFPathSegment_GetType(segment)
-                    if kind == raw.FPDF_SEGMENT_MOVETO:
-                        start = current
-                    elif kind == raw.FPDF_SEGMENT_LINETO and previous is not None:
-                        segments.append((previous, current))
-                    if raw.FPDFPathSegment_GetClose(segment) and start is not None:
-                        segments.append((current, start))
-                    previous = current
-                paths.append(segments)
-        return paths
-
     def _text_page(self):
         if self._document._text is None:
             self._document._text = pdfplumber.open(self._document.path)
         page = self._document._text.pages[self._index]
-        dx, dy = self._crop_origin
+        # PDFium's media-box accessor returns US Letter when MediaBox is
+        # inherited. pdfminer's resolved page attributes include that parent.
+        left, bottom, right, top = self._bbox
+        ml, mb, mr, mt = page.page_obj.mediabox
+        dx, dy = {
+            0: (left - ml, mt - top),
+            90: (bottom - mb, left - ml),
+            180: (mr - right, bottom - mb),
+            270: (mt - top, mr - right),
+        }[self._rotation]
         x, y = page.bbox[0] + dx, page.bbox[1] + dy
         return page.crop((x, y, x + self.width, y + self.height), strict=False)
 
@@ -152,6 +106,17 @@ class PdfPage:
             use_text_flow=True, line_dir_render="ttb", char_dir_render="ltr",
             **self._text_direction(),
         ) or ""
+
+    def dashed_lines(self):
+        """Horizontal dashed PDF strokes in the same coordinates as words()."""
+        page = self._text_page()
+        x, y, _, _ = page.bbox
+        return [
+            (line["x0"] - x, line["top"] - y, line["x1"] - x)
+            for line in page.lines
+            if line["stroke"] and line.get("dash") and any(line["dash"][0])
+            and abs(line["bottom"] - line["top"]) < 0.01
+        ]
 
     def words(self):
         page = self._text_page()

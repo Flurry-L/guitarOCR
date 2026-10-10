@@ -1,7 +1,7 @@
 //! One model process, bounded admission and independent request cancellation.
 //! llama.cpp owns continuous batching and the KV cache inside the process.
 use crate::{
-    device_selection::{self, MemoryBudget, Preference, RuntimeCapabilities, Selection},
+    device_selection::{self, MemoryBudget, RuntimeCapabilities, Selection},
     llama::{self, Config, Engine},
 };
 use serde_json::{json, Value};
@@ -21,6 +21,8 @@ pub struct Options {
     pub accelerator: Option<PathBuf>,
     pub model: PathBuf,
     pub projector: PathBuf,
+    pub adapter: Option<PathBuf>,
+    pub adapter_tasks: Vec<String>,
     pub log: PathBuf,
     pub capabilities: RuntimeCapabilities,
     pub slots: usize,
@@ -56,20 +58,41 @@ impl Drop for Permit<'_> {
 }
 pub struct Session<'a> {
     engine: Arc<Engine>,
+    adapter_tasks: &'a [String],
     cancelled: &'a dyn Fn() -> bool,
     report: &'a dyn Fn(&str) -> Result<()>,
 }
 impl Session<'_> {
-    pub fn report(&self, message: &str) -> Result<()> {
-        (self.report)(message)
+    pub fn adapter_enabled_for(&self, task: &str) -> bool {
+        self.engine.has_adapter() && self.adapter_tasks.iter().any(|allowed| allowed == task)
     }
-    pub fn generate_batch(
+    pub fn generate_with_adapter(
         &mut self,
-        messages: Vec<(Value, Option<Value>)>,
+        messages: Value,
+        max_tokens: usize,
+        schema: Option<Value>,
+        grammar: Option<&str>,
+        adapted: bool,
+    ) -> Result<llama::Generation> {
+        self.engine.generate_with_adapter(
+            messages,
+            max_tokens,
+            schema,
+            grammar,
+            adapted,
+            self.cancelled,
+        )
+    }
+    pub fn generate_batch_with_adapters(
+        &mut self,
+        messages: Vec<(Value, Option<Value>, bool)>,
         max_tokens: usize,
     ) -> Result<Vec<llama::Generation>> {
         self.engine
-            .generate_batch_cancellable(messages, max_tokens, self.cancelled)
+            .generate_batch_with_adapters(messages, max_tokens, self.cancelled)
+    }
+    pub fn report(&self, message: &str) -> Result<()> {
+        (self.report)(message)
     }
     pub fn generate(
         &mut self,
@@ -79,7 +102,7 @@ impl Session<'_> {
         grammar: Option<&str>,
     ) -> Result<llama::Generation> {
         self.engine
-            .generate_cancellable(messages, max_tokens, schema, grammar, self.cancelled)
+            .generate_with_adapter(messages, max_tokens, schema, grammar, false, self.cancelled)
     }
 }
 impl Runtime {
@@ -166,12 +189,19 @@ impl Runtime {
             if state.engine.as_ref().is_none_or(|engine| !engine.alive()) {
                 state.engine = None;
                 report("正在加载识别模型")?;
-                let budget = MemoryBudget::from_files(
+                let mut budget = MemoryBudget::from_files(
                     &self.options.model,
                     &self.options.projector,
                     self.options.context,
                     self.options.slots,
                 )?;
+                if let Some(adapter) = &self.options.adapter {
+                    let bytes = std::fs::metadata(adapter).map_err(|e| e.to_string())?.len();
+                    budget.required_bytes = budget
+                        .required_bytes
+                        .checked_add(bytes + bytes / 4)
+                        .ok_or("Adapter memory estimate overflow")?;
+                }
                 let mut capabilities = self.options.capabilities.clone();
                 if self.options.accelerator.is_some() {
                     capabilities.cuda = Some(true);
@@ -183,7 +213,6 @@ impl Runtime {
                         .unwrap_or(&self.options.executable),
                     &capabilities,
                     &budget,
-                    Preference::Auto,
                     cancelled,
                 )?;
                 let config = |selected: &Selection| Config {
@@ -198,6 +227,7 @@ impl Runtime {
                     },
                     model: self.options.model.clone(),
                     projector: self.options.projector.clone(),
+                    adapter: self.options.adapter.clone(),
                     log: self.options.log.clone(),
                     device: selected.device,
                     device_selector: selected.device_selector.clone(),
@@ -217,7 +247,6 @@ impl Runtime {
                             return Err("Inference cancelled".into());
                         }
                         selected = device_selection::cpu_fallback_after_start_failure(
-                            Preference::Auto,
                             &self.options.capabilities,
                             &selected,
                         )
@@ -233,6 +262,7 @@ impl Runtime {
         };
         operation(&mut Session {
             engine,
+            adapter_tasks: &self.options.adapter_tasks,
             cancelled,
             report,
         })
@@ -246,19 +276,5 @@ impl Runtime {
                 engine.cancellation_handle().stop();
             }
         }
-    }
-    pub fn unload(&self) -> Result<()> {
-        let queue = self
-            .queue
-            .lock()
-            .map_err(|_| "Inference queue unavailable")?;
-        if queue.active > 0 || !queue.waiting.is_empty() {
-            return Err("模型正在使用，请先停止任务".into());
-        }
-        self.state
-            .lock()
-            .map_err(|_| "Model state unavailable")?
-            .engine = None;
-        Ok(())
     }
 }

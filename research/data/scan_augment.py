@@ -2,17 +2,17 @@
 
 import argparse
 from concurrent.futures import ProcessPoolExecutor
-from hashlib import sha256
 from io import BytesIO
 import json
 from pathlib import Path
+import random
 
 import numpy as np
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
 
 def degrade(image: Image.Image, key: str, *, crop: bool = False) -> Image.Image:
-    rng = np.random.default_rng(int.from_bytes(sha256(key.encode()).digest()[:8], "big"))
+    rng = np.random.default_rng(random.Random(key).getrandbits(64))
     image = image.convert("L")
     size = image.size
     if crop:
@@ -44,14 +44,10 @@ def _save(job):
         degrade(image, key, crop=crop).save(destination, compress_level=3)
 
 
-def augment_measure_manifest(source: Path, output: Path, max_samples: int, seed: int, workers: int):
-    from research.data.sampling import load_measure_rows
-
+def augment_measure_manifest(source: Path, output: Path, seed: int, workers: int):
     if output.exists():
         raise FileExistsError(output)
-    if max_samples < 0:
-        raise ValueError("max_samples must be nonnegative; use 0 for complete sequences")
-    rows = load_measure_rows(source, max_samples, seed)
+    rows = [json.loads(line) for line in source.read_text().splitlines() if line.strip()]
     if not rows:
         raise ValueError("No measure samples found")
     output.mkdir(parents=True)
@@ -62,9 +58,7 @@ def augment_measure_manifest(source: Path, output: Path, max_samples: int, seed:
                               f"{seed}:{source.stem}:{r['id']}", True) for r in augmented), chunksize=16))
     destination = output / source.name
     destination.write_text("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in augmented))
-    report = {"samples": len(rows), "seed": seed, "max_samples": max_samples,
-              "source_manifest_sha256": sha256(source.read_bytes()).hexdigest(),
-              "manifest_sha256": sha256(destination.read_bytes()).hexdigest(),
+    report = {"samples": len(rows), "seed": seed,
               "augmentation": "scan crop=True; separate stress evaluation, not real scans"}
     (output / "summary.json").write_text(json.dumps(report, indent=2) + "\n")
     return report
@@ -86,7 +80,7 @@ def augment_layout(source: Path, output: Path, splits: list[str], fraction: floa
         annotations = list(payload["annotations"])
         generated = []
         if split in splits:
-            chosen = sorted(payload["images"], key=lambda r: sha256(f"{seed}:{split}:{r['id']}".encode()).digest())[:round(len(images) * fraction)]
+            chosen = random.Random(f"{seed}:{split}").sample(payload["images"], round(len(images) * fraction))
             max_id = max(r["id"] for r in images)
             remapping = {}
             for index, row in enumerate(chosen, 1):
@@ -105,7 +99,7 @@ def augment_layout(source: Path, output: Path, splits: list[str], fraction: floa
                 images.extend(generated)
                 annotations.extend({**row, "id": max_ann + index} for index, row in enumerate(augmented_annotations, 1))
         (output / "annotations" / path.name).write_text(json.dumps({**payload, "images": images, "annotations": annotations}) + "\n")
-        summary["splits"][split] = {"pages": len(images), "augmented_pages": len(generated), "source_annotations_sha256": sha256(path.read_bytes()).hexdigest()}
+        summary["splits"][split] = {"pages": len(images), "augmented_pages": len(generated)}
         print(split, summary["splits"][split], flush=True)
     (output / "augmentation.json").write_text(json.dumps(summary, indent=2) + "\n")
 
@@ -121,12 +115,11 @@ def main():
     parser.add_argument("--seed", type=int, default=20260927)
     parser.add_argument("--replace", action="store_true", help="Evaluate degraded pages separately from clean originals")
     parser.add_argument("--workers", type=int, default=8)
-    parser.add_argument("--max-samples", type=int, default=900, help="OCR source/mode stratified limit; 0 retains complete sequences")
     args = parser.parse_args()
     if args.measure_manifest:
         if args.split or args.replace:
             parser.error("--split and --replace apply only to layout datasets")
-        print(augment_measure_manifest(args.measure_manifest, args.output, args.max_samples, args.seed, args.workers))
+        print(augment_measure_manifest(args.measure_manifest, args.output, args.seed, args.workers))
     else:
         augment_layout(args.source, args.output, args.split or ["train"], args.fraction, args.seed, args.replace, args.workers)
 

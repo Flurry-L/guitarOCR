@@ -6,11 +6,10 @@ import re
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
-from research.data.annotations import printed_text
-from research.data.training_samples import dataset_entry
-from research.inference.information.prompts import STAFF_PROMPT
-from research.inference.information.staff_image import focus_staff
 from research.common.pdf import open_pdf
+from research.data.native_supervision import printed_text
+from research.data.prompts import STAFF_PROMPT
+from research.data.training_samples import dataset_entry
 
 
 def visible_instrument(name, mode, percussion):
@@ -69,14 +68,25 @@ def sample(job):
         visible_name = track.get(system.get("track_label", ""))
         # Native PDFs may extract "el.bs." as "el.\nb\ns.". Ignore
         # extraction whitespace when checking that the name is printed.
-        if not visible_name or "".join(
+        if visible_name and "".join(
             printed_text(visible_name).split()
         ) not in "".join(printed_text(printed).split()):
-            visible_name = None
+            # A source-name mismatch can be a readable shortened label, such
+            # as "dist...". It does not prove that a label is absent. Keep
+            # uncertain supervision out of training until it is annotated.
+            return row["split"], {
+                "excluded": {
+                    "source_id": row["source_id"],
+                    "mode": mode,
+                    "source_name": visible_name,
+                    "reason": "visible_label_text_unverified",
+                }
+            }
+        visible_name = visible_name or None
         instrument = visible_instrument(visible_name, mode, percussion)
         destination = output / "images" / f"{row['source_id']}-{mode}.png"
         destination.parent.mkdir(parents=True, exist_ok=True)
-        focus_staff(image.crop((0, top, image.width, bottom))).save(destination)
+        image.crop((0, top, image.width, bottom)).convert("RGB").save(destination)
     target = {
         "instrument": instrument,
         "name": visible_name,
@@ -95,6 +105,7 @@ def sample(job):
             "mode": mode,
             "kind": "staff",
             "visible_name": visible_name,
+            "label_visibility": "visible_label" if visible_name else "absent_label",
             "focused_staff": True,
         },
     }
@@ -111,9 +122,13 @@ def build(roots, output, workers):
                 for mode in row.get("modes", ["tab", "both", "notation"])
             )
     samples = {split: [] for split in ("train", "validation", "test")}
+    excluded = []
     with ProcessPoolExecutor(workers) as pool:
         for index, (split, value) in enumerate(pool.map(sample, jobs), 1):
-            samples[split].append(value)
+            if "excluded" in value:
+                excluded.append({"split": split, **value["excluded"]})
+            else:
+                samples[split].append(value)
             if index % 100 == 0:
                 print(f"Staff crops {index}/{len(jobs)}", flush=True)
     output.mkdir(parents=True, exist_ok=True)
@@ -125,6 +140,9 @@ def build(roots, output, workers):
         )
         info[name] = dataset_entry(f"{name}.json")
     (output / "dataset_info.json").write_text(json.dumps(info, indent=2) + "\n")
+    (output / "visibility_exclusions.json").write_text(
+        json.dumps(excluded, ensure_ascii=False, indent=2) + "\n"
+    )
     print({split: len(values) for split, values in samples.items()}, flush=True)
 
 

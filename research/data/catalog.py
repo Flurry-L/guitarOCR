@@ -1,13 +1,39 @@
 """One source-family assignment shared by all layouts and training tasks."""
 
+from __future__ import annotations
+
 import json
 from collections import Counter
 from copy import deepcopy
-from hashlib import sha256
 from pathlib import Path
-from typing import Any
+import random
+from typing import Any, Iterable
 
-from research.common.artifacts import write_json
+
+def write_json(path: Path, value: Any) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(
+        json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    temporary.replace(path)
+    return path
+
+
+def write_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    with temporary.open("w", encoding="utf-8") as handle:
+        for row in rows:
+            handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+    temporary.replace(path)
+
+
+def native_document(label_path, mode):
+    path = Path(label_path)
+    root = path.parent.parent
+    return root / 'native-export' / 'documents' / f'{mode}-{path.stem}'
+
 
 SPLITS = ("train", "validation", "test")
 
@@ -32,10 +58,6 @@ def source_catalog(root: Path, seed: int = 20260715) -> dict[str, dict]:
                 "source_catalog.json must contain each selected source exactly once"
             )
     else:
-        old = root / "source_splits.json"
-        assignments = (
-            json.loads(old.read_text(encoding="utf-8")) if old.exists() else None
-        )
         groups = {}
         for label in labels:
             family = str(
@@ -49,8 +71,7 @@ def source_catalog(root: Path, seed: int = 20260715) -> dict[str, dict]:
                 groups[family]["statistics"]["tags"] = sorted(
                     set(tags) | set(label["statistics"].get("tags", []))
                 )
-        if assignments is None:
-            family_splits, _ = stratified_source_splits(list(groups.values()), seed)
+        family_splits, _ = stratified_source_splits(list(groups.values()), seed)
         catalog = {}
         for label in labels:
             sid = label["source_id"]
@@ -58,9 +79,7 @@ def source_catalog(root: Path, seed: int = 20260715) -> dict[str, dict]:
             catalog[sid] = {
                 "source_id": sid,
                 "family": family,
-                "split": assignments[sid]
-                if assignments is not None
-                else family_splits[family],
+                "split": family_splits[family],
                 "source_path": label["source_path"],
             }
     families = {}
@@ -72,9 +91,6 @@ def source_catalog(root: Path, seed: int = 20260715) -> dict[str, dict]:
             raise ValueError(f"Source family crosses dataset splits: {row['family']}")
     write_json(
         path, {"schema_version": "1.0", "seed": seed, "sources": list(catalog.values())}
-    )
-    write_json(
-        root / "source_splits.json", {sid: row["split"] for sid, row in catalog.items()}
     )
     return catalog
 
@@ -127,8 +143,7 @@ def stratified_source_splits(
     assigned_counts = Counter()
 
     def stable(source_id: str, split: str) -> float:
-        digest = sha256(f"{seed}:{split}:{source_id}".encode("utf-8")).digest()
-        return int.from_bytes(digest[:8], "big") / float(2**64)
+        return random.Random(f"{seed}:{split}:{source_id}").random()
 
     def assign(source_id: str, split: str) -> None:
         assignments[source_id] = split

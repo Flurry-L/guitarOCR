@@ -1,9 +1,10 @@
 """Export inference-only auxiliary networks; conversion dependencies stay on the build machine."""
 
 import argparse
-from pathlib import Path
+import json
 import subprocess
 import sys
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -20,11 +21,11 @@ def strip_source_paths(message):
 
 def export(output, paddle_python, layout_model=None, score_model=None, only=None):
     import onnx
-    from research.defaults import LAYOUT_MODEL
-    from research.defaults import MEASURE_ADAPTER
+
+    from research.defaults import LAYOUT_MODEL, SCORE_ADAPTER
 
     layout_model = layout_model or LAYOUT_MODEL
-    score_model = score_model or MEASURE_ADAPTER / 'merged'
+    score_model = score_model or SCORE_ADAPTER / 'merged'
 
     output.mkdir(parents=True, exist_ok=True)
     if only != 'signature':
@@ -38,14 +39,18 @@ def export(output, paddle_python, layout_model=None, score_model=None, only=None
     if only != 'layout':
         import torch
         from safetensors.torch import load_file
-        from research.models.state_network import SignatureNetwork
 
-        model = SignatureNetwork().eval()
-        model.load_state_dict(load_file(str(score_model / 'state_reader/state.safetensors')))
-        # At the fixed 192 x 512 input, the feature map is exactly 6 x 16.
-        model.features[-1] = torch.nn.AvgPool2d((6, 4))
+        from research.common.signature_image import signature_config
+        from research.models.auxiliary import make_signature_network
+
+        state_root = score_model if (score_model / 'state.safetensors').is_file() else score_model / 'state_reader'
+        config = signature_config(state_root)
+        model = make_signature_network(config).eval()
+        model.load_state_dict(load_file(str(state_root / 'state.safetensors')))
+        shape = config['input']
+        sample = torch.zeros(1, 3, shape['height'], shape['width'])
         torch.set_num_threads(4)
-        torch.onnx.export(model, torch.zeros(1, 2, 3, 192, 512), str(output / 'signature.onnx'),
+        torch.onnx.export(model, sample, str(output / 'signature.onnx'),
                           input_names=['images'], output_names=['key', 'numerator', 'denominator'],
                           dynamic_axes={name: {0: 'batch'} for name in ('images', 'key', 'numerator', 'denominator')},
                           opset_version=17, dynamo=False)
@@ -57,6 +62,25 @@ def export(output, paddle_python, layout_model=None, score_model=None, only=None
         strip_source_paths(model)
         model.producer_name = 'guitarocr'
         model.producer_version = '0.1'
+        if name == 'layout':
+            from research.common.images import (
+                METADATA_KEY,
+                SIZE_METADATA_KEY,
+                paddle_preprocessing,
+            )
+
+            metadata = {entry.key: entry.value for entry in model.metadata_props}
+            contract, input_size = paddle_preprocessing(layout_model)
+            metadata[METADATA_KEY] = contract
+            metadata[SIZE_METADATA_KEY] = str(input_size)
+            onnx.helper.set_model_props(model, metadata)
+        if name == 'signature':
+            metadata = {entry.key: entry.value for entry in model.metadata_props}
+            metadata['guitarocr.signature_config'] = json.dumps(config, separators=(',', ':'))
+            calibration_path = state_root / 'calibration.json'
+            if calibration_path.is_file():
+                metadata['guitarocr.signature_calibration'] = json.dumps(json.loads(calibration_path.read_text()), separators=(',', ':'))
+            onnx.helper.set_model_props(model, metadata)
         onnx.save(model, path)
 
 

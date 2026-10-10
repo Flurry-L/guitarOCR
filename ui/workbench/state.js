@@ -17,14 +17,15 @@ export const ui = {
   boxDirty: false,
   measureDirty: false,
   metadataDirty: false,
+  libraryDirty: false,
 };
 
 // A server snapshot is distinct from unsaved form/score/canvas drafts.
 export function hasDrafts() {
-  return ui.boxDirty || ui.metadataDirty || ui.measureDirty;
+  return ui.boxDirty || ui.metadataDirty || ui.libraryDirty || ui.measureDirty;
 }
 export function clearDrafts() {
-  ui.boxDirty = ui.metadataDirty = ui.measureDirty = false;
+  ui.boxDirty = ui.metadataDirty = ui.libraryDirty = ui.measureDirty = false;
 }
 export function openProject(id, { discardDrafts = false } = {}) {
   if (discardDrafts) {
@@ -58,12 +59,5 @@ export async function commitMeasureDraft({ sid, index, revision, body }, send) {
   const saved = await send(`/api/sessions/${sid}/measures/${index + 1}`, "PUT", body, revision);
   if (ui.sid !== sid || ui.state !== snapshot || saved.id !== sid) return false;
   receiveProject(saved);
-  return true;
-}
-
-// Saving a measure invalidates the OCR checkpoint; resume must use it directly.
-export async function resumeCheckpoint({ dirty, confirm, start }) {
-  if (dirty && !confirm("继续会从中断记录恢复，成功会替换当前未保存草稿；失败或取消会保留草稿。继续？")) return false;
-  await start("/recognize", { resume: true });
   return true;
 }

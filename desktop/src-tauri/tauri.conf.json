@@ -5,8 +5,8 @@
   "identifier": "io.github.flurry-l.guitarocr",
   "build": {
     "frontendDist": "../../ui/launcher",
-    "beforeDevCommand": "node sync-assets.mjs",
-    "beforeBuildCommand": "node sync-assets.mjs"
+    "beforeDevCommand": "node ../scripts/prepare_native_desktop.mjs --ui-only",
+    "beforeBuildCommand": "node ../scripts/prepare_native_desktop.mjs --ui-only"
   },
   "app": {
     "withGlobalTauri": true,

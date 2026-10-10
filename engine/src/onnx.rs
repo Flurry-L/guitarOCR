@@ -10,6 +10,22 @@ fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 
+/// Class and probabilities for a nonempty, finite classifier output.
+pub fn classify(logits: &[f32]) -> (usize, Vec<f64>) {
+    // Strict comparison preserves Python's first-argmax tie convention.
+    let index =
+        (1..logits.len()).fold(0, |best, i| if logits[i] > logits[best] { i } else { best });
+    let mut probabilities: Vec<f64> = logits
+        .iter()
+        .map(|value| (f64::from(*value) - f64::from(logits[index])).exp())
+        .collect();
+    let total: f64 = probabilities.iter().sum();
+    for value in &mut probabilities {
+        *value /= total;
+    }
+    (index, probabilities)
+}
+
 /// Initialize exactly once with an application-verified bundled ORT library.
 /// No implicit search path/download is allowed. rc.10 uses the ORT 1.22 ABI.
 pub fn initialize_runtime(path: &Path) -> Result<()> {

@@ -7,9 +7,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-from scorelib.m2 import format_measure_target
+from scorelib.score import format_measure_target
 from scorelib.instruments import track_instrument
-from scorelib.percussion import visible_drum_key
+from scorelib.instruments import visible_drum_key
 
 
 from scorelib.guitarpro import encode_measure, _enum_name
@@ -129,6 +129,7 @@ def song_sequence_payload(song: Any, track_index: int, source_path: Path, source
         tags.append("multi_voice")
     return {
         "schema_version": "2.0",
+        # Content identity deduplicates copies and keeps one song in one split.
         "source_id": source_hash[:16],
         "sha256": source_hash,
         "source_path": str(source_path.resolve()),

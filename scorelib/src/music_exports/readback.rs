@@ -57,7 +57,7 @@ impl<'a> Reader<'a> {
         Ok(())
     }
 }
-pub(super) fn verify(bytes: &[u8], expected: &Value) -> R<()> {
+pub(super) fn verify(bytes: &[u8], expected: &Value, initial_tempo: i64) -> R<()> {
     let mut r = Reader { data: bytes, at: 0 };
     r.take(31)?;
     for _ in 0..9 {
@@ -77,7 +77,10 @@ pub(super) fn verify(bytes: &[u8], expected: &Value) -> R<()> {
         r.string()?
     }
     r.string()?;
-    r.take(10 + 768 + 38 + 4)?;
+    if r.i()? as i64 != initial_tempo {
+        return Err("GP5 opening tempo readback mismatch".into());
+    }
+    r.take(6 + 768 + 38 + 4)?;
     let measures = r.count()?;
     let tracks = r.count()?;
     for bi in 0..measures {
@@ -157,6 +160,7 @@ pub(super) fn verify(bytes: &[u8], expected: &Value) -> R<()> {
                         exact_denominator = enters as i128;
                         duration = duration * times / enters as i64;
                     }
+                    let mut diagram = Value::Null;
                     if flags & 2 != 0 {
                         match r.u()? {
                             0 => {
@@ -170,6 +174,16 @@ pub(super) fn verify(bytes: &[u8], expected: &Value) -> R<()> {
                                 if chord[74] > 5 {
                                     return Err("Invalid GP5 barre count".into());
                                 }
+                                let integer = |offset| {
+                                    i32::from_le_bytes(
+                                        chord[offset..offset + 4].try_into().unwrap(),
+                                    )
+                                };
+                                diagram = json!({"base":integer(42),
+                                    "frets":(0..7).map(|i| integer(46+4*i)).collect::<Vec<_>>(),
+                                    "fingers":(0..7).map(|i| chord[98+i] as i8).collect::<Vec<_>>(),
+                                    "barres":(0..chord[74] as usize).map(|i| [chord[75+i],chord[80+i],chord[85+i]]).collect::<Vec<_>>(),
+                                    "show":chord[105]!=0});
                             }
                             _ => return Err("Invalid GP5 chord schema".into()),
                         }
@@ -196,6 +210,7 @@ pub(super) fn verify(bytes: &[u8], expected: &Value) -> R<()> {
                             r.take(1)?;
                         }
                     }
+                    let mut tempo = Value::Null;
                     if flags & 16 != 0 {
                         r.take(1 + 16 + 6)?;
                         r.string()?;
@@ -203,6 +218,7 @@ pub(super) fn verify(bytes: &[u8], expected: &Value) -> R<()> {
                         if !(1..=1000).contains(&bpm) {
                             return Err("Invalid GP5 tempo".into());
                         }
+                        tempo = json!(bpm);
                         r.take(4)?;
                         r.string()?;
                         r.string()?;
@@ -267,7 +283,7 @@ pub(super) fn verify(bytes: &[u8], expected: &Value) -> R<()> {
                     r.take(2)?;
                     let exact_duration =
                         crate::score::Rational::new(exact_numerator, exact_denominator)?;
-                    result.push(json!({"measure":mi,"track":ti,"voice":vi,"start":cursor,"duration":duration,"duration_fraction":[exact_duration.numerator.to_string(),exact_duration.denominator.to_string()],"status":status,"notes":notes}));
+                    result.push(json!({"measure":mi,"track":ti,"voice":vi,"start":cursor,"duration":duration,"duration_fraction":[exact_duration.numerator.to_string(),exact_duration.denominator.to_string()],"status":status,"notes":notes,"diagram":diagram,"tempo":tempo}));
                     if status != 0 {
                         cursor += duration;
                     }
@@ -279,9 +295,24 @@ pub(super) fn verify(bytes: &[u8], expected: &Value) -> R<()> {
     if r.at != bytes.len() {
         return Err("GP5 output contains trailing data".into());
     }
+    // Independent importers merge beats with the same onset. Two diagrams on
+    // zero-length carriers would overwrite each other despite valid bytes.
+    let mut chord_positions = std::collections::HashSet::new();
+    for beat in &result {
+        if !beat["diagram"].is_null()
+            && !chord_positions.insert((
+                beat["measure"].as_i64(),
+                beat["track"].as_i64(),
+                beat["voice"].as_i64(),
+                beat["start"].as_i64(),
+            ))
+        {
+            return Err("GP5 import would merge multiple chord diagrams at the same onset; no output written".into());
+        }
+    }
     if json!(result) != *expected {
         return Err(
-            "Native GP5 readback changed notes, ties, durations or voice timing; no output written"
+            "Native GP5 readback changed notes, ties, durations, voice timing or chord diagrams; no output written"
                 .into(),
         );
     }

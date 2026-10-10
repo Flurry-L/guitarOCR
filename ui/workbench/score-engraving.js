@@ -1,5 +1,45 @@
 import * as alphaTab from "./vendor/alphaTab.mjs";
-import { pitchShift, ticks } from "./score-model.js";
+import { addGraceNotes, noteEffects, beatEffects, swappedAccidental, dynamicValue } from "./score-effects.js";
+import { buildMasterBars, writtenKey } from "./score-structure.js";
+import { pitchShift, ticks, projectVisibleTechniques } from "./score-model.js";
+
+export const scoreDisplaySettings = Object.freeze({effectBandPaddingBottom: 8});
+
+// alphaTab 1.8.4 exposes the renderer factories through Environment. Reuse
+// its native glyphs and layout bands; keep these narrow adaptations together
+// so an alphaTab upgrade can be checked against the browser regression.
+const factories = alphaTab.Environment.defaultRenderers;
+const notation = factories.find(factory => factory.staffId === 'score');
+const tab = factories.find(factory => factory.staffId === 'tab');
+const elements = alphaTab.NotationElement;
+const palmMute = tab?.effectBands.find(band => band.effect.notationElement === elements.EffectPalmMute);
+if (notation && palmMute && !notation.effectBands.some(band => band.effect.notationElement === elements.EffectPalmMute)) {
+  const effect = Object.create(palmMute.effect);
+  // PM continuation lines need their own band beside chord names.
+  Object.defineProperty(effect, 'canShareBand', {value: false});
+  notation.effectBands.push({...palmMute, effect, shouldCreate: staff => !staff.showTablature});
+}
+for (const factory of factories) for (const band of factory.effectBands || []) {
+  if (band.effect.notationElement === elements.EffectMarker) {
+    const effect = Object.create(band.effect);
+    // A section name and the first chord can share the same x coordinate.
+    Object.defineProperty(effect, 'canShareBand', {value: false});
+    band.effect = effect;
+  }
+  if (band.effect.notationElement === elements.EffectPalmMute) {
+    const effect = Object.create(band.effect);
+    // A shared TAB band can put P.M. directly on a chord name. Padding
+    // cannot separate two glyphs that were assigned the same band.
+    Object.defineProperty(effect, 'canShareBand', {value: false});
+    band.effect = effect;
+  }
+  if (band.effect.notationElement !== elements.EffectDynamics) continue;
+  const effect = Object.create(band.effect);
+  // Unmarked notes use F internally, but that playback default is not a
+  // printed source marking. Repeated explicit markings must remain visible.
+  effect.shouldCreateGlyph = (_settings, beat) => beat.engravedDynamic === true && !beat.isEmpty;
+  band.effect = effect;
+}
 
 export { alphaTab };
 const M = alphaTab.model;
@@ -25,14 +65,6 @@ export function reviewKind(measure) {
 // Serialized Ottavia values; upstream's minifier renames members starting with '_'.
 const ottava = (value) =>
   ({ 24: 0, 12: 1, "-12": 3, "-24": 4 })[value] ?? M.Ottavia.Regular;
-const decode = (value) => {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
-  }
-};
-
 // OCR can disagree between the written note and its TAB fret. Display both
 // readings faithfully until the user corrects them. Everything else, including
 // spacing, beams, accidentals and ties, is engraved by alphaTab.
@@ -42,176 +74,6 @@ class EngravedNote extends M.Note {
     return this.writtenPitch ?? super.displayValueWithoutBend;
   }
 }
-function noteEffects(note, effects) {
-  const flags = {
-    tie: "isTieDestination",
-    dead: "isDead",
-    ghost: "isGhost",
-    pm: "isPalmMute",
-    stacc: "isStaccato",
-    let: "isLetRing",
-    hammer: "isHammerPullOrigin",
-  };
-  for (const effect of effects) {
-    if (flags[effect]) note[flags[effect]] = true;
-    else if (effect === "vib") note.vibrato = M.VibratoType.Slight;
-    else if (effect === "tap") note.beat.tap = true;
-    else if (effect === "accent") note.accentuated = M.AccentuationType.Normal;
-    else if (effect === "heavy") note.accentuated = M.AccentuationType.Heavy;
-    else if (effect === "sl") note.slideOutType = M.SlideOutType.Legato;
-    else if (effect === "ss") note.slideOutType = M.SlideOutType.Shift;
-    else if (effect === "sib") note.slideInType = M.SlideInType.IntoFromBelow;
-    else if (effect === "sia") note.slideInType = M.SlideInType.IntoFromAbove;
-    else if (effect === "sod") note.slideOutType = M.SlideOutType.OutDown;
-    else if (effect === "sou") note.slideOutType = M.SlideOutType.OutUp;
-    else if (effect.startsWith("harm:")) {
-      const [, kind, fret] = effect.split(":");
-      note.harmonicType =
-        {
-          natural: M.HarmonicType.Natural,
-          artificial: M.HarmonicType.Artificial,
-          pinch: M.HarmonicType.Pinch,
-          tapped: M.HarmonicType.Tap,
-          semi: M.HarmonicType.Semi,
-        }[kind] || M.HarmonicType.None;
-      note.harmonicValue = kind === "natural" ? note.fret : Number(fret) || 12;
-    } else if (effect.startsWith("bend:")) {
-      const [, kind, value] = effect.split(":"),
-        height = Number(value || 100) / 25;
-      const curves = {
-        bend: [
-          [0, 0],
-          [30, height],
-          [60, height],
-        ],
-        bendRelease: [
-          [0, 0],
-          [30, height],
-          [60, 0],
-        ],
-        bendReleaseBend: [
-          [0, 0],
-          [20, height],
-          [40, 0],
-          [60, height],
-        ],
-        prebend: [
-          [0, height],
-          [60, height],
-        ],
-        prebendRelease: [
-          [0, height],
-          [60, 0],
-        ],
-      };
-      for (const [x, y] of curves[kind] || curves.bend)
-        note.addBendPoint(new M.BendPoint(x, y));
-    } else if (effect.startsWith("trill")) {
-      const [, position, duration] = effect.split(":");
-      note.trillValue = position?.startsWith("p")
-        ? +position.slice(1)
-        : note.stringTuning +
-          (position?.startsWith("f") ? +position.slice(1) : note.fret + 1);
-      note.trillSpeed = Number(duration) || 16;
-    } else if (effect.startsWith("trem"))
-      note.beat.tremoloSpeed = Number(effect.split(":")[1]) || 16;
-  }
-}
-function beatEffects(beat, effects) {
-  for (const effect of effects) {
-    if (effect === "pm") beat.isPalmMute = true;
-    else if (effect === "let") beat.isLetRing = true;
-    else if (effect === "vib") beat.vibrato = M.VibratoType.Slight;
-    else if (effect === "fade") beat.fadeIn = true;
-    else if (effect === "pick_up") beat.pickStroke = M.PickStroke.Up;
-    else if (effect === "pick_down") beat.pickStroke = M.PickStroke.Down;
-    else if (effect === "stroke_up") beat.brushType = M.BrushType.BrushUp;
-    else if (effect === "stroke_down") beat.brushType = M.BrushType.BrushDown;
-    else if (effect === "tap" || effect === "slap:tapping") beat.tap = true;
-    else if (effect === "slap:slapping") beat.slap = true;
-    else if (effect === "slap:popping") beat.pop = true;
-    else if (effect.startsWith("ottava:"))
-      beat.ottava = ottava(+effect.split(":")[1]);
-    else if (effect.startsWith("text:"))
-      beat.text = decode(effect.slice(effect.indexOf(":") + 1));
-    else if (effect.startsWith("tempo:"))
-      beat.automations.push(
-        M.Automation.buildTempoAutomation(false, 0, +effect.split(":")[1], 2),
-      );
-  }
-  const name = effects.find((e) => e.startsWith("chord:"));
-  const diagram = effects.find((e) => e.startsWith("diagram:"));
-  if (name || diagram) {
-    const chord = new M.Chord();
-    chord.name = name ? decode(name.slice(6)) : "";
-    chord.showDiagram = !!diagram;
-    chord.showFingering = false;
-    if (diagram) {
-      const [, base, frets, , barres] = diagram.split(":");
-      chord.firstFret = Number(base);
-      // alphaTab uses the same high-to-low order as the staff tuning.
-      chord.strings = frets
-        .split("/")
-        .reverse()
-        .map((f) => (f === "x" ? -1 : Number(f)));
-      chord.barreFrets =
-        barres === "-"
-          ? []
-          : [...new Set(barres.split(";").map((b) => Number(b.split("/")[0])))];
-    }
-    const staff = beat.voice.bar.staff;
-    const id = `${chord.name}:${diagram || "name"}`;
-    staff.addChord(id, chord);
-    beat.chordId = id;
-  }
-}
-const keys = {
-  C: 0,
-  G: 1,
-  D: 2,
-  A: 3,
-  E: 4,
-  B: 5,
-  FSharp: 6,
-  CSharp: 7,
-  F: -1,
-  BFlat: -2,
-  EFlat: -3,
-  AFlat: -4,
-  DFlat: -5,
-  GFlat: -6,
-  CFlat: -7,
-  AMinor: 0,
-  EMinor: 1,
-  BMinor: 2,
-  FSharpMinor: 3,
-  CSharpMinor: 4,
-  GSharpMinor: 5,
-  DSharpMinor: 6,
-  ASharpMinor: 7,
-  DMinor: -1,
-  GMinor: -2,
-  CMinor: -3,
-  FMinor: -4,
-  BFlatMinor: -5,
-  EFlatMinor: -6,
-  AFlatMinor: -7,
-};
-function writtenKey(key, shift) {
-  const normalized = key
-    .replace(/Major(?=Sharp|Flat|$)/, "")
-    .replace(/Minor(Sharp|Flat)/, "$1Minor");
-  const fifths = keys[normalized] ?? 0;
-  if (!shift || shift % 12 === 0) return fifths;
-  const tonic = (((7 * fifths - shift) % 12) + 12) % 12;
-  return Array.from({ length: 15 }, (_, i) => i - 7)
-    .filter((k) => (((7 * k) % 12) + 12) % 12 === tonic)
-    .sort(
-      (a, b) =>
-        Math.abs(a) - Math.abs(b) ||
-        Math.abs(a - fifths) - Math.abs(b - fifths),
-    )[0];
-}
 
 export function engrave(state, settings, edited = null, mode = null) {
   const score = new M.Score();
@@ -219,11 +81,20 @@ export function engrave(state, settings, edited = null, mode = null) {
     beats = new Map(),
     tracks = new Map(),
     staves = new Map(),
-    keysByStaff = new Map();
+    keysByStaff = new Map(),
+    dynamicsByVoice = new Map();
   M.Score.resetIds();
-  let time = "4/4";
-  state.measures.forEach((record, mi) => {
-    const data = edited?.index === mi ? edited.measure : record.parsed;
+  const metadata = state.metadata || {}, document = metadata.document_metadata || {};
+  score.title = metadata.title || "";
+  score.artist = metadata.artist || "";
+  score.subTitle = document.subtitle || "";
+  score.notices = document.header_notes || "";
+  const records = state.measures.map((record, mi) => ({record, mi, data: projectVisibleTechniques(
+    edited?.index === mi ? edited.measure : record.parsed,
+    edited?.index === mi && Object.hasOwn(edited, "visualTechniques") ? edited.visualTechniques : record.visual_techniques)}));
+  const warnings = buildMasterBars(score, records, state);
+  records.sort((a, b) => (a.record.bar_index ?? a.mi) - (b.record.bar_index ?? b.mi));
+  records.forEach(({record, mi, data}) => {
     const profile = measureProfile(record, state);
     const partId = record.part_id || "part-1",
       staffId = `${partId}/${record.staff_id || "staff-1"}`;
@@ -253,39 +124,6 @@ export function engrave(state, settings, edited = null, mode = null) {
         (["guitar", "bass"].includes(profile.instrument) ? -12 : 0);
     }
     const barIndex = record.bar_index ?? mi;
-    const master = new M.MasterBar();
-    time = data.time_signature || record.score_state?.time || time;
-    [master.timeSignatureNumerator, master.timeSignatureDenominator] = time
-      .split("/")
-      .map(Number);
-    master.isRepeatStart = data.bars?.includes("repeat_open") || false;
-    master.repeatCount = data.bars?.includes("repeat_close")
-      ? data.repeat_count || 2
-      : 0;
-    master.isDoubleBar = data.bars?.includes("double") || false;
-    master.alternateEndings = data.alternate_endings || 0;
-    if (data.section) {
-      master.section = new M.Section();
-      master.section.text = decode(data.section);
-    }
-    if (data.triplet_feel)
-      master.tripletFeel =
-        {
-          eighth: M.TripletFeel.Triplet8th,
-          sixteenth: M.TripletFeel.Triplet16th,
-        }[data.triplet_feel] ?? M.TripletFeel.NoTripletFeel;
-    if (data.tempo_quarter)
-      master.tempoAutomations.push(
-        M.Automation.buildTempoAutomation(false, 0, data.tempo_quarter, 2),
-      );
-    while (score.masterBars.length < barIndex) {
-      const missing = new M.MasterBar();
-      [missing.timeSignatureNumerator, missing.timeSignatureDenominator] = time
-        .split("/")
-        .map(Number);
-      score.addMasterBar(missing);
-    }
-    if (!score.masterBars[barIndex]) score.addMasterBar(master);
     while (staff.bars.length < barIndex) {
       const missing = new M.Bar(),
         voice = new M.Voice(),
@@ -297,20 +135,21 @@ export function engrave(state, settings, edited = null, mode = null) {
     }
     const bar = new M.Bar();
     staff.addBar(bar);
+    if (data.bars?.includes("final")) bar.barLineRight = M.BarLineStyle.LightHeavy;
     sourceOf.set(bar, { mi });
     bar.clef = drums
       ? M.Clef.Neutral
       : (M.Clef[profile.pitch_context.clef] ??
         (profile.instrument === "bass" ? M.Clef.F4 : M.Clef.G2));
     bar.clefOttava = ottava(profile.pitch_context.clef_octave || 0);
-    const key = data.key_signature || keysByStaff.get(staffId);
-    if (key) keysByStaff.set(staffId, key);
-    if (key) {
+    const key = data.key_signature ?? keysByStaff.get(staffId) ?? record.score_state?.key;
+    if (key !== undefined && key !== null) {
+      keysByStaff.set(staffId, key);
       bar.keySignature = writtenKey(
         key,
         profile.pitch_context.instrument_transpose,
       );
-      bar.keySignatureType = key.includes("Minor") ? 1 : 0;
+      bar.keySignatureType = String(key).includes("Minor") ? 1 : 0;
     }
     // Preserve voice numbers, even when only the second voice has content.
     const count = Math.max(1, ...data.voices.map((v) => v.voice + 1));
@@ -320,6 +159,7 @@ export function engrave(state, settings, edited = null, mode = null) {
       const vi = data.voices.findIndex((item) => item.voice === v);
       const events = data.voices[vi]?.events || [];
       let cursor = 0;
+      const dynamicKey = `${staffId}/${v}`;
       events.forEach((event, ei) => {
         if (event.start > cursor) {
           const gap = new M.Beat();
@@ -340,11 +180,13 @@ export function engrave(state, settings, edited = null, mode = null) {
         beat.tupletNumerator = event.duration.tuplet_enters || 1;
         beat.tupletDenominator = event.duration.tuplet_times || 1;
         beat.isEmpty = event.status === "empty";
+        beat.dynamics = dynamicsByVoice.get(dynamicKey) ?? M.DynamicValue.F;
         beatEffects(beat, event.effects || []);
+        dynamicsByVoice.set(dynamicKey, beat.dynamics);
         if (event.status === "normal")
           event.notes.forEach((source, ni) => {
             const note = new EngravedNote();
-            beat.addNote(note);
+            note.beat = beat;
             sourceOf.set(note, { mi, vi, ei, ni, string: source.string });
             if (drums) note.percussionArticulation = source.pitch;
             else {
@@ -364,10 +206,16 @@ export function engrave(state, settings, edited = null, mode = null) {
                   );
               }
               if (source.swap_accidentals)
-                note.accidentalMode = M.NoteAccidentalMode.ForceFlat;
+                note.accidentalMode = swappedAccidental(note.displayValueWithoutBend, bar.keySignature);
             }
             note.isDead = source.fret === "x";
+            // addNote indexes the already assigned string for ties and hammer-ons.
+            beat.addNote(note);
+            note.dynamics = source.velocity !== undefined && source.velocity !== 95
+              ? dynamicValue(source.velocity) : beat.dynamics;
             noteEffects(note, source.effects || []);
+            addGraceNotes(note, source, profile, sourceOf, {mi, vi, ei, ni, string: source.string},
+              EngravedNote, pitchShift(profile.pitch_context, event.effects, profile.instrument));
           });
         cursor = event.start + ticks(event);
       });
@@ -389,5 +237,5 @@ export function engrave(state, settings, edited = null, mode = null) {
       rest.isEmpty = true;
     }
   score.finish(settings);
-  return { score, sourceOf, beats, tracks };
+  return { score, sourceOf, beats, tracks, warnings };
 }

@@ -2,15 +2,15 @@
 //! MusicXML retains legacy 960 divisions and integer tick projection; IR stays exact.
 //! GP5.10 output uses a native binary encoder; unsupported techniques fail closed.
 use crate::score::duration_ticks;
+mod chord_library;
 mod cp936_compat;
-mod diagram;
 mod fingering;
 mod gp5;
-mod gp5_duration;
 mod gp5_techniques;
 mod navigation;
 mod readback;
 mod xml_harmony;
+mod xml_pitch;
 use serde_json::{json, Value};
 use std::{collections::HashMap, path::Path};
 type R<T> = Result<T, String>;
@@ -44,6 +44,32 @@ fn effects(v: &Value) -> Vec<&str> {
         .map(|a| a.iter().filter_map(Value::as_str).collect())
         .unwrap_or_default()
 }
+fn event_tempo(event: &Value) -> R<Option<i64>> {
+    effects(event)
+        .iter()
+        .filter_map(|effect| effect.strip_prefix("tempo:"))
+        .map(|value| {
+            value
+                .parse::<i64>()
+                .ok()
+                .filter(|n| (1..=1000).contains(n))
+                .ok_or_else(|| "Tempo outside 1..1000".to_owned())
+        })
+        .collect::<R<Vec<_>>>()
+        .map(|values| values.last().copied())
+}
+fn xml_tempo(tempo: i64, voice_staff: Option<(i64, usize)>) -> R<String> {
+    if !(1..=1000).contains(&tempo) {
+        return Err("Tempo outside 1..1000".into());
+    }
+    let position = voice_staff
+        .map(|(voice, staff)| {
+            Ok::<_, String>(format!("{}{}", tag("voice", voice)?, tag("staff", staff)?))
+        })
+        .transpose()?
+        .unwrap_or_default();
+    Ok(format!("<direction placement=\"above\"><direction-type><metronome><beat-unit>quarter</beat-unit>{}</metronome></direction-type>{position}<sound tempo=\"{tempo}\"/></direction>", tag("per-minute", tempo)?))
+}
 fn pitch(n: &Value, p: &Value) -> R<i64> {
     let base = if let Some(x) = n["pitch"].as_i64() {
         x
@@ -66,47 +92,6 @@ fn pitch(n: &Value, p: &Value) -> R<i64> {
     } else {
         Ok(x)
     }
-}
-fn named_pitch(p: i64, flat: bool) -> R<String> {
-    let sharp = [
-        ("C", 0),
-        ("C", 1),
-        ("D", 0),
-        ("D", 1),
-        ("E", 0),
-        ("F", 0),
-        ("F", 1),
-        ("G", 0),
-        ("G", 1),
-        ("A", 0),
-        ("A", 1),
-        ("B", 0),
-    ];
-    let flats = [
-        ("C", 0),
-        ("D", -1),
-        ("D", 0),
-        ("E", -1),
-        ("E", 0),
-        ("F", 0),
-        ("G", -1),
-        ("G", 0),
-        ("A", -1),
-        ("A", 0),
-        ("B", -1),
-        ("B", 0),
-    ];
-    let (s, a) = if flat { flats } else { sharp }[p.rem_euclid(12) as usize];
-    Ok(format!(
-        "<pitch>{}{}{}</pitch>",
-        tag("step", s)?,
-        if a != 0 {
-            tag("alter", a)?
-        } else {
-            String::new()
-        },
-        tag("octave", p.div_euclid(12) - 1)?
-    ))
 }
 fn key(s: &str) -> R<(i64, &str)> {
     if let Some((f, mode)) = s.split_once(':') {
@@ -166,11 +151,7 @@ fn percent_decode(s: &str) -> R<String> {
 /// Convert recognition manifest or accept a canonical score document unchanged.
 /// Reject inconsistent part metadata instead of silently picking the first row.
 pub fn score_document(input: &Value) -> R<Value> {
-    let score = if input["parts"].as_array().is_some() && input["timeline"].as_array().is_some() {
-        input.clone()
-    } else {
-        crate::score::score_document(input)?
-    };
+    let score = crate::score::score_document(input)?;
     validate_projection(&score)?;
     Ok(score)
 }
@@ -182,6 +163,18 @@ fn validate_projection(score: &Value) -> R<()> {
     for (i, t) in timeline.iter().enumerate() {
         if num(t, "index", i as i64) != i as i64 {
             return Err("Score timeline must be contiguous and ordered".into());
+        }
+        if t["conflicts"]
+            .as_object()
+            .is_some_and(|values| !values.is_empty())
+        {
+            return Err(format!(
+                "第 {} 小节的拍号或速度在不同谱表间冲突，请选择正确值并确认后再导出",
+                i + 1
+            ));
+        }
+        if t["time_signature"].is_null() {
+            return Err(format!("第 {} 小节的拍号尚未确认，请先校对", i + 1));
         }
     }
     for p in arr(score, "parts")? {
@@ -254,7 +247,7 @@ fn validate_projection(score: &Value) -> R<()> {
 
 /// MusicXML 4.0 projection preserving the legacy 960-division/int-tick contract.
 pub fn score_musicxml(input: &Value) -> R<Vec<u8>> {
-    let score = score_document(input)?;
+    let (score, _) = crate::visual_techniques::project_score(&score_document(input)?)?;
     let parts = arr(&score, "parts")?;
     if parts.is_empty() {
         return Err("At least one score part is required".into());
@@ -328,6 +321,7 @@ pub fn score_musicxml(input: &Value) -> R<Vec<u8>> {
         out += &format!("<part id=\"P{}\">", pi + 1);
         let mut contexts = vec![json!({}); staves.len()];
         let mut keys = vec!["CMajor".to_owned(); staves.len()];
+        let mut pitch_writers = vec![xml_pitch::StaffPitchWriter::default(); staves.len()];
         // Precompute tie starts by actual sounding pitch, retaining voice/staff boundaries.
         let mut tie_starts = std::collections::HashSet::new();
         let mut previous: HashMap<(usize, i64, i64), (i64, usize, usize)> = HashMap::new();
@@ -399,7 +393,12 @@ pub fn score_musicxml(input: &Value) -> R<Vec<u8>> {
                 }
                 let (f, mode) =
                     written_key(&keys[si], num(&contexts[si], "instrument_transpose", 0))?;
-                if bi == 0 || old_keys[si] != keys[si] {
+                if bi == 0
+                    || written_key(
+                        &old_keys[si],
+                        num(&old_contexts[si], "instrument_transpose", 0),
+                    )? != (f, mode)
+                {
                     out += &format!(
                         "<key number=\"{}\">{}{}</key>",
                         si + 1,
@@ -485,7 +484,7 @@ pub fn score_musicxml(input: &Value) -> R<Vec<u8>> {
                 out += "</attributes>";
             }
             if let Some(tempo) = t["tempo_quarter"].as_i64() {
-                out+=&format!("<direction placement=\"above\"><direction-type><metronome><beat-unit>quarter</beat-unit>{}</metronome></direction-type><sound tempo=\"{}\"/></direction>",tag("per-minute",tempo)?,tempo)
+                out += &xml_tempo(tempo, None)?;
             }
             let bars = rows
                 .iter()
@@ -500,6 +499,18 @@ pub fn score_musicxml(input: &Value) -> R<Vec<u8>> {
             for (si, row) in rows.iter().enumerate() {
                 let empty = json!({"voices":[{"voice":0,"events":[]}]});
                 let row = row.unwrap_or(&empty);
+                let pitch_plan = if txt(p, "instrument", "") == "drums" {
+                    HashMap::new()
+                } else {
+                    let shift = num(&contexts[si], "instrument_transpose", 0);
+                    pitch_writers[si].measure(
+                        row,
+                        p,
+                        written_key(&keys[si], shift)?,
+                        shift,
+                        scale,
+                    )?
+                };
                 if let Some(section) = row["section"].as_str() {
                     out += &format!(
                         "<direction placement=\"above\"><direction-type>{}</direction-type></direction>",
@@ -556,6 +567,9 @@ pub fn score_musicxml(input: &Value) -> R<Vec<u8>> {
                             current_ottava = ottava;
                         }
                         out += &xml_harmony::render(e, si + 1)?;
+                        if let Some(tempo) = event_tempo(e)? {
+                            out += &xml_tempo(tempo, Some((vn, si + 1)))?;
+                        }
                         for ef in effects(e) {
                             if let Some(text) = ef.strip_prefix("text:") {
                                 out+=&format!("<direction placement=\"above\"><direction-type>{}</direction-type>{}</direction>",tag("words",percent_decode(text)?)?,tag("staff",si+1)?);
@@ -605,15 +619,7 @@ pub fn score_musicxml(input: &Value) -> R<Vec<u8>> {
                                         tag("display-octave", octave)?
                                     );
                                 } else {
-                                    out += &named_pitch(
-                                        pitch(n, p)?
-                                            - num(&contexts[si], "instrument_transpose", 0),
-                                        written_key(
-                                            &keys[si],
-                                            num(&contexts[si], "instrument_transpose", 0),
-                                        )?
-                                        .0 < 0,
-                                    )?;
+                                    out += &pitch_plan[&(vi, ei, ni)].pitch.xml()?;
                                 }
                             }
                             out += &tag("duration", ticks)?;
@@ -651,6 +657,11 @@ pub fn score_musicxml(input: &Value) -> R<Vec<u8>> {
                                 0
                             } {
                                 out += "<dot/>"
+                            }
+                            if let Some(accidental) =
+                                pitch_plan.get(&(vi, ei, ni)).and_then(|n| n.accidental)
+                            {
+                                out += &tag("accidental", accidental)?;
                             }
                             let enters = num(&e["duration"], "tuplet_enters", 1);
                             if enters != 1 {
@@ -767,10 +778,11 @@ pub fn score_musicxml(input: &Value) -> R<Vec<u8>> {
                     }
                 }
             }
-            if bars.contains(&"repeat_close") || bars.contains(&"double") {
+            if bars.contains(&"repeat_close") || bars.contains(&"double") || bars.contains(&"final")
+            {
                 out += &format!(
                     "<barline location=\"right\"><bar-style>{}</bar-style>",
-                    if bars.contains(&"repeat_close") {
+                    if bars.contains(&"repeat_close") || bars.contains(&"final") {
                         "light-heavy"
                     } else {
                         "light-light"

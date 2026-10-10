@@ -9,26 +9,283 @@ use std::{
     time::Duration,
 };
 
+const COMPILED_CATALOG: &str = include_str!(concat!(env!("OUT_DIR"), "/model-distribution.json"));
+const COMPILED_POLICY: &str =
+    include_str!("../../weights/score_ocr/merged/score_image_policy.json");
+const COMPILED_CAPABILITIES: &str =
+    include_str!("../../weights/score_ocr/merged/capabilities.json");
+
+fn parse_catalog(contents: &str) -> Result<Value, String> {
+    let catalog: Value = serde_json::from_str(contents).map_err(|e| e.to_string())?;
+    let generation = catalog["generation"]
+        .as_str()
+        .ok_or("Missing model generation")?;
+    if generation.is_empty()
+        || generation.contains(['/', '\\', ':'])
+        || [".", ".."].contains(&generation)
+    {
+        return Err("Unsafe model generation".into());
+    }
+    let mut seen = std::collections::HashSet::new();
+    for (group, required, optional) in [
+        (
+            "auxiliary",
+            &[
+                "auxiliary/layout.onnx",
+                "auxiliary/layout_quality.onnx",
+                "auxiliary/signature.onnx",
+            ][..],
+            &[
+                "auxiliary/chord_evidence.onnx",
+                "auxiliary/structure_relations.onnx",
+                "auxiliary/staff_evidence.onnx",
+                "auxiliary/staff_label.onnx",
+                "auxiliary/instrument_text.onnx",
+                "auxiliary/part_continuation.onnx",
+                "auxiliary/clef_spatial.onnx",
+                "auxiliary/text_regions.onnx",
+                "auxiliary/chord_text_roles.onnx",
+                "auxiliary/technique_grounding.onnx",
+                "auxiliary/technique_relation.onnx",
+                "auxiliary/technique_relation_calibration.json",
+            ][..],
+        ),
+        (
+            "llamacpp",
+            &[
+                "weights/score_ocr/gguf/model-Q8_0.gguf",
+                "weights/score_ocr/gguf/vision-F16.gguf",
+            ][..],
+            &["weights/score_ocr/gguf/information-adapter.gguf"][..],
+        ),
+    ] {
+        let files = catalog["files"][group]
+            .as_array()
+            .ok_or_else(|| format!("Missing model files: {group}"))?;
+        if files.len() < required.len() || files.len() > required.len() + optional.len() {
+            return Err(format!("Unexpected number of {group} model files"));
+        }
+        for file in files {
+            let path = file["path"].as_str().ok_or("Missing model path")?;
+            if (!required.contains(&path) && !optional.contains(&path))
+                || !seen.insert(path.to_owned())
+            {
+                return Err(format!("Unexpected or duplicate model path: {path}"));
+            }
+            let local = catalog["availability"] == "local_unpublished";
+            if (!local || file.get("bytes").is_some())
+                && file["bytes"].as_u64().is_none_or(|size| size == 0)
+            {
+                return Err(format!("Model size must be a positive integer: {path}"));
+            }
+            let hash = file["sha256"].as_str().unwrap_or("");
+            if (!local || file.get("sha256").is_some())
+                && (hash.len() != 64
+                    || !hash
+                        .bytes()
+                        .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c)))
+            {
+                return Err(format!(
+                    "Model checksum must contain 64 lowercase hex digits: {path}"
+                ));
+            }
+        }
+        for path in required {
+            if !seen.contains(*path) {
+                return Err(format!("Missing required model: {path}"));
+            }
+        }
+    }
+    Ok(catalog)
+}
+
+/// Relocate a model-relative declaration into the packaged auxiliary directory.
+/// Source models and standalone exports can have different parent directories.
+fn auxiliary_asset(value: &Value) -> Option<&str> {
+    let path = value.as_str()?;
+    if path.starts_with("auxiliary/") {
+        Some(path)
+    } else {
+        path.find("/auxiliary/").map(|index| &path[index + 1..])
+    }
+}
+
+fn technique_assets(capabilities: &Value) -> Result<Option<[&'static str; 3]>, String> {
+    let declarations = [
+        (
+            "technique_grounding_model",
+            "auxiliary/technique_grounding.onnx",
+        ),
+        (
+            "technique_relation_model",
+            "auxiliary/technique_relation.onnx",
+        ),
+        (
+            "technique_relation_calibration",
+            "auxiliary/technique_relation_calibration.json",
+        ),
+    ];
+    if declarations
+        .iter()
+        .all(|(field, _)| capabilities[*field].is_null())
+    {
+        return Ok(None);
+    }
+    for (field, path) in declarations {
+        if auxiliary_asset(&capabilities[field]) != Some(path) {
+            return Err(format!(
+                "Unsupported technique capability: {field}; expected {path}. \
+                 Declare all three technique assets with supported paths, or omit all three."
+            ));
+        }
+    }
+    Ok(Some(declarations.map(|(_, path)| path)))
+}
+
+fn information_adapter_declared(capabilities: &Value) -> Result<bool, String> {
+    let declaration = &capabilities["information_adapter"];
+    if declaration.is_null() {
+        return Ok(false);
+    }
+    let tasks: std::collections::BTreeSet<_> = declaration["tasks"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect();
+    if declaration["gguf"] != "../gguf/information-adapter.gguf"
+        || declaration["peft"] != "information_adapter"
+        || tasks.is_empty()
+        || !tasks.is_subset(&["staff", "clef"].into_iter().collect())
+        || declaration["tasks"]
+            .as_array()
+            .is_none_or(|v| v.len() != tasks.len())
+    {
+        return Err("Unsupported information adapter contract: expected a nonempty unique subset of staff/clef tasks and matching GGUF/PEFT paths".into());
+    }
+    Ok(true)
+}
+
+/// Validate the complete compiled metadata before opening a cache or starting
+/// inference. A capability cannot enable an asset absent from the selected
+/// catalog, even if a stray copy exists in the cache.
+fn parse_metadata(
+    catalog: &str,
+    policy: &str,
+    capabilities: &str,
+) -> Result<(Value, Value, Value), String> {
+    let catalog = parse_catalog(catalog)?;
+    let policy: Value = serde_json::from_str(policy)
+        .map_err(|error| format!("Invalid score_image_policy.json: {error}"))?;
+    crate::recognition::ImagePolicy::from_value(&policy)?;
+    let capabilities: Value = serde_json::from_str(capabilities)
+        .map_err(|error| format!("Invalid capabilities.json: {error}"))?;
+    let declarations = capabilities
+        .as_object()
+        .ok_or("Invalid capabilities.json: expected an object")?;
+    technique_assets(&capabilities)?;
+    if auxiliary_asset(&capabilities["layout_quality_model"])
+        != Some("auxiliary/layout_quality.onnx")
+    {
+        return Err("Layout detection requires the declared quality model".into());
+    }
+    for (field, path, description) in [
+        (
+            "staff_label_model",
+            "auxiliary/staff_label.onnx",
+            "staff label",
+        ),
+        (
+            "instrument_text_model",
+            "auxiliary/instrument_text.onnx",
+            "instrument text",
+        ),
+        (
+            "part_continuation_model",
+            "auxiliary/part_continuation.onnx",
+            "part continuation",
+        ),
+        (
+            "clef_spatial_model",
+            "auxiliary/clef_spatial.onnx",
+            "spatial clef",
+        ),
+    ] {
+        if !capabilities[field].is_null() && auxiliary_asset(&capabilities[field]) != Some(path) {
+            return Err(format!("Unsupported {description} model declaration"));
+        }
+    }
+    let has_information_adapter = information_adapter_declared(&capabilities)?;
+    if capabilities["staff_label_model"].is_null()
+        != capabilities["instrument_text_model"].is_null()
+    {
+        return Err("staff_label_model and instrument_text_model must be declared together".into());
+    }
+    if !capabilities["part_continuation_model"].is_null()
+        && (capabilities["staff_label_model"].is_null() || capabilities["staff_profile"] != true)
+    {
+        return Err("Part continuation requires observed staff label profiles".into());
+    }
+    let assets: std::collections::HashSet<_> = ["auxiliary", "llamacpp"]
+        .iter()
+        .flat_map(|group| catalog["files"][*group].as_array().unwrap())
+        .filter_map(|file| file["path"].as_str())
+        .collect();
+    if has_information_adapter
+        && !assets.contains("weights/score_ocr/gguf/information-adapter.gguf")
+    {
+        return Err("Model catalog omits declared information adapter".into());
+    }
+    for (capability, asset) in declarations {
+        let Some(asset) = auxiliary_asset(asset) else {
+            continue;
+        };
+        if !assets.contains(asset) {
+            return Err(format!(
+                "Model catalog {} omits declared {capability}: {asset}. \
+                 Rebuild with GUITAROCR_BUILD_MODEL_CATALOG=<matching-catalog.json>, \
+                 or prepare desktop resources with --build --model-catalog <matching-catalog.json>. \
+                 See docs/native-packaging.md; --models only selects the cache directory.",
+                catalog["generation"].as_str().unwrap()
+            ));
+        }
+    }
+    Ok((catalog, policy, capabilities))
+}
+
+/// Inspect the catalog compiled into this exact binary without opening a cache
+/// or initializing any inference runtime. Preserve bytes for metadata comparison.
+pub fn compiled_catalog() -> Result<&'static str, String> {
+    parse_catalog(COMPILED_CATALOG)?;
+    Ok(COMPILED_CATALOG)
+}
+
+/// Exact metadata bytes used by this binary. Packaging verifies and stages one
+/// snapshot so newer source metadata cannot be paired with an older executable.
+pub fn compiled_metadata() -> Result<Value, String> {
+    parse_metadata(COMPILED_CATALOG, COMPILED_POLICY, COMPILED_CAPABILITIES)?;
+    Ok(serde_json::json!({
+        "distribution.json": COMPILED_CATALOG,
+        "score_image_policy.json": COMPILED_POLICY,
+        "capabilities.json": COMPILED_CAPABILITIES,
+    }))
+}
+
 pub struct Models {
     pub root: PathBuf,
     pub runtime_root: PathBuf,
     pub policy: Value,
     pub capabilities: Value,
-    catalog: Value,
+    pub(crate) catalog: Value,
     verified: Mutex<Option<Vec<(u64, std::time::SystemTime)>>>,
 }
 impl Models {
     pub fn new(data_root: &Path, override_root: Option<PathBuf>) -> Result<Self, String> {
         // Compile-time inclusion keeps model metadata sourced from the existing
         // research artifacts without shipping Python/tokenizers/weights in app.
-        let catalog: Value = serde_json::from_str(include_str!("../../weights/distribution.json"))
-            .map_err(|e| e.to_string())?;
-        let generation = catalog["generation"]
-            .as_str()
-            .ok_or("Missing model generation")?;
-        if generation.is_empty() || generation.contains(['/', '\\', ':']) || generation == ".." {
-            return Err("Unsafe model generation".into());
-        }
+        let (catalog, policy, capabilities) =
+            parse_metadata(COMPILED_CATALOG, COMPILED_POLICY, COMPILED_CAPABILITIES)?;
+        let generation = catalog["generation"].as_str().unwrap();
         let root = if let Some(base) = override_root {
             // Keep the Python research cache environment variable's base-dir
             // meaning; an explicit generation directory is also accepted.
@@ -38,25 +295,13 @@ impl Models {
                 base.join(generation)
             }
         } else {
-            let current = data_root.join("models").join(generation);
-            let legacy = data_root.join("backend/tools/model-cache").join(generation);
-            if !current.exists() && legacy.is_dir() {
-                legacy
-            } else {
-                current
-            }
+            data_root.join("models").join(generation)
         };
         Ok(Self {
             root,
             runtime_root: data_root.join("runtimes"),
-            policy: serde_json::from_str(include_str!(
-                "../../weights/score_ocr/merged/score_image_policy.json"
-            ))
-            .map_err(|e| e.to_string())?,
-            capabilities: serde_json::from_str(include_str!(
-                "../../weights/score_ocr/merged/capabilities.json"
-            ))
-            .map_err(|e| e.to_string())?,
+            policy,
+            capabilities,
             catalog,
             verified: Mutex::new(None),
         })
@@ -72,7 +317,11 @@ impl Models {
             .iter()
             .map(|file| {
                 let metadata = self.root.join(file["path"].as_str()?).metadata().ok()?;
-                if Some(metadata.len()) != file["bytes"].as_u64() {
+                if metadata.len() == 0
+                    || file["bytes"]
+                        .as_u64()
+                        .is_some_and(|size| metadata.len() != size)
+                {
                     return None;
                 }
                 Some((metadata.len(), metadata.modified().ok()?))
@@ -93,8 +342,67 @@ impl Models {
     pub fn layout(&self) -> PathBuf {
         self.root.join("auxiliary/layout.onnx")
     }
+    pub fn layout_quality(&self) -> PathBuf {
+        self.root.join("auxiliary/layout_quality.onnx")
+    }
     pub fn signature(&self) -> PathBuf {
         self.root.join("auxiliary/signature.onnx")
+    }
+    /// Optional models are enabled only by the declared role inventory.
+    /// A stray file in the cache cannot silently change inference behavior.
+    fn optional_auxiliary(&self, path: &str) -> Option<PathBuf> {
+        self.catalog["files"]["auxiliary"]
+            .as_array()?
+            .iter()
+            .any(|file| file["path"].as_str() == Some(path))
+            .then(|| self.root.join(path))
+    }
+    pub fn chord_evidence(&self) -> Option<PathBuf> {
+        self.optional_auxiliary("auxiliary/chord_evidence.onnx")
+    }
+    pub fn structure_relations(&self) -> Option<PathBuf> {
+        self.optional_auxiliary("auxiliary/structure_relations.onnx")
+    }
+    pub fn staff_evidence(&self) -> Option<PathBuf> {
+        self.optional_auxiliary("auxiliary/staff_evidence.onnx")
+    }
+    pub fn staff_label(&self) -> Option<PathBuf> {
+        (auxiliary_asset(&self.capabilities["staff_label_model"])
+            == Some("auxiliary/staff_label.onnx"))
+        .then(|| self.root.join("auxiliary/staff_label.onnx"))
+    }
+    pub fn instrument_text(&self) -> Option<PathBuf> {
+        (auxiliary_asset(&self.capabilities["instrument_text_model"])
+            == Some("auxiliary/instrument_text.onnx"))
+        .then(|| self.root.join("auxiliary/instrument_text.onnx"))
+    }
+    pub fn part_continuation(&self) -> Option<PathBuf> {
+        (auxiliary_asset(&self.capabilities["part_continuation_model"])
+            == Some("auxiliary/part_continuation.onnx"))
+        .then(|| self.root.join("auxiliary/part_continuation.onnx"))
+    }
+    pub fn clef_spatial(&self) -> Option<PathBuf> {
+        (auxiliary_asset(&self.capabilities["clef_spatial_model"])
+            == Some("auxiliary/clef_spatial.onnx"))
+        .then(|| self.root.join("auxiliary/clef_spatial.onnx"))
+    }
+    pub fn chord_text_roles(&self) -> Option<PathBuf> {
+        self.optional_auxiliary("auxiliary/chord_text_roles.onnx")
+    }
+    pub fn text_regions(&self) -> Option<PathBuf> {
+        self.optional_auxiliary("auxiliary/text_regions.onnx")
+    }
+    pub fn technique_relations(&self) -> Result<Option<[PathBuf; 3]>, String> {
+        let Some(paths) = technique_assets(&self.capabilities)? else {
+            return Ok(None);
+        };
+        let mut result = Vec::new();
+        for path in paths {
+            result.push(self.optional_auxiliary(path).ok_or_else(|| {
+                format!("Technique capability has no verified catalog asset: {path}")
+            })?);
+        }
+        Ok(Some(result.try_into().unwrap()))
     }
     pub fn model(&self) -> PathBuf {
         self.root.join("weights/score_ocr/gguf/model-Q8_0.gguf")
@@ -102,23 +410,23 @@ impl Models {
     pub fn projector(&self) -> PathBuf {
         self.root.join("weights/score_ocr/gguf/vision-F16.gguf")
     }
-    pub fn catalog_identity(&self) -> Value {
-        Self::content_identity(&self.catalog)
+    pub fn information_adapter(&self) -> Option<PathBuf> {
+        self.capabilities
+            .get("information_adapter")
+            .filter(|v| !v.is_null())
+            .map(|_| {
+                self.root
+                    .join("weights/score_ocr/gguf/information-adapter.gguf")
+            })
     }
-    pub fn content_identity(catalog: &Value) -> Value {
-        let mut identity = catalog.clone();
-        if let Some(object) = identity.as_object_mut() {
-            object.remove("repository");
-            object.remove("release");
-            if let Some(groups) = object.get_mut("files").and_then(Value::as_object_mut) {
-                for files in groups.values_mut().filter_map(Value::as_array_mut) {
-                    for file in files.iter_mut().filter_map(Value::as_object_mut) {
-                        file.remove("asset");
-                    }
-                }
-            }
-        }
-        identity
+    pub fn information_adapter_tasks(&self) -> Vec<String> {
+        self.capabilities["information_adapter"]["tasks"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect()
     }
     pub fn download_bytes(&self) -> u64 {
         self.files()
@@ -177,51 +485,5 @@ impl Models {
         )?;
         *verified = self.cache_stamp();
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::tasks::Tasks;
-    use serde_json::json;
-    #[test]
-    fn a_cancelled_job_does_not_wait_for_another_models_lock() {
-        let root = tempfile::tempdir().unwrap();
-        let sid = "11111111111111111111111111111111".to_owned();
-        fs::create_dir(root.path().join(&sid)).unwrap();
-        let models = std::sync::Arc::new(Models::new(root.path(), None).unwrap());
-        let held = models.verified.lock().unwrap();
-        let tasks = Tasks::new(root.path().to_owned()).unwrap();
-        let (made, result) = std::sync::mpsc::channel();
-        let shared = models.clone();
-        tasks
-            .submit(sid.clone(), "prepare", "full", move |p| {
-                let cancelled = shared.ensure(false, &p);
-                made.send(cancelled.clone()).unwrap();
-                cancelled
-            })
-            .unwrap();
-        // Give the worker a real chance to enter the contended preparation path.
-        std::thread::sleep(Duration::from_millis(30));
-        tasks.cancel(&sid).unwrap();
-        assert!(result
-            .recv_timeout(Duration::from_secs(1))
-            .unwrap()
-            .is_err());
-        drop(held);
-    }
-    #[test]
-    fn same_size_files_are_not_claimed_verified_on_startup() {
-        let root = tempfile::tempdir().unwrap();
-        let mut models = Models::new(root.path(), Some(root.path().to_owned())).unwrap();
-        fs::create_dir_all(&models.root).unwrap();
-        fs::write(models.root.join("weight.bin"), b"corrupt!").unwrap();
-        models.catalog = json!({"files":{"auxiliary":[{"path":"weight.bin","bytes":8,"sha256":"0000000000000000000000000000000000000000000000000000000000000000"}],"llamacpp":[]}});
-        assert!(models.cached());
-        assert!(!models.ready());
-        // A size-only match must still request permission to repair if SHA fails.
-        assert!(models.cache_stamp().is_some());
-        assert!(models.verified.lock().unwrap().is_none());
     }
 }

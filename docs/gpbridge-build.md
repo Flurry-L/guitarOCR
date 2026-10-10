@@ -2,7 +2,7 @@
 
 `gpbridge/native/` 包含 C++ 源码、导出符号、接口声明和构建脚本。导出器源自 GPOMR。
 
-DLL 支持 `display_mode=tab|notation|both`，由本目录源码在 Linux 上使用 clang-cl 18、xwin 的 MSVC/Windows SDK 和 Qt 5.15.2 MSVC SDK 交叉编译。已在 GP8 8.1.2.37 + Wine 中检查三种排版、小节和谱号区域、记谱移调及局部八度范围。源码、二进制哈希和运行验收记录见 [provenance.json](../gpbridge/bin/provenance.json)。
+DLL 支持 `display_mode=tab|notation|both`，运行目标为 Guitar Pro 8.1.2.37；支持 Windows MSVC 构建和 Linux clang-cl 交叉编译。
 
 `gpomr_native_export.dll` 由原生会话加载，`gpomr_amprof_preload.dll` 是 GP8 预加载代理。它们只用于数据生产，PDF / 图片识别及 GP5 导出不依赖 Guitar Pro、Wine 或这些 DLL。
 
@@ -37,9 +37,7 @@ gpbridge/bin/gpomr_amprof_preload.dll
 
 这些接口与 GP8 的内部 ABI 有关。更换 GP8 或 Qt 主版本后，需要重新验证接口声明、导出符号和运行结果。当前提供 Windows MSVC 与 Linux clang-cl 两条构建路径；不同编译器的二进制不保证逐字节相同。
 
-构建后按 [数据导出环境](data.md#安装导出环境) 的命令导出一份 GP 源谱，检查生成的 PDF、`layout.json` 和 `official-score.json`。Guitar Pro 安装程序及其运行库不属于本项目的开源内容。
-
-构建成功后会在 DLL 旁生成 `build-manifest.json`，记录源文件 SHA-256、编译器版本、Qt 路径和 DLL 哈希。`runtime_validation` 初始为 `not_run`，只有完成目标 GP8 导出验收后才能另行记录通过。
+构建后按 [数据导出环境](training.md#安装导出环境) 的命令导出一份 GP 源谱，检查生成的 PDF、`layout.json` 和 `official-score.json`。Guitar Pro 安装程序及其运行库不属于本项目的开源内容。
 
 ## Linux 交叉编译
 
@@ -54,7 +52,7 @@ uv run --no-sync python gpbridge/native/build_linux.py \
   --output gpbridge/bin
 ```
 
-三种模式都通过 GP8 的 `TrackViewGroup` 设置显示方式，随后从真实 `BarView` 取得坐标；混合谱同一小节的两个谱表合并成一个框。`tab_only` 字段保留用于兼容，旧布局缺少 `display_mode` 时按 TAB 解释。音符品位的 glyph 标注仅在 TAB 模式导出。五线谱和混合谱另提供谱号、八度线区域，以及乐器记谱移调和谱号状态；文本移调说明的位置由原生 PDF 字符坐标取得。混合谱中的 TAB 符号也可能出现在 `clefElement`，数据生成器依据字形将它与五线谱谱号区分。
+三种模式都通过 GP8 的 `TrackViewGroup` 设置显示方式，随后从真实 `BarView` 取得坐标；混合谱同一小节的两个谱表合并成一个框。导出必须明确声明 `display_mode`，`tab_only` 仅用于一致性检查，缺少模式时直接报错。音符品位的 glyph 标注仅在 TAB 模式导出。五线谱和混合谱另提供谱号、八度线区域，以及乐器记谱移调和谱号状态；文本移调说明的位置由原生 PDF 字符坐标取得。混合谱中的 TAB 符号也可能出现在 `clefElement`，数据生成器依据字形将它与五线谱谱号区分。
 
 `--linker` 应指向本机实际的 `lld-link`，且保留该文件名以选择 Windows 链接模式。上例是当前环境安装路径。
 

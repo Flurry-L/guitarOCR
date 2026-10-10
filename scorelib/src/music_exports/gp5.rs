@@ -9,6 +9,8 @@ struct Writer {
     bytes: Vec<u8>,
     replacements: Vec<Value>,
     velocity_quantization: Vec<Value>,
+    legacy_text_fields: BTreeSet<String>,
+    chord_label_projections: Vec<Value>,
 }
 impl Writer {
     fn new() -> Self {
@@ -16,6 +18,8 @@ impl Writer {
             bytes: vec![],
             replacements: vec![],
             velocity_quantization: vec![],
+            legacy_text_fields: BTreeSet::new(),
+            chord_label_projections: vec![],
         }
     }
     fn u(&mut self, x: u8) {
@@ -28,6 +32,9 @@ impl Writer {
         self.bytes.resize(self.bytes.len() + n, 0)
     }
     fn text(&mut self, s: &str, field: &str, max: usize) -> R<Vec<u8>> {
+        if !s.is_ascii() {
+            self.legacy_text_fields.insert(field.to_owned());
+        }
         let mut b = vec![];
         let mut written = String::new();
         for c in s.chars() {
@@ -83,6 +90,15 @@ struct Track {
     channel: i32,
     mode: String,
     name: String,
+    reference_measures: Vec<Vec<Value>>,
+}
+impl Track {
+    fn measure(&self, index: usize) -> Option<&Value> {
+        self.staff["measures"]
+            .as_array()?
+            .iter()
+            .find(|measure| num(measure, "index", -1) == index as i64)
+    }
 }
 fn meter(t: &Value) -> R<(i32, i32)> {
     let (a, b) = txt(t, "time_signature", "4/4")
@@ -95,8 +111,28 @@ fn meter(t: &Value) -> R<(i32, i32)> {
     }
     Ok((a, b))
 }
-fn rests(ticks: i64) -> R<Vec<Value>> {
-    super::gp5_duration::rest_events(ticks)
+fn expected_diagram(event: &Value, track: &Track) -> R<Value> {
+    let effects = effects(event);
+    let diagram = effects
+        .iter()
+        .find_map(|e| e.strip_prefix("diagram:"))
+        .map(crate::chords::parse_diagram)
+        .transpose()?;
+    let diagram = if let Some(diagram) = diagram {
+        let strings = if matches!(txt(&track.part, "instrument", ""), "pitched" | "drums") {
+            (0..track.strings.len()).collect::<Vec<_>>()
+        } else {
+            track.strings.clone()
+        };
+        diagram.project(&strings)
+    } else {
+        return Ok(Value::Null);
+    };
+    Ok(json!({"base":diagram.base,
+        "frets":(0..7).map(|i| diagram.frets.iter().rev().nth(i).copied().unwrap_or(-1)).collect::<Vec<_>>(),
+        "fingers":(0..7).map(|i| diagram.fingers.iter().rev().nth(i).copied().unwrap_or(-2)).collect::<Vec<_>>(),
+        "barres":diagram.barres.iter().map(|b| [b[0],diagram.frets.len() as i64-b[2],diagram.frets.len() as i64-b[1]]).collect::<Vec<_>>(),
+        "show":true}))
 }
 
 fn projected_duration(e: &Value) -> R<crate::score::Rational> {
@@ -148,30 +184,23 @@ fn beat(
     let mut chord = None;
     let mut diagram = None;
     let mut octave = 0u16;
-    let mut tempo = None;
+    let tempo = event_tempo(e)?;
     for ef in effects(e) {
         if let Some(v) = ef.strip_prefix("diagram:") {
             if diagram.is_some() {
                 return Err("Multiple chord diagrams at one onset".into());
             }
-            diagram = Some(super::diagram::parse(v)?);
+            diagram = Some(crate::chords::parse_diagram(v)?);
         } else if let Some(v) = ef.strip_prefix("chord:") {
             if chord.is_some() || diagram.is_some() {
                 return Err("Multiple GP5 chord labels at one onset".into());
             }
             chord = Some(percent_decode(v)?.replace('♭', "b").replace('♯', "#"));
-        } else if let Some(v) = ef.strip_prefix("tempo:") {
-            let bpm = v.parse::<i32>().map_err(|_| "Invalid tempo")?;
-            if !(1..=1000).contains(&bpm) {
-                return Err("Tempo outside 1..1000".into());
-            }
-            tempo = Some(bpm);
+        } else if ef.starts_with("tempo:") {
+            // Parsed once above for both export formats and native readback.
         } else if let Some(v) = ef.strip_prefix("dyn:") {
             *velocity = v.parse().map_err(|_| "Invalid dynamic")?;
         } else if let Some(v) = ef.strip_prefix("text:") {
-            if chord.is_some() || diagram.is_some() {
-                flags |= 2;
-            }
             if text.is_some() {
                 return Err("Multiple text effects on one GP5 beat unsupported".into());
             }
@@ -200,6 +229,21 @@ fn beat(
             return Err(format!(
                 "GP5 event effect {ef:?} not yet implemented at {loc}"
             ));
+        }
+    }
+    if diagram.is_none() {
+        if let Some(name) = chord.take() {
+            // GP8 imports a name-only GP5 chord as an all-muted diagram even
+            // with the legacy show flag disabled. A beat label keeps the name
+            // visible without inventing a physical fingering.
+            let existing_text = text.clone();
+            text = Some(match text {
+                Some(existing) => format!("{name}\n{existing}"),
+                None => name.clone(),
+            });
+            w.chord_label_projections
+                .push(json!({"location":loc,"name":name,
+                "existing_text":existing_text,"written_text":text,"strategy":"beat_text"}));
         }
     }
     let notes = arr(e, "notes")?;
@@ -232,14 +276,6 @@ fn beat(
     w.u(d as u8);
     if let Some(n) = tuplet {
         w.i(n)
-    }
-    if diagram.is_none() && chord.is_some() {
-        diagram = Some(super::diagram::Diagram {
-            base: 1,
-            frets: vec![-1; t.strings.len()],
-            fingers: vec![-2; t.strings.len()],
-            barres: vec![],
-        });
     }
     if let Some(diagram) = diagram {
         let strings = if ["pitched", "drums"].contains(&txt(&t.part, "instrument", "")) {
@@ -295,7 +331,7 @@ fn beat(
             w.u(255)
         }
         w.string("", "tempo name")?;
-        w.i(bpm);
+        w.i(bpm as i32);
         w.u(0);
         w.u(0);
         w.u(0);
@@ -409,7 +445,9 @@ fn beat(
     Ok(())
 }
 pub(super) fn encode(input: &Value) -> R<(Vec<u8>, Value)> {
-    let mut score = score_document(input)?;
+    let (mut score, visual_events) =
+        crate::visual_techniques::project_score(&score_document(input)?)?;
+    let (libraries, pending_diagrams) = super::chord_library::unused(&score)?;
     super::fingering::assign(&mut score)?;
     let timeline = arr(&score, "timeline")?;
     if timeline.is_empty() {
@@ -526,6 +564,7 @@ pub(super) fn encode(input: &Value) -> R<(Vec<u8>, Value)> {
                         channel,
                         mode: mode.clone(),
                         name,
+                        reference_measures: vec![],
                     });
                 }
             }
@@ -533,6 +572,80 @@ pub(super) fn encode(input: &Value) -> R<(Vec<u8>, Value)> {
     }
     if tracks.is_empty() {
         return Err("No GP5 voices".into());
+    }
+    let mut library_projection = Vec::new();
+    for library in libraries {
+        let source_id = txt(&library.part, "id", "part-1");
+        let channel = tracks
+            .iter()
+            .find(|t| txt(&t.part, "id", "") == source_id)
+            .map(|t| t.channel)
+            .unwrap_or(0);
+        let count = library.diagrams[0].1.frets.len();
+        let mut part = library.part.clone();
+        part["id"] = json!(format!("{source_id}:chord-reference-{count}"));
+        part["instrument"] = json!("guitar");
+        part["capo"] = json!(0);
+        if part["tuning"].as_array().is_none_or(|t| t.len() != count) {
+            // This silent track describes a physical grid, not playable pitches.
+            // Tuning is deliberately not displayed or inferred from a chord name.
+            part["tuning"] = json!(vec![0; count]);
+        }
+        // Importers merge empty beats with identical start positions. Distinct
+        // ordinary rests preserve each diagram and leave all music untouched.
+        let mut remaining_diagrams = library.diagrams.len();
+        let silent_measures = timeline
+            .iter()
+            .map(|bar| {
+                let (numerator, denominator) = meter(bar)?;
+                let mut left = numerator as i64 * 3840 / denominator as i64;
+                let mut beats = Vec::new();
+                while left >= 120 && remaining_diagrams > 0 {
+                    beats.extend(crate::score::rest_events(120)?);
+                    left -= 120;
+                    remaining_diagrams -= 1;
+                }
+                beats.extend(crate::score::rest_events(left)?);
+                Ok(beats)
+            })
+            .collect::<R<Vec<_>>>()?;
+        let capacity = silent_measures.iter().map(Vec::len).sum::<usize>();
+        if capacity == 0 {
+            return Err("Chord reference track has no silent rest slots".into());
+        }
+        for (batch, diagrams) in library.diagrams.chunks(capacity).enumerate() {
+            let mut reference_measures = silent_measures.clone();
+            for (beat, (name, diagram)) in reference_measures.iter_mut().flatten().zip(diagrams) {
+                beat["effects"] = super::chord_library::annotation_effects(name, diagram);
+            }
+            for start in (0..count).step_by(7) {
+                let strings = (start..(start + 7).min(count)).collect::<Vec<_>>();
+                // GP5 has no text-encoding declaration. Keep this generated
+                // purpose label readable in importers using any legacy locale.
+                let part_number = arr(&score, "parts")?
+                    .iter()
+                    .position(|p| txt(p, "id", "part-1") == source_id)
+                    .map_or(1, |index| index + 1);
+                let mut name = format!("Chord diagrams P{part_number}");
+                if library.diagrams.len() > capacity {
+                    name += &format!(" {}", batch + 1);
+                }
+                if count > 7 {
+                    name += &format!(" strings {}-{}", start + 1, (start + 7).min(count));
+                }
+                library_projection.push(json!({"track":tracks.len()+1,"track_name":name,"part_id":source_id,"strategy":"silent_reference_track","warning":"GP5没有独立的未使用指法库；这些按法保存在静音的指法参考轨，只在谱首列出，不表示正文的和弦位置。","strings":strings.iter().map(|i| i+1).collect::<Vec<_>>(),"split_grid":count>7,"diagrams":diagrams.iter().map(|(n,d)| json!({"name":n,"effect":d.effect()})).collect::<Vec<_>>()}));
+                tracks.push(Track {
+                    part: part.clone(),
+                    staff: json!({"id":"chord-reference","measures":[]}),
+                    voices: vec![0],
+                    strings,
+                    channel,
+                    mode: "tab".into(),
+                    name,
+                    reference_measures: reference_measures.clone(),
+                });
+            }
+        }
     }
     let mut w = Writer::new();
     w.fixed("FICHIER GUITAR PRO v5.10", "version", 30)?;
@@ -578,10 +691,12 @@ pub(super) fn encode(input: &Value) -> R<(Vec<u8>, Value)> {
         w.string(text, "page setup")?;
     }
     w.string("", "tempo name")?;
-    let tempo = arr(&tracks[0].staff, "measures")?
-        .iter()
-        .find_map(|m| m["tempo_quarter"].as_i64())
-        .unwrap_or(120);
+    // Tempo belongs to the synchronized score timeline. A later mark, or a
+    // mark on another staff, must not become this track's opening tempo.
+    let tempo = timeline[0]["tempo_quarter"].as_i64().unwrap_or(120);
+    if !(1..=1000).contains(&tempo) {
+        return Err("Tempo outside 1..1000".into());
+    }
     w.i(tempo as i32);
     w.u(0);
     let first_key = if tracks[0].mode == "tab" {
@@ -628,7 +743,8 @@ pub(super) fn encode(input: &Value) -> R<(Vec<u8>, Value)> {
     w.i(0);
     w.i(timeline.len() as i32);
     w.i(tracks.len() as i32);
-    let mut last_key = "CMajor".to_owned();
+    let mut last_key = (0, "major");
+    let mut final_bar_projections = Vec::new();
     for (bi, t) in timeline.iter().enumerate() {
         if bi > 0 {
             w.u(0)
@@ -636,43 +752,46 @@ pub(super) fn encode(input: &Value) -> R<(Vec<u8>, Value)> {
         let (a, b) = meter(t)?;
         let rows = tracks
             .iter()
-            .take(1)
-            .filter_map(|tr| {
-                tr.staff["measures"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .find(|m| num(m, "index", -1) == bi as i64)
-            })
+            .filter(|track| track.reference_measures.is_empty())
+            .filter_map(|track| track.measure(bi))
             .collect::<Vec<_>>();
-        let ks = rows
+        let ks = tracks
             .iter()
-            .filter_map(|r| r["key_signature"].as_str())
-            .collect::<HashSet<_>>();
+            .filter(|track| track.reference_measures.is_empty() && track.mode != "tab")
+            .filter_map(|track| track.measure(bi)?["key_signature"].as_str())
+            .map(key)
+            .collect::<R<HashSet<_>>>()?;
         if ks.len() > 1 {
             return Err("GP5 tracks disagree on key signature".into());
         }
-        if tracks[0].mode != "tab" {
-            if let Some(k) = ks.iter().next() {
-                last_key = (*k).to_owned()
-            }
+        if let Some(k) = ks.iter().next() {
+            last_key = *k;
         }
-        let (f, mode) = key(&last_key)?;
+        let (f, mode) = last_key;
         let bars = rows
             .iter()
             .flat_map(|r| r["bars"].as_array().into_iter().flatten())
             .filter_map(Value::as_str)
             .collect::<HashSet<_>>();
-        let section = rows.iter().find_map(|r| r["section"].as_str());
+        if bars.contains("final") && bi + 1 < timeline.len() {
+            final_bar_projections.push(bi + 1);
+        }
+        let sections = rows
+            .iter()
+            .filter_map(|r| r["section"].as_str())
+            .filter(|s| !s.is_empty())
+            .collect::<BTreeSet<_>>();
+        let section =
+            (!sections.is_empty()).then(|| sections.into_iter().collect::<Vec<_>>().join(" / "));
         // Legacy GP5 uses the already-sounding note values; written-pitch
         // context is preserved by score JSON/MusicXML, not applied again here.
-        let alternative = rows
-            .iter()
-            .map(|r| num(r, "alternate_endings", 0))
-            .max()
-            .unwrap_or(0);
-        if !(0..=255).contains(&alternative) {
-            return Err("GP5 alternate ending mask outside byte range".into());
+        let mut alternative = 0;
+        for row in &rows {
+            let mask = num(row, "alternate_endings", 0);
+            if !(0..=255).contains(&mask) {
+                return Err("GP5 alternate ending mask outside byte range".into());
+            }
+            alternative |= mask;
         }
         let flags = 3
             | 64
@@ -680,23 +799,35 @@ pub(super) fn encode(input: &Value) -> R<(Vec<u8>, Value)> {
             | if bars.contains("repeat_close") { 8 } else { 0 }
             | if alternative > 0 { 16 } else { 0 }
             | if section.is_some() { 32 } else { 0 }
-            | if bars.contains("double") { 128 } else { 0 };
+            | if bars.contains("double") || bars.contains("final") {
+                128
+            } else {
+                0
+            };
         w.u(flags);
         w.u(a as u8);
         w.u(b as u8);
         if flags & 8 != 0 {
-            let repeat = rows
+            let repeats = rows
                 .iter()
+                .filter(|r| {
+                    r["bars"]
+                        .as_array()
+                        .is_some_and(|bars| bars.iter().any(|bar| bar == "repeat_close"))
+                })
                 .map(|r| num(r, "repeat_count", 2))
-                .max()
-                .unwrap_or(2);
+                .collect::<BTreeSet<_>>();
+            if repeats.len() > 1 {
+                return Err("Conflicting repeat counts between synchronized staves".into());
+            }
+            let repeat = repeats.first().copied().unwrap_or(2);
             if !(1..=127).contains(&repeat) {
                 return Err("GP5 repeat count outside byte range".into());
             }
             w.u(repeat as u8)
         }
         if let Some(section) = section {
-            w.string(section, &format!("measure {} marker", bi + 1))?;
+            w.string(&section, &format!("measure {} marker", bi + 1))?;
             w.bytes.extend([255, 0, 0, 0])
         }
         w.u(f as u8);
@@ -716,7 +847,9 @@ pub(super) fn encode(input: &Value) -> R<(Vec<u8>, Value)> {
         if ti == 0 {
             w.u(0)
         }
-        w.u(if txt(&t.part, "instrument", "") == "drums" {
+        w.u(if !t.reference_measures.is_empty() {
+            0x28 // visible, muted reference track; it contains no sounded notes
+        } else if txt(&t.part, "instrument", "") == "drums" {
             9
         } else {
             8
@@ -737,11 +870,15 @@ pub(super) fn encode(input: &Value) -> R<(Vec<u8>, Value)> {
         w.i(num(&t.part, "capo", 0) as i32);
         w.bytes.extend([255, 0, 0, 0]);
         let mode = t.mode.as_str();
-        let display = match mode {
-            "tab" => 0xc9u16,
-            "notation" => 0xcau16,
-            "both" => 0xcbu16,
-            _ => return Err("Invalid GP5 display mode".into()),
+        let display = if !t.reference_measures.is_empty() {
+            0x49u16 // TAB and header diagram list; no in-score diagram placement
+        } else {
+            match mode {
+                "tab" => 0xc9u16,
+                "notation" => 0xcau16,
+                "both" => 0xcbu16,
+                _ => return Err("Invalid GP5 display mode".into()),
+            }
         };
         w.bytes.extend(display.to_le_bytes());
         w.z(3);
@@ -804,7 +941,7 @@ pub(super) fn encode(input: &Value) -> R<(Vec<u8>, Value)> {
                                 bi + 1
                             ));
                         }
-                        beats.extend(rests(start - cursor)?);
+                        beats.extend(crate::score::rest_events(start - cursor)?);
                         let mut e = e.clone();
                         let mut kept = vec![];
                         for n in arr(&e, "notes")? {
@@ -856,7 +993,30 @@ pub(super) fn encode(input: &Value) -> R<(Vec<u8>, Value)> {
                         .any(|v| t.voices.contains(&num(v, "voice", -1)))
                 });
                 if vi == 0 && !group_present {
-                    beats = rests(length)?;
+                    beats = crate::score::rest_events(length)?;
+                }
+                if vi == 0 && !t.reference_measures.is_empty() {
+                    beats = t.reference_measures[bi].clone();
+                }
+                if ti == 0 && vi == 0 && bi > 0 {
+                    if let Some(tempo) = timeline[bi]["tempo_quarter"].as_i64() {
+                        // GP5 stores tempo changes on beats. Use the opening
+                        // beat (including a generated leading rest) of one
+                        // musical track so sparse staves retain global marks.
+                        if beats.is_empty() {
+                            beats.push(json!({"start":0,"duration":{"value":4},
+                                "status":"empty","notes":[],"effects":[]}));
+                        }
+                        let first = &mut beats[0];
+                        if event_tempo(first)?.is_none() {
+                            let mut es = effects(first)
+                                .into_iter()
+                                .map(str::to_owned)
+                                .collect::<Vec<_>>();
+                            es.push(format!("tempo:{tempo}"));
+                            first["effects"] = json!(es);
+                        }
+                    }
                 }
                 w.i(beats.len() as i32);
                 let mut expected_cursor = 0;
@@ -893,7 +1053,7 @@ pub(super) fn encode(input: &Value) -> R<(Vec<u8>, Value)> {
                     expected_notes.sort_by_key(|n| n[0].as_i64());
                     let dt = duration(e)?.3;
                     let exact_duration = projected_duration(e)?;
-                    expected.push(json!({"measure":bi,"track":ti,"voice":vi,"start":expected_cursor,"duration":dt,"duration_fraction":[exact_duration.numerator.to_string(),exact_duration.denominator.to_string()],"status":match txt(e,"status","normal"){"empty"=>0,"rest"=>2,_=>1},"notes":expected_notes}));
+                    expected.push(json!({"measure":bi,"track":ti,"voice":vi,"start":expected_cursor,"duration":dt,"duration_fraction":[exact_duration.numerator.to_string(),exact_duration.denominator.to_string()],"status":match txt(e,"status","normal"){"empty"=>0,"rest"=>2,_=>1},"notes":expected_notes,"diagram":expected_diagram(e,t)?,"tempo":event_tempo(e)?}));
                     if txt(e, "status", "normal") != "empty" {
                         expected_cursor += dt;
                     }
@@ -911,8 +1071,36 @@ pub(super) fn encode(input: &Value) -> R<(Vec<u8>, Value)> {
             w.u(0);
         }
     }
-    super::readback::verify(&w.bytes, &json!(expected))?;
-    let report = json!({"duration_projections":duration_projections,"velocity_quantization":w.velocity_quantization,"readback_verified":true,"encoding":"cp936","replacements":w.replacements,"detached_ties":detached,"tracks":tracks.len(),"native":true,"readback_scope":["notes","ties","durations","voice_timing"],"mapping":tracks.iter().enumerate().map(|(i,t)|json!({"track":i+1,"part_id":t.part["id"],"staff_id":t.staff["id"],"voices":t.voices,"strings":t.strings.iter().map(|s|s+1).collect::<Vec<_>>(),"tuning":t.strings.iter().map(|s|t.part["tuning"][*s].clone()).collect::<Vec<_>>()})).collect::<Vec<_>>()});
+    super::readback::verify(&w.bytes, &json!(expected), tempo)?;
+    let report = json!({"duration_projections":duration_projections,"velocity_quantization":w.velocity_quantization,"chord_library_projection":library_projection,"readback_verified":true,"encoding":"cp936","replacements":w.replacements,"detached_ties":detached,"tracks":tracks.len(),"native":true,"readback_scope":["notes","ties","durations","voice_timing","chord_diagrams"],"mapping":tracks.iter().enumerate().map(|(i,t)|json!({"track":i+1,"part_id":t.part["id"],"staff_id":t.staff["id"],"voices":t.voices,"strings":t.strings.iter().map(|s|s+1).collect::<Vec<_>>(),"tuning":t.strings.iter().map(|s|t.part["tuning"][*s].clone()).collect::<Vec<_>>()})).collect::<Vec<_>>()});
+    let mut report = report;
+    if !final_bar_projections.is_empty() {
+        report["final_bar_projection"] = json!({"measures":final_bar_projections,
+            "warning":"GP5 仅在曲末显示终止线；曲中的终止线已写为双小节线，MusicXML 和项目保留原来的终止线。"});
+    }
+    report["readback_scope"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!("tempo"));
+    if !pending_diagrams.is_empty() {
+        report["chord_library_review"] = json!({"annotations":pending_diagrams,
+            "warning":"仍有未确认或冲突的和弦指法候选，未写入 GP5 的指法参考轨；候选和原谱保留在项目中，可在和弦指法库单独确认，也可选择当前拍的按法并确认小节。"});
+    }
+    if !w.chord_label_projections.is_empty() {
+        report["chord_label_projection"] = json!({"events":w.chord_label_projections,
+            "warning":"未指定按法的和弦名以拍文字写入 GP5，并保留该拍原有文字，避免 Guitar Pro 显示虚假的空指法图；项目和 MusicXML 中的和弦语义保留。"});
+    }
+    if !w.legacy_text_fields.is_empty() {
+        report["encoding_compatibility"] = json!({"fields":w.legacy_text_fields,
+            "warning":"GP5 不声明文字编码，本文件使用 CP936；使用其他编码读取的软件可能将中文等文字显示为乱码。原文保存在项目中，可下载 MusicXML 保留 Unicode 文字。"});
+    }
+    if visual_events.events > 0 {
+        report["visual_techniques_projection"] = json!({"events":visual_events.events, "text_only_events":visual_events.text_only_events,
+            "scope":"existing note owners preserved; unowned chord marks encoded as beat text"});
+    }
+    if visual_events.text_only_events > 0 {
+        report["visual_techniques_projection"]["warning"] = json!("部分和弦上的 PM/let ring 仅确定了拍位置，尚未确定具体音符；已保留为拍文字。请在编辑器确认音符归属后导出播放效果。");
+    }
     Ok((w.bytes, report))
 }
 pub(super) fn write(input: &Value, output: &Path) -> R<Value> {

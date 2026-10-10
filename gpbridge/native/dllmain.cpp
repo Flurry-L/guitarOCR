@@ -3587,9 +3587,8 @@ static DWORD WINAPI pipeServerThread(LPVOID) {
                     std::string officialScorePath = json::get(
                         line, "official_score_output");
                     const std::string trackIndexText = json::get(line, "track_index");
+                    const std::string displayMode = json::get(line, "display_mode");
                     const std::string tabOnlyText = json::get(line, "tab_only");
-                    std::string displayMode = json::get(line, "display_mode");
-                    if (displayMode.empty() && tabOnlyText == "true") displayMode = "tab";
                     const std::string geometryText = json::get(line, "capture_note_geometry");
                     int selectedTrackIndex = -1;
                     const bool validTrackIndex = parseTrackIndex(

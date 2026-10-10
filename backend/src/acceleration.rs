@@ -1,7 +1,7 @@
 //! Optional Windows GPU runtime; CPU and Metal remain part of the application.
-use crate::{assets::check_hash_cancellable, downloads, models::Models, tasks::Progress};
+use crate::{downloads, models::Models, tasks::Progress};
 use fs2::FileExt;
-use guitarocr_engine::{device_selection::MemoryBudget, llama::PINNED_COMMIT};
+use guitarocr_engine::device_selection::MemoryBudget;
 use serde_json::{json, Value};
 use std::{
     fs::{self, OpenOptions},
@@ -16,30 +16,30 @@ pub struct Acceleration {
 }
 impl Acceleration {
     pub fn for_device(models: &Models, slots: usize) -> Option<Self> {
-        let catalog = models.catalog_identity();
-        let sizes: Vec<u64> = catalog["files"]["llamacpp"]
-            .as_array()?
-            .iter()
-            .filter_map(|v| v["bytes"].as_u64())
-            .collect();
-        if sizes.len() != 2 {
-            return None;
-        }
-        let budget = MemoryBudget::estimate(sizes[0], sizes[1], 8192, slots.clamp(1, 4)).ok()?;
+        let files = models.catalog["files"]["llamacpp"].as_array()?;
+        let [model_size, projector_size] = [models.model(), models.projector()].map(|path| {
+            path.metadata().ok().map(|metadata| metadata.len()).or_else(|| {
+                files.iter().find_map(|file| {
+                    (models.root.join(file["path"].as_str()?) == path)
+                        .then(|| file["bytes"].as_u64())
+                        .flatten()
+                })
+            })
+        });
+        let budget =
+            MemoryBudget::estimate(model_size?, projector_size?, 8192, slots.clamp(1, 4)).ok()?;
         let runtimes: Value =
             serde_json::from_str(include_str!("../../scripts/llamacpp-runtime.json")).ok()?;
-        if runtimes["commit"] != PINNED_COMMIT {
-            return None;
-        }
         let entry = runtimes["artifacts"]["windows-x64-cuda"].as_object()?;
         let minimum_driver = entry.get("cuda_driver")?.as_i64()? as i32;
-        if !guitarocr_engine::cuda::available(budget.required_bytes, minimum_driver) {
+        if !guitarocr_engine::device_selection::cuda_available(
+            budget.required_bytes,
+            minimum_driver,
+        ) {
             return None;
         }
         Some(Self {
-            root: models
-                .runtime_root
-                .join(format!("{PINNED_COMMIT}-windows-cuda")),
+            root: models.runtime_root.join("windows-cuda"),
             entry: json!(entry),
         })
     }
@@ -60,7 +60,7 @@ impl Acceleration {
                 })
         })
     }
-    fn verified(&self, progress: &Progress) -> Result<PathBuf, String> {
+    fn installed_executable(&self, progress: &Progress) -> Result<PathBuf, String> {
         let root = self.folder().canonicalize().map_err(|e| e.to_string())?;
         for file in self.entry["files"]
             .as_array()
@@ -72,13 +72,11 @@ impl Acceleration {
             if !path.starts_with(&root) {
                 return Err("Acceleration file escapes cache".into());
             }
-            check_hash_cancellable(
-                &path,
-                file["sha256"]
-                    .as_str()
-                    .ok_or("Missing acceleration checksum")?,
-                &|| progress.cancelled(),
-            )?;
+            progress.checkpoint()?;
+            let metadata = path.metadata().map_err(|e| e.to_string())?;
+            if !metadata.is_file() || Some(metadata.len()) != file["bytes"].as_u64() {
+                return Err("Acceleration file is missing or incomplete".into());
+            }
         }
         Ok(root.join("llama-server.exe"))
     }
@@ -106,7 +104,7 @@ impl Acceleration {
             }
         }
         if self.cached() {
-            if let Ok(executable) = self.verified(progress) {
+            if let Ok(executable) = self.installed_executable(progress) {
                 return Ok(Some(executable));
             }
             progress.checkpoint()?;
@@ -166,13 +164,6 @@ impl Acceleration {
                 output.write_all(&bytes[..n]).map_err(|e| e.to_string())?;
             }
             output.sync_all().map_err(|e| e.to_string())?;
-            check_hash_cancellable(
-                &path,
-                file["sha256"]
-                    .as_str()
-                    .ok_or("Missing acceleration checksum")?,
-                &|| progress.cancelled(),
-            )?;
         }
         progress.checkpoint()?;
         if self.folder().exists() {

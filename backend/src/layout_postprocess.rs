@@ -1,7 +1,6 @@
 //! Port of research/inference/layout/postprocess.py. ONNX's per-class NMS is not sufficient:
-//! this stage orders measures, resolves competing spans, reconciles paired
-//! notation/TAB rows and recovers only gaps supported by printed barlines.
-use crate::image_boundary::{check_dimensions, round_even, Result};
+//! orders and deduplicates model proposals. Missing boxes remain editable.
+use crate::image_boundary::{check_dimensions, Result};
 use image::RgbImage;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -39,6 +38,11 @@ impl Detection {
             })
             .transpose()?
             .unwrap_or(0.);
+        if let Some(value) = value.get("fusion_score") {
+            if value.as_f64().is_none_or(|n| !n.is_finite()) {
+                return Err("Layout fusion score must be finite".into());
+            }
+        }
         let label = value["label"]
             .as_str()
             .ok_or("Layout label must be a string")?
@@ -59,10 +63,19 @@ impl Detection {
     fn width(&self) -> f64 {
         self.xy[2] - self.xy[0]
     }
+    fn rank_score(&self) -> f64 {
+        self.value["fusion_score"].as_f64().unwrap_or(self.score)
+    }
     fn height(&self) -> f64 {
         self.xy[3] - self.xy[1]
     }
     fn center(&self) -> f64 {
+        if let Some([top, bottom]) = staff_band(&self.value) {
+            return (top + bottom) / 2.;
+        }
+        self.envelope_center()
+    }
+    fn envelope_center(&self) -> f64 {
         (self.xy[1] + self.xy[3]) / 2.
     }
     fn emit(mut self, index: usize) -> Value {
@@ -75,6 +88,31 @@ impl Detection {
         }
         self.value
     }
+}
+
+pub(crate) fn staff_band(value: &Value) -> Option<[f64; 2]> {
+    let values = value["staff_band"].as_array().filter(|a| a.len() == 2)?;
+    let pair = [values[0].as_f64()?, values[1].as_f64()?];
+    (pair.iter().all(|v| v.is_finite()) && pair[1] > pair[0]).then_some(pair)
+}
+
+fn same_row(b: &Detection, row: &[Detection]) -> bool {
+    if let Some([top, bottom]) = staff_band(&b.value) {
+        let observed: Vec<_> = row.iter().filter_map(|m| staff_band(&m.value)).collect();
+        if !observed.is_empty() {
+            return observed.iter().any(|[a, c]| {
+                (top - a).abs().max((bottom - c).abs()) <= 0.15 * (bottom - top).min(c - a)
+            });
+        }
+    }
+    let overlap = b.xy[3].min(median(row.iter().map(|m| m.xy[3]).collect()))
+        - b.xy[1].max(median(row.iter().map(|m| m.xy[1]).collect()));
+    overlap >= 0.65 * b.height().min(median(row.iter().map(|m| m.height()).collect()))
+        // A tall envelope must not bridge two physically separate rows.
+        && row.iter().all(|m| {
+            b.xy[3].min(m.xy[3]) - b.xy[1].max(m.xy[1])
+                >= 0.65 * b.height().min(m.height())
+        })
 }
 fn mode_for_label(label: &str) -> Option<&str> {
     match label {
@@ -136,41 +174,75 @@ pub fn deduplicate_pitch_boxes(boxes: &[Value]) -> Result<Vec<Value>> {
     Ok(kept.into_iter().map(|b| b.value).collect())
 }
 
+fn separate_interiors(first: &Detection, second: &Detection) -> bool {
+    first.xy[2] <= second.xy[0]
+        || ((first.xy[0] + first.xy[2]) / 2. < second.xy[0]
+            && first.xy[2] < (second.xy[0] + second.xy[2]) / 2.)
+}
+
 fn select_nonoverlapping(mut row: Vec<Detection>) -> Vec<Detection> {
     row.sort_by(|a, b| {
         a.xy[2]
             .total_cmp(&b.xy[2])
             .then(a.xy[0].total_cmp(&b.xy[0]))
     });
-    let mut scores = vec![0.];
-    let mut choices: Vec<Vec<usize>> = vec![vec![]];
+    if row.is_empty() {
+        return vec![];
+    }
+    let mut scores = Vec::new();
+    let mut parents: Vec<Option<usize>> = Vec::new();
     for (i, b) in row.iter().enumerate() {
-        let prev = (0..i)
-            .rev()
-            .find(|&j| row[j].xy[2] <= b.xy[0] + 6f64.max(0.08 * b.width().min(row[j].width())))
-            .map(|j| j + 1)
-            .unwrap_or(0);
-        let selected = scores[prev] + b.score * b.score;
-        if selected > *scores.last().unwrap() {
-            scores.push(selected);
-            let mut selection = choices[prev].clone();
-            selection.push(i);
-            choices.push(selection);
-        } else {
-            scores.push(*scores.last().unwrap());
-            choices.push(choices.last().unwrap().clone());
+        let mut previous = None;
+        for j in 0..i {
+            if separate_interiors(&row[j], b) && previous.is_none_or(|old| scores[j] > scores[old])
+            {
+                previous = Some(j);
+            }
+        }
+        scores.push(b.rank_score().powi(2) + previous.map_or(0., |j| scores[j]));
+        parents.push(previous);
+    }
+    let mut best = 0;
+    for i in 1..row.len() {
+        if scores[i] > scores[best] {
+            best = i;
         }
     }
-    let mut selected: Vec<Detection> = choices
-        .last()
-        .unwrap()
+    let mut next = Some(best);
+    let mut selected = vec![];
+    while let Some(i) = next {
+        selected.push(row[i].clone());
+        next = parents[i];
+    }
+    selected.reverse();
+    let originals: Vec<Value> = selected
         .iter()
-        .map(|&i| row[i].clone())
+        .map(|b| {
+            b.value
+                .get("original_coordinate")
+                .cloned()
+                .unwrap_or_else(|| json!(b.xy))
+        })
         .collect();
-    selected.sort_by(|a, b| a.xy[0].total_cmp(&b.xy[0]));
     for i in 1..selected.len() {
         if selected[i - 1].xy[2] > selected[i].xy[0] {
             let boundary = (selected[i - 1].xy[2] + selected[i].xy[0]) / 2.;
+            for (index, other, side) in [(i - 1, i, "right"), (i, i - 1, "left")] {
+                let own_score = selected[index].score;
+                let other_score = selected[other].score;
+                selected[index].value["original_coordinate"] = originals[index].clone();
+                if !selected[index].value["boundary_review"].is_array() {
+                    selected[index].value["boundary_review"] = json!([]);
+                }
+                selected[index].value["boundary_review"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(json!({
+                        "reason":"overlapping_model_boundaries","side":side,"boundary":boundary,
+                        "own_coordinate":originals[index],"other_coordinate":originals[other],
+                        "own_score":own_score,"other_score":other_score,
+                    }));
+            }
             selected[i - 1].xy[2] = boundary;
             selected[i].xy[0] = boundary;
         }
@@ -198,12 +270,7 @@ pub fn order_measure_boxes(boxes: &[Value], minimum_score: f64) -> Result<Vec<Va
     });
     let mut rows: Vec<Vec<Detection>> = vec![];
     for b in candidates {
-        let same = rows.iter().position(|r| {
-            (b.center() - median(r.iter().map(|m| m.center()).collect())).abs()
-                <= 0.35
-                    * b.height()
-                        .min(median(r.iter().map(|m| m.height()).collect()))
-        });
+        let same = rows.iter().position(|r| same_row(&b, r));
         if let Some(i) = same {
             rows[i].push(b);
         } else {
@@ -227,221 +294,6 @@ pub fn order_measure_boxes(boxes: &[Value], minimum_score: f64) -> Result<Vec<Va
                 })
         })
         .collect())
-}
-
-fn deduplicate_pairs(boxes: Vec<Detection>) -> Vec<Detection> {
-    let pairs: Vec<_> = boxes
-        .iter()
-        .filter(|b| b.mode.as_deref() == Some("both"))
-        .cloned()
-        .collect();
-    boxes
-        .into_iter()
-        .filter(|b| {
-            !matches!(b.mode.as_deref(), Some("tab" | "notation"))
-                || !pairs.iter().any(|pair| {
-                    b.width() > 0.
-                        && b.height() > 0.
-                        && intersection(b, pair) >= 0.9 * b.width() * b.height()
-                        && (0.8..=1.2).contains(&(b.width() / pair.width().max(1.)))
-                        && pair.height() >= 1.5 * b.height()
-                        && pair.score >= b.score
-                })
-        })
-        .collect()
-}
-fn root(parents: &BTreeMap<usize, usize>, mut i: usize) -> usize {
-    while parents[&i] != i {
-        i = parents[&i];
-    }
-    i
-}
-fn reconcile_pairs(boxes: Vec<Detection>) -> Vec<Detection> {
-    let mut parents: BTreeMap<_, _> = boxes.iter().map(|b| (b.system, b.system)).collect();
-    for b in &boxes {
-        for other in &boxes {
-            let a = root(&parents, b.system);
-            let c = root(&parents, other.system);
-            if a == c {
-                continue;
-            }
-            let tolerance = 0.15 * b.height().min(other.height());
-            let pair = |mode: &str| {
-                (b.mode.as_deref() == Some("both") && other.mode.as_deref() == Some(mode))
-                    || (other.mode.as_deref() == Some("both") && b.mode.as_deref() == Some(mode))
-            };
-            if (pair("notation") && (b.xy[1] - other.xy[1]).abs() <= tolerance)
-                || (pair("tab") && (b.xy[3] - other.xy[3]).abs() <= tolerance)
-            {
-                parents.insert(a.max(c), a.min(c));
-            }
-        }
-    }
-    if parents.iter().all(|(a, b)| a == b) {
-        return boxes;
-    }
-    let mut rows: BTreeMap<usize, Vec<Detection>> = BTreeMap::new();
-    for mut b in boxes {
-        b.system = root(&parents, b.system);
-        rows.entry(b.system).or_default().push(b);
-    }
-    rows.into_values().flat_map(select_nonoverlapping).collect()
-}
-fn luma(page: &RgbImage) -> Vec<u8> {
-    page.pixels()
-        .map(|p| {
-            ((19595u32 * p[0] as u32 + 38470u32 * p[1] as u32 + 7471u32 * p[2] as u32 + 32768)
-                >> 16) as u8
-        })
-        .collect()
-}
-struct Pixels {
-    values: Vec<u8>,
-    width: usize,
-    height: usize,
-}
-impl Pixels {
-    fn ink(&self, x: usize, y: usize) -> bool {
-        self.values[y * self.width + x] < 150
-    }
-    fn barline(&self, x: f64, top: f64, bottom: f64) -> bool {
-        let h = bottom - top;
-        if h < 35. {
-            return false;
-        }
-        let y0 = ((top + 0.04 * h) as i64).max(0).min(self.height as i64) as usize;
-        let y1 = ((bottom - 0.04 * h) as i64).max(0).min(self.height as i64) as usize;
-        let x0 = (x as i64 - 18).max(0).min(self.width as i64) as usize;
-        let x1 = (x as i64 + 19).max(0).min(self.width as i64) as usize;
-        if y1 <= y0 || x1 <= x0 {
-            return false;
-        }
-        let mut longest = 0;
-        for x in x0..x1 {
-            let mut run = 0;
-            for y in y0..y1 {
-                if self.ink(x, y) {
-                    run += 1;
-                    longest = longest.max(run);
-                } else {
-                    run = 0;
-                }
-            }
-        }
-        longest as f64 >= 35f64.max(60f64.min(0.34 * h))
-    }
-    fn fragment(&self, b: &Detection, boxes: &[Detection]) -> bool {
-        if b.score >= 0.5 {
-            return false;
-        }
-        let [left, top, right, bottom] = b.xy;
-        let w = b.width();
-        let h = b.height();
-        let x0 = round_even(left + w * 0.1).max(0.).min(self.width as f64) as usize;
-        let x1 = round_even(right - w * 0.1).max(0.).min(self.width as f64) as usize;
-        let y0 = round_even(top).max(0.).min(self.height as f64) as usize;
-        let y1 = round_even(bottom).max(0.).min(self.height as f64) as usize;
-        if x1 <= x0 || y1 <= y0 {
-            return false;
-        }
-        let mut lines = 0;
-        let mut previous = None;
-        for y in y0..y1 {
-            if (x0..x1).filter(|&x| self.ink(x, y)).count() as f64 / (x1 - x0) as f64 > 0.65 {
-                if previous.map(|p| y - p > 2).unwrap_or(true) {
-                    lines += 1;
-                }
-                previous = Some(y);
-            }
-        }
-        if !(1..=3).contains(&lines) {
-            return false;
-        }
-        let (mut above, mut below, mut overlaps) = (false, false, false);
-        for other in boxes {
-            if other.score < 0.7 {
-                continue;
-            }
-            let [x0, y0, x1, y1] = other.xy;
-            let overlap = bottom.min(y1) - top.max(y0);
-            if right.min(x1) - left.max(x0) < 0.7 * w.min(x1 - x0) || overlap < -0.15 * h {
-                continue;
-            }
-            above |= (y0 + y1) / 2. < top;
-            below |= (y0 + y1) / 2. > bottom;
-            overlaps |= overlap >= 0.15 * h;
-        }
-        above && below && overlaps
-    }
-}
-
-pub fn refine_measure_boxes(page: &RgbImage, boxes: &[Value]) -> Result<Vec<Value>> {
-    check_dimensions(page.width(), page.height())?;
-    let boxes = reconcile_pairs(deduplicate_pairs(parse_boxes(boxes)?));
-    let pixels = Pixels {
-        values: luma(page),
-        width: page.width() as usize,
-        height: page.height() as usize,
-    };
-    let mut rows: BTreeMap<usize, Vec<Detection>> = BTreeMap::new();
-    for b in &boxes {
-        if !pixels.fragment(b, &boxes) {
-            rows.entry(b.system).or_default().push(b.clone());
-        }
-    }
-    let sizes: Vec<f64> = rows.values().map(|r| r.len() as f64).collect();
-    let typical = if sizes.is_empty() {
-        0.
-    } else {
-        round_even(median(if sizes.len() > 2 {
-            sizes[1..sizes.len() - 1].to_vec()
-        } else {
-            sizes
-        }))
-    };
-    let mut result = vec![];
-    for (_, mut row) in rows {
-        row.sort_by(|a, b| a.xy[0].total_cmp(&b.xy[0]));
-        let repair = row.len() >= 3 && (row.len() as f64) < typical;
-        let usual = median(row.iter().map(|b| b.width()).collect());
-        let mut merged: Vec<Detection> = vec![];
-        for current in row {
-            if repair {
-                if let Some(previous) = merged.last() {
-                    if previous.mode == current.mode {
-                        let [_, top, right, bottom] = previous.xy;
-                        let [next_left, next_top, _, next_bottom] = current.xy;
-                        let gap = next_left - right;
-                        let ct = top.max(next_top);
-                        let cb = bottom.min(next_bottom);
-                        if cb > ct && gap >= 0.35 * usual && gap <= 1.5 * usual {
-                            let middle = ((right + next_left) / 2.) as i64;
-                            let x = middle.clamp(0, pixels.width as i64 - 1) as usize;
-                            let y0 = ((ct + 0.2 * (cb - ct)) as i64).clamp(0, pixels.height as i64)
-                                as usize;
-                            let y1 = ((cb - 0.2 * (cb - ct)) as i64).clamp(0, pixels.height as i64)
-                                as usize;
-                            let ink = (y0..y1).filter(|&y| pixels.ink(x, y)).count();
-                            if ink >= 3
-                                && pixels.barline(right, ct, cb)
-                                && pixels.barline(next_left, ct, cb)
-                            {
-                                let mut recovered = current.clone();
-                                recovered.xy = [right, ct, next_left, cb];
-                                recovered.score = previous.score.min(current.score);
-                                recovered.value["score"] = json!(recovered.score);
-                                recovered.value["geometry_source"] = json!("barline_gap_recovery");
-                                merged.push(recovered);
-                            }
-                        }
-                    }
-                }
-            }
-            merged.push(current);
-        }
-        result.extend(merged.into_iter().enumerate().map(|(i, b)| b.emit(i)));
-    }
-    Ok(result)
 }
 
 pub fn mode_vote(boxes: &[Value]) -> Value {
@@ -470,8 +322,9 @@ pub fn mode_vote(boxes: &[Value]) -> Value {
 }
 
 pub fn process_page(page: &RgbImage, boxes: &[Value], threshold: f64) -> Result<Value> {
+    check_dimensions(page.width(), page.height())?;
     let boxes = deduplicate_pitch_boxes(boxes)?;
-    let measures = refine_measure_boxes(page, &order_measure_boxes(&boxes, threshold)?)?;
+    let measures = order_measure_boxes(&boxes, threshold)?;
     let mut result = mode_vote(&measures);
     result["measures"] = json!(measures);
     result["tempo_regions"] = json!(boxes
@@ -509,7 +362,7 @@ pub fn process_page(page: &RgbImage, boxes: &[Value], threshold: f64) -> Result<
 /// Editor records stay in the user's reading order. Only physical row identity
 /// is assigned; there is deliberately no automatic span selection or dedup.
 pub fn assign_manual_rows(records: &mut [Value]) -> Result<()> {
-    let mut pages: BTreeMap<u64, Vec<(usize, [f64; 4])>> = BTreeMap::new();
+    let mut pages: BTreeMap<u64, Vec<(usize, Detection)>> = BTreeMap::new();
     for (index, record) in records.iter().enumerate() {
         let page = record["page"]
             .as_u64()
@@ -529,39 +382,63 @@ pub fn assign_manual_rows(records: &mut [Value]) -> Result<()> {
         if b[2] <= 0. || b[3] <= 0. {
             return Err("Manual bbox width/height must be positive".into());
         }
-        pages.entry(page).or_default().push((index, b));
+        pages.entry(page).or_default().push((
+            index,
+            Detection {
+                value: record.clone(),
+                xy: [b[0], b[1], b[0] + b[2], b[1] + b[3]],
+                score: 0.,
+                label: "measure".into(),
+                mode: None,
+                system: 0,
+            },
+        ));
     }
     for (_, mut items) in pages {
-        items.sort_by(|a, b| (a.1[1] + a.1[3] / 2.).total_cmp(&(b.1[1] + b.1[3] / 2.)));
-        let mut rows: Vec<Vec<[f64; 4]>> = vec![];
+        items.sort_by(|a, b| {
+            a.1.center()
+                .total_cmp(&b.1.center())
+                .then(a.1.xy[0].total_cmp(&b.1.xy[0]))
+        });
+        let mut rows: Vec<Vec<Detection>> = vec![];
+        let mut assignments = vec![];
         for (index, b) in items {
             let group = rows
                 .iter()
-                .position(|r| {
-                    let center = median(r.iter().map(|b| b[1] + b[3] / 2.).collect());
-                    let height = median(r.iter().map(|b| b[3]).collect());
-                    (b[1] + b[3] / 2. - center).abs() <= 0.35 * b[3].min(height)
-                })
+                .position(|r| same_row(&b, r))
                 .unwrap_or(rows.len());
             if group == rows.len() {
                 rows.push(vec![]);
             }
             rows[group].push(b);
-            records[index]["row_index"] = json!(group);
-            records[index]["system_index"] = json!(group);
+            assignments.push((index, group));
+        }
+        let mut physical_order: Vec<_> = (0..rows.len()).collect();
+        physical_order.sort_by(|&a, &b| {
+            median(rows[a].iter().map(|m| m.center()).collect())
+                .total_cmp(&median(rows[b].iter().map(|m| m.center()).collect()))
+        });
+        let mut physical_ids = vec![0; rows.len()];
+        for (physical_id, group) in physical_order.into_iter().enumerate() {
+            physical_ids[group] = physical_id;
+        }
+        for (index, group) in assignments {
+            records[index]["row_index"] = json!(physical_ids[group]);
+            records[index]["system_index"] = json!(physical_ids[group]);
         }
     }
     Ok(())
 }
 
 /// Complete the per-page crop contract from research/inference/layout/crops.py. Typed ONNX votes
-/// win; staff geometry is used only when mode/measure evidence is missing.
+/// win; missing detections stay empty for the editor instead of invoking pixels.
 pub fn prepare_page_prediction(
     page: &RgbImage,
     prediction: &mut Value,
     requested_mode: &str,
     allow_empty: bool,
 ) -> Result<()> {
+    check_dimensions(page.width(), page.height())?;
     if !matches!(requested_mode, "auto" | "tab" | "notation" | "both") {
         return Err("Unknown notation mode".into());
     }
@@ -571,30 +448,14 @@ pub fn prepare_page_prediction(
         .ok_or("Layout prediction needs measures")?;
     let vote = mode_vote(&measures);
     let mut source = "manual";
-    let mut mode = if requested_mode == "auto" {
+    let mode = if requested_mode == "auto" {
         source = "pp_doclayout";
         vote["mode"].as_str().map(str::to_owned)
     } else {
         Some(requested_mode.to_owned())
     };
-    if requested_mode == "auto" && mode.is_none() {
-        let classification = crate::staff_classifier::classify_notation_layout(page)?;
-        mode = match classification["layout"].as_str() {
-            Some("tab_only") => Some("tab".into()),
-            Some("score_only") => Some("notation".into()),
-            Some("score_tab") => Some("both".into()),
-            _ => None,
-        };
-        source = "staff_geometry";
-        prediction["staff_classification"] = classification;
-    }
     if mode.is_none() && !measures.is_empty() {
         return Err("Cannot determine notation type; select a mode explicitly".into());
-    }
-    if measures.is_empty() {
-        if let Some(mode) = &mode {
-            measures = crate::staff_geometry::measure_boxes(page, mode)?;
-        }
     }
     if measures.is_empty() && !allow_empty {
         return Err(

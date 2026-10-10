@@ -103,8 +103,8 @@ def run_workers(*, runtime: Path, prefix_template: Path, wine_python: Path,
             worker_arguments = list(arguments(index, worker_dir))
             command = [
                 *wine,
-                _wine_path(wine_python),
-                _wine_path(script),
+                wine_path(wine_python),
+                wine_path(script),
                 *worker_arguments,
             ]
             process = subprocess.Popen(
@@ -195,10 +195,8 @@ def _required_executable(name: str, environment: dict[str, str]) -> str:
     return value
 
 
-def _wine_path(path: Path) -> str:
+def wine_path(path: Path) -> str:
     source = path.resolve()
-    if not source.is_absolute():
-        raise ValueError(f"Wine path must be absolute: {path}")
     return "Z:" + str(source).replace("/", "\\")
 
 
@@ -236,6 +234,3 @@ def _remove_display_files(display: int) -> None:
 def _require_separate(first: Path, second: Path) -> None:
     if first == second or first.is_relative_to(second) or second.is_relative_to(first):
         raise ValueError(f"paths must be separate: {first}, {second}")
-
-
-wine_path = _wine_path

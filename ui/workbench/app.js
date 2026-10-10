@@ -7,15 +7,12 @@ import {
   receiveProject,
 } from "./state.js";
 import { $, el, notice, action } from "./dom.js";
-import { api } from "./api.js";
+import { api, request } from "./api.js";
 import { initWorkspace } from "./workspace.js";
 import { initMetadata } from "./metadata-editor.js";
-import { initPages } from "./pages.js";
 import { initBoxes } from "./boxes.js";
 import { initMeasures } from "./measure-editor.js";
-import { createProjectImporter, readSample } from "./project-import.js";
-const { renderPages, updatePageNavigation } = initPages(() => loadPage());
-const { loadPage, renderBoxList, updateBoxControls } = initBoxes({
+const { loadPage, renderPages, updatePageNavigation, updateBoxControls } = initBoxes({
   start,
   go,
   render,
@@ -145,7 +142,7 @@ function go(next, reveal = true) {
   if (next > 3 && !ui.state.recognition) return notice("请先识别小节。", true);
   if (
     next !== 0 && ((ui.step === 1 && ui.boxDirty) ||
-      (ui.step === 2 && ui.metadataDirty) ||
+      (ui.step === 2 && (ui.metadataDirty || ui.libraryDirty)) ||
       (ui.step === 3 && ui.measureDirty)) &&
     next !== ui.step
   ) {
@@ -293,7 +290,7 @@ async function watch(after, initial, navigation = workspace.navigation()) {
         if (ui.step === 0) {
           document.querySelector('[data-panel="0"]').classList.remove("active");
           $("currentDocument").hidden = false;
-          $("scoreTitle").textContent = current.metadata?.title || "正在导入乐谱";
+          $("scoreTitle").textContent = current.metadata?.title || current.metadata?.document_metadata?.title_fallback || current.input_names?.[0] || "正在导入乐谱";
           $("scoreCredits").textContent = current.metadata?.artist || "";
           $("documentName").textContent = (current.input_names || []).join("、");
           $("documentPages").textContent = current.pages?.length ? `，共 ${current.pages.length} 页` : "";
@@ -399,24 +396,50 @@ $("upload").onclick = action(async () => {
     if (generation === ui.openGeneration) setBusy(false);
   }
 });
-const importProject = createProjectImporter({
-  ui, hasDrafts, confirm, setBusy, notice,
-  navigation: () => workspace.navigation(),
-  importArchive: (file) => {
+let importing = false;
+async function importProject(readFile, { prompt, loading, opened, background }) {
+  if (importing || ui.busy) return;
+  if ((hasDrafts() || ui.files.length) && !confirm(prompt)) return;
+  let owner = { sid: ui.sid, generation: ui.openGeneration };
+  const navigation = workspace.navigation();
+  const ownsEditor = () => ui.sid === owner.sid && ui.openGeneration === owner.generation;
+  importing = true;
+  setBusy(true);
+  notice(loading);
+  try {
     const form = new FormData();
-    form.append("file", file);
-    return api("/api/projects/import", "POST", form);
-  },
-  accept: (saved) => {
-    window.dispatchEvent(new Event("guitarocr:leave-project"));
-    openProject(saved.id, { discardDrafts: true });
-    receiveProject(saved);
-    renderFiles();
-    render();
-    go(ui.state.recognition ? 3 : 1);
-  },
-  refresh: () => workspace.refresh(),
-});
+    form.append("file", await readFile());
+    const saved = await api("/api/projects/import", "POST", form);
+    if (ownsEditor()) {
+      if (workspace.navigation() === navigation) {
+        window.dispatchEvent(new Event("guitarocr:leave-project"));
+        openProject(saved.id, { discardDrafts: true });
+        receiveProject(saved);
+        renderFiles();
+        render();
+        go(ui.state.recognition ? 3 : 1);
+        owner = { sid: ui.sid, generation: ui.openGeneration };
+        notice(opened);
+      } else notice(background);
+    }
+    await workspace.refresh();
+  } catch (error) {
+    if (ownsEditor()) notice(error.message, true);
+  } finally {
+    importing = false;
+    if (ownsEditor()) setBusy(false);
+  }
+}
+async function readSample() {
+  let response;
+  try {
+    response = await request("/static/examples/Harbor-Light-synthetic-project.zip", {}, "blob");
+  } catch {
+    throw new Error("暂时无法加载示例，请重试。");
+  }
+  if (!response.ok) throw new Error("示例文件未能加载，请重试或检查安装是否完整。");
+  return new File([response.data], "Harbor-Light-synthetic-project.zip", { type: "application/zip" });
+}
 $("importProject").onchange = async (event) => {
   const file = event.target.files[0];
   event.target.value = "";
@@ -497,7 +520,7 @@ function render() {
   $("mode").value = ui.state.mode_setting || ui.state.mode;
   $("deleteProject").hidden = workspace.screen() !== "workbench";
   renderPages();
-  if (!ui.metadataDirty) renderMetadata();
+  if (!ui.metadataDirty && !ui.libraryDirty) renderMetadata();
   renderMeasures();
   renderExport();
   if (ui.step === 1) loadPage();
@@ -543,11 +566,10 @@ function renderExport() {
     $("downloadGP5").href = ui.state.gp5_url;
     $("downloadGP5").download = ui.state.gp5_name;
   }
-  $("exportWarning").hidden = !review;
+  const warnings = [review ? `还有 ${review} 个小节待检查，确认后即可导出。` : "", ...(ui.state.export_warnings || [])].filter(Boolean);
+  $("exportWarning").hidden = !warnings.length;
   $("reviewBeforeExport").hidden = !review;
-  $("exportWarning").textContent = review
-    ? `还有 ${review} 个小节待检查，确认后即可导出。`
-    : "";
+  $("exportWarning").textContent = warnings.join("\n");
 }
 $("reviewBeforeExport").onclick = () => {
   go(3);
@@ -576,8 +598,7 @@ $("export").onclick = action(async () => {
     if (ui.openGeneration !== generation) return;
     if (report.replacements?.length) {
       $("exportWarning").hidden = false;
-      $("exportWarning").textContent =
-        "部分文字无法写入 GP5 的字符编码，小节文本保留了原文。";
+      $("exportWarning").textContent = [$("exportWarning").textContent, "部分文字无法写入 GP5 的字符编码，小节文本保留了原文。"].filter(Boolean).join("\n");
     }
   }
 });
