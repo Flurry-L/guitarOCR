@@ -21,7 +21,7 @@ def _track_rank(track: Any) -> tuple[int, int, int, int]:
     for measure in track.measures:
         for voice in measure.voices:
             for beat in voice.beats:
-                if _enum_name(getattr(beat, "status", "normal")) != "empty":
+                if _enum_name(beat.status) != "empty":
                     event_count += 1
                 note_count += len(beat.notes)
     string_count = len(track.strings)
@@ -42,7 +42,7 @@ def select_target_track(song: Any) -> tuple[int, Any]:
 
 def song_sequence_payload(song: Any, track_index: int, source_path: Path, source_hash: str) -> dict[str, Any]:
     track = song.tracks[track_index]
-    source_capo = int(getattr(track, "offset", 0) or 0)
+    source_capo = int(track.offset)
     normalized_offset = track_instrument(track) == "pitched" and source_capo != 0
     if normalized_offset:
         # Some piano/voice imports use the GP capo field as a pitch offset.
@@ -65,7 +65,7 @@ def song_sequence_payload(song: Any, track_index: int, source_path: Path, source
             measure,
             previous_signature,
             previous_key_signature,
-            initial_tempo=int(getattr(song, "tempo", 120) or 120) if not measures else None,
+            initial_tempo=int(song.tempo) if not measures else None,
         )
         if track.isPercussionTrack:
             # A percussion clef has no pitched key signature or accidentals.
@@ -135,19 +135,19 @@ def song_sequence_payload(song: Any, track_index: int, source_path: Path, source
         "source_path": str(source_path.resolve()),
         "source_format": source_path.suffix.lower().lstrip("."),
         "song": {
-            "title": str(getattr(song, "title", "") or source_path.stem),
-            "artist": str(getattr(song, "artist", "") or ""),
-            "tempo_quarter": int(getattr(song, "tempo", 120) or 120),
+            "title": str(song.title),
+            "artist": str(song.artist),
+            "tempo_quarter": int(song.tempo),
         },
         "track": {
             "instrument": track_instrument(track),
             "midi_program": int(track.channel.instrument),
             "index": track_index,
-            "number": int(getattr(track, "number", track_index + 1)),
-            "name": str(getattr(track, "name", "") or ""),
+            "number": int(track.number),
+            "name": str(track.name),
             "string_count": len(track.strings),
             "tuning_midi_high_to_low": tuning,
-            "capo": int(getattr(track, "offset", 0) or 0),
+            "capo": int(track.offset),
             **({"source_capo": source_capo} if normalized_offset else {}),
         },
         "statistics": {
@@ -167,12 +167,16 @@ def parse_song(path: Path) -> tuple[Any, str]:
     import guitarpro
 
     last_error: Exception | None = None
-    for encoding in ("utf-8", "gbk", "cp936", "cp1252", "latin-1"):
+    for encoding in ("utf-8", "gbk", "cp1252", "latin-1"):
         try:
             song = guitarpro.parse(str(path), encoding=encoding)
             _repair_tied_note_values(song)
             return song, encoding
-        except Exception as error:  # pragma: no cover - corpus dependent
+        except (UnicodeDecodeError, guitarpro.GPException) as error:
+            # PyGuitarPro wraps string decoding failures with score location.
+            # A damaged score or a label-conversion bug is not an encoding choice.
+            if not isinstance(error, UnicodeDecodeError) and not isinstance(error.__cause__, UnicodeDecodeError):
+                raise
             last_error = error
     raise RuntimeError(f"Could not parse {path}: {last_error!r}")
 
@@ -188,18 +192,18 @@ def _repair_tied_note_values(song: Any) -> None:
     any source label or round-trip metric reads ``note.realValue``.
     """
 
-    for track in getattr(song, "tracks", []):
+    for track in song.tracks:
         previous_by_voice: dict[int, dict[int, int]] = {}
-        for measure in getattr(track, "measures", []):
-            for voice_index, voice in enumerate(getattr(measure, "voices", [])):
+        for measure in track.measures:
+            for voice_index, voice in enumerate(measure.voices):
                 previous = previous_by_voice.setdefault(voice_index, {})
-                for beat in getattr(voice, "beats", []):
-                    for note in getattr(beat, "notes", []):
-                        note_type = _enum_name(getattr(note, "type", "normal"))
-                        string = int(getattr(note, "string", 0) or 0)
+                for beat in voice.beats:
+                    for note in beat.notes:
+                        note_type = _enum_name(note.type)
+                        string = int(note.string)
                         if note_type == "tie" and string in previous:
                             note.value = previous[string]
-                        value = int(getattr(note, "value", -1) or 0)
+                        value = int(note.value)
                         if note_type != "dead" and string > 0 and value >= 0:
                             previous[string] = value
 

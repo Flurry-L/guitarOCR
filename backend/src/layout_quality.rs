@@ -161,20 +161,16 @@ impl LayoutQualityReader {
             .filter(|(_, b)| is_measure(b))
             .map(|(i, _)| i)
             .collect();
-        let agreements = if self.proposal_width > 4 {
-            Some(agreement_features(
-                &indices
-                    .iter()
-                    .map(|&i| boxes[i].clone())
-                    .collect::<Vec<_>>(),
-                boxes,
-                page.dimensions(),
-                views,
-                cancelled,
-            )?)
-        } else {
-            None
-        };
+        let agreements = agreement_features(
+            &indices
+                .iter()
+                .map(|&i| boxes[i].clone())
+                .collect::<Vec<_>>(),
+            boxes,
+            page.dimensions(),
+            views,
+            cancelled,
+        )?;
         let mut scored = boxes.to_vec();
         for (batch_index, indices) in indices.chunks(RUNTIME_BATCH).enumerate() {
             if cancelled() {
@@ -203,9 +199,7 @@ impl LayoutQualityReader {
                         .iter()
                         .map(|s| if b["label"] == *s { 1. } else { 0. }),
                 );
-                if let Some(agreement) = &agreements {
-                    proposals.extend(agreement[batch_index * RUNTIME_BATCH + local]);
-                }
+                proposals.extend(agreements[batch_index * RUNTIME_BATCH + local]);
             }
             let images =
                 Tensor::from_array(([indices.len(), 4, HEIGHT, WIDTH], images)).map_err(err)?;
@@ -232,7 +226,7 @@ impl LayoutQualityReader {
         }
         Ok(scored
             .into_iter()
-            .filter(|b| b["quality_score"].as_f64().unwrap_or(1.) > self.threshold)
+            .filter(|b| !is_measure(b) || b["quality_score"].as_f64().unwrap() > self.threshold)
             .collect())
     }
 }

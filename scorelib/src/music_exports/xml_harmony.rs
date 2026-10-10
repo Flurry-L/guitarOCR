@@ -96,83 +96,32 @@ pub(super) fn render(event: &Value, staff: usize) -> R<String> {
         );
     }
     if let Some(d) = diagrams.first() {
-        let fields = d.split(':').collect::<Vec<_>>();
-        if fields.len() != 4 {
-            return Err("Invalid chord diagram".into());
-        }
-        let parse = |s: &str| {
-            s.parse::<i64>()
-                .map_err(|_| "Invalid chord diagram integer".to_owned())
-        };
-        let base = parse(fields[0])?;
-        let frets = fields[1]
-            .split('/')
-            .map(|s| {
-                if s == "x" {
-                    Ok(None)
-                } else {
-                    parse(s).map(Some)
-                }
-            })
-            .collect::<R<Vec<_>>>()?;
-        let fingers = fields[2]
-            .split('/')
-            .map(|s| {
-                if s == "-" {
-                    Ok(None)
-                } else {
-                    parse(s).map(Some)
-                }
-            })
-            .collect::<R<Vec<_>>>()?;
-        if !(1..=12).contains(&frets.len())
-            || frets.len() != fingers.len()
-            || !(1..=36).contains(&base)
-            || frets
-                .iter()
-                .flatten()
-                .any(|f| !(0..=36).contains(f) || *f > 0 && *f < base)
-            || fingers.iter().flatten().any(|f| !(0..=4).contains(f))
-        {
-            return Err("Invalid chord diagram range".into());
-        }
-        let barres = if fields[3] == "-" {
-            vec![]
-        } else {
-            fields[3]
-                .split(';')
-                .map(|s| s.split('/').map(parse).collect::<R<Vec<_>>>())
-                .collect::<R<Vec<_>>>()?
-        };
+        let diagram = crate::chords::parse_diagram(d)?;
+        let crate::chords::Diagram {
+            base,
+            frets,
+            fingers,
+            barres,
+        } = diagram;
         let mut positions = BTreeMap::new();
         for (i, f) in frets.iter().enumerate() {
-            if let Some(f) = f {
-                positions.insert((i, *f), fingers[i]);
+            if *f >= 0 {
+                positions.insert((i, *f), (fingers[i] >= 0).then_some(fingers[i]));
             }
         }
         for b in &barres {
-            if b.len() != 3
-                || b[0] < base
-                || b[0] > 36
-                || b[1] < 0
-                || b[1] >= b[2]
-                || b[2] >= frets.len() as i64
-            {
-                return Err("Invalid chord barre".into());
-            }
             positions.entry((b[1] as usize, b[0])).or_insert(None);
             positions.entry((b[2] as usize, b[0])).or_insert(None);
         }
         out += &format!(
-            "<frame>{}{}{}</frame-placeholder>",
+            "<frame>{}{}{}",
             tag("frame-strings", frets.len())?,
             tag(
                 "frame-frets",
-                4.max(frets.iter().flatten().max().copied().unwrap_or(0) - base + 1)
+                4.max(frets.iter().max().copied().unwrap_or(0) - base + 1)
             )?,
             tag("first-fret", base)?
         );
-        out = out.replace("</frame-placeholder>", "");
         for ((i, f), finger) in positions {
             out += &format!(
                 "<frame-note>{}{}",

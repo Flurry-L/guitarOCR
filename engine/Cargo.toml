@@ -5,7 +5,6 @@ edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-regex = "1"
 libloading = "0.8"
 getrandom = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread", "time", "macros"] }

@@ -49,7 +49,7 @@ def find_process_all(name: str) -> list[int]:
     if not psapi.EnumProcesses(
         process_ids, ctypes.sizeof(process_ids), ctypes.byref(returned_bytes)
     ):
-        return []
+        raise OSError(f"EnumProcesses failed: {ctypes.get_last_error()}")
 
     matches: list[int] = []
     count = returned_bytes.value // ctypes.sizeof(ctypes.c_ulong)

@@ -34,7 +34,7 @@ pub struct Pipeline {
 }
 impl Pipeline {
     pub fn new(native: NativeAssets, models: Arc<Models>, slots: usize) -> Self {
-        let acceleration = if native.capabilities.cuda == Some(true) || native.llama.is_none() {
+        let acceleration = if native.capabilities.cuda || native.llama.is_none() {
             None
         } else {
             crate::acceleration::Acceleration::for_device(&models, slots)
@@ -120,18 +120,12 @@ impl Pipeline {
                 }
             };
             if engine.is_none() {
-                let accelerator = match &self.acceleration {
-                    Some(acceleration) => match acceleration.prepare(allow_download, progress) {
-                        Ok(path) => path,
-                        Err(error) => {
-                            progress.checkpoint()?;
-                            eprintln!("显卡组件准备失败：{error}");
-                            progress.update(json!({"message":"显卡加速暂不可用，改用 CPU 识别；重新打开应用可重试下载"}))?;
-                            None
-                        }
-                    },
-                    None => None,
-                };
+                let accelerator = self
+                    .acceleration
+                    .as_ref()
+                    .map(|acceleration| acceleration.prepare(allow_download, progress))
+                    .transpose()?
+                    .flatten();
                 *engine = Some((
                     role,
                     Arc::new(Runtime::new(Options {

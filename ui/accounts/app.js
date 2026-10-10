@@ -1,22 +1,17 @@
 import { request } from "/static/api.js";
 let auth = null;
-function setAuth(value) {
-  auth = value;
-}
-async function api(path, method = "GET", body, revision) {
+async function api(path, method = "GET", body) {
   const options = { method, headers: {} };
   if (auth && method !== "GET") options.headers["X-CSRF-Token"] = auth.csrf;
-  if (body instanceof FormData) options.body = body;
-  else if (body !== undefined) {
+  if (body !== undefined) {
     options.headers["Content-Type"] = "application/json";
     options.body = JSON.stringify(body);
   }
-  if (revision !== undefined) options.headers["If-Match"] = String(revision);
   const response = await request(path, options);
   if (!response.ok) {
     const data = response.data || {};
     if (response.status === 401 && auth && path !== "/api/auth/login") {
-      setAuth(null);
+      auth = null;
       window.dispatchEvent(new Event("guitarocr:auth-required"));
     }
     throw new Error(
@@ -167,7 +162,7 @@ async function refresh() {
   }
 }
 async function enterSession(session) {
-  setAuth(session);
+  auth = session;
   const requested = location.hash.slice(1);
   if (!["account", "admin"].includes(requested)) {
     location.replace(["library", "tasks"].includes(requested) ? "/workbench?view=projects" : "/workbench");
@@ -216,7 +211,7 @@ $("passwordForm").onsubmit = action(async event => {
   controls.forEach(node => { node.disabled = true; });
   try {
     const result = await api("/api/auth/password", "PUT", data);
-    setAuth(result);
+    auth = result;
     form.reset();
     notice("密码已修改。");
   } finally { controls.forEach(node => { node.disabled = false; }); }

@@ -174,12 +174,6 @@ impl Engine {
             .stdin(Stdio::null())
             .stdout(Stdio::from(log.try_clone().map_err(|e| e.to_string())?))
             .stderr(Stdio::from(log))
-            .env_remove("LLAMA_ARG_DEVICE")
-            .env_remove("LLAMA_ARG_RPC")
-            .env_remove("MTMD_BACKEND_DEVICE")
-            .env_remove("LLAMA_API_KEY_FILE")
-            .env_remove("LLAMA_ARG_API_KEY_FILE")
-            .env_remove("LLAMA_ARG_LOG_VERBOSITY")
             .env_remove("LLAMA_LOG_VERBOSITY")
             .env("LLAMA_API_KEY", &key)
             .env("GGML_CUDA_DISABLE_GRAPHS", "1");
@@ -263,11 +257,10 @@ impl Engine {
         messages: Value,
         max_tokens: usize,
         schema: Option<Value>,
-        grammar: Option<&str>,
         adapted: bool,
         cancelled: &dyn Fn() -> bool,
     ) -> Result<Generation, String> {
-        let mut body = generation_body(messages, max_tokens, schema, grammar)?;
+        let mut body = generation_body(messages, max_tokens, schema)?;
         select_adapter(&mut body, adapted, self.has_adapter);
         self.generate_bodies(vec![body], cancelled)?
             .pop()
@@ -282,7 +275,7 @@ impl Engine {
         let bodies = messages
             .into_iter()
             .map(|(m, s, adapted)| {
-                let mut body = generation_body(m, max_tokens, s, None)?;
+                let mut body = generation_body(m, max_tokens, s)?;
                 select_adapter(&mut body, adapted, self.has_adapter);
                 Ok::<_, String>(body)
             })
@@ -421,7 +414,6 @@ fn generation_body(
     messages: Value,
     max_tokens: usize,
     schema: Option<Value>,
-    grammar: Option<&str>,
 ) -> Result<Value, String> {
     if !messages.is_array()
         || messages.as_array().is_some_and(Vec::is_empty)
@@ -429,15 +421,9 @@ fn generation_body(
     {
         return Err("Messages must be non-empty and output tokens bounded".into());
     }
-    if schema.is_some() && grammar.is_some() {
-        return Err("Choose JSON schema or musical grammar, not both".into());
-    }
     let mut body = json!({"messages": messages, "max_tokens": max_tokens, "temperature": 0, "cache_prompt": false});
     if let Some(schema) = schema {
         body["response_format"] = json!({"type": "json_schema", "json_schema": {"name": "score_annotation", "schema": schema}});
-    }
-    if let Some(grammar) = grammar {
-        body["grammar"] = Value::String(grammar.into());
     }
     Ok(body)
 }

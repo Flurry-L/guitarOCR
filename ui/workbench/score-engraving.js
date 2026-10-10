@@ -43,15 +43,14 @@ for (const factory of factories) for (const band of factory.effectBands || []) {
 
 export { alphaTab };
 const M = alphaTab.model;
-export function measureProfile(measure, state) {
-  const metadata = state.metadata || {};
+export function measureProfile(measure) {
   return {
-    mode: measure.mode || state.mode,
-    instrument: measure.instrument || metadata.instrument || "guitar",
-    tuning: measure.tuning || metadata.tuning_used || [64, 59, 55, 50, 45, 40],
+    mode: measure.mode,
+    instrument: measure.instrument,
+    tuning: measure.tuning,
     pitch_context: {
       ...(measure.pitch_context || {}),
-      capo: measure.capo ?? metadata.capo ?? 0,
+      capo: measure.capo,
     },
   };
 }
@@ -96,7 +95,7 @@ export function engrave(state, settings, edited = null, mode = null) {
   if (incomplete.length) warnings.push(`第 ${[...new Set(incomplete)].join("、")} 小节尚未补全，空白谱格不表示休止。请选中小节，对照原谱补全音符。`);
   records.sort((a, b) => (a.record.bar_index ?? a.mi) - (b.record.bar_index ?? b.mi));
   records.forEach(({record, mi, data}) => {
-    const profile = measureProfile(record, state);
+    const profile = measureProfile(record);
     const partId = record.part_id || "part-1",
       staffId = `${partId}/${record.staff_id || "staff-1"}`;
     let track = tracks.get(partId),

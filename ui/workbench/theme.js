@@ -5,7 +5,6 @@ const paths = {
     "M5 3h13a2 2 0 0 1 2 2v16H6a3 3 0 0 1-3-3V5a2 2 0 0 1 2-2Z",
     "M6 17h14M7 7h9M7 11h7",
   ],
-  tasks: ["M20 12a8 8 0 1 1-8-8 8 8 0 0 1 8 8Z", "M12 7v5l3 2"],
   settings: ["M4 7h16M4 17h16M8 4v6M16 14v6"],
   admin: ["M4 5h16M4 12h16M4 19h16", "M7 3v4M17 10v4M10 17v4"],
   undo: ["M9 5 4 10l5 5", "M4 10h10a6 6 0 0 1 6 6v2"],
@@ -21,7 +20,6 @@ const paths = {
   inspector: ["M3 4h18v16H3z", "M15 4v16M18 8v2M18 13v3"],
   focus: ["M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5"],
   upload: ["m8 8 4-4 4 4M12 4v11M4 15v5h16v-5"],
-  remote: ["M4 4h16v12H4zM8 20h8M12 16v4", "m9 11 6-4M11 7h4v4"],
 };
 function renderIcons() {
   for (const node of document.querySelectorAll("[data-icon]")) {

@@ -118,20 +118,19 @@ impl Accounts {
             })?;
         Ok(json!({"id":id,"username":name,"admin":admin,"guest":false}))
     }
-    pub fn registration(&self) -> bool {
-        self.db
+    pub fn registration(&self) -> Result<bool, String> {
+        let setting = self
+            .db
             .lock()
-            .ok()
-            .and_then(|db| {
-                db.query_row(
-                    "SELECT value FROM settings WHERE key='registration'",
-                    [],
-                    |r| r.get::<_, String>(0),
-                )
-                .ok()
-            })
-            .as_deref()
-            == Some("true")
+            .map_err(|_| "Account database unavailable")?
+            .query_row(
+                "SELECT value FROM settings WHERE key='registration'",
+                [],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+        Ok(setting.as_deref() == Some("true"))
     }
     fn rate(&self, key: String, limit: usize) -> Result<(), ApiError> {
         let mut attempts = self.attempts.lock().map_err(|_| bad("账号服务忙"))?;
@@ -311,7 +310,7 @@ pub(crate) async fn register(
     Json(body): Json<Value>,
 ) -> Result<Response, ApiError> {
     let accounts = accounts(&app)?;
-    if !accounts.registration() {
+    if !accounts.registration().map_err(bad)? {
         return Err(ApiError(StatusCode::FORBIDDEN, "管理员已关闭注册".into()));
     }
     let name = username(&body)?.to_string();
@@ -520,7 +519,7 @@ pub(crate) async fn status(State(app): State<AppState>) -> ApiResult {
         }
     }
     Ok(Json(
-        json!({"registration":accounts.registration(),"jobs":jobs,"engine":app.pipeline.stats(),"version":env!("CARGO_PKG_VERSION")}),
+        json!({"registration":accounts.registration().map_err(bad)?,"jobs":jobs,"engine":app.pipeline.stats(),"version":env!("CARGO_PKG_VERSION")}),
     ))
 }
 pub(crate) async fn cancel_job(State(app): State<AppState>, Path(id): Path<String>) -> ApiResult {

@@ -7,25 +7,15 @@ from pathlib import Path
 
 from PIL import Image, ImageOps
 
-DEFAULT_POLICY = {
-    "version": 2,
-    "min_pixels": 256 * 256,
-    "max_pixels": 768 * 768,
-    "max_upscale": 2.5,
-    "patch_multiple": 28,
-}
-
-
 def load_policy(model):
     path = Path(model) / "score_image_policy.json"
-    return json.loads(path.read_text()) if path.is_file() else None
+    return json.loads(path.read_text())
 
 
-def normalize_score_image(image, policy=None):
-    policy = policy or DEFAULT_POLICY
+def normalize_score_image(image, policy):
     if policy.get("version") != 2:
         raise ValueError("Unsupported score image policy version")
-    minimum = policy.get("min_pixels", 256 * 256)
+    minimum = policy["min_pixels"]
     budget = policy.get("max_pixels")
     page_budget = policy.get("page_max_pixels", budget)
     multiple = policy.get("patch_multiple")
@@ -50,14 +40,11 @@ def normalize_score_image(image, policy=None):
     # Pixel content must not decide image scale: line thickness, broken rules,
     # chord grids and notation style are recognition inputs, not resize hints.
     area = image.width * image.height
-    minimum = int(policy.get("min_pixels", 256 * 256))
     scale = min(
-        float(policy.get("max_upscale", 2.5)), max(1.0, math.sqrt(minimum / area))
+        upscale, max(1.0, math.sqrt(minimum / area))
     )
-    multiple = int(policy["patch_multiple"])
-    budget = int(policy["max_pixels"])
     if image.width >= 600 and image.height >= 900:
-        budget = int(policy.get("page_max_pixels", budget))
+        budget = page_budget
     # Reserve padding inside the budget so the processor never has to resize
     # this already normalized image again to meet its patch geometry.
     scale = min(scale, math.sqrt(budget / (image.width * image.height)))
@@ -87,8 +74,6 @@ def normalize_score_image(image, policy=None):
 
 def install_training_policy(model):
     policy = load_policy(model)
-    if policy is None:
-        return
     from llamafactory.data.mm_plugin import MMPluginMixin
 
     def preprocess(self, image, image_max_pixels=None, image_min_pixels=None, **kwargs):

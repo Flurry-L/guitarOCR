@@ -22,8 +22,8 @@ fn duration_ticks(duration: &str) -> PyResult<(i128, i128)> {
     Ok((ticks.numerator, ticks.denominator))
 }
 #[pyfunction]
-fn rest_target(ticks: i64) -> PyResult<String> {
-    score::rest_target(ticks).map_err(error)
+fn duration_token(duration: &str) -> PyResult<String> {
+    score::duration_token(&value(duration)?).map_err(error)
 }
 #[pyfunction]
 fn format_measure_target(measure: &str, mode: &str, preserve_playback: bool) -> PyResult<String> {
@@ -141,7 +141,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(assemble_observations, m)?)?;
     m.add_function(wrap_pyfunction!(parse_measure_target, m)?)?;
     m.add_function(wrap_pyfunction!(duration_ticks, m)?)?;
-    m.add_function(wrap_pyfunction!(rest_target, m)?)?;
+    m.add_function(wrap_pyfunction!(duration_token, m)?)?;
     m.add_function(wrap_pyfunction!(format_measure_target, m)?)?;
     m.add_function(wrap_pyfunction!(validate_measure_target, m)?)?;
     m.add_function(wrap_pyfunction!(score_document, m)?)?;

@@ -9,27 +9,6 @@ from pathlib import Path
 from research.common.ocr import load_task_adapter
 
 
-def checkpoint_files(folder: Path) -> list[Path]:
-    """Include the index and every shard, while retaining single-file support."""
-    index = folder / 'model.safetensors.index.json'
-    if not index.is_file():
-        return [folder / 'model.safetensors']
-    names = sorted(set(json.loads(index.read_text(encoding='utf-8'))['weight_map'].values()))
-    if not names or any(Path(name).name != name or not name.endswith('.safetensors') for name in names):
-        raise ValueError(f'Invalid checkpoint index: {index}')
-    return [index, *(folder / name for name in names)]
-
-
-def load_checkpoint(folder):
-    from safetensors.torch import load_file
-
-    state = {}
-    for path in checkpoint_files(Path(folder)):
-        if path.suffix == '.safetensors':
-            state.update(load_file(path))
-    return state
-
-
 def save_checkpoint(state, folder, max_shard_size='1GB'):
     from huggingface_hub import split_torch_state_dict_into_shards
     from safetensors.torch import save_file
@@ -148,6 +127,9 @@ def copy_capability_assets(plan, output):
 
 
 def export_model(base, adapter, output):
+    image_policy = Path(base) / "score_image_policy.json"
+    if not image_policy.is_file():
+        raise FileNotFoundError(f"Declare the OCR image policy before exporting: {image_policy}")
     capability_plan = plan_capability_assets(base, adapter, output)
     import torch
     from peft import PeftModel
@@ -175,10 +157,7 @@ def export_model(base, adapter, output):
     model.config.save_pretrained(output)
     model.generation_config.save_pretrained(output)
     AutoProcessor.from_pretrained(base).save_pretrained(output)
-    if (base / "score_image_policy.json").is_file():
-        shutil.copyfile(
-            base / "score_image_policy.json", output / "score_image_policy.json"
-        )
+    shutil.copyfile(image_policy, output / "score_image_policy.json")
     copy_capability_assets(capability_plan, output)
     (output / "merge_provenance.json").write_text(
         json.dumps(
@@ -203,7 +182,7 @@ def export_model(base, adapter, output):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--base", type=Path, default=Path("tools/models/GLM-OCR"))
+    parser.add_argument("--base", type=Path, required=True)
     parser.add_argument("--adapter", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()

@@ -127,7 +127,9 @@ fn validate_information_model(capabilities: &Value) -> Result<(), String> {
             .as_array()
             .is_none_or(|v| v.len() != tasks.len())
     {
-        return Err("Information recognition requires its model, projector and staff/clef adapter".into());
+        return Err(
+            "Information recognition requires its model, projector and staff/clef adapter".into(),
+        );
     }
     Ok(())
 }
@@ -368,7 +370,10 @@ impl Models {
         self.root.join("weights/information/gguf/vision-F16.gguf")
     }
     pub fn information_adapter(&self) -> Option<PathBuf> {
-        Some(self.root.join("weights/information/gguf/information-adapter.gguf"))
+        Some(
+            self.root
+                .join("weights/information/gguf/information-adapter.gguf"),
+        )
     }
     pub fn information_adapter_tasks(&self) -> Vec<String> {
         self.capabilities["information_model"]["adapter_tasks"]

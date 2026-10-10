@@ -9,7 +9,6 @@ pub struct StaffReader {
     session: Session,
     temperatures: [f64; 2],
     thresholds: [f64; 2],
-    count_authority: bool,
 }
 impl StaffReader {
     pub fn new(path: &Path) -> Result<Self> {
@@ -28,9 +27,7 @@ impl StaffReader {
             || config["normalization"] != "minus_one_to_one"
             || config["counts"] != json!([0, 4, 5, 6, 7, 8])
             || config["modes"] != json!(["notation", "tab", "both"])
-            || config
-                .get("count_authority")
-                .is_some_and(|v| v != "joint_visual")
+            || config["count_authority"] != "joint_visual"
         {
             return Err("Unsupported staff evidence contract".into());
         }
@@ -62,7 +59,6 @@ impl StaffReader {
             session,
             temperatures,
             thresholds,
-            count_authority: config["count_authority"] == "joint_visual",
         })
     }
     pub fn predict(&mut self, image: &RgbImage) -> Result<Value> {
@@ -81,10 +77,7 @@ impl StaffReader {
         if logits.len() != 9 || logits.iter().any(|v| !v.is_finite()) {
             return Err("Invalid staff model output".into());
         }
-        let mut fields = json!({"source":"staff_network_v2"});
-        if self.count_authority {
-            fields["count_authority"] = json!("joint_visual");
-        }
+        let mut fields = json!({"source":"staff_network_v2","count_authority":"joint_visual"});
         for (i, name, range, labels) in [
             (0, "string_count", 0..6, json!([null, 4, 5, 6, 7, 8])),
             (1, "mode", 6..9, json!(["notation", "tab", "both"])),
@@ -175,26 +168,16 @@ pub fn resolve_string_count(
         && candidates["staff_model"] == candidates["staff_network"];
     let structure_conflict =
         !candidates["structure_model"].is_null() && candidates["structure_model"] != value;
-    if evidence["count_authority"] == "joint_visual" {
-        let visual_authority = matches!(evidence["mode"]["value"].as_str(), Some("tab" | "both"))
-            && candidates["staff_network"]
-                .as_u64()
-                .is_some_and(|n| (1..=12).contains(&n));
-        return json!({"value":value,"source":source,"candidates":candidates,
-            "needs_review":manual.is_none() && !visual_authority,
-            "local_agreement":local_agreement,"structure_conflict":structure_conflict,
-            "staff_conflict":!candidates["staff_model"].is_null() && candidates["staff_model"] != value,
-            "visual_authority":visual_authority,
-            "provisional":manual.is_none() && !visual_authority && !value.is_null()});
-    }
-    let conflict = candidates
-        .as_object()
-        .unwrap()
-        .iter()
-        .any(|(name, v)| v != &value && !(local_agreement && name == "structure_model"));
+    let visual_authority = matches!(evidence["mode"]["value"].as_str(), Some("tab" | "both"))
+        && candidates["staff_network"]
+            .as_u64()
+            .is_some_and(|n| (1..=12).contains(&n));
     json!({"value":value,"source":source,"candidates":candidates,
+        "needs_review":manual.is_none() && !visual_authority,
         "local_agreement":local_agreement,"structure_conflict":structure_conflict,
-        "needs_review":manual.is_none() && (value.is_null() || conflict)})
+        "staff_conflict":!candidates["staff_model"].is_null() && candidates["staff_model"] != value,
+        "visual_authority":visual_authority,
+        "provisional":manual.is_none() && !visual_authority && !value.is_null()})
 }
 
 pub fn resolve_instrument_with_label(

@@ -71,7 +71,7 @@ class StaffReader:
             or c["normalization"] != "minus_one_to_one"
             or c["counts"] != [0, 4, 5, 6, 7, 8]
             or c["modes"] != ["notation", "tab", "both"]
-            or ("count_authority" in c and c["count_authority"] != "joint_visual")
+            or c.get("count_authority") != "joint_visual"
         ):
             raise ValueError("Unsupported staff evidence contract")
         if (
@@ -105,8 +105,7 @@ class StaffReader:
                 "accepted": bool(p[index] >= self.config["thresholds"][i]),
                 "probabilities": p.tolist(),
             }
-        if "count_authority" in self.config:
-            fields["count_authority"] = self.config["count_authority"]
+        fields["count_authority"] = "joint_visual"
         return {"source": "staff_network_v2", **fields}
 
 

@@ -52,7 +52,10 @@ pub(super) fn ornament_fret(token: &str, open: i64, fret: i64, max: i64) -> R<i6
 }
 pub(super) fn bend(effect: &str) -> R<Vec<u8>> {
     let fields = effect.split(':').collect::<Vec<_>>();
-    let name = fields.get(1).copied().unwrap_or("bend");
+    if fields.len() != 3 {
+        return Err("Bend requires an explicit shape and amount".into());
+    }
+    let name = fields[1];
     let kind = match name.to_ascii_lowercase().as_str() {
         "none" => 0,
         "bend" => 1,
@@ -68,8 +71,11 @@ pub(super) fn bend(effect: &str) -> R<Vec<u8>> {
         "releasedown" => 11,
         _ => return Err(format!("Unknown bend type {name}")),
     };
-    let value = fields.get(2).map(|s| int(s)).transpose()?.unwrap_or(100);
-    let pv = ((value as f64 / 25.).round() as i64).max(0);
+    let value = int(fields[2])?;
+    if value < 0 {
+        return Err("Bend amount cannot be negative".into());
+    }
+    let pv = (value as f64 / 25.).round() as i64;
     let points = match kind {
         2 => vec![(0, 0), (30, pv), (60, 0)],
         3 => vec![(0, 0), (20, pv), (40, 0), (60, pv)],
@@ -102,10 +108,10 @@ pub(super) fn note(note: &Value, open: i64, fret: i64, percussion: bool) -> R<No
             "heavy" => plan.note_flags |= 2,
             "accent" => plan.note_flags |= 64,
             "hammer" => f1 |= 2,
-            "let" | "letRing" => f1 |= 8,
+            "let" => f1 |= 8,
             "stacc" => f2 |= 1,
-            "pm" | "palmMute" => f2 |= 2,
-            "vib" | "vibrato" => f2 |= 64,
+            "pm" => f2 |= 2,
+            "vib" => f2 |= 64,
             "sl" => slides |= 2,
             "ss" => slides |= 1,
             "sib" => slides |= 16,
@@ -113,31 +119,12 @@ pub(super) fn note(note: &Value, open: i64, fret: i64, percussion: bool) -> R<No
             "sod" => slides |= 4,
             "sou" => slides |= 8,
             _ if ef.starts_with("vel:") => {}
-            _ if ef.starts_with("slide:") => {
-                slides |= match fs[1] {
-                    "shiftSlideTo" => 1,
-                    "legatoSlideTo" => 2,
-                    "outDownwards" => 4,
-                    "outUpwards" => 8,
-                    "intoFromBelow" => 16,
-                    "intoFromAbove" => 32,
-                    _ => return Err(format!("Unknown slide effect {ef}")),
-                }
-            }
             _ if ef.starts_with("bend:") => {
                 bend_bytes = Some(bend(ef)?);
                 f1 |= 1;
             }
-            "grace" => {
-                grace = Some(vec![byte(fret.max(0))?, 6, 0, 2, 0]);
-                f1 |= 16;
-            }
-            "trill" => {
-                if fret + 1 > max {
-                    return Err("Trill auxiliary pitch outside assigned string".into());
-                }
-                trill = Some(vec![byte(fret + 1)?, 1]);
-                f2 |= 32;
+            "grace" | "trill" => {
+                return Err(format!("GP5 {ef} requires an explicit auxiliary note; fill its pitch or fret before export"));
             }
             "trem" => {
                 trem = Some(2);
@@ -198,32 +185,25 @@ pub(super) fn note(note: &Value, open: i64, fret: i64, percussion: bool) -> R<No
                     "natural" => vec![1],
                     "pinch" => vec![4],
                     "semi" => vec![5],
-                    "tapped" => vec![
-                        3,
-                        byte(if fs.len() >= 3 {
-                            int(fs[2])?
-                        } else {
-                            (fret + 12).clamp(0, 255)
-                        })?,
-                    ],
+                    "tapped" if fs.len() == 3 => vec![3, byte(int(fs[2])?)?],
+                    "tapped" => return Err("GP5 tapped harmonic requires an explicit fret".into()),
                     "artificial" => {
-                        if fs.len() >= 5 {
-                            let just = int(fs[2])?.rem_euclid(12);
-                            let acc = int(fs[3])?;
-                            let octave = int(fs[4])?;
-                            if !(-2..=2).contains(&acc) || !(0..=4).contains(&octave) {
-                                return Err("Invalid artificial harmonic pitch/octave".into());
-                            }
-                            vec![2, just as u8, acc as u8, octave as u8]
-                        } else {
-                            let pitch = (open + fret).rem_euclid(12);
-                            let acc = if [1, 3, 6, 8, 10].contains(&pitch) {
-                                1
-                            } else {
-                                0
-                            };
-                            vec![2, (pitch - acc) as u8, acc as u8, 1]
+                        if fs.len() != 5 {
+                            return Err(
+                                "GP5 artificial harmonic requires an explicit pitch and octave"
+                                    .into(),
+                            );
                         }
+                        let just = int(fs[2])?;
+                        let acc = int(fs[3])?;
+                        let octave = int(fs[4])?;
+                        if !(0..=11).contains(&just)
+                            || !(-2..=2).contains(&acc)
+                            || !(0..=4).contains(&octave)
+                        {
+                            return Err("Invalid artificial harmonic pitch/octave".into());
+                        }
+                        vec![2, just as u8, acc as u8, octave as u8]
                     }
                     _ => return Err("Unknown GP5 harmonic".into()),
                 };

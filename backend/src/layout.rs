@@ -307,8 +307,7 @@ pub fn detect(
         };
         progress.update(json!({"done":index,"total":pages.len(),"message":
             format!("正在分析第 {} / {} 页的小节与谱面信息{}", index + 1, pages.len(), detail)}))?;
-        let mut found =
-            detector.detect_page(&image, 0.25, true, &|| progress.cancelled())?;
+        let mut found = detector.detect_page(&image, 0.25, true, &|| progress.cancelled())?;
         geometry::prepare_page_prediction(&image, &mut found, requested, true)?;
         for item in found["measures"].as_array().into_iter().flatten() {
             let mut item = item.clone();

@@ -346,12 +346,7 @@ def native_pitch_annotations(page, page_number, layout, score, assignment):
     return rows
 
 def native_scope_evidence(page, spans, grouped, staff_index, system, index, crop_mm, strings=None):
-    """Preserve drawn scopes even when their endpoint or voice is not visible.
-
-    ``effects`` contains only owner/kind coverage proved by drawn endpoints. It
-    is deliberately incomplete for label-only or ambiguous multivoice scopes;
-    it must not be used as a full semantic reference or an absence annotation.
-    """
+    """Preserve drawn scopes even when their endpoint or voice is not visible."""
     left, top, right, bottom = [v * 72 / 25.4 for v in crop_mm]
     glyphs_by_owner = {}
     for key, glyphs in grouped.items():
@@ -402,7 +397,7 @@ def native_scope_evidence(page, spans, grouped, staff_index, system, index, crop
                                for n in origin_y):
             staff_geometry = (origin_y[lo] - (strings - 1 - lo) * spacing, (strings - 1) * spacing)
 
-    relations, effects, labels, paths = [], {}, [], []
+    relations, labels, paths = [], [], []
     for span in spans:
         x0, y0, x1, y1 = span['text_bbox']
         label_intersects = x0 < right and x1 > left and y0 < bottom and y1 > top
@@ -444,12 +439,6 @@ def native_scope_evidence(page, spans, grouped, staff_index, system, index, crop
             staff_top, staff_height = staff_geometry
             relation['lane'] = round((span['line_y'] * 25.4 / 72 - staff_top) / staff_height, 3)
         relations.append(relation)
-        if start and (end or span['style'] == 'label_only'):
-            last = end or start
-            for owner in glyphs_by_owner:
-                if (owner[1] == index and owner[2] == start[2]
-                        and (start[1], start[3]) <= (owner[1], owner[3]) <= (last[1], last[3])):
-                    effects.setdefault(owner, set()).add(span['kind'])
         if line:
             paths.append((line[0], line[1], line[2], line[1]))
             for stroke in page._text_page().lines:
@@ -458,7 +447,7 @@ def native_scope_evidence(page, spans, grouped, staff_index, system, index, crop
                              or abs(stroke['bottom'] - span['line_y']) < 1e-6)
                         and y0 <= stroke['top'] <= stroke['bottom'] <= y1):
                     paths.append((stroke['x0'], stroke['top'], stroke['x1'], stroke['bottom']))
-    return relations, effects, labels, paths
+    return relations, labels, paths
 
 
 def native_slide_owners(points_mm, grouped, staff_index, system):
@@ -893,8 +882,8 @@ def native_chord_evidence(pdf_page, grouped, staff, measure, page, crop):
             nearest_y = min(v[2] for v in owners)
             owners = [v for v in owners if v[2] == nearest_y]
         if len(owners) != 1:
-            if inside:
-                raise ValueError('printed_chord_without_unique_native_beat')
+            # A chord spelling is only a candidate: H can be a traced hammer
+            # label. Unbound words remain for the common printed-glyph check.
             continue
         owner, origin, _ = owners[0]
         diagram_labels.append(list(word[:4]))
@@ -1029,7 +1018,7 @@ def native_tab_observations(layout, score, document, dpi=180):
                                            index, (left, top, right, bottom)))
             for owner, anchor in hidden.items():
                 grouped.setdefault(owner, [anchor])
-            relations, scope_effects, scope_labels, scope_lines = native_scope_evidence(
+            relations, scope_labels, scope_lines = native_scope_evidence(
                 pdf_page, page_spans[page], grouped, staff['staff_index'], system, index,
                 (left, top, right, bottom), strings)
             tuplet_counts, tuplet_curves, tuplet_labels = native_tuplet_evidence(

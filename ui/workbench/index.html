@@ -293,7 +293,8 @@
             ><label id="partNameField"
               >音轨名称<input id="partName" maxlength="160" /></label
             ><label
-              >乐器<select id="instrument">
+              >乐器<select id="instrument" required>
+                <option value="">请选择乐器</option>
                 <option value="guitar">吉他</option>
                 <option value="bass">贝斯</option>
                 <option value="pitched">钢琴或其他旋律乐器</option>
@@ -307,7 +308,7 @@
                 type="number"
                 min="20"
                 max="400"
-                value="120" /></label
+                placeholder="待确认" /></label
             ><label id="capoField"
               >变调夹（品）<input
                 id="capo"
@@ -350,7 +351,6 @@
             ><label id="customTuning" hidden=""
               >各弦音高（从第 1 弦到低音弦）<input
                 id="tuning"
-                value="64,59,55,50,45,40"
               /><small
                 >填 MIDI 音高编号，例如 E4 为 64。各弦用逗号分隔。</small
               ></label
@@ -1188,7 +1188,6 @@
             <div class="setting-row"><span>识别设备</span><strong id="settingDevice">—</strong></div>
             <div class="setting-row"><span>识别模型</span><strong id="settingModel">检查中…</strong></div>
             <p id="settingHint"></p>
-            <details id="environmentDetails" hidden><summary>故障详情</summary><pre id="environmentError"></pre></details>
           </div>
         </div>
       </section>

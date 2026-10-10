@@ -40,7 +40,6 @@ pub(super) fn recover_chord_names<G: Generator + ?Sized>(
                 image_messages(&[crop], DIAGRAM_NAME_PROMPT, policy)?,
                 64,
                 Some(information_schema("header_text")?),
-                None,
             )?;
             let value =
                 parse_info_response(&response.content, "header_text")["header_notes"].clone();
@@ -463,14 +462,10 @@ fn attach_technique_regions(records: &mut [Value], predictions: &[Value]) -> Res
             {
                 continue;
             }
-            let mut evidence = p.clone();
-            // The text may overhang into the next bar. Only the bar containing
-            // the label's start can request a missing-mark review.
-            evidence["label_starts_here"] = json!(a[0] >= c[0] - 8. && a[0] < c[0] + c[2] - 8.);
             r["technique_annotations"]
                 .as_array_mut()
                 .unwrap()
-                .push(evidence);
+                .push(p.clone());
         }
     }
     Ok(())

@@ -21,8 +21,9 @@ const EVENT_EFFECTS: &[&str] = &[
     "stroke_down",
     "stroke_up",
 ];
-const NOTE_EFFECT_PATTERN: &str = r"^(?:(?:harm|slide):[^\s,{}|#]+|bend:[^\s:,{}|#]+:-?[0-9]+|trem:(?:8|16|32)|trill:(?:f[0-9]+(?:p[0-9]+)?|p[0-9]+)(?::(?:16|32|64))?|grace:(?:x|f[0-9]+(?:p[0-9]+)?|p[0-9]+)(?::(?:8|16|32|64|128))?:(?:none|slide|bend|hammer):(?:0|1|-):(?:0|1))$";
-const EVENT_EFFECT_PATTERN: &str = r"^(?:slap:(?:none|tapping|slapping|popping)|(?:tempo|dyn):[0-9]+|(?:chord|text):[^\s,{}|#]+)$";
+const NOTE_EFFECT_PATTERN: &str = r"^(?:harm:[^\s,{}|#]+|bend:[^\s:,{}|#]+:-?[0-9]+|trem:(?:8|16|32)|trill:(?:f[0-9]+(?:p[0-9]+)?|p[0-9]+)(?::(?:16|32|64))?|grace:(?:x|f[0-9]+(?:p[0-9]+)?|p[0-9]+)(?::(?:8|16|32|64|128))?:(?:none|slide|bend|hammer):(?:0|1|-):(?:0|1))$";
+const EVENT_EFFECT_PATTERN: &str =
+    r"^(?:slap:(?:none|tapping|slapping|popping)|(?:tempo|dyn):[0-9]+|(?:chord|text):[^\s,{}|#]+)$";
 fn array(v: &Value) -> &[Value] {
     v.as_array().map(Vec::as_slice).unwrap_or(&[])
 }
@@ -264,13 +265,7 @@ pub fn parse_observation(value: &Value) -> Result<Value, String> {
     Ok(o)
 }
 fn duration(token: &Value) -> Option<Value> {
-    let s = token.as_str()?;
-    if s.chars().any(|c| "{}| \t\n".contains(c)) {
-        return None;
-    }
-    score::parse_measure_target(&format!("M | V0{{@0:{s}:r}}"))
-        .ok()
-        .map(|v| v["voices"][0]["events"][0]["duration"].clone())
+    score::parse_duration_token(token.as_str()?).ok()
 }
 fn known<'a>(state: &'a Value, field: &str) -> &'a Value {
     let item = &state[field];
@@ -1696,9 +1691,14 @@ mod tests {
                 "notes":[{"string":6,"fret":2}],"effects":["chord:F%23","dyn:79"]}]}],
             "relations":[{"kind":"pm","start":[0,0],"end":[0,0]}]});
         parse_observation(&observation).unwrap();
-        let result = assemble(&[json!({"source_id":"score","part_id":0,"staff_id":0,
-            "bar_index":0,"mode":"tab","observation":observation})], None).unwrap();
-        let measure = score::parse_measure_target(result["records"][0]["ir"].as_str().unwrap()).unwrap();
+        let result = assemble(
+            &[json!({"source_id":"score","part_id":0,"staff_id":0,
+            "bar_index":0,"mode":"tab","observation":observation})],
+            None,
+        )
+        .unwrap();
+        let measure =
+            score::parse_measure_target(result["records"][0]["ir"].as_str().unwrap()).unwrap();
         let event = &measure["voices"][0]["events"][0];
         assert_eq!(array(&event["notes"]).len(), 1);
         assert_eq!(event["notes"][0]["string"], 6);

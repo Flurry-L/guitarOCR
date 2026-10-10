@@ -307,7 +307,7 @@ pub fn resolve_document(
             .find(|p| p["page"].as_u64() == Some(page.page))
             .ok_or("Missing page diagnostics")?;
         if prediction["parsed"]["parts"] != page.structure["parts"] {
-            let change = json!({"reason":"cross_page_profile_majority",
+            let change = json!({"reason":"resolved_part_identity",
                 "before":prediction["parsed"]["parts"],"after":page.structure["parts"]});
             if let Some(changes) = prediction["resolution_audit"]["changes"].as_array_mut() {
                 changes.push(change);
@@ -337,8 +337,7 @@ pub fn resolve_document(
     let mut result = vec![];
     let mut bar_offset = 0usize;
     for system in resolved.systems {
-        let (aligned, count) =
-            align_system(&system.members)?;
+        let (aligned, count) = align_system(&system.members)?;
         let fused = fuse_paired_staves(&aligned, output, system.page as usize, system.system)?;
         for (boxes, part, staff) in fused {
             let profile = resolved

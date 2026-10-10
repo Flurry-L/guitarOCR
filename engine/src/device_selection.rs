@@ -16,55 +16,25 @@ const MAX_PROBE_BYTES: u64 = 128 * 1024;
 
 #[derive(Clone, Debug, Default)]
 pub struct RuntimeCapabilities {
-    pub cpu: Option<bool>,
-    pub cuda: Option<bool>,
-    pub metal: Option<bool>,
+    pub cpu: bool,
+    pub cuda: bool,
+    pub metal: bool,
 }
 impl RuntimeCapabilities {
     /// Caller must have checked the packaged files first.
-    /// Missing flags remain unknown; notably Metal is never inferred from macOS.
     pub fn from_component(component: &Value) -> Result<Self, String> {
         if component["name"] != "llama.cpp" {
             return Err("Not a llama runtime component".into());
         }
-        let explicit = &component["capabilities"];
-        if !explicit.is_null() && !explicit.is_object() {
-            return Err("Invalid native runtime capabilities".into());
-        }
-        let build = &component["distribution"]["build"];
-        let get = |key: &str, flag: &str| -> Result<Option<bool>, String> {
-            let declared = match explicit.get(key) {
-                None | Some(Value::Null) => None,
-                Some(Value::Bool(value)) => Some(*value),
-                _ => return Err(format!("Invalid native {key} capability")),
-            };
-            let mut configured = None;
-            if let Some(args) = build["configure"].as_array() {
-                for arg in args.iter().filter_map(Value::as_str) {
-                    if let Some((name, value)) =
-                        arg.strip_prefix("-D").and_then(|a| a.split_once('='))
-                    {
-                        if name.split(':').next() == Some(flag) {
-                            configured = Some(match value.to_ascii_uppercase().as_str() {
-                                "ON" | "1" | "TRUE" => true,
-                                "OFF" | "0" | "FALSE" => false,
-                                _ => return Err(format!("Invalid build capability {flag}")),
-                            });
-                        }
-                    }
-                }
-            }
-            if declared.is_some() && configured.is_some() && declared != configured {
-                return Err(format!(
-                    "Native {key} capability contradicts its build flags"
-                ));
-            }
-            Ok(declared.or(configured))
+        let get = |key: &str| {
+            component["capabilities"][key]
+                .as_bool()
+                .ok_or_else(|| format!("Missing or invalid native {key} capability"))
         };
         Ok(Self {
-            cpu: get("cpu", "GGML_CPU")?,
-            cuda: get("cuda", "GGML_CUDA")?,
-            metal: get("metal", "GGML_METAL")?,
+            cpu: get("cpu")?,
+            cuda: get("cuda")?,
+            metal: get("metal")?,
         })
     }
 }
@@ -118,15 +88,14 @@ impl MemoryBudget {
 pub struct DetectedDevice {
     pub device: Device,
     pub selector: String,
-    pub total_bytes: Option<u64>,
-    pub free_bytes: Option<u64>,
+    pub total_bytes: u64,
+    pub free_bytes: u64,
 }
 #[derive(Clone, Debug)]
 pub struct Selection {
     pub device: Device,
     pub device_selector: Option<String>,
     pub reason: String,
-    pub required_bytes: u64,
 }
 
 pub fn valid_device_selector(device: Device, selector: &str) -> bool {
@@ -167,7 +136,7 @@ pub fn parse_device_listing(output: &str) -> Result<Vec<DetectedDevice>, String>
         {
             return Err("原生设备清单包含重复设备".into());
         }
-        let memory = details
+        let (total_bytes, free_bytes) = details
             .rsplit_once(" (")
             .and_then(|(_, v)| v.strip_suffix(" MiB free)"))
             .and_then(|v| v.split_once(" MiB, "))
@@ -177,12 +146,13 @@ pub fn parse_device_listing(output: &str) -> Result<Vec<DetectedDevice>, String>
                     free.parse::<u64>().ok()?.checked_mul(MIB)?,
                 ))
             })
-            .filter(|(total, free)| *total > 0 && free <= total);
+            .filter(|(total, free)| *total > 0 && free <= total)
+            .ok_or_else(|| format!("原生设备清单缺少有效内存信息：{selector}"))?;
         devices.push(DetectedDevice {
             device,
             selector: selector.into(),
-            total_bytes: memory.map(|p| p.0),
-            free_bytes: memory.map(|p| p.1),
+            total_bytes,
+            free_bytes,
         });
     }
     Ok(devices)
@@ -321,94 +291,69 @@ pub fn probe_devices(
     parse_device_listing(&String::from_utf8_lossy(&stdout))
 }
 
-fn cpu_selection(
-    caps: &RuntimeCapabilities,
-    budget: &MemoryBudget,
-    reason: String,
-) -> Result<Selection, String> {
-    if caps.cpu == Some(false) {
+fn cpu_selection(caps: &RuntimeCapabilities, reason: String) -> Result<Selection, String> {
+    if !caps.cpu {
         return Err(format!("{reason}；安装包未提供CPU后端。不会转发到远程服务"));
     }
-    let uncertainty = if caps.cpu.is_none() {
-        "；CPU能力未声明，将验证本机CPU加载结果"
-    } else {
-        ""
-    };
     Ok(Selection {
         device: Device::Cpu,
         device_selector: None,
-        reason: format!("{reason}{uncertainty}；仅在本机运行"),
-        required_bytes: budget.required_bytes,
+        reason: format!("{reason}；仅在本机运行"),
     })
 }
 
 pub fn select_from_probe(
     caps: &RuntimeCapabilities,
     budget: &MemoryBudget,
-    detected: &Result<Vec<DetectedDevice>, String>,
+    devices: &[DetectedDevice],
 ) -> Result<Selection, String> {
     let gpu_allowed = |device| match device {
-        Device::Cuda => caps.cuda == Some(true),
-        Device::Metal => caps.metal == Some(true),
+        Device::Cuda => caps.cuda,
+        Device::Metal => caps.metal,
         Device::Cpu => false,
     };
     let mut reasons = Vec::new();
-    if caps.cuda != Some(true) {
+    if !caps.cuda {
         reasons.push("CUDA后端未在已校验安装包中声明可用".to_string());
     }
-    if caps.metal != Some(true) {
+    if !caps.metal {
         reasons.push("Metal后端未在已校验安装包中声明可用".to_string());
     }
     let mut candidates = Vec::new();
-    match detected {
-        Err(error) => reasons.push(error.clone()),
-        Ok(devices) => {
-            for device in devices {
-                if !gpu_allowed(device.device) {
-                    continue;
-                }
-                if !valid_device_selector(device.device, &device.selector) {
-                    continue;
-                }
-                let Some((free, total)) = device
-                    .free_bytes
-                    .zip(device.total_bytes)
-                    .filter(|(free, total)| *free > 0 && free <= total)
-                else {
-                    reasons.push(format!("{}可用内存未知，保守使用CPU", device.selector));
-                    continue;
-                };
-                // Metal's value is recommended working-set headroom, not dedicated
-                // free VRAM. Reserve 40% there, 20% on CUDA, beyond the model budget.
-                let percent = if device.device == Device::Metal {
-                    60
-                } else {
-                    80
-                };
-                let usable = free / 100 * percent;
-                if usable < budget.required_bytes {
-                    reasons.push(format!(
-                        "{}报告可用{} MiB/总量{} MiB，保留余量后不足估计的{} MiB",
-                        device.selector,
-                        free / MIB,
-                        total / MIB,
-                        budget.required_bytes / MIB
-                    ));
-                    continue;
-                }
-                candidates.push((usable, device));
-            }
+    for device in devices {
+        if !gpu_allowed(device.device) {
+            continue;
         }
+        let (free, total) = (device.free_bytes, device.total_bytes);
+        // Metal's value is recommended working-set headroom, not dedicated
+        // free VRAM. Reserve 40% there, 20% on CUDA, beyond the model budget.
+        let percent = if device.device == Device::Metal {
+            60
+        } else {
+            80
+        };
+        let usable = free / 100 * percent;
+        if usable < budget.required_bytes {
+            reasons.push(format!(
+                "{}报告可用{} MiB/总量{} MiB，保留余量后不足估计的{} MiB",
+                device.selector,
+                free / MIB,
+                total / MIB,
+                budget.required_bytes / MIB
+            ));
+            continue;
+        }
+        candidates.push((usable, device));
     }
     candidates.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.selector.cmp(&b.1.selector)));
     if let Some((_, device)) = candidates.first() {
-        return Ok(Selection { device: device.device, device_selector: Some(device.selector.clone()), reason: format!("安装包后端与本机设备探测一致，选择{}；报告可用{} MiB，预计需{} MiB并额外保留内存余量；实际分配仍以加载结果为准", device.selector,device.free_bytes.unwrap()/MIB,budget.required_bytes/MIB), required_bytes: budget.required_bytes });
+        return Ok(Selection { device: device.device, device_selector: Some(device.selector.clone()), reason: format!("安装包后端与本机设备探测一致，选择{}；报告可用{} MiB，预计需{} MiB并额外保留内存余量；实际分配仍以加载结果为准", device.selector,device.free_bytes/MIB,budget.required_bytes/MIB) });
     }
     if reasons.is_empty() {
         reasons.push("原生运行组件未发现符合条件的本机GPU".into());
     }
     let reason = reasons.join("；");
-    cpu_selection(caps, budget, format!("{reason}；自动回退CPU"))
+    cpu_selection(caps, format!("{reason}；选择CPU"))
 }
 
 pub fn choose_runtime(
@@ -420,34 +365,13 @@ pub fn choose_runtime(
     if cancelled() {
         return Err("设备选择已取消".into());
     }
-    let detected = if caps.cuda != Some(true) && caps.metal != Some(true) {
-        Ok(Vec::new())
+    let detected = if !caps.cuda && !caps.metal {
+        Vec::new()
     } else {
-        probe_devices(executable, cancelled)
+        probe_devices(executable, cancelled)?
     };
     if cancelled() {
         return Err("设备选择已取消".into());
     }
     select_from_probe(caps, budget, &detected)
-}
-
-/// Retry local CPU once after GPU startup fails. Never
-/// retry completed/in-flight inference on a different backend without its caller.
-pub fn cpu_fallback_after_start_failure(
-    caps: &RuntimeCapabilities,
-    selection: &Selection,
-) -> Result<Selection, String> {
-    if selection.device == Device::Cpu {
-        return Err("本机模型启动失败；不会重复CPU重试或转发远程服务".into());
-    }
-    cpu_selection(
-        caps,
-        &MemoryBudget {
-            required_bytes: selection.required_bytes,
-        },
-        format!(
-            "{}启动失败，自动模式仅重试一次本机CPU",
-            selection.device_selector.as_deref().unwrap_or("GPU")
-        ),
-    )
 }

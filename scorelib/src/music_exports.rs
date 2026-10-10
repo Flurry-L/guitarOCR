@@ -218,8 +218,8 @@ fn validate_projection(score: &Value) -> R<()> {
                         return Err("Duplicate/out-of-range voice; refusing note loss".into());
                     }
                     for e in arr(v, "events")? {
-                        if num(e, "start", 0) < 0 {
-                            return Err("Negative event start".into());
+                        if e["start"].as_i64().is_none_or(|start| start < 0) {
+                            return Err("Event requires a nonnegative integer start".into());
                         }
                         if !e["effects"].is_null()
                             && e["effects"]
@@ -229,6 +229,15 @@ fn validate_projection(score: &Value) -> R<()> {
                             return Err("Malformed event effects".into());
                         }
                         for n in arr(e, "notes")? {
+                            let has_pitch = n["pitch"].as_i64().is_some();
+                            let has_position = n["string"].as_i64().is_some_and(|s| s > 0)
+                                && (n["fret"].is_i64() || n["fret"] == "x");
+                            if !has_pitch && !has_position {
+                                return Err(
+                                    "Note requires a pitch or a complete string/fret position"
+                                        .into(),
+                                );
+                            }
                             if n["pitch"].as_i64().is_some_and(|p| !(0..=127).contains(&p)) {
                                 return Err("Invalid note pitch".into());
                             }
@@ -814,7 +823,7 @@ pub fn score_musicxml(input: &Value) -> R<Vec<u8>> {
 pub fn write_musicxml(input: &Value, output: &Path) -> R<Value> {
     let bytes = score_musicxml(input)?;
     atomic_write(output, &bytes)?;
-    Ok(json!({"format":"musicxml","path":output,"encoding":"UTF-8","replacements":[]}))
+    Ok(json!({"format":"musicxml","path":output,"encoding":"UTF-8"}))
 }
 pub fn write_gp5(input: &Value, output: &Path) -> R<Value> {
     gp5::write(input, output)

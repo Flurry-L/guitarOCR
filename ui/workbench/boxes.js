@@ -535,7 +535,7 @@ export function initBoxes({ start, go, render, setBusy }) {
     ui.selected = -1;
     ui.boxDirty = false;
     undo = []; redo = [];
-    $("mode").value = ui.state.mode_setting || ui.state.mode;
+    $("mode").value = ui.state.mode_setting;
     renderBoxList(); draw();
     notice("已恢复保存的区域。");
   };

@@ -129,7 +129,7 @@ def _send_recv(
         ctypes.c_void_p(handle), buffer, len(buffer) - 1, ctypes.byref(read), None
     ):
         raise OSError(f"ReadFile failed: {ctypes.get_last_error()}")
-    response = buffer.raw[: read.value].decode("utf-8", errors="replace").strip()
+    response = buffer.raw[: read.value].decode("utf-8").strip()
     if not response:
         raise OSError("Guitar Pro export pipe returned an empty response")
     return dict(json.loads(response))

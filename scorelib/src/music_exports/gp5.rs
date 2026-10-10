@@ -7,18 +7,16 @@ use super::*;
 use std::collections::{BTreeSet, HashSet};
 struct Writer {
     bytes: Vec<u8>,
-    replacements: Vec<Value>,
     velocity_quantization: Vec<Value>,
-    legacy_text_fields: BTreeSet<String>,
+    non_ascii_fields: BTreeSet<String>,
     chord_label_projections: Vec<Value>,
 }
 impl Writer {
     fn new() -> Self {
         Self {
             bytes: vec![],
-            replacements: vec![],
             velocity_quantization: vec![],
-            legacy_text_fields: BTreeSet::new(),
+            non_ascii_fields: BTreeSet::new(),
             chord_label_projections: vec![],
         }
     }
@@ -33,36 +31,24 @@ impl Writer {
     }
     fn text(&mut self, s: &str, field: &str, max: usize) -> R<Vec<u8>> {
         if !s.is_ascii() {
-            self.legacy_text_fields.insert(field.to_owned());
+            self.non_ascii_fields.insert(field.to_owned());
         }
         let mut b = vec![];
-        let mut written = String::new();
         for c in s.chars() {
             let mut buf = [0; 4];
             let cs = c.encode_utf8(&mut buf);
             let (encoded, _, bad) = encoding_rs::GBK.encode(cs);
-            let bad = bad || super::cp936_compat::incompatible(c);
-            let enc = if bad {
-                vec![b'?']
-            } else {
-                encoded.into_owned()
-            };
-            b.extend(enc);
-            written.push(if bad { '?' } else { c });
-        }
-        if b.len() > max {
-            b.truncate(max);
-            let (decoded, _, bad) = encoding_rs::GBK.decode(&b);
-            if bad {
+            if bad || super::cp936_compat::incompatible(c) {
                 return Err(format!(
-                    "Legacy GP5 text limit splits a CP936 character at {field}"
+                    "GP5 cannot encode {c:?} at {field}; edit the text or use MusicXML"
                 ));
             }
-            written = decoded.into_owned();
+            b.extend(encoded.as_ref());
         }
-        if written != s {
-            self.replacements
-                .push(json!({"field":field,"original":s,"written":written}));
+        if b.len() > max {
+            return Err(format!(
+                "GP5 text at {field} exceeds {max} encoded bytes; shorten it or use MusicXML"
+            ));
         }
         Ok(b)
     }
@@ -134,13 +120,13 @@ fn expected_diagram(event: &Value, track: &Track) -> R<Value> {
         "show":true}))
 }
 
-fn projected_duration(e: &Value) -> R<crate::score::Rational> {
-    let mut duration = e["duration"].clone();
-    duration["double_dotted"] = json!(false);
-    duration_ticks(&duration)
-}
 fn duration(e: &Value) -> R<(u8, i8, Option<i32>, i64)> {
     let d = &e["duration"];
+    if d["double_dotted"] == true {
+        return Err(
+            "GP5 cannot represent double-dotted durations; use MusicXML or edit the rhythm".into(),
+        );
+    }
     let value = num(d, "value", 0);
     if ![1, 2, 4, 8, 16, 32, 64, 128].contains(&value) {
         return Err("GP5 duration outside whole..128th".into());
@@ -157,7 +143,7 @@ fn duration(e: &Value) -> R<(u8, i8, Option<i32>, i64)> {
     if times != pair {
         return Err("GP5 tuplet ratio not representable".into());
     }
-    let ticks = projected_duration(e)?;
+    let ticks = duration_ticks(d)?;
     Ok((
         if d["dotted"] == true { 1 } else { 0 } | if enters != 1 { 32 } else { 0 },
         value.ilog2() as i8 - 2,
@@ -174,7 +160,6 @@ fn beat(
     e: &Value,
     t: &Track,
     prev: &mut HashMap<usize, i64>,
-    detached: &mut Vec<Value>,
     loc: &Value,
     velocity: &mut i64,
 ) -> R<()> {
@@ -392,7 +377,7 @@ fn beat(
             } else {
                 0
             };
-        let mut typ = if dead {
+        let typ = if dead {
             3
         } else if effects.contains(&"tie") {
             2
@@ -400,10 +385,9 @@ fn beat(
             1
         };
         if typ == 2 && prev.get(&s) != Some(&f) {
-            typ = 1;
-            let mut report = loc.clone();
-            report["string"] = json!(s);
-            detached.push(report);
+            return Err(format!(
+                "Tie has no matching preceding note at {loc}, string {s}"
+            ));
         }
         w.u(nf);
         w.u(typ);
@@ -823,8 +807,6 @@ pub(super) fn encode(input: &Value) -> R<(Vec<u8>, Value)> {
     w.u(0);
     let mut prev = vec![vec![HashMap::new(); 2]; tracks.len()];
     let mut velocities = vec![[95; 2]; tracks.len()];
-    let mut detached = vec![];
-    let mut duration_projections = vec![];
 
     let mut expected = vec![];
     for (bi, timing) in timeline.iter().enumerate() {
@@ -877,26 +859,18 @@ pub(super) fn encode(input: &Value) -> R<(Vec<u8>, Value)> {
                         }
                         e["notes"] = json!(kept);
                         // String partitions turn filtered-out notes into rests, as the
-                        // legacy whole-score projector does; do not rewrite true empty beats.
+                        // notation requires; do not rewrite true empty beats.
                         if t.part["tuning"].as_array().unwrap().len() > 7
                             && arr(&e, "notes")?.is_empty()
                         {
                             e["status"] = json!("rest");
                         }
                         let exact = duration_ticks(&e["duration"])?;
-                        let projected_exact = projected_duration(&e)?;
-                        if projected_exact.denominator != 1
-                            && source_event_index + 1 < source_events.len()
-                        {
-                            return Err("GP5 cannot preserve the following integer onset after a fractional tuplet, matching the legacy writer".into());
+                        if exact.denominator != 1 && source_event_index + 1 < source_events.len() {
+                            return Err("GP5 cannot preserve the following integer onset after a fractional tuplet".into());
                         }
                         let projected = duration(&e)?.3;
                         cursor = start + projected;
-                        if exact.numerator * projected_exact.denominator
-                            != projected_exact.numerator * exact.denominator
-                        {
-                            duration_projections.push(json!({"track":ti+1,"measure":bi+1,"voice":vi+1,"source_start":start,"source_duration":e["duration"],"source_ticks":{"numerator":exact.numerator.to_string(),"denominator":exact.denominator.to_string()},"written_ticks":projected,"reason":"Legacy GP5 duration projection retains only one dot flag; score IR remains unchanged"}));
-                        }
                         beats.push(e);
                     }
                 }
@@ -942,7 +916,7 @@ pub(super) fn encode(input: &Value) -> R<(Vec<u8>, Value)> {
                             .as_i64()
                             .is_some_and(|start| start != expected_cursor)
                     {
-                        return Err(format!("GP5 readback would change note onset in measure {} voice {} (legacy empty-beat timing)",bi+1,vi+1));
+                        return Err(format!("GP5 readback would change note onset in measure {} voice {} (GP5 empty-beat timing)",bi+1,vi+1));
                     }
                     let mut expected_notes = vec![];
                     for n in ns {
@@ -966,7 +940,7 @@ pub(super) fn encode(input: &Value) -> R<(Vec<u8>, Value)> {
                     }
                     expected_notes.sort_by_key(|n| n[0].as_i64());
                     let dt = duration(e)?.3;
-                    let exact_duration = projected_duration(e)?;
+                    let exact_duration = duration_ticks(&e["duration"])?;
                     expected.push(json!({"measure":bi,"track":ti,"voice":vi,"start":expected_cursor,"duration":dt,"duration_fraction":[exact_duration.numerator.to_string(),exact_duration.denominator.to_string()],"status":match txt(e,"status","normal"){"empty"=>0,"rest"=>2,_=>1},"notes":expected_notes,"diagram":expected_diagram(e,t)?,"tempo":event_tempo(e)?}));
                     if txt(e, "status", "normal") != "empty" {
                         expected_cursor += dt;
@@ -976,7 +950,6 @@ pub(super) fn encode(input: &Value) -> R<(Vec<u8>, Value)> {
                         e,
                         t,
                         &mut prev[ti][vi],
-                        &mut detached,
                         &json!({"track":ti+1,"measure":bi+1,"voice":vi+1,"beat":ei+1}),
                         &mut velocities[ti][vi],
                     )?;
@@ -986,7 +959,7 @@ pub(super) fn encode(input: &Value) -> R<(Vec<u8>, Value)> {
         }
     }
     super::readback::verify(&w.bytes, &json!(expected), tempo)?;
-    let report = json!({"duration_projections":duration_projections,"velocity_quantization":w.velocity_quantization,"readback_verified":true,"encoding":"cp936","replacements":w.replacements,"detached_ties":detached,"tracks":tracks.len(),"native":true,"readback_scope":["notes","ties","durations","voice_timing","chord_diagrams"],"mapping":tracks.iter().enumerate().map(|(i,t)|json!({"track":i+1,"part_id":t.part["id"],"staff_id":t.staff["id"],"voices":t.voices,"strings":t.strings.iter().map(|s|s+1).collect::<Vec<_>>(),"tuning":t.strings.iter().map(|s|t.part["tuning"][*s].clone()).collect::<Vec<_>>()})).collect::<Vec<_>>()});
+    let report = json!({"velocity_quantization":w.velocity_quantization,"readback_verified":true,"encoding":"cp936","tracks":tracks.len(),"native":true,"readback_scope":["notes","ties","durations","voice_timing","chord_diagrams"],"mapping":tracks.iter().enumerate().map(|(i,t)|json!({"track":i+1,"part_id":t.part["id"],"staff_id":t.staff["id"],"voices":t.voices,"strings":t.strings.iter().map(|s|s+1).collect::<Vec<_>>(),"tuning":t.strings.iter().map(|s|t.part["tuning"][*s].clone()).collect::<Vec<_>>()})).collect::<Vec<_>>()});
     let mut report = report;
     if !final_bar_projections.is_empty() {
         report["final_bar_projection"] = json!({"measures":final_bar_projections,
@@ -1004,8 +977,8 @@ pub(super) fn encode(input: &Value) -> R<(Vec<u8>, Value)> {
         report["chord_label_projection"] = json!({"events":w.chord_label_projections,
             "warning":"未指定按法的和弦名以拍文字写入 GP5，并保留该拍原有文字，避免 Guitar Pro 显示虚假的空指法图；项目和 MusicXML 中的和弦语义保留。"});
     }
-    if !w.legacy_text_fields.is_empty() {
-        report["encoding_compatibility"] = json!({"fields":w.legacy_text_fields,
+    if !w.non_ascii_fields.is_empty() {
+        report["encoding_compatibility"] = json!({"fields":w.non_ascii_fields,
             "warning":"GP5 不声明文字编码，本文件使用 CP936；使用其他编码读取的软件可能将中文等文字显示为乱码。原文保存在项目中，可下载 MusicXML 保留 Unicode 文字。"});
     }
     if visual_events.events > 0 {

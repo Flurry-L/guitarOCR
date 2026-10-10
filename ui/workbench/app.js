@@ -318,7 +318,7 @@ async function watch(after, initial, navigation = workspace.navigation()) {
       }
       if (workspace.screen() === "workbench") notice("");
       // Model preparation/device selection can finish even when a later OCR step fails.
-      if (uploadConfig.native) await refreshConfig().catch(() => {});
+      if (uploadConfig.native) await refreshConfig();
       break;
     }
   } catch (error) {
@@ -488,10 +488,7 @@ $("deleteProject").onclick = action(async () => {
   }
 });
 function documentName() {
-  return (
-    ui.state.input_names ||
-    (ui.state.inputs || []).map((p) => p.split(/[\\/]/).pop())
-  ).join("、");
+  return ui.state.input_names.join("、");
 }
 function render() {
   localStorage.setItem("guitarocr-session", ui.sid);
@@ -517,7 +514,7 @@ function render() {
   });
   $("newProject").hidden = false;
   $("keyboardHelp").hidden = workspace.screen() !== "workbench" || !ui.state.measures?.length;
-  $("mode").value = ui.state.mode_setting || ui.state.mode;
+  $("mode").value = ui.state.mode_setting;
   $("deleteProject").hidden = workspace.screen() !== "workbench";
   renderPages();
   if (!ui.metadataDirty && !ui.libraryDirty) renderMetadata();
@@ -549,7 +546,7 @@ function renderExport() {
   $("downloadMusicXML").hidden = !ui.state.musicxml_url;
   if (ui.state.musicxml_url) {
     $("downloadMusicXML").href = ui.state.musicxml_url;
-    $("downloadMusicXML").download = "score.musicxml";
+    $("downloadMusicXML").download = ui.state.musicxml_name;
   }
   if (ui.state.score_document_url) {
     $("downloadScoreDocument").href = ui.state.score_document_url;
@@ -560,7 +557,7 @@ function renderExport() {
     $("downloadScoreText").download = "score.txt";
   }
   $("downloadGP5").hidden = !ui.state.gp5_url;
-  $("export").hidden = !!ui.state.gp5_url;
+  $("export").hidden = !!(ui.state.gp5_url || ui.state.musicxml_url);
   $("export").disabled = ui.busy || !count || !!review;
   if (ui.state.gp5_url) {
     $("downloadGP5").href = ui.state.gp5_url;
@@ -576,7 +573,7 @@ $("reviewBeforeExport").onclick = () => {
   openIssue();
 };
 $("export").onclick = action(async () => {
-  const navigation = workspace.navigation(), generation = ui.openGeneration;
+  const navigation = workspace.navigation();
   setBusy(true);
   try {
     receiveProject(
@@ -586,21 +583,8 @@ $("export").onclick = action(async () => {
     setBusy(false);
   }
   renderExport();
-  if (!ui.state.gp5_url) {
-    go(3, workspace.navigation() === navigation);
-    openIssue();
-    if (workspace.navigation() === navigation) notice("部分小节需要检查，请核对延音、音高和时值。");
-    return;
-  }
-  if (workspace.navigation() === navigation) notice("GP5 已生成，可以下载。");
-  if (ui.state.encoding_url) {
-    const report = await api(ui.state.encoding_url);
-    if (ui.openGeneration !== generation) return;
-    if (report.replacements?.length) {
-      $("exportWarning").hidden = false;
-      $("exportWarning").textContent = [$("exportWarning").textContent, "部分文字无法写入 GP5 的字符编码，小节文本保留了原文。"].filter(Boolean).join("\n");
-    }
-  }
+  const formats = [ui.state.gp5_url && "GP5", ui.state.musicxml_url && "MusicXML"].filter(Boolean);
+  if (workspace.navigation() === navigation) notice(`${formats.join("、")} 已生成，可以下载。`);
 });
 window.addEventListener("beforeunload", (e) => {
   if (hasDrafts()) {

@@ -60,7 +60,6 @@ impl StaffProfileReader {
             image_messages(&staff_images, STAFF_PROMPT, policy)?,
             512,
             Some(information_schema("staff")?),
-            None,
         )?;
         if let Some(reader) = self.count.as_mut() {
             region["staff_evidence"] = reader.predict(&image)?;

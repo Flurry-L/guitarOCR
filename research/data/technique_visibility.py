@@ -116,25 +116,3 @@ def prepare_visual_techniques(row):
         if 'target_utf8_bytes' in result:
             result['target_utf8_bytes'] = len(target.encode('utf-8'))
     return result
-
-
-class UnverifiedTechniqueVisibility(ValueError):
-    """A preserved playback target cannot be used as an optical answer."""
-
-    def __init__(self, row):
-        self.row = row
-        super().__init__(f"Technique visibility needs review before optical supervision: {row.get('id', row.get('image'))}")
-
-
-def verified_visual_target(row):
-    """Fail closed at both visual-training serializers; keep review data intact."""
-    if row.get('image_supervision', {}).get('status') == 'review':
-        raise UnverifiedTechniqueVisibility({**row, 'visual_supervision_status': 'review',
-            'review_reason': row['image_supervision']['reason']})
-    result = prepare_visual_techniques(row)
-    if (has_technique(result['target'], 'pm')
-            and 'pm' not in result.get('printed_techniques', ())
-            and result.get('technique_evidence', {}).get('pm', {}).get('state') == 'unknown'):
-        result['visual_supervision_status'] = 'review'
-        raise UnverifiedTechniqueVisibility(result)
-    return result

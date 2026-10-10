@@ -369,7 +369,8 @@ def build(output, train=1600, validation=160, test=160, workers=12):
                 structures.writelines(json.dumps(r) + '\n' for r in pages)
                 infos.writelines(json.dumps(r) + '\n' for r in metadata)
                 states.writelines(json.dumps({'messages': [{'role': 'user', 'content': '<image>' + SIGNATURE_PROMPT}, {'role': 'assistant', 'content': r['signature_target']}],
-                                             'images': [r['image']]}) + '\n' for r in rows)
+                                             'images': [r['image']],
+                                             'provenance': {key: r[key] for key in ('family', 'split')}}) + '\n' for r in rows)
                 counts['bars'] += len(rows)
                 counts['pages'] += len(pages)
                 if i % 50 == 0:

@@ -1,7 +1,7 @@
 //! One model process, bounded admission and independent request cancellation.
 //! llama.cpp owns continuous batching and the KV cache inside the process.
 use crate::{
-    device_selection::{self, MemoryBudget, RuntimeCapabilities, Selection},
+    device_selection::{self, MemoryBudget, RuntimeCapabilities},
     llama::{self, Config, Engine},
 };
 use serde_json::{json, Value};
@@ -71,17 +71,10 @@ impl Session<'_> {
         messages: Value,
         max_tokens: usize,
         schema: Option<Value>,
-        grammar: Option<&str>,
         adapted: bool,
     ) -> Result<llama::Generation> {
-        self.engine.generate_with_adapter(
-            messages,
-            max_tokens,
-            schema,
-            grammar,
-            adapted,
-            self.cancelled,
-        )
+        self.engine
+            .generate_with_adapter(messages, max_tokens, schema, adapted, self.cancelled)
     }
     pub fn generate_batch_with_adapters(
         &mut self,
@@ -99,10 +92,9 @@ impl Session<'_> {
         messages: Value,
         max_tokens: usize,
         schema: Option<Value>,
-        grammar: Option<&str>,
     ) -> Result<llama::Generation> {
         self.engine
-            .generate_with_adapter(messages, max_tokens, schema, grammar, false, self.cancelled)
+            .generate_with_adapter(messages, max_tokens, schema, false, self.cancelled)
     }
 }
 impl Runtime {
@@ -204,9 +196,9 @@ impl Runtime {
                 }
                 let mut capabilities = self.options.capabilities.clone();
                 if self.options.accelerator.is_some() {
-                    capabilities.cuda = Some(true);
+                    capabilities.cuda = true;
                 }
-                let mut selected = device_selection::choose_runtime(
+                let selected = device_selection::choose_runtime(
                     self.options
                         .accelerator
                         .as_ref()
@@ -215,7 +207,7 @@ impl Runtime {
                     &budget,
                     cancelled,
                 )?;
-                let config = |selected: &Selection| Config {
+                let config = Config {
                     executable: if selected.device == llama::Device::Cuda {
                         self.options
                             .accelerator
@@ -240,21 +232,7 @@ impl Runtime {
                     request_timeout: Duration::from_secs(1800),
                 };
                 report(&selected.reason)?;
-                let process = match Engine::start_cancellable(config(&selected), cancelled) {
-                    Ok(engine) => engine,
-                    Err(original) => {
-                        if cancelled() {
-                            return Err("Inference cancelled".into());
-                        }
-                        selected = device_selection::cpu_fallback_after_start_failure(
-                            &self.options.capabilities,
-                            &selected,
-                        )
-                        .map_err(|_| original)?;
-                        report(&selected.reason)?;
-                        Engine::start_cancellable(config(&selected), cancelled)?
-                    }
-                };
+                let process = Engine::start_cancellable(config, cancelled)?;
                 state.selection = json!({"device":format!("{:?}",selected.device).to_lowercase(),"selector":selected.device_selector});
                 state.engine = Some(Arc::new(process));
             }

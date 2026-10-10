@@ -52,8 +52,6 @@ def align_printed_chords(result, folder):
     from research.common.pdf import open_pdf
 
     layout_path, pdf_path = folder / 'layout.json', folder / 'score.pdf'
-    if not layout_path.is_file() or not pdf_path.is_file():
-        return
     candidates = {index for index, measure in result.items()
                   if any(event['chord'] for event in measure['events'].values())}
     if not candidates:
@@ -101,11 +99,11 @@ def native_text(label_path, mode):
     folder = native_document(label_path, mode)
     exports = list(folder.glob('tracks/*/official-score.json'))
     if len(exports) != 1:
-        return {}
+        raise ValueError(f'Expected one official score export: {folder}')
     model = json.loads(exports[0].read_text())
-    tracks = model.get('tracks', [])
+    tracks = model['tracks']
     if len(tracks) != 1 or len(tracks[0]['staves']) != 1:
-        return {}
+        raise ValueError(f'Text supervision requires one native track and staff: {exports[0]}')
     sections = {m['master_measure_index']: m.get('section_text') or m.get('section_letter')
                 for m in model['document']['master_measures']}
     result = {}
@@ -132,9 +130,7 @@ def native_text(label_path, mode):
 
 
 def native_text_target(target, label_path, mode, measure_index, *, printed_techniques=(), visual=True):
-    reference = native_text(str(label_path), mode).get(int(measure_index))
-    if reference is None:
-        return target
+    reference = native_text(str(label_path), mode)[int(measure_index)]
     # A matching official export establishes the renderer. Pure M/ScoreIR and
     # other engravers keep their playback flags; only this visual target changes.
     from research.data.technique_visibility import visible_target

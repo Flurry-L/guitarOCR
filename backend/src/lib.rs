@@ -48,7 +48,6 @@ struct App {
     mutation: Mutex<()>,
     tasks: Arc<tasks::Tasks>,
     native: assets::NativeAssets,
-    native_error: Option<String>,
     models: Arc<models::Models>,
     pipeline: Arc<pipeline::Pipeline>,
     accounts: Option<Arc<accounts::Accounts>>,
@@ -65,14 +64,21 @@ impl IntoResponse for ApiError {
 fn bad(error: impl ToString) -> ApiError {
     ApiError(StatusCode::BAD_REQUEST, error.to_string())
 }
-async fn config(Extension(app): Extension<AppState>) -> Json<Value> {
-    Json(
+async fn config(Extension(app): Extension<AppState>) -> ApiResult {
+    let registration = app
+        .accounts
+        .as_ref()
+        .map(|a| a.registration())
+        .transpose()
+        .map_err(bad)?
+        .unwrap_or(false);
+    Ok(Json(
         json!({"device":app.pipeline.device()["device"],"max_upload_mb":200,"max_pages":100,
         "inference_enabled":app.pipeline.available(),"model_ready":app.pipeline.ready(),"model_cached":app.models.cached(),
         "layout_ready":app.native.ort.is_some()&&app.models.ready(),"layout_cached":app.models.layout().is_file(),
         "pdf_enabled":app.native.pdfium.is_some(),
-        "native":true,"server":app.accounts.is_some(),"registration":app.accounts.as_ref().is_some_and(|a|a.registration()),"gpu_available":app.pipeline.available(),"editing_enabled":true,"native_runtime_error":app.native_error,"model_download_bytes":app.pipeline.download_bytes(),"requires_model_confirmation":!app.pipeline.ready()}),
-    )
+        "native":true,"server":app.accounts.is_some(),"registration":registration,"gpu_available":app.pipeline.available(),"editing_enabled":true,"model_download_bytes":app.pipeline.download_bytes(),"requires_model_confirmation":!app.pipeline.ready()}),
+    ))
 }
 
 async fn session(Extension(app): Extension<AppState>, Path(sid): Path<String>) -> ApiResult {
@@ -96,12 +102,11 @@ async fn sessions(Extension(app): Extension<AppState>) -> ApiResult {
             continue;
         }
         let path = entry.path().join("session.json");
-        let Ok(saved) = view::read_json(&path) else {
+        if !path.try_exists().map_err(bad)? {
             continue;
-        };
-        let Ok(project) = view::project(&app.projects, &sid) else {
-            continue;
-        };
+        }
+        let saved = view::read_json(&path).map_err(bad)?;
+        let project = view::project(&app.projects, &sid).map_err(bad)?;
         let title = project["metadata"]["title"]
             .as_str()
             .map(str::to_owned)
@@ -376,7 +381,11 @@ async fn score_text(
         .as_array()
         .ok_or_else(|| bad("识别结果缺少小节"))?
         .iter()
-        .map(|r| r["target"].as_str().ok_or_else(|| bad("还有未补全的小节，请先校对再下载小节文本")))
+        .map(|r| {
+            r["target"]
+                .as_str()
+                .ok_or_else(|| bad("还有未补全的小节，请先校对再下载小节文本"))
+        })
         .collect::<Result<Vec<_>, _>>()?
         .join("\n")
         + "\n";
@@ -501,7 +510,6 @@ impl App {
             projects,
             mutation: Mutex::new(()),
             native: self.native.clone(),
-            native_error: self.native_error.clone(),
             models: self.models.clone(),
             pipeline: self.pipeline.clone(),
             accounts: self.accounts.clone(),
@@ -675,20 +683,13 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         println!("管理员已创建");
         return Ok(());
     }
-    if accounts
-        .as_ref()
-        .is_some_and(|a| !a.has_admin().unwrap_or(false))
-    {
-        return Err("Create an administrator first with --create-admin USER".into());
+    if let Some(accounts) = &accounts {
+        if !accounts.has_admin()? {
+            return Err("Create an administrator first with --create-admin USER".into());
+        }
     }
     let tasks = tasks::Tasks::new(projects.clone())?;
-    let (native, native_error) = match assets::NativeAssets::load(resources.as_deref()) {
-        Ok(native) => (native, None),
-        Err(error) => {
-            eprintln!("识别组件未启用：{error}");
-            (assets::NativeAssets::default(), Some(error))
-        }
-    };
+    let native = assets::NativeAssets::load(resources.as_deref())?;
     let models = Arc::new(models::Models::new(
         projects.parent().unwrap_or(&projects),
         model_root,
@@ -702,7 +703,6 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         projects,
         tasks,
         native,
-        native_error,
         models,
         pipeline,
         mutation: Mutex::new(()),

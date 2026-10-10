@@ -39,8 +39,9 @@ export function validateManifest(manifest, platform = process.platform, arch = p
   for (const component of manifest.components) {
     if (names.has(component.name) || SOURCES[component.name] !== component.source) throw new Error('Unknown/duplicate native component or untrusted source');
     names.add(component.name);
-    if (component.capabilities !== undefined) {
-      if (component.name !== 'llama.cpp' || !component.capabilities || typeof component.capabilities !== 'object' || Array.isArray(component.capabilities) || Object.entries(component.capabilities).some(([name, value]) => !['cpu', 'cuda', 'metal'].includes(name) || typeof value !== 'boolean')) throw new Error('Invalid native backend capabilities');
+    if (component.name === 'llama.cpp' &&
+        (!component.capabilities || ['cpu', 'cuda', 'metal'].some(name => typeof component.capabilities[name] !== 'boolean'))) {
+      throw new Error('Native runtime must declare CPU, CUDA and Metal capabilities');
     }
     if (!Array.isArray(component.files) || !component.files.length) throw new Error('Empty component inventory');
     const paths = new Set();

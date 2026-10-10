@@ -145,7 +145,7 @@ def stage_cpu_libraries(binary, staging, key):
         shutil.copy2(resolved, staging / library.name)
         names.append(library.name)
     prefix = '' if key.startswith('windows-') else 'lib'
-    suffix = '.dll' if key.startswith('windows-') else '.so'
+    suffix = '.dll' if key.startswith('windows-') else '.dylib' if key.startswith('macos-') else '.so'
     baseline = f'{prefix}ggml-cpu-x64{suffix}'
     variants = [name for name in names if name.startswith(f'{prefix}ggml-cpu-') and name.endswith(suffix)]
     if baseline not in variants or len(variants) < 2:

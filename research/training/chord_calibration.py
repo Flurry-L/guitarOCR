@@ -101,6 +101,7 @@ def calibrate_reader(model_dir, data):
         "input_size": 256,
         "temperature": {name: 1.0 for name in OUTPUTS},
         "thresholds": {name: 1.001 for name in OUTPUTS},
+        "joint_thresholds": {name: 1.001 for name in ("geometry", "full")},
         "kind_labels": ["diagram", "text", "other"],
         "calibration_split": "validation_only_shape_and_document_disjoint",
         "max_strings": 12,

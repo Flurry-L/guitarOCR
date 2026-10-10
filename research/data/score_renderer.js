@@ -202,17 +202,7 @@ function observeTechniques(factories, sourceOf, records, options = {}) {
 }
 
 export async function render(state) {
-  // alphaTab 1.8.4 supplies a PM band only on its TAB factory. Reuse that native
-  // band for notation-only studies; otherwise the image would contradict M.
   const factories = alphaTab.Environment.defaultRenderers;
-  const standard = factories.find(f => f.staffId === "score");
-  const palmMute = factories.find(f => f.staffId === "tab")?.effectBands.find(
-    b => b.effect.notationElement === alphaTab.NotationElement.EffectPalmMute);
-  if (palmMute && !standard.effectBands.some(b => b.effect.notationElement === alphaTab.NotationElement.EffectPalmMute)) {
-    const effect = Object.create(palmMute.effect);
-    Object.defineProperty(effect, "canShareBand", { value: false });
-    standard.effectBands.push({ ...palmMute, effect, shouldCreate: staff => !staff.showTablature });
-  }
   document.body.style.cssText = "margin:0;background:white";
   const host = document.createElement("div");
   host.id = "score";
@@ -248,10 +238,9 @@ export async function render(state) {
   // pitches. Convert only this private rendering copy, retaining the label data.
   const editorState = structuredClone(state);
   for (const row of editorState.measures) {
-    if (row.score_state.key === -1) row.score_state.key = "DMinor";
     for (const voice of row.parsed.voices) for (const event of voice.events) {
       for (const note of event.notes) if (Number.isFinite(note.pitch))
-        note.pitch += row.pitch_context.instrument_transpose || 0;
+        note.pitch += row.pitch_context.instrument_transpose;
     }
   }
   const rendered = engrave(editorState, api.settings);

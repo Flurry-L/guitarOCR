@@ -98,7 +98,7 @@ function engravedSection(
   function kinds(bounds) {
     const source = rendered?.sourceOf.get(bounds.beat);
     const mode = source
-      ? measureProfile(state.measures[source.mi], state).mode
+      ? measureProfile(state.measures[source.mi]).mode
       : range.mode;
     if (mode !== "both") return mode === "tab" ? "tab" : "notation";
     const bars =
@@ -114,8 +114,7 @@ function engravedSection(
     const beat = bounds.beat,
       source = rendered.sourceOf.get(beat),
       profile = measureProfile(
-        state.measures[source?.mi ?? beat.voice.bar.index],
-        state,
+        state.measures[source.mi],
       );
     if (profile.instrument === "drums") return null;
     const staff = bounds.barBounds.visualBounds;
@@ -175,7 +174,7 @@ function engravedSection(
     }
     const source = rendered.sourceOf.get(beat);
     if (!bounds || !source) return null;
-    const profile = measureProfile(state.measures[source.mi], state),
+    const profile = measureProfile(state.measures[source.mi]),
       kind = kinds(bounds);
     const hit = {
       ...source,
@@ -216,7 +215,7 @@ function engravedSection(
       overlay.append(cursor);
       if (kinds(bounds) === "tab") {
         if (!Number.isInteger(selected.string)) continue;
-        const count = measureProfile(state.measures[selected.mi], state).tuning
+        const count = measureProfile(state.measures[selected.mi]).tuning
           .length;
         const staff = bounds.barBounds.visualBounds;
         const node = el("div", undefined, "note-selection");
@@ -305,7 +304,7 @@ function engravedSection(
           ni: -1,
           string: 1,
           kind:
-            measureProfile(state.measures[i], state).mode === "notation"
+            measureProfile(state.measures[i]).mode === "notation"
               ? "notation"
               : "tab",
         });
@@ -472,7 +471,7 @@ export function scoreView(host, callbacks) {
         });
       else
         state.measures.forEach((measure, i) => {
-          const mode = measureProfile(measure, state).mode,
+          const mode = measureProfile(measure).mode,
             last = ranges.at(-1);
           if (last?.mode === mode) last.end = i + 1;
           else ranges.push({ mode, start: i, end: i + 1 });

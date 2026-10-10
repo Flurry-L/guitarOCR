@@ -127,23 +127,7 @@ pub fn project(root: &Path, sid: &str) -> Result<Value> {
         .map_err(|e| e.to_string())?;
     let saved = read_json(&root.join("session.json"))?;
     let mut state = pick(&saved, &["id", "revision", "mode", "boxes", "input_names"]);
-    if state["input_names"].is_null() {
-        state["input_names"] = Value::Array(
-            saved["inputs"]
-                .as_array()
-                .unwrap_or(&Vec::new())
-                .iter()
-                .filter_map(|v| v.as_str())
-                .map(|p| {
-                    json!(Path::new(p)
-                        .file_name()
-                        .unwrap_or_default()
-                        .to_string_lossy())
-                })
-                .collect(),
-        );
-    }
-    state["mode_setting"] = saved.get("mode_setting").unwrap_or(&saved["mode"]).clone();
+    state["mode_setting"] = saved["mode_setting"].clone();
     for key in ["layout", "info", "recognition", "export"] {
         state[key] = json!(saved[key].as_str().is_some_and(|s| !s.is_empty()));
     }
@@ -282,6 +266,16 @@ pub fn project(root: &Path, sid: &str) -> Result<Value> {
     if state["export"] == true {
         let exported = stage(&saved["export"], "gp5_export", &root)?;
         state["export_warnings"] = exported.get("warnings").cloned().unwrap_or(json!([]));
+        for (key, format) in [("gp5_error", "GP5"), ("musicxml_error", "MusicXML")] {
+            state[key] = exported[key].clone();
+            if let Some(error) = exported[key].as_str() {
+                state["export_warnings"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(json!(format!("{format}：{error}")));
+            }
+        }
+        state.as_object_mut().unwrap().remove("musicxml_url");
         for (key, url) in [
             ("gp5", "gp5_url"),
             ("encoding_report", "encoding_url"),
@@ -291,11 +285,13 @@ pub fn project(root: &Path, sid: &str) -> Result<Value> {
                 state[url] = json!(asset(&root, sid, &exported[key])?);
             }
         }
-        if let Some(path) = exported["gp5"].as_str() {
-            state["gp5_name"] = json!(Path::new(path)
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy());
+        for format in ["gp5", "musicxml"] {
+            if let Some(path) = exported[format].as_str() {
+                state[format!("{format}_name")] = json!(Path::new(path)
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy());
+            }
         }
     }
     state["job"] = Value::Null;

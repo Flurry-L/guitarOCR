@@ -65,10 +65,9 @@ pub trait Generator {
         messages: Value,
         max_tokens: usize,
         schema: Option<Value>,
-        grammar: Option<&str>,
     ) -> Result<llama::Generation> {
         let _ = task;
-        self.generate(messages, max_tokens, schema, grammar)
+        self.generate(messages, max_tokens, schema)
     }
     fn generate_task_batch(
         &mut self,
@@ -77,7 +76,7 @@ pub trait Generator {
     ) -> Result<Vec<llama::Generation>> {
         messages
             .into_iter()
-            .map(|(m, s, task)| self.generate_task(task, m, max_tokens, s, None))
+            .map(|(m, s, task)| self.generate_task(task, m, max_tokens, s))
             .collect()
     }
     fn report(&mut self, _message: &str) -> Result<()> {
@@ -88,7 +87,6 @@ pub trait Generator {
         messages: Value,
         max_tokens: usize,
         schema: Option<Value>,
-        grammar: Option<&str>,
     ) -> Result<llama::Generation>;
 }
 impl Generator for guitarocr_engine::runtime::Session<'_> {
@@ -102,10 +100,9 @@ impl Generator for guitarocr_engine::runtime::Session<'_> {
         messages: Value,
         max_tokens: usize,
         schema: Option<Value>,
-        grammar: Option<&str>,
     ) -> Result<llama::Generation> {
         let adapted = self.task_adapter_applied(task);
-        self.generate_with_adapter(messages, max_tokens, schema, grammar, adapted)
+        self.generate_with_adapter(messages, max_tokens, schema, adapted)
     }
     fn generate_task_batch(
         &mut self,
@@ -126,9 +123,8 @@ impl Generator for guitarocr_engine::runtime::Session<'_> {
         messages: Value,
         max_tokens: usize,
         schema: Option<Value>,
-        grammar: Option<&str>,
     ) -> Result<llama::Generation> {
-        guitarocr_engine::runtime::Session::generate(self, messages, max_tokens, schema, grammar)
+        guitarocr_engine::runtime::Session::generate(self, messages, max_tokens, schema)
     }
 }
 fn check(cancelled: &dyn Fn() -> bool) -> Result<()> {
@@ -720,8 +716,6 @@ pub fn standard_tuning(instrument: &str, count: Option<usize>) -> Result<Vec<i64
     let count = count.unwrap_or(if instrument == "bass" { 4 } else { 6 });
     let pitches = match (instrument, count) {
         ("pitched" | "drums", _) => vec![],
-        ("guitar", 4) => vec![64, 59, 55, 50],
-        ("guitar", 5) => vec![64, 59, 55, 50, 45],
         ("guitar", 6) => vec![64, 59, 55, 50, 45, 40],
         ("guitar", 7) => vec![64, 59, 55, 50, 45, 40, 35],
         ("guitar", 8) => vec![64, 59, 55, 50, 45, 40, 35, 30],
@@ -958,7 +952,7 @@ fn recognize_regions_with_evidence<G: Generator + ?Sized>(
         if responses.len() != batch.len() {
             return Err("Incomplete information batch".into());
         }
-        for (index, ((region, image), mut response)) in
+        for (index, ((region, image), response)) in
             batch.iter().zip(&images).zip(responses).enumerate()
         {
             let kind = text(region, "kind", "");
@@ -973,28 +967,6 @@ fn recognize_regions_with_evidence<G: Generator + ?Sized>(
             let mut attempts = vec![
                 json!({"raw":response.content,"parsed":parsed,"generated_token_count":response.completion_tokens}),
             ];
-            if kind == "title" && cleaned(&parsed["title"]).is_null() {
-                // A detected title is required metadata evidence. Try one focused
-                // reread before reporting it as unreadable, without inventing text.
-                let scale = (216. / image.height() as f64)
-                    .min(6.)
-                    .min(2048. / image.width() as f64)
-                    .max(1.);
-                let crop = crate::image_transforms::resize_rgb_lanczos(
-                    image,
-                    (image.width() as f64 * scale).round() as u32,
-                    (image.height() as f64 * scale).round() as u32,
-                );
-                check(cancelled)?;
-                response = engine.generate(
-                    image_messages(&[crop], HEADER_TEXT_PROMPT, policy)?,
-                    512,
-                    Some(information_schema("title")?),
-                    None,
-                )?;
-                parsed = parse_info_response(response.content.trim(), kind);
-                attempts.push(json!({"raw":response.content,"parsed":parsed,"generated_token_count":response.completion_tokens}));
-            }
             if matches!(kind, "annotation" | "transposition") {
                 if let Some(evidence) = evidence.as_ref().filter(|_| read_kind != "text_annotation")
                 {
@@ -1009,7 +981,6 @@ fn recognize_regions_with_evidence<G: Generator + ?Sized>(
                         image_messages(&[image.clone()], TEMPO_PROMPT, policy)?,
                         64,
                         Some(information_schema("tempo")?),
-                        None,
                     )?;
                     let value = parse_info_response(tempo.content.trim(), "tempo");
                     attempts.push(json!({"purpose":"tempo_value","raw":tempo.content,
@@ -1293,65 +1264,38 @@ pub fn recognize_structure<G: Generator + ?Sized>(
             );
         }
         let schema = structure_schema(rows.len());
-        let initial = image_messages(&[marked], &prompt, config.image_policy.as_ref())?;
-        let mut messages = initial.clone();
-        let mut parsed = None;
-        let mut resolution_audit = Value::Null;
-        let mut raw = String::new();
-        let mut attempts = vec![];
-        for attempt in 1..=3 {
-            check(cancelled)?;
-            let response = engine.generate(messages.clone(), 2048, Some(schema.clone()), None)?;
-            raw = response.content;
-            let result = if let Some(relation) = &relation {
-                crate::score_structure::parse_structure_with_relation_heads(
-                    &raw,
-                    rows.len(),
-                    Some(&relation.systems),
-                    &relation.same_system_probabilities,
-                    relation.same_part_probabilities.as_deref(),
-                    Some(&modes),
-                    relation.review_confidence,
-                    relation.part_review_confidence,
-                )
-            } else {
-                crate::score_structure::parse_structure_with_audit_proposal(
-                    &raw,
-                    rows.len(),
-                    None,
-                    Some(&modes),
-                )
-            };
-            match result {
-                Ok((value, mut audit)) => {
-                    audit["system_indices_constrained"] = json!(false);
-                    audit["system_grouping_source"] = audit
-                        .get("selected_system_source")
-                        .cloned()
-                        .unwrap_or(json!("structure_model"));
-                    if let Some(relation) = &relation {
-                        audit["relation_prediction"] = json!({"systems":relation.systems,
-                            "same_system_probabilities":relation.same_system_probabilities,
-                            "same_part_probabilities":relation.same_part_probabilities,
-                            "needs_review":relation.needs_review,"review_confidence":relation.review_confidence,
-                            "part_review_confidence":relation.part_review_confidence});
-                    }
-                    resolution_audit = audit;
-                    attempts.push(json!({"attempt":attempt,"raw":raw,"accepted":true}));
-                    parsed = Some(value);
-                    break;
-                }
-                Err(error) => {
-                    attempts
-                        .push(json!({"attempt":attempt,"raw":raw,"accepted":false,"error":error}));
-                    messages = initial.clone();
-                    messages.as_array_mut().unwrap().extend([json!({"role":"assistant","content":raw}),json!({"role":"user","content":format!("Correct the score structure. {} Return JSON covering every marked row exactly once.",error.chars().take(2000).collect::<String>())})]);
-                }
-            }
-        }
-        let mut parsed = parsed.ok_or_else(|| {
-            format!("Could not resolve score parts on page {page}; check staff boxes and retry")
+        let messages = image_messages(&[marked], &prompt, config.image_policy.as_ref())?;
+        let response = engine.generate(messages, 2048, Some(schema))?;
+        let raw = response.content;
+        let result = if let Some(relation) = &relation {
+            crate::score_structure::parse_structure_with_relation_heads(
+                &raw,
+                rows.len(),
+                Some(&relation.systems),
+                &relation.same_system_probabilities,
+                relation.same_part_probabilities.as_deref(),
+                Some(&modes),
+                relation.review_confidence,
+                relation.part_review_confidence,
+            )
+        } else {
+            crate::score_structure::parse_structure_with_audit_proposal(
+                &raw,
+                rows.len(),
+                None,
+                Some(&modes),
+            )
+        };
+        let (mut parsed, mut resolution_audit) = result.map_err(|error| {
+            format!("Could not resolve score parts on page {page}: {error}; check staff boxes and retry")
         })?;
+        if let Some(relation) = &relation {
+            resolution_audit["relation_prediction"] = json!({"systems":relation.systems,
+                "same_system_probabilities":relation.same_system_probabilities,
+                "same_part_probabilities":relation.same_part_probabilities,
+                "needs_review":relation.needs_review,"review_confidence":relation.review_confidence,
+                "part_review_confidence":relation.part_review_confidence});
+        }
         if let Some(reader) = staff_reader.as_mut() {
             let assignments = parsed["rows"]
                 .as_array()
@@ -1455,7 +1399,7 @@ pub fn recognize_structure<G: Generator + ?Sized>(
             }
         }
         predictions.push(json!({"page":page,"source_page":path,"raw":raw,"parsed":parsed,
-            "systems_from_image":systems,"attempts":attempts,
+            "systems_from_image":systems,
             "structure_needs_review":resolution_audit["needs_review"],"resolution_audit":resolution_audit}));
     }
     Ok(predictions)
@@ -1559,7 +1503,7 @@ fn apply_clef_changes(
     }
 }
 
-/// Assign changes to their actual staff; ottava spans retain horizontal scope.
+/// Assign staff-level clef, instrument and capo changes. Local ottava lines are assembled from observations.
 pub fn apply_pitch_regions(
     records: &[Value],
     predictions: &[Value],
@@ -1569,7 +1513,6 @@ pub fn apply_pitch_regions(
 ) -> Result<Vec<Value>> {
     let mut records = records.to_vec();
     let mut changes: HashMap<usize, Vec<&Value>> = HashMap::new();
-    let mut spans: HashMap<usize, Vec<Value>> = HashMap::new();
     let mut unresolved = HashSet::new();
     for p in predictions {
         let kind = text(p, "kind", "");
@@ -1577,7 +1520,7 @@ pub fn apply_pitch_regions(
             continue;
         }
         let pk = text(&p["parsed"], "kind", "");
-        if kind == "transposition" && !["instrument", "ottava", "capo"].contains(&pk) {
+        if kind == "transposition" && !["instrument", "capo"].contains(&pk) {
             continue;
         }
         let Some(mut anchor) = nearest(&records, p) else {
@@ -1597,26 +1540,7 @@ pub fn apply_pitch_regions(
                     .then_some(i)
             })
             .collect();
-        if kind == "transposition" && pk == "ottava" {
-            for i in same {
-                let b = bbox(&records[i])?;
-                let left = b[0].max(pb[0]);
-                let right = (b[0] + b[2]).min(pb[0] + pb[2]);
-                if right - left <= 2.0f64.max(b[2] * 0.015) {
-                    continue;
-                }
-                let mut region = json!({});
-                for key in ["page", "bbox", "image"] {
-                    if let Some(v) = p.get(key) {
-                        region[key] = v.clone();
-                    }
-                }
-                spans.entry(i).or_default().push(json!({"semitones":p["parsed"]["semitones"],"start":((left-b[0])/b[2]*10000.).round_ties_even()/10000.,"end":((right-b[0])/b[2]*10000.).round_ties_even()/10000.,"region":region}));
-                if p["parsed"]["semitones"].is_null() {
-                    unresolved.insert(i);
-                }
-            }
-        } else {
+        {
             let point = if kind == "clef" {
                 pb[0] + pb[2] / 2.
             } else {
@@ -1704,7 +1628,6 @@ pub fn apply_pitch_regions(
         {
             effective["instrument_transpose"] = json!(0);
         }
-        effective["octave_spans"] = json!(spans.get(&i).cloned().unwrap_or_default());
         r["pitch_context"] = effective;
         r["pitch_reference"] = json!(if instrument == "drums" {
             "percussion_key"
@@ -1846,14 +1769,6 @@ pub fn recognize_information<G: Generator + ?Sized>(
             cancelled,
         )?;
     }
-    headers::recover_context(
-        engine,
-        &records,
-        &regions,
-        &mut predictions,
-        config.image_policy.as_ref(),
-        cancelled,
-    )?;
     if config.staff_profile {
         let mut reader = None;
         for part in &parts {
@@ -1974,7 +1889,7 @@ pub fn recognize_information<G: Generator + ?Sized>(
             .filter(|p| p["kind"] == "transposition" && p["parsed"]["kind"] == "instrument")
             .filter_map(|p| program_from_visible_name(text(&p["parsed"], "text", "")))
             .collect();
-        let structure_instrument = text(part, "instrument", "guitar");
+        let structure_instrument = text(part, "instrument", "");
         let mut identity_evidence = if let Some(evidence) = part
             .get("instrument_evidence")
             .filter(|_| !(index == 0 && config.instrument.is_some()))
@@ -2008,13 +1923,7 @@ pub fn recognize_information<G: Generator + ?Sized>(
         let instrument = if named_pitched {
             "pitched"
         } else {
-            identity_evidence["value"].as_str().unwrap_or(
-                if part["anonymous_relation_group"] == true && !has_tab {
-                    "pitched"
-                } else {
-                    "guitar"
-                },
-            )
+            identity_evidence["value"].as_str().unwrap_or("")
         }
         .to_owned();
         let identity_needs_review = !named_pitched && flag(&identity_evidence, "needs_review");
@@ -2032,11 +1941,17 @@ pub fn recognize_information<G: Generator + ?Sized>(
             metadata["instrument_issue"] =
                 json!("乐器身份候选不一致或未知，请确认乐器；各模型候选均已保留。");
         }
-        metadata["instrument"] = json!(instrument);
+        metadata["instrument"] = if instrument.is_empty() {
+            Value::Null
+        } else {
+            json!(instrument)
+        };
         if label_evidence.is_none() && identity_needs_review && !part["name"].is_null() {
             metadata["name"] = part["name"].clone();
         }
-        if !["guitar", "bass", "pitched", "drums"].contains(&instrument.as_str()) {
+        if !instrument.is_empty()
+            && !["guitar", "bass", "pitched", "drums"].contains(&instrument.as_str())
+        {
             return Err(format!("Unsupported instrument: {instrument}"));
         }
         let tuning_override = if index == 0 {
@@ -2050,7 +1965,8 @@ pub fn recognize_information<G: Generator + ?Sized>(
             return Err("Tuning must contain 1..12 MIDI open pitches".into());
         }
         let named_tuning = tuning_from_name(text(&metadata, "tuning_name", ""), &instrument, count);
-        let tuning = if matches!(instrument.as_str(), "pitched" | "drums") {
+        let tuning = if instrument.is_empty() || matches!(instrument.as_str(), "pitched" | "drums")
+        {
             vec![]
         } else {
             tuning_override
@@ -2104,7 +2020,7 @@ pub fn recognize_information<G: Generator + ?Sized>(
             ));
             warnings.push(json!(format!("Could not resolve the printed {} tuning for this instrument; check open-string pitches",text(&metadata,"tuning_name",""))));
         }
-        let mut candidates = if unresolved_tuning {
+        let candidates = if unresolved_tuning {
             vec![]
         } else {
             vec![tuning.clone()]
@@ -2150,23 +2066,6 @@ pub fn recognize_information<G: Generator + ?Sized>(
         metadata["tuning_evidence"] = json!({"value":tuning,"source":tuning_source,
             "candidates":candidates,"needs_review":metadata["tuning_needs_review"],
             "instrument_evidence":identity_evidence});
-        if !has_tab
-            && tuning_override.is_none()
-            && count.is_none()
-            && matches!(instrument.as_str(), "guitar" | "bass")
-        {
-            for n in tuning.len() + 1..8 {
-                if let Some(t) = tuning_from_name(
-                    text(&metadata, "tuning_name", "Standard"),
-                    &instrument,
-                    Some(n),
-                ) {
-                    if !candidates.contains(&t) {
-                        candidates.push(t);
-                    }
-                }
-            }
-        }
         let program = if index == 0 {
             config.midi_program.map(i64::from)
         } else {
@@ -2246,7 +2145,7 @@ pub fn recognize_information<G: Generator + ?Sized>(
         let mut local = rows.clone();
         for r in &mut local {
             r["part_name"] = json!(effective_name);
-            r["instrument"] = json!(instrument);
+            r["instrument"] = metadata["instrument"].clone();
             r["midi_program"] = json!(program);
             r["tuning"] = json!(tuning);
             r["string_count"] = json!(count);
@@ -2259,10 +2158,6 @@ pub fn recognize_information<G: Generator + ?Sized>(
             transpose,
             conventional_octave(pitch_name),
         )?;
-        let unusual = instrument == "guitar"
-            && matches!(tuning.len(), 4 | 5)
-            && tuning_source == "default"
-            && local.iter().all(|r| r["mode"] == "tab");
         if flag(&count_evidence, "needs_review") {
             warnings.push(json!(
                 "TAB 弦数候选不一致或未知，请核对调弦；原模型与视觉模型候选均已保留。"
@@ -2284,14 +2179,6 @@ pub fn recognize_information<G: Generator + ?Sized>(
         if flag(&metadata, "tuning_needs_review") {
             for r in &mut local {
                 r["tuning_needs_review"] = json!(true);
-                r["pitch_needs_review"] = json!(true);
-            }
-        }
-        if unusual {
-            warnings.push(json!(
-                "This guitar string count has no unique standard tuning; confirm the open strings"
-            ));
-            for r in &mut local {
                 r["pitch_needs_review"] = json!(true);
             }
         }
@@ -2328,7 +2215,7 @@ pub fn recognize_information<G: Generator + ?Sized>(
             metadata["warnings"] = json!(warnings);
         }
         for r in &local {
-            let mut profile = json!({"instrument":instrument,"midi_program":program,"tuning":tuning,"string_count":count,"capo":capo,"tuning_source":tuning_source,"tuning_explicit":matches!(tuning_source,"manual"|"printed"),"fingering_tunings":candidates});
+            let mut profile = json!({"instrument":metadata["instrument"],"midi_program":program,"tuning":tuning,"string_count":count,"capo":capo,"tuning_source":tuning_source,"tuning_explicit":matches!(tuning_source,"manual"|"printed")});
             for key in [
                 "measure_number",
                 "part_id",
@@ -2364,7 +2251,7 @@ pub fn recognize_information<G: Generator + ?Sized>(
             }
         }
         resolved.extend(local);
-        values.push(json!({"id":id,"name":effective_name,"mode":majority_mode(&rows,text(layout,"mode","notation")),"document_metadata":metadata,"title":metadata["title"].as_str().unwrap_or(""),"artist":metadata["artist"].as_str().unwrap_or(""),"tuning_used":tuning,"tuning_candidates":candidates,"tuning_source":tuning_source,"instrument":instrument,"midi_program":program,"capo":capo,"transpose":transpose}));
+        values.push(json!({"id":id,"name":effective_name,"mode":majority_mode(&rows,text(layout,"mode","notation")),"document_metadata":metadata,"title":metadata["title"].as_str().unwrap_or(""),"artist":metadata["artist"].as_str().unwrap_or(""),"tuning_used":tuning,"tuning_source":tuning_source,"instrument":metadata["instrument"],"midi_program":program,"capo":capo,"transpose":transpose}));
     }
     let mut manifest = values.first().cloned().ok_or("No resolved parts")?;
     manifest.as_object_mut().unwrap().remove("id");
@@ -2390,29 +2277,21 @@ pub fn recognize_information<G: Generator + ?Sized>(
 pub struct MeasureConfig {
     pub image_policy: Option<ImagePolicy>,
     pub max_tokens: usize,
-    pub max_tokens_ceiling: usize,
-    pub maximum_attempts: usize,
     pub constrained_decoding: bool,
 }
 impl Default for MeasureConfig {
     fn default() -> Self {
         Self {
             image_policy: None,
-            max_tokens: 4096,
-            max_tokens_ceiling: 6144,
-            maximum_attempts: 2,
+            max_tokens: 6144,
             constrained_decoding: true,
         }
     }
 }
 impl MeasureConfig {
     fn validate(&self) -> Result<()> {
-        if self.max_tokens == 0
-            || self.max_tokens_ceiling < self.max_tokens
-            || self.max_tokens_ceiling > 131072
-            || !(1..=10).contains(&self.maximum_attempts)
-        {
-            return Err("Invalid token limits or attempt count".into());
+        if self.max_tokens == 0 || self.max_tokens > 131072 {
+            return Err("Invalid token limit".into());
         }
         Ok(())
     }
@@ -2457,12 +2336,22 @@ pub fn prepare_records(layout: &Value, information: &Value) -> Result<Vec<Value>
         for key in ["instrument", "midi_program", "capo", "tuning_source"] {
             if row[key].is_null() {
                 row[key] = information.get(key).cloned().unwrap_or(match key {
-                    "instrument" => json!("guitar"),
+                    "instrument" => Value::Null,
                     "midi_program" => json!(25),
                     "capo" => json!(0),
                     _ => json!("default"),
                 });
             }
+        }
+        if !matches!(
+            row["instrument"].as_str(),
+            Some("guitar" | "bass" | "pitched" | "drums")
+        ) || row["instrument_needs_review"] == true
+        {
+            return Err(format!(
+                "请先在“校对谱面信息”中确认“{}”的乐器，再识别小节。",
+                text(row, "part_name", "当前音轨")
+            ));
         }
         if row["mode"].is_null() {
             row["mode"] = layout["mode"].clone();
@@ -2486,13 +2375,6 @@ pub fn prepare_records(layout: &Value, information: &Value) -> Result<Vec<Value>
         if row["tuning_explicit"].is_null() {
             row["tuning_explicit"] =
                 json!(["manual", "printed"].contains(&text(row, "tuning_source", "default")));
-        }
-        if list(row, "fingering_tunings").is_empty() {
-            row["fingering_tunings"] = if !list(information, "tuning_candidates").is_empty() {
-                information["tuning_candidates"].clone()
-            } else {
-                json!([tuning])
-            };
         }
         if row["pitch_context"].is_object() {
             row["pitch_context"]["capo"] = row["capo"].clone();
@@ -2686,70 +2568,6 @@ fn convert_pitch_direction(
     }
     score::format_measure_target(&m, mode, true)
 }
-pub fn resolve_fretted_pitches(
-    target: &str,
-    tuning: &[i64],
-    verified: Option<&HashSet<i64>>,
-) -> Result<(String, bool)> {
-    let mut m = score::parse_measure_target(target)?;
-    let mut changed = false;
-    for voice in m["voices"].as_array_mut().unwrap() {
-        for event in voice["events"].as_array_mut().unwrap() {
-            for note in event["notes"].as_array_mut().unwrap() {
-                let Some(s) = note["string"]
-                    .as_i64()
-                    .filter(|s| *s >= 1 && (*s as usize) <= tuning.len())
-                else {
-                    continue;
-                };
-                if verified.is_some_and(|v| !v.contains(&s)) {
-                    continue;
-                }
-                if note["fret"] == "x"
-                    || list(note, "effects")
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .any(|e| ["dead", "tie"].contains(&e) || e.starts_with("harm:"))
-                {
-                    continue;
-                }
-                if let Some(f) = note["fret"].as_i64().filter(|f| (0..=36).contains(f)) {
-                    let p = tuning[s as usize - 1] + f;
-                    if (0..=127).contains(&p) && note["pitch"] != p {
-                        note["pitch"] = json!(p);
-                        changed = true;
-                    }
-                }
-                for effect in note["effects"].as_array_mut().unwrap() {
-                    let mut parts: Vec<String> = effect
-                        .as_str()
-                        .unwrap()
-                        .split(':')
-                        .map(str::to_owned)
-                        .collect();
-                    if parts.len() > 1 && matches!(parts[0].as_str(), "grace" | "trill") {
-                        if let Some((Some(f), _)) = ornament(&parts[1]) {
-                            let p = tuning[s as usize - 1] + f;
-                            if (0..=36).contains(&f) && (0..=127).contains(&p) {
-                                let new = format!("f{f}p{p}");
-                                if parts[1] != new {
-                                    parts[1] = new;
-                                    *effect = json!(parts.join(":"));
-                                    changed = true;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    if changed {
-        Ok((score::format_measure_target(&m, "both", true)?, true))
-    } else {
-        Ok((target.into(), false))
-    }
-}
 pub fn rhythm_warnings(target: &str, time: &str) -> Result<Vec<String>> {
     let m = score::parse_measure_target(target)?;
     let time = m["time_signature"].as_str().unwrap_or(time);
@@ -2803,224 +2621,31 @@ pub fn recognize_measure<G: Generator + ?Sized>(
         &prompt,
         config.image_policy.as_ref(),
     )?;
-    let mut budget = config.max_tokens;
     row["observation"] = Value::Null;
     row["target"] = Value::Null;
     row["written_target"] = Value::Null;
     row["ir"] = Value::Null;
-    for attempt in 1..=config.maximum_attempts {
-        check(cancelled)?;
-        let response = engine.generate(
-            messages.clone(),
-            budget,
-            config
-                .constrained_decoding
-                .then(scorelib::observation::observation_schema),
-            None,
-        )?;
-        check(cancelled)?;
-        row["raw_observation_text"] = json!(response.content);
-        row["recognition_attempts"] = json!(attempt);
-        row["generated_token_count"] = json!(response.completion_tokens);
-        match scorelib::observation::parse_observation(&json!(response.content)) {
-            Ok(observation) => {
-                row["observation"] = observation;
-                row["recognition_errors"] = json!([]);
-                break;
-            }
-            Err(error) => {
-                row["recognition_errors"] = json!([error]);
-                budget = (budget * 2).min(config.max_tokens_ceiling);
-            }
+    let response = engine.generate(
+        messages,
+        config.max_tokens,
+        config
+            .constrained_decoding
+            .then(scorelib::observation::observation_schema),
+    )?;
+    check(cancelled)?;
+    row["raw_observation_text"] = json!(response.content);
+    row["generated_token_count"] = json!(response.completion_tokens);
+    match scorelib::observation::parse_observation(&json!(response.content)) {
+        Ok(observation) => {
+            row["observation"] = observation;
+            row["recognition_errors"] = json!([]);
         }
+        Err(error) => row["recognition_errors"] = json!([error]),
     }
     row["needs_review"] = json!(true);
     Ok(row)
 }
 
-#[derive(Default)]
-struct TuningEvidence {
-    counts: BTreeMap<i64, BTreeMap<i64, usize>>,
-    bars: HashMap<(i64, i64), HashSet<i64>>,
-    frets: HashMap<(i64, i64), HashSet<i64>>,
-}
-impl TuningEvidence {
-    fn winner(&self, string: i64) -> Option<(i64, usize, usize)> {
-        let c = self.counts.get(&string)?;
-        let (&pitch, &count) = c
-            .iter()
-            .max_by_key(|(pitch, count)| (**count, std::cmp::Reverse(**pitch)))?;
-        Some((pitch, count, c.values().sum()))
-    }
-    fn reliable(&self, string: i64, pitch: i64, count: usize, total: usize) -> bool {
-        count >= 6
-            && count as f64 / total as f64 >= 0.85
-            && self
-                .bars
-                .get(&(string, pitch))
-                .is_some_and(|b| b.len() >= 3)
-            && self
-                .frets
-                .get(&(string, pitch))
-                .is_some_and(|f| f.len() >= 2)
-    }
-}
-pub fn reconcile_score_tuning(records: &mut [Value]) -> Result<()> {
-    let mut parts: BTreeMap<String, Vec<usize>> = BTreeMap::new();
-    for (i, r) in records.iter().enumerate() {
-        if r["mode"] == "both" && flag(r, "visual_pitch") && r["target"].is_string() {
-            parts
-                .entry(text(r, "part_id", "part-1").into())
-                .or_default()
-                .push(i);
-        }
-    }
-    for (part, indices) in parts {
-        if records.iter().any(|row| {
-            text(row, "part_id", "part-1") == part && flag(row, "instrument_needs_review")
-        }) {
-            // Note/fret agreement cannot silently settle a disputed instrument
-            // profile or promote its provisional tuning to confirmed pitches.
-            continue;
-        }
-        let mut e = TuningEvidence::default();
-        for &i in &indices {
-            let row = &records[i];
-            let measure = score::parse_measure_target(text(row, "target", ""))?;
-            for voice in list(&measure, "voices") {
-                for event in list(voice, "events") {
-                    for note in list(event, "notes") {
-                        if list(note, "effects")
-                            .iter()
-                            .filter_map(Value::as_str)
-                            .any(|s| matches!(s, "dead" | "tie") || s.starts_with("harm:"))
-                        {
-                            continue;
-                        }
-                        if let (Some(string), Some(fret), Some(pitch)) = (
-                            note["string"].as_i64(),
-                            note["fret"].as_i64(),
-                            note["pitch"].as_i64(),
-                        ) {
-                            let open = pitch - fret;
-                            if !(0..=127).contains(&open) {
-                                continue;
-                            }
-                            *e.counts.entry(string).or_default().entry(open).or_default() += 1;
-                            e.bars
-                                .entry((string, open))
-                                .or_default()
-                                .insert(bar_index(row));
-                            e.frets.entry((string, open)).or_default().insert(fret);
-                        }
-                    }
-                }
-            }
-        }
-        let mut tuning = integers(&records[indices[0]]["tuning"])?;
-        if tuning.is_empty() {
-            continue;
-        }
-        let explicit = indices
-            .iter()
-            .any(|&i| flag(&records[i], "tuning_explicit"));
-        let unusual =
-            records[indices[0]]["instrument"] == "guitar" && matches!(tuning.len(), 4 | 5);
-        let mut conflicts = HashSet::new();
-        let mut confirmed = HashSet::new();
-        let mut altered = false;
-        if unusual && !explicit {
-            let reliable: BTreeMap<i64, i64> = e
-                .counts
-                .keys()
-                .filter_map(|&s| {
-                    let (p, c, t) = e.winner(s)?;
-                    (s >= 1 && s as usize <= tuning.len() && e.reliable(s, p, c, t))
-                        .then_some((s, p))
-                })
-                .collect();
-            if reliable.len() >= 2 {
-                let mut candidates = HashSet::new();
-                for instrument in ["guitar", "bass"] {
-                    if let Ok(v) = standard_tuning(instrument, Some(tuning.len())) {
-                        if reliable.iter().all(|(&s, &p)| v[s as usize - 1] == p) {
-                            candidates.insert(v);
-                        }
-                    }
-                }
-                if candidates.len() == 1 {
-                    let inferred = candidates.into_iter().next().unwrap();
-                    altered = tuning != inferred;
-                    tuning = inferred;
-                    confirmed.extend(reliable.keys().copied());
-                }
-            }
-        }
-        let mut shifts: HashMap<i64, Vec<i64>> = HashMap::new();
-        for &s in e.counts.keys() {
-            let (p, c, t) = e.winner(s).unwrap();
-            if s >= 1 && s as usize <= tuning.len() && e.reliable(s, p, c, t) {
-                shifts
-                    .entry(p - tuning[s as usize - 1])
-                    .or_default()
-                    .push(s);
-            }
-        }
-        let uniform: HashSet<i64> = shifts
-            .iter()
-            .filter(|(shift, strings)| **shift != 0 && strings.len() >= 3)
-            .flat_map(|(_, s)| s.iter().copied())
-            .collect();
-        for &s in e.counts.keys() {
-            let (p, c, t) = e.winner(s).unwrap();
-            if s < 1 || s as usize > tuning.len() {
-                conflicts.insert(s);
-                continue;
-            }
-            let reliable = e.reliable(s, p, c, t);
-            if explicit {
-                confirmed.insert(s);
-            } else if uniform.contains(&s) {
-                conflicts.insert(s);
-            } else if reliable && (p - tuning[s as usize - 1]).abs() <= 7 {
-                altered |= p != tuning[s as usize - 1];
-                tuning[s as usize - 1] = p;
-                confirmed.insert(s);
-            } else if reliable || (c >= 6 && c as f64 / (t as f64) < 0.65) {
-                conflicts.insert(s);
-            }
-        }
-        for row in records
-            .iter_mut()
-            .filter(|r| text(r, "part_id", "part-1") == part)
-        {
-            row["tuning"] = json!(tuning);
-            if !explicit && altered {
-                row["tuning_source"] = json!("notation_tab_consensus");
-            }
-            row["tuning_evidence"] = json!(e.counts);
-            if row["mode"] == "both" && row["target"].is_string() && !flag(row, "manually_edited") {
-                if conflicts.is_empty() && (explicit || confirmed.len() >= 2) {
-                    let (target, changed) = resolve_fretted_pitches(
-                        text(row, "target", ""),
-                        &tuning,
-                        if explicit { None } else { Some(&confirmed) },
-                    )?;
-                    row["target"] = json!(target);
-                    if changed {
-                        row["pitch_reconciled"] = json!(true);
-                    }
-                } else if !conflicts.is_empty() {
-                    let mut conflicts: Vec<i64> = conflicts.iter().copied().collect();
-                    conflicts.sort();
-                    row["needs_review"] = json!(true);
-                    row["tuning_needs_review"] = json!(conflicts);
-                }
-            }
-        }
-    }
-    Ok(())
-}
 fn product_pitch_context(row: &Value) -> Value {
     let mut context = if row["pitch_context"].is_object() {
         row["pitch_context"].clone()
@@ -3197,7 +2822,6 @@ pub fn finalize_records(records: &mut [Value], information: &mut Value) -> Resul
                 Value::Null
             };
         }
-        row["visual_pitch"] = json!(true);
         row["score_state_evidence"] = assembly["resolved"]["state"].clone();
         row["score_state"] = json!({});
         for field in ["time", "key", "clef", "clef_octave"] {
@@ -3268,7 +2892,6 @@ pub fn finalize_records(records: &mut [Value], information: &mut Value) -> Resul
         }
         row["timing_errors"] = json!([]);
     }
-    reconcile_score_tuning(records)?;
     let mut annotations = vec![];
     let parts = if list(information, "parts").is_empty() {
         vec![information.clone()]
@@ -3326,41 +2949,17 @@ pub fn finalize_records(records: &mut [Value], information: &mut Value) -> Resul
         if first["mode"] == "notation"
             && matches!(text(first, "instrument", ""), "guitar" | "bass")
             && indices.iter().all(|&i| records[i]["mode"] == "notation")
-            && !indices
-                .iter()
-                .any(|&i| flag(&records[i], "instrument_needs_review"))
         {
-            let candidates = if list(first, "fingering_tunings").is_empty() {
-                vec![integers(&first["tuning"])?]
-            } else {
-                list(first, "fingering_tunings")
-                    .iter()
-                    .map(integers)
-                    .collect::<Result<Vec<_>>>()?
-            };
-            let mut evaluation = vec![];
-            for tuning in &candidates {
-                let mut failures = vec![];
-                for &i in &indices {
-                    if !records[i]["target"].is_string() {
-                        failures.push(vec![]);
-                        continue;
+            for &i in &indices {
+                if let Some(target) = records[i]["target"].as_str() {
+                    let errors = scorelib::gp5_constraints::notation_fingering_errors(
+                        &score::parse_measure_target(target)?,
+                        &integers(&records[i]["tuning"])?,
+                    )?;
+                    if !errors.is_empty() {
+                        records[i]["needs_review"] = json!(true);
                     }
-                    failures.push(scorelib::gp5_constraints::notation_fingering_errors(
-                        &score::parse_measure_target(text(&records[i], "target", ""))?,
-                        tuning,
-                    )?);
-                }
-                evaluation.push(failures);
-            }
-            let selected = (0..candidates.len())
-                .min_by_key(|&i| (evaluation[i].iter().filter(|e| !e.is_empty()).count(), i))
-                .unwrap();
-            for (&i, errors) in indices.iter().zip(&evaluation[selected]) {
-                records[i]["tuning"] = json!(candidates[selected]);
-                records[i]["fingering_errors"] = json!(errors);
-                if !errors.is_empty() && flag(&records[i], "tuning_explicit") {
-                    records[i]["needs_review"] = json!(true);
+                    records[i]["fingering_errors"] = json!(errors);
                 }
             }
         }
@@ -3449,7 +3048,6 @@ pub fn update_information(source: &Value, information: &Value) -> Result<Option<
         "measure_profiles",
         "measure_pitch_contexts",
         "tuning_source",
-        "tuning_candidates",
     ] {
         if let Some(value) = information.get(field) {
             result[field] = value.clone();
@@ -3608,7 +3206,6 @@ mod observation_pipeline_tests {
             messages: Value,
             _: usize,
             schema: Option<Value>,
-            grammar: Option<&str>,
         ) -> Result<llama::Generation> {
             self.calls += 1;
             let content = messages[0]["content"].as_array().unwrap();
@@ -3626,7 +3223,6 @@ mod observation_pipeline_tests {
             assert!(prompt.contains("Do not infer information outside the image"));
             assert!(!prompt.contains("Effective printed state"));
             assert!(schema.is_some());
-            assert!(grammar.is_none());
             Ok(llama::Generation {
                 content: self.output.clone(),
                 completion_tokens: 90,
@@ -3656,6 +3252,7 @@ mod observation_pipeline_tests {
         let result =
             recognize_measure(&mut engine, &row, &MeasureConfig::default(), &|| false).unwrap();
         assert!(result["observation"].is_null());
+        assert_eq!(engine.calls, 2);
         let mut rows = vec![result];
         finalize_records(&mut rows, &mut information()).unwrap();
         assert!(rows[0]["target"].is_null());

@@ -121,7 +121,7 @@ def main():
     options.setdefault('max_num_seqs', 32)
     options.setdefault('max_num_batched_tokens', 8192)
     options.setdefault('gpu_memory_utilization', .40)
-    options.setdefault('limit_mm_per_prompt', {'image': 3, 'video': 0})
+    options.setdefault('limit_mm_per_prompt', {'image': 1, 'video': 0})
     options.setdefault('mm_processor_cache_gb', 2)
     options.setdefault('enable_prefix_caching', True)
     options.setdefault('disable_log_stats', False)
@@ -150,7 +150,7 @@ def main():
                             identity = f'{path}:{stat.st_mtime_ns}:{stat.st_size}'
                             if key not in loaded_images:
                                 with Image.open(path) as im:
-                                    image = normalize_score_image(im, image_policy) if image_policy else im.convert('RGB')
+                                    image = normalize_score_image(im, image_policy)
                                 loaded_images[key] = image
                                 opened.append(image)
                             image = loaded_images[key]

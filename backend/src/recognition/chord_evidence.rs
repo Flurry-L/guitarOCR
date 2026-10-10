@@ -56,11 +56,11 @@ impl ChordEvidenceReader {
                 return Err("Invalid chord evidence calibration".into());
             }
         }
-        if let Some(values) = contract["joint_thresholds"].as_object() {
-            if values.values().any(|v| {
-                v.as_f64()
-                    .is_none_or(|n| !n.is_finite() || !(0.5..=1.001).contains(&n))
-            }) {
+        for name in ["geometry", "full"] {
+            if contract["joint_thresholds"][name]
+                .as_f64()
+                .is_none_or(|n| !n.is_finite() || !(0.5..=1.001).contains(&n))
+            {
                 return Err("Invalid joint chord evidence calibration".into());
             }
         }
@@ -97,11 +97,11 @@ impl ChordEvidenceReader {
             if !session.outputs.iter().any(|v| v.name == "agreement") {
                 return Err("Missing chord agreement output".into());
             }
-            if let Some(values) = secondary["joint_thresholds"].as_object() {
-                if values.values().any(|v| {
-                    v.as_f64()
-                        .is_none_or(|n| !n.is_finite() || !(0.5..=1.001).contains(&n))
-                }) {
+            for name in ["geometry", "full"] {
+                if secondary["joint_thresholds"][name]
+                    .as_f64()
+                    .is_none_or(|n| !n.is_finite() || !(0.5..=1.001).contains(&n))
+                {
                     return Err("Invalid secondary joint chord calibration".into());
                 }
             }
@@ -327,7 +327,7 @@ fn decode(outputs: &[&[f32]], contract: &Value) -> Result<Value> {
             .map(|key| confidence[*key].as_f64().unwrap())
             .fold(1f64, f64::min);
         let ok = keys.iter().all(|key| accepted[*key] == true)
-            && joint >= contract["joint_thresholds"][name].as_f64().unwrap_or(0.)
+            && joint >= contract["joint_thresholds"][name].as_f64().unwrap()
             && (name != "full" || accepted["geometry"] == true);
         confidence[name] = json!(joint);
         accepted.insert(name.into(), json!(ok));
@@ -376,7 +376,7 @@ pub fn apply_evidence(parsed: &Value, source_evidence: &Value) -> Result<(Value,
         if ["strings", "base", "frets", "barres"]
             .iter()
             .all(|key| accepted[*key] == true)
-            && accepted["geometry"] != false
+            && accepted["geometry"] == true
         {
             let mut diagram = evidence["diagram"].clone();
             if accepted["fingers"] != true {
@@ -401,7 +401,7 @@ pub fn apply_evidence(parsed: &Value, source_evidence: &Value) -> Result<(Value,
             if !original.is_null() && !changes.is_empty() {
                 evidence["conflict_fields"] = json!(changes);
             }
-            if original.is_null() && (accepted["full"] == false || accepted["fingers"] != true) {
+            if original.is_null() && (accepted["full"] != true || accepted["fingers"] != true) {
                 evidence["review_required"] = json!(true);
             } else {
                 parsed["kind"] = json!("chord_diagram");

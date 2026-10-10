@@ -474,9 +474,9 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
           ui.measureIndex = cached.index;
           loadMeasure();
           draft = cached.draft;
-          observationDraft = cached.observationDraft ?? clone(current().observation);
+          observationDraft = cached.observationDraft;
           renderObservation();
-          if (Object.hasOwn(cached, "visualTechniques")) visualTechniques = cached.visualTechniques;
+          visualTechniques = cached.visualTechniques;
           selected = cached.selected;
           draftRevision = cached.revision;
           ui.editorMode = cached.mode;
@@ -554,7 +554,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
   }
   $("nextIssue").onclick = openIssue;
   function loadMeasure() {
-    profile = measureProfile(current(), ui.state);
+    profile = measureProfile(current());
     draft = clone(current().parsed);
     observationDraft = clone(current().observation);
     renderObservation();
@@ -1329,7 +1329,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
         if (m) {
           const vi = Math.min(selected.vi, m.parsed.voices.length - 1),
             events = m.parsed.voices[vi].events;
-          const target = measureProfile(m, ui.state),
+          const target = measureProfile(m),
             ei = delta < 0 ? events.length - 1 : 0;
           const kind =
             target.mode === "both"
@@ -1443,7 +1443,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
       persistDraft();
       projectRevision = ui.state.revision;
       histories.clear();
-      profile = measureProfile(current(), ui.state);
+      profile = measureProfile(current());
       draft = clone(current().parsed);
       observationDraft = clone(current().observation);
       renderObservation();

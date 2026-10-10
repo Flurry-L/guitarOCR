@@ -51,16 +51,16 @@ export function initMetadata({ start, go, render, setBusy }) {
     $("artist").value = root?.artist || "";
     $("subtitle").value = root?.document_metadata?.subtitle || "";
     $("headerNotes").value = root?.document_metadata?.header_notes || "";
-    $("instrument").value = m?.instrument || "guitar";
+    $("instrument").value = m?.instrument || "";
     $("midiProgram").value = String(m?.midi_program ?? ({guitar:25,bass:33,pitched:0,drums:0}[$("instrument").value]));
-    $("tempo").value = m?.document_metadata?.tempo_quarter || 120;
+    $("tempo").value = m?.document_metadata?.tempo_quarter ?? "";
     $("capo").value = m?.capo || 0;
     $("transpose").value = m?.transpose ?? "";
     const shifts = [...new Set((m?.document_metadata?.pitch_instructions || [])
       .filter((p) => p.parsed?.kind === "instrument" && Number.isInteger(p.parsed.semitones))
       .map((p) => p.parsed.semitones))];
     $("transpose").placeholder = shifts.length === 1 ? `自动读取：${shifts[0]}` : "自动读取";
-    $("tuning").value = (m?.tuning_used || [64, 59, 55, 50, 45, 40]).join(",");
+    $("tuning").value = (m?.tuning_used || []).join(",");
     const preset = Array.from($("tuningPreset").options).some(
       (o) => o.value === $("tuning").value,
     );
@@ -94,13 +94,12 @@ export function initMetadata({ start, go, render, setBusy }) {
     $("tuningField").hidden = !fretted;
     $("capoField").hidden = !fretted;
     $("transposeField").hidden = $("instrument").value === "drums";
-    $("midiProgramField").hidden = $("instrument").value === "drums";
+    $("midiProgramField").hidden = !$("instrument").value || $("instrument").value === "drums";
     $("customTuning").hidden = !fretted || $("tuningPreset").value !== "custom";
   }
   $("instrument").onchange = () => {
     $("confirmInstrument").checked = $("confirmTuning").checked = false;
-    const tuning =
-      $("instrument").value === "bass" ? "43,38,33,28" : "64,59,55,50,45,40";
+    const tuning = {guitar: "64,59,55,50,45,40", bass: "43,38,33,28"}[$("instrument").value] || "";
     $("tuning").value = tuning;
     $("tuningPreset").value = tuning;
     $("midiProgram").value = String({guitar:25,bass:33,pitched:0,drums:0}[$("instrument").value]);
@@ -158,7 +157,7 @@ export function initMetadata({ start, go, render, setBusy }) {
       go(3);
       return;
     }
-    for (const id of ["partName", "tempo", "capo", "transpose"]) {
+    for (const id of ["partName", "instrument", "tempo", "capo", "transpose"]) {
       if (!$(id).reportValidity()) return;
     }
     const fretted = ["guitar", "bass"].includes($("instrument").value);
@@ -197,7 +196,7 @@ export function initMetadata({ start, go, render, setBusy }) {
         header_notes: $("headerNotes").value,
         instrument: $("instrument").value,
         midi_program: $("instrument").value === 'drums' ? 0 : +$("midiProgram").value,
-        tempo_quarter: +$("tempo").value,
+        tempo_quarter: $("tempo").value === "" ? null : +$("tempo").value,
         capo: fretted ? +$("capo").value : 0,
         tuning_used: tuning,
         confirm_instrument: $("confirmInstrument").checked,

@@ -17,6 +17,7 @@ import torch
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 from torch.utils.data import Dataset
 
+from research.inference.chord_evidence import image_tensor
 from research.models.chord_evidence import MAX_TEXT_LENGTH, roman, tokens
 
 SIZE = 256
@@ -87,13 +88,11 @@ def native_rows(root, split, negative_limit=None):
         path = Path(root) / row["images"][0]
         if not path.is_file():
             raise FileNotFoundError(path)
-        source = row.get('provenance', {}).get('family') or f'{split}/{path.stem}'
         rows.append(
             {
                 "image": str(path),
                 "diagram": diagram,
                 "kind": 0 if diagram else 1,
-                "source_group": source,
                 "shape_group": shape_identity(diagram) if diagram else None,
             }
         )
@@ -234,11 +233,6 @@ def render_diagram(
     style=None,
     fonts=None,
     name="",
-    return_positions=False,
-    return_base_position=False,
-    return_base_box=False,
-    return_base_text=False,
-    return_grid_box=False,
 ):
     count = len(diagram["frets"])
     base = diagram["base_fret"]
@@ -317,7 +311,6 @@ def render_diagram(
         base_box[:] = [(a, b), (c, b), (c, d), (a, d)]
     # The printed name always agrees with the authored/translated voicing.
     name_anchor = (width / 2, 10)
-    name_bottom = draw.textbbox(name_anchor, name, font=name_font, anchor="mt")[3]
     draw.text(name_anchor, name, font=name_font, fill=color, anchor="mt")
     barre_style = style or rng.choice(["thick", "thin", "arc", "rounded"])
     for fret, a, b in diagram["barres"]:
@@ -383,18 +376,7 @@ def render_diagram(
                 )
         if finger is not None and not inside:
             digit((x, y0 + rows * step + 5), finger, small, color, "mt", i)
-    if return_base_text:
-        return image, positions, base_position, base_box, label or ""
-    if return_grid_box:
-        # Renderer-owned supervision excludes the chord name above the grid.
-        grid_top = max(name_bottom + 2, y0 - size - 12)
-        grid_bottom = min(height, y0 + rows * step + size + 18)
-        return image, (0, grid_top, width, grid_bottom)
-    if return_base_box:
-        return image, positions, base_position, base_box
-    if return_base_position:
-        return image, positions, base_position
-    return (image, positions) if return_positions else image
+    return image, positions, base_position, base_box, label or ""
 
 
 def render_negative(rng, kind, fonts=None):
@@ -488,21 +470,6 @@ def adjacent_context(image, rng, fonts=None):
     return canvas, np.asarray(offset, dtype=np.float32)
 
 
-def preprocess(image):
-    image = image.convert("RGB")
-    scale = SIZE / max(image.size)
-    w = max(1, int(image.width * scale + 0.5))
-    h = max(1, int(image.height * scale + 0.5))
-    image = image.resize((w, h), Image.Resampling.LANCZOS)
-    canvas = Image.new("RGB", (SIZE, SIZE), "white")
-    canvas.paste(image, ((SIZE - w) // 2, (SIZE - h) // 2))
-    data = np.asarray(canvas, dtype=np.float32).transpose(2, 0, 1) / 255
-    data = (
-        data - np.array([0.485, 0.456, 0.406], np.float32)[:, None, None]
-    ) / np.array([0.229, 0.224, 0.225], np.float32)[:, None, None]
-    return torch.from_numpy(data.copy())
-
-
 def labels(diagram, kind):
     count = len(diagram["frets"]) if diagram else 0
     frets = np.full(12, -100, np.int64)
@@ -590,7 +557,7 @@ class ChordEvidenceData(Dataset):
                 if rng.random() < 0.65:
                     name = ""  # An ordinary unnamed chart prevents a name-to-shape shortcut.
                 image, positions, base_position, base_box, base_text = render_diagram(
-                    diagram, rng, fonts=self.fonts, name=name, return_base_text=True
+                    diagram, rng, fonts=self.fonts, name=name
                 )
             else:
                 diagram = None
@@ -646,7 +613,7 @@ class ChordEvidenceData(Dataset):
             text_tokens + [0] * (MAX_TEXT_LENGTH - len(text_tokens))
         )
         target["base_text_length"] = torch.tensor(len(text_tokens))
-        return preprocess(image), target
+        return torch.from_numpy(image_tensor(image).copy()), target
 
 
 def diagram_from_labels(labels, index):

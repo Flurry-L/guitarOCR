@@ -1,4 +1,4 @@
-//! Opening text proposals, title recovery and preservation of manually supplied titles.
+//! Opening text proposals and preservation of manually supplied titles.
 use super::*;
 use crate::text_regions::TextRegionReader;
 
@@ -66,93 +66,6 @@ pub(super) fn opening_annotations(
         }
     }
     Ok(result)
-}
-
-/// Read the compact header first so a large system cannot shrink its lettering.
-/// If no title is read, retry with the complete first system and queried text:
-/// ledger notes can overlap title height, so the first crop may clip a title.
-pub(super) fn recover_context<G: Generator + ?Sized>(
-    engine: &mut G,
-    records: &[Value],
-    regions: &[Value],
-    predictions: &mut Vec<Value>,
-    policy: Option<&ImagePolicy>,
-    cancelled: &dyn Fn() -> bool,
-) -> Result<()> {
-    if !cleaned(&metadata_from_predictions(predictions)["title"]).is_null()
-        || predictions
-            .iter()
-            .any(|p| p["source"] == "header_context_recovery")
-    {
-        return Ok(());
-    }
-    let Some(page) = records.iter().filter_map(|r| r["page"].as_u64()).min() else {
-        return Ok(());
-    };
-    let rows: Vec<_> = records.iter().filter(|r| r["page"] == page).collect();
-    let Some(source) = rows.iter().find_map(|r| r["source_page"].as_str()) else {
-        return Ok(());
-    };
-    let candidates: Vec<_> = regions
-        .iter()
-        .filter(|r| {
-            r["page"] == page
-                && matches!(
-                    text(r, "kind", ""),
-                    "annotation"
-                        | "transposition"
-                        | "title"
-                        | "header"
-                        | "subtitle"
-                        | "credit"
-                        | "header_text"
-                )
-                && bbox(r).is_ok()
-        })
-        .collect();
-    if candidates.is_empty() {
-        return Ok(());
-    }
-    let first_system = rows
-        .iter()
-        .map(|r| r["system_index"].as_i64().unwrap_or(0))
-        .min()
-        .unwrap_or(0);
-    let bottom = rows
-        .iter()
-        .filter(|r| r["system_index"].as_i64().unwrap_or(0) == first_system)
-        .copied()
-        .chain(candidates)
-        .filter_map(|r| bbox(r).ok().map(|b| b[1] + b[3]))
-        .reduce(f64::max)
-        .unwrap_or(0.)
-        .ceil();
-    if bottom <= 0. {
-        return Ok(());
-    }
-    let image = image_boundary::open_rgb(Path::new(source))?;
-    let compact_bottom = rows
-        .iter()
-        .filter_map(|r| bbox(r).ok().map(|b| b[1]))
-        .reduce(f64::min)
-        .unwrap_or(0.)
-        .ceil();
-    let mut previous_bottom = None;
-    for (stage, bottom) in [("compact", compact_bottom), ("first_system", bottom)] {
-        let bottom = bottom.min(f64::from(image.height()));
-        if bottom <= 0. || previous_bottom == Some(bottom) {
-            continue;
-        }
-        previous_bottom = Some(bottom);
-        let region = json!({"kind":"header","page":page,"source_page":source,
-            "bbox":[0,0,image.width(),bottom],
-            "source":"header_context_recovery","header_context_stage":stage});
-        predictions.extend(recognize_regions(engine, &[region], policy, cancelled)?);
-        if !cleaned(&metadata_from_predictions(predictions)["title"]).is_null() {
-            break;
-        }
-    }
-    Ok(())
 }
 
 pub(super) fn resolve_title(metadata: &mut Value, predictions: &[Value], filename: &str) {

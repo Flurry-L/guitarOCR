@@ -5,7 +5,6 @@ import json
 import math
 import os
 import random
-import re
 import sys
 import time
 from collections import Counter
@@ -19,18 +18,6 @@ from research.common.signature_image import (
     full_signature_array,
     validate_signature_config,
 )
-
-
-def signature_source(path):
-    path = Path(path)
-    # Native crops encode the original work's ID independently of display mode.
-    ids = re.findall(r'(?<![0-9a-f])[0-9a-f]{16}(?![0-9a-f])', str(path))
-    if ids:
-        return 'native:' + ids[-1]
-    if 'engraved_scores' in path.parts:
-        index = path.parts.index('engraved_scores')
-        return '/'.join(path.parts[index:index + 3])
-    raise ValueError(f'Cannot establish signature source identity: {path}')
 
 
 class Signatures:
@@ -55,7 +42,10 @@ class Signatures:
                             raise ValueError(f'Conflicting printed-signature labels: {image}')
                         continue
                     seen[image] = label
-                    sources[image] = signature_source(image) if not row.get('source_id') else 'native:' + str(row['source_id'])
+                    provenance = row['provenance']
+                    if not provenance['family'] or provenance['split'] != split:
+                        raise ValueError('Signature samples require an explicit family and matching split')
+                    sources[image] = provenance['family']
                     self.rows.append((image, label))
         if limit and len(self.rows) > limit:
             self.rows = random.Random(20261003).sample(sorted(self.rows), limit)

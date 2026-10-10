@@ -25,14 +25,14 @@ fn validate_contract(config: &Value) -> Result<f64> {
         .filter(|v| v.is_finite() && *v > 0. && *v <= 1.)
         .ok_or("Invalid staff label threshold")?;
     let expected = json!({
-            "version":1,"input_size":[WIDTH,HEIGHT],"stride":STRIDE,
-            "resize":"contain_lanczos_center_white","rounding":"positive_round_ties_even",
-            "normalization":"rgb_minus1_plus1","angles_ccw":ANGLES,
-            "box_encoding":"normalized_ltrb_from_integer_grid_origin",
-            "label_threshold":threshold,"scope":"one_visible_name_in_complete_staff",
-            "score_selection":"first_row_major_maximum_logit",
-            "crop_rounding":"floor_left_top_ceil_right_bottom"
-        });
+        "version":1,"input_size":[WIDTH,HEIGHT],"stride":STRIDE,
+        "resize":"contain_lanczos_center_white","rounding":"positive_round_ties_even",
+        "normalization":"rgb_minus1_plus1","angles_ccw":ANGLES,
+        "box_encoding":"normalized_ltrb_from_integer_grid_origin",
+        "label_threshold":threshold,"scope":"one_visible_name_in_complete_staff",
+        "score_selection":"first_row_major_maximum_logit",
+        "crop_rounding":"floor_left_top_ceil_right_bottom"
+    });
     if expected
         .as_object()
         .unwrap()
@@ -131,10 +131,7 @@ impl StaffLabelReader {
                 return Err("Unsupported staff label output shape".into());
             }
         }
-        Ok(Self {
-            session,
-            threshold,
-        })
+        Ok(Self { session, threshold })
     }
 
     pub fn predict(&mut self, image: &RgbImage) -> Result<Value> {

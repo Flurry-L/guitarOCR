@@ -71,6 +71,8 @@ def score_counts(truth, predictions, matched):
                 text = row.get('target', '') if predicted else row.get('sounding_target', row['target'])
                 measure = parse_measure_target(text)
             except (ValueError, KeyError, TypeError):
+                if not predicted:
+                    raise
                 continue
             for voice in measure['voices']:
                 for event in voice['events']:

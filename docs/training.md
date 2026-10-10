@@ -224,7 +224,7 @@ python -m research.training.layout_quality export \
 
 各入口及子命令的 `--help` 列出数据、初始化模型和输出参数。结构关系数据使用 `research.training.structure_relation prepare` 的 `--train`、`--validation`、`--test` 读取 `engraved_scores` / `information_styles` 输出的 `structure_{split}.jsonl`。每行直接保存干净页面 `image`、谱行中心 `centers`、`row_modes`、结构标签 `expected.rows`、原曲 `family` 和 `split`。`train --task system` / `train --task part` 分别训练现用的两个分支，`--initial` 加载对应检查点；`evaluate --checkpoint ... --manifest ...` 接受独立评测清单，`export` 显式接收两份权重和验证清单。
 
-谱行延续的 `export --model DIR --data DIR` 在验证集上同时校准有名称和无名称的候选组，完成 ONNX 数值核对并保存阈值；`evaluate` 直接使用导出模型和阈值。拍调号训练通过多次 `--data DIR` 混合来源，只学习实际印出的拍调号；`export_auxiliary` 默认从 `weights/checkpoints/signature/` 读取权重、配置与校准，可用 `--signature-model DIR` 指定其他训练目录。
+谱行延续的 `export --model DIR --data DIR` 在验证集上同时校准有名称和无名称的候选组，完成 ONNX 数值核对并保存阈值；`evaluate` 直接使用导出模型和阈值。拍调号训练通过多次 `--data DIR` 混合来源，只学习实际印出的拍调号；样本必须明确提供 `provenance.family/split`，不从文件名推断来源。缺少来源字段的旧数据需由生成器重新生成；`export_auxiliary` 默认从 `weights/checkpoints/signature/` 读取权重、配置与校准，可用 `--signature-model DIR` 指定其他训练目录。
 
 奏法训练随小节观察任务进行；`research.data.technique_visibility` 负责从实际渲染中提取可见性证据。
 

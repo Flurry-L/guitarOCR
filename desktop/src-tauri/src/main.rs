@@ -219,9 +219,12 @@ struct Settings {
 #[tauri::command]
 fn settings(app: tauri::AppHandle, window: WebviewWindow) -> Result<Settings, String> {
     authorize(&window)?;
-    Ok(Settings {
-        server: fs::read_to_string(data(&app)?.join("server.txt")).unwrap_or_default(),
-    })
+    let server = match fs::read_to_string(data(&app)?.join("server.txt")) {
+        Ok(server) => server,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => return Err(format!("无法读取服务地址：{error}")),
+    };
+    Ok(Settings { server })
 }
 #[tauri::command]
 fn connect_server(
@@ -363,16 +366,13 @@ fn start(app: &tauri::AppHandle) -> Result<Url, String> {
     let app_watch = app.clone();
     thread::spawn(move || {
         loop {
-            let finished = process
-                .child
-                .lock()
-                .unwrap()
-                .try_wait()
-                .ok()
-                .flatten()
-                .is_some();
-            if finished {
-                break;
+            match process.child.lock().unwrap().try_wait() {
+                Ok(Some(_)) => break,
+                Ok(None) => {}
+                Err(error) => {
+                    log(&app_watch, &format!("无法查询本机服务状态：{error}"));
+                    break;
+                }
             }
             thread::sleep(Duration::from_millis(250));
         }
@@ -408,10 +408,7 @@ fn start(app: &tauri::AppHandle) -> Result<Url, String> {
     Ok(url)
 }
 #[tauri::command]
-async fn start_local(
-    app: tauri::AppHandle,
-    window: WebviewWindow,
-) -> Result<(), String> {
+async fn start_local(app: tauri::AppHandle, window: WebviewWindow) -> Result<(), String> {
     authorize(&window)?;
     let handle = app.clone();
     let url = tauri::async_runtime::spawn_blocking(move || start(&handle))

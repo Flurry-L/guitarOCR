@@ -105,12 +105,6 @@ SIZE_METADATA_KEY = "guitarocr.layout_input_size"
 SIZE = 800
 
 
-def validate_contract(value: str) -> str:
-    if value != LETTERBOX:
-        raise ValueError(f"Unsupported layout preprocessing contract: {value}")
-    return value
-
-
 def validate_size(size: int) -> int:
     if not 32 <= size <= 2048 or size % 32:
         raise ValueError(f"Unsupported layout input size: {size}")
@@ -149,29 +143,6 @@ def paddle_preprocessing(model_dir: Path) -> tuple[str, int]:
             and geometry[1].get("fill_value") == [255, 255, 255]):
         return LETTERBOX, size
     raise ValueError("Unsupported layout resize/padding transforms")
-
-
-def prepare_image(rgb: np.ndarray, contract: str, size: int = SIZE) -> dict[str, np.ndarray]:
-    """Bound allocation to the network canvas and retain page coordinates."""
-    validate_contract(contract)
-    validate_size(size)
-    height, width = rgb.shape[:2]
-    if height == 0 or width == 0:
-        raise ValueError("Layout image dimensions must be positive")
-    ratio = size / max(height, width)
-    resized_height = max(1, int(height * ratio + 0.5))
-    resized_width = max(1, int(width * ratio + 0.5))
-    resized = resize_rgb_cubic(rgb, resized_width, resized_height)
-    if (resized_height, resized_width) != (size, size):
-        canvas = np.full((size, size, 3), 255, dtype=resized.dtype)
-        canvas[:resized_height, :resized_width] = resized
-        resized = canvas
-    return {
-        "image": resized.transpose(2, 0, 1)[None].astype(np.float32) / 255.0,
-        # DocLayoutV3 normalizes against the full canvas, including padding.
-        "im_shape": np.array([[size, size]], dtype=np.float32),
-        "scale_factor": np.array([[resized_height / height, resized_width / width]], dtype=np.float32),
-    }
 
 
 MODES = ("tab", "notation", "both")

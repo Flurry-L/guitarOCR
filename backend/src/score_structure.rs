@@ -194,7 +194,11 @@ fn json_object(raw: &str) -> Result<Value> {
     serde_json::from_str(&raw[start..=end]).map_err(|e| format!("Invalid structure JSON: {e}"))
 }
 /// Check semantic references without guessing a repeating page template.
-fn validate_row_topology(value: &Value, count: usize, modes: Option<&[String]>) -> Result<Vec<[i64; 3]>> {
+fn validate_row_topology(
+    value: &Value,
+    count: usize,
+    modes: Option<&[String]>,
+) -> Result<Vec<[i64; 3]>> {
     if modes.is_some_and(|m| m.len() != count) {
         return Err("Row mode count does not cover every detected row".into());
     }
@@ -274,7 +278,8 @@ fn parse_structure_impl(
             .ok_or("Invalid part instrument")?
             .to_owned();
         if !part["strings"].is_null() {
-            let strings = part["strings"].as_i64()
+            let strings = part["strings"]
+                .as_i64()
                 .filter(|v| (1..=12).contains(v))
                 .ok_or("Invalid string count")?;
             part["strings"] = json!(strings);
@@ -289,7 +294,8 @@ fn parse_structure_impl(
         };
         let name: String = name.chars().take(160).collect();
         part["name"] = json!(name);
-        let mut program = part["program"].as_i64()
+        let mut program = part["program"]
+            .as_i64()
             .filter(|v| (0..=127).contains(v))
             .ok_or("Invalid MIDI program")?;
         if let Some(visible) = program_from_visible_name(&name) {
@@ -428,12 +434,7 @@ pub fn parse_structure_with_relation_heads(
                 triple[0] = json!(system);
             }
             relation_value = Some(candidate.clone());
-            parse_structure_impl(
-                &candidate.to_string(),
-                count,
-                modes,
-                Some(&mut changes),
-            )
+            parse_structure_impl(&candidate.to_string(), count, modes, Some(&mut changes))
         });
     let part_relation = part_probabilities.map(|probabilities| -> Result<(Value, bool, bool)> {
         let candidate = relation_value

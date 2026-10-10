@@ -39,9 +39,7 @@ fn pitches(note: &Value) -> Result<Vec<i64>, String> {
         .flatten()
         .filter_map(Value::as_str)
     {
-        if effect == "trill" {
-            result.push(base + 1);
-        } else if effect.starts_with("grace:") || effect.starts_with("trill:") {
+        if effect.starts_with("grace:") || effect.starts_with("trill:") {
             if let Some(position) = effect.split(':').nth(1) {
                 if let Some(index) = position.find('p') {
                     result.push(

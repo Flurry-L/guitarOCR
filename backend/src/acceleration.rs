@@ -18,13 +18,16 @@ impl Acceleration {
     pub fn for_device(models: &Models, slots: usize) -> Option<Self> {
         let files = models.catalog["files"]["llamacpp"].as_array()?;
         let [model_size, projector_size] = [models.model(), models.projector()].map(|path| {
-            path.metadata().ok().map(|metadata| metadata.len()).or_else(|| {
-                files.iter().find_map(|file| {
-                    (models.root.join(file["path"].as_str()?) == path)
-                        .then(|| file["bytes"].as_u64())
-                        .flatten()
+            path.metadata()
+                .ok()
+                .map(|metadata| metadata.len())
+                .or_else(|| {
+                    files.iter().find_map(|file| {
+                        (models.root.join(file["path"].as_str()?) == path)
+                            .then(|| file["bytes"].as_u64())
+                            .flatten()
+                    })
                 })
-            })
         });
         let budget =
             MemoryBudget::estimate(model_size?, projector_size?, 8192, slots.clamp(1, 4)).ok()?;
@@ -104,10 +107,7 @@ impl Acceleration {
             }
         }
         if self.cached() {
-            if let Ok(executable) = self.installed_executable(progress) {
-                return Ok(Some(executable));
-            }
-            progress.checkpoint()?;
+            return self.installed_executable(progress).map(Some);
         }
         if !allow_download {
             return Ok(None);

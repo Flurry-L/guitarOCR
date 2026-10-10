@@ -2,7 +2,6 @@
 
 import argparse
 import json
-import shutil
 from collections import Counter, defaultdict
 from itertools import chain
 from pathlib import Path
@@ -154,10 +153,7 @@ def build_dataset(sources, output_root, *, coco_sources=(), observation_sources=
         for folder in ("images", "images_mask"):
             destination = output_root / folder / filename
             destination.parent.mkdir(exist_ok=True)
-            try:
-                destination.symlink_to(source)
-            except OSError:
-                shutil.copy2(source, destination)
+            destination.symlink_to(source)
         splits[split]["images"].append({**metadata, "id": image_id, "file_name": filename})
         for row in annotations:
             annotation_id += 1

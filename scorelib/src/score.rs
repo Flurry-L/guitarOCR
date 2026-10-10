@@ -296,21 +296,6 @@ pub fn rest_events(mut total: i64) -> ScoreResult<Vec<Value>> {
     Ok(out)
 }
 
-/// Express a silence span in the same musical text used by training and OCR.
-pub fn rest_target(ticks: i64) -> ScoreResult<String> {
-    let events = rest_events(ticks)?
-        .iter()
-        .map(|event| {
-            Ok(format!(
-                "@{}:{}:r",
-                event["start"],
-                duration_token(&event["duration"])?
-            ))
-        })
-        .collect::<ScoreResult<Vec<_>>>()?;
-    Ok(format!("M | V0{{{}}}", events.join(" ")))
-}
-
 fn parse_note_token(token: &str) -> ScoreResult<Value> {
     let captures = note_pattern()
         .captures(token)
@@ -830,7 +815,7 @@ fn valid_note_effect(effect: &str) -> bool {
     }
     let parts: Vec<&str> = effect.split(':').collect();
     match parts[0] {
-        "harm" | "slide" => effect
+        "harm" => effect
             .split_once(':')
             .is_some_and(|(_, tail)| !tail.is_empty()),
         "bend" => parts.len() == 3 && !parts[1].is_empty() && signed_decimal(parts[2]),
@@ -871,54 +856,6 @@ fn signed_decimal(text: &str) -> bool {
     let digits = text.strip_prefix('-').unwrap_or(text);
     !digits.is_empty() && digits.bytes().all(|c| c.is_ascii_digit()) && integer(text).is_ok()
 }
-fn valid_diagram(effect: &str) -> bool {
-    let p: Vec<&str> = effect.split(':').collect();
-    if p.len() != 5 {
-        return false;
-    }
-    let Ok(base) = integer(p[1]) else {
-        return false;
-    };
-    if !(1..=36).contains(&base) {
-        return false;
-    }
-    let frets: Vec<&str> = p[2].split('/').collect();
-    if !(1..=12).contains(&frets.len())
-        || frets.iter().any(|f| {
-            *f != "x" && !integer(f).is_ok_and(|n| (0..=36).contains(&n) && (n == 0 || n >= base))
-        })
-    {
-        return false;
-    }
-    let fingers: Vec<&str> = p[3].split('/').collect();
-    if fingers.len() != frets.len()
-        || fingers
-            .iter()
-            .any(|f| *f != "-" && !integer(f).is_ok_and(|n| (0..=4).contains(&n)))
-    {
-        return false;
-    }
-    if p[4] != "-" {
-        for barre in p[4].split(';') {
-            let Ok(numbers) = barre
-                .split('/')
-                .map(integer)
-                .collect::<ScoreResult<Vec<_>>>()
-            else {
-                return false;
-            };
-            if numbers.len() != 3
-                || !(base..=36).contains(&numbers[0])
-                || numbers[1] < 0
-                || numbers[1] >= numbers[2]
-                || numbers[2] >= frets.len() as i64
-            {
-                return false;
-            }
-        }
-    }
-    true
-}
 fn valid_beat_effect(effect: &str) -> bool {
     if [
         "fade",
@@ -937,7 +874,7 @@ fn valid_beat_effect(effect: &str) -> bool {
     };
     match kind {
         "ottava" => ["12", "-12", "24", "-24"].contains(&value),
-        "diagram" => valid_diagram(effect),
+        "diagram" => crate::chords::parse_diagram(value).is_ok(),
         "slap" => ["none", "tapping", "slapping", "popping"].contains(&value),
         "chord" | "text" => !value.is_empty(),
         "tempo" | "dyn" => {
@@ -1256,11 +1193,7 @@ pub fn score_document(result: &Value) -> ScoreResult<Value> {
         }
         let mut parsed = record_measure(record)?;
         if truthy(&record["written_target"]) && !truthy(&record["manually_edited"]) {
-            if let Some(target) = record["written_target"].as_str() {
-                if let Ok(written) = parse_measure_target(target) {
-                    parsed["written"] = written;
-                }
-            }
+            parsed["written"] = parse_measure_target(text_field(record, "written_target")?)?;
         }
         last_index = last_index.max(index);
         let signature = if truthy(&parsed["time_signature"]) {

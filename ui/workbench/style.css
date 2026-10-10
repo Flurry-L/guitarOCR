@@ -295,9 +295,7 @@
 .project-card .row { margin: 0; }
 .project-card .card-top { gap: 12px; }
 .project-card .pill { flex-shrink: 0; }
-#environmentError { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
 #accountLinks { margin-top: 20px; }
-#environmentDetails { margin-top: 16px; }
 .project-card h3 {
   overflow-wrap: anywhere;
 }
@@ -459,28 +457,9 @@
     min-height: 310px;
   }
 }
-@media (max-width: 1100px) {
-  .import-grid {
-    grid-template-columns: minmax(0, 1fr) 260px;
-  }
-  .input-card,
-  .setup-card {
-    padding: 18px;
-  }
-}
 @media (max-width: 760px) {
-  h1 {
-    font-size: 23px;
-  }
-  .import-grid,
   .settings-grid {
     grid-template-columns: 1fr;
-  }
-  .setup-card {
-    gap: 14px;
-  }
-  .dropzone {
-    min-height: 220px;
   }
   .panel {
     padding: 16px;
@@ -489,12 +468,8 @@
     padding: 6px 14px;
     font-size: 12px;
   }
-  .section-head,
   .footer {
     flex-wrap: wrap;
-  }
-  .section-head p {
-    font-size: 12px;
   }
   .job-banner {
     padding: 12px;
@@ -526,10 +501,6 @@
 @media (max-width: 430px) {
   .panel {
     padding: 12px;
-  }
-  .input-card,
-  .setup-card {
-    padding: 15px;
   }
   .job-spinner {
     display: none;

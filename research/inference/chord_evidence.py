@@ -36,9 +36,9 @@ def decode(outputs, contract):
     Contiguous edge labels encode a barre relation. This is the output grammar,
     not a second visual detector or evidence inferred from a chord name.
     """
-    temperature = contract.get("temperature", {})
+    temperature = contract["temperature"]
     p = [
-        probabilities(v, temperature.get(name, 1.0))
+        probabilities(v, temperature[name])
         for name, v in zip(OUTPUT_NAMES[:5], outputs[:5])
     ]
     kind, count, base = (int(p[i].argmax()) for i in range(3))
@@ -48,7 +48,7 @@ def decode(outputs, contract):
         1
         + np.exp(
             -np.clip(
-                np.asarray(outputs[5], np.float64) / temperature.get("barres", 1.0),
+                np.asarray(outputs[5], np.float64) / temperature["barres"],
                 -80,
                 80,
             )
@@ -95,7 +95,7 @@ def decode(outputs, contract):
         confidence[name] = min(confidence[key] for key in keys)
         accepted[name] = all(accepted[key] for key in keys) and confidence[
             name
-        ] >= contract.get("joint_thresholds", {}).get(name, 0.0)
+        ] >= contract["joint_thresholds"][name]
     return {
         "schema": CONTRACT,
         "reader": contract["reader"],
@@ -145,7 +145,7 @@ class ChordEvidenceReader:
                 raise ValueError("Invalid chord evidence calibration")
         if any(
             not np.isfinite(v) or not 0.5 <= v <= 1.001
-            for v in self.contract.get("joint_thresholds", {}).values()
+            for v in (self.contract["joint_thresholds"][key] for key in ("geometry", "full"))
         ):
             raise ValueError("Invalid joint chord evidence calibration")
         self.consensus = self.contract.get("consensus") == "calibrated_exact_diagram_v1"
@@ -171,7 +171,7 @@ class ChordEvidenceReader:
                     raise ValueError("Invalid secondary chord calibration")
             if any(
                 not np.isfinite(v) or not 0.5 <= v <= 1.001
-                for v in secondary.get("joint_thresholds", {}).values()
+                for v in (secondary["joint_thresholds"][key] for key in ("geometry", "full"))
             ):
                 raise ValueError("Invalid secondary joint chord calibration")
         self.output_names = (

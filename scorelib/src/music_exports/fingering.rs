@@ -66,57 +66,11 @@ pub(super) fn assign(score: &mut Value) -> R<()> {
         let instrument = txt(p, "instrument", "guitar").to_owned();
         let virtual_slots = instrument == "pitched" || instrument == "drums";
         if virtual_slots {
-            let mut pitches = std::collections::BTreeSet::new();
-            for s in arr(p, "staves")? {
-                for m in arr(s, "measures")? {
-                    for v in arr(m, "voices")? {
-                        for e in arr(v, "events")? {
-                            for n in arr(e, "notes")? {
-                                let pitch = n["pitch"]
-                                    .as_i64()
-                                    .ok_or("Pitched/percussion note missing pitch")?;
-                                if !(0..=127).contains(&pitch) {
-                                    return Err("Pitch outside MIDI range".into());
-                                }
-                                pitches.insert(pitch);
-                                for ef in effects(n) {
-                                    if ef == "trill" {
-                                        pitches.insert(pitch + 1);
-                                    } else if ef.starts_with("grace:") || ef.starts_with("trill:") {
-                                        if let Some(pos) = ef.split(':').nth(1) {
-                                            if let Some((_, p)) = pos.split_once('p') {
-                                                pitches.insert(
-                                                    p.parse::<i64>()
-                                                        .map_err(|_| "Invalid ornament pitch")?,
-                                                );
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            // Stable 31-semitone bands avoid GP's silent >30 melodic-fret clamping.
-            // Seven slots per band preserve all simultaneous notes; bands become tracks.
-            let mut bases = vec![];
-            if instrument == "drums" {
-                bases = vec![0; 7]
-            } else if let Some(legacy) = legacy_storage_bases(p)? {
-                bases = legacy;
+            let bases = if instrument == "drums" {
+                vec![0; 7]
             } else {
-                let mut covered = -1;
-                for pitch in pitches {
-                    if pitch > covered {
-                        bases.extend([pitch; 7]);
-                        covered = pitch + 30;
-                    }
-                }
-                if bases.is_empty() {
-                    bases = vec![60; 7]
-                }
-            }
+                storage_bases(p)?
+            };
             p["tuning"] = json!(bases);
             p["capo"] = json!(0);
         }
@@ -199,9 +153,7 @@ pub(super) fn assign(score: &mut Value) -> R<()> {
                                 let f = pitch - open;
                                 let max = if instrument == "drums" { 99 } else { 30 };
                                 effects(n).iter().all(|ef| {
-                                    if *ef == "trill" {
-                                        f + 1 <= max
-                                    } else if ef.starts_with("grace:") || ef.starts_with("trill:") {
+                                    if ef.starts_with("grace:") || ef.starts_with("trill:") {
                                         super::gp5_techniques::ornament_fret(
                                             ef.split(':').nth(1).unwrap_or(""),
                                             open,
@@ -291,10 +243,9 @@ pub(super) fn assign(score: &mut Value) -> R<()> {
     }
     Ok(())
 }
-/// The same seven-slot coordinate search used by the existing pitched exporter.
-/// Chord multiplicity contributes to cost, so this does not unnecessarily split
-/// a wide piano staff merely because its overall range exceeds thirty semitones.
-fn legacy_storage_bases(part: &Value) -> R<Option<Vec<i64>>> {
+
+/// Choose GP5 storage strings for explicit pitches and their auxiliary notes.
+fn storage_bases(part: &Value) -> R<Vec<i64>> {
     let mut chords = vec![];
     let mut all = vec![];
     for staff in arr(part, "staves")? {
@@ -306,9 +257,7 @@ fn legacy_storage_bases(part: &Value) -> R<Option<Vec<i64>>> {
                         let pitch = n["pitch"].as_i64().ok_or("Missing pitched note")?;
                         let mut values = vec![pitch];
                         for ef in effects(n) {
-                            if ef == "trill" {
-                                values.push(pitch + 1);
-                            } else if ef.starts_with("grace:") || ef.starts_with("trill:") {
+                            if ef.starts_with("grace:") || ef.starts_with("trill:") {
                                 if let Some((_, p)) =
                                     ef.split(':').nth(1).unwrap_or("").split_once('p')
                                 {
@@ -318,6 +267,12 @@ fn legacy_storage_bases(part: &Value) -> R<Option<Vec<i64>>> {
                         }
                         let lo = *values.iter().min().unwrap();
                         let hi = *values.iter().max().unwrap();
+                        if lo < 0 || hi > 127 || hi - lo > 30 {
+                            return Err(
+                                "Note and auxiliary pitches cannot share a GP5 melodic string"
+                                    .into(),
+                            );
+                        }
                         chord.push((lo, hi));
                         all.extend([lo, hi]);
                     }
@@ -329,62 +284,52 @@ fn legacy_storage_bases(part: &Value) -> R<Option<Vec<i64>>> {
     }
     let low = all.iter().min().copied().unwrap_or(60);
     let high = all.iter().max().copied().unwrap_or(60);
-    if high - low <= 30 {
-        return Ok(Some(vec![low; 7]));
-    }
     let candidates = all
         .iter()
-        .flat_map(|p| [low.max(p - 0), low.max(p - 15), low.max(p - 30)])
+        .flat_map(|p| [*p, low.max(p - 15), low.max(p - 30)])
         .collect::<std::collections::BTreeSet<_>>();
-    let cost = |bases: &[i64]| -> usize {
-        chords
-            .iter()
-            .map(|chord| {
-                let mut available = bases.to_vec();
-                available.sort();
-                let mut missing = 0;
-                for &(lo, hi) in chord {
-                    if let Some(i) = available.iter().position(|b| *b <= lo && hi <= *b + 30) {
-                        available.remove(i);
-                    } else {
-                        missing += 1
-                    }
+    let unmatched = |bases: &[i64]| -> Vec<i64> {
+        let mut missing = vec![];
+        for chord in &chords {
+            let mut available = bases.to_vec();
+            available.sort();
+            for &(lo, hi) in chord {
+                if let Some(i) = available.iter().position(|b| *b <= lo && hi <= *b + 30) {
+                    available.remove(i);
+                } else {
+                    missing.push(lo);
                 }
-                missing
-            })
-            .sum()
+            }
+        }
+        missing
     };
     let mut bases = (0..7)
         .map(|i| low.max(high - 30 - 12 * i))
         .collect::<Vec<_>>();
-    let mut current = cost(&bases);
-    for _ in 0..14 {
-        if current == 0 {
-            return Ok(Some(bases));
+    loop {
+        let missing = unmatched(&bases);
+        if missing.is_empty() {
+            return Ok(bases);
         }
-        let mut best = current;
+        let mut best = missing.len();
         let mut replacement = None;
-        for slot in 0..7 {
+        for slot in 0..bases.len() {
             for &base in &candidates {
                 let mut proposal = bases.clone();
                 proposal[slot] = base;
-                let c = cost(&proposal);
-                if c < best {
-                    best = c;
+                let cost = unmatched(&proposal).len();
+                if cost < best {
+                    best = cost;
                     replacement = Some(proposal);
                 }
             }
         }
         if let Some(next) = replacement {
             bases = next;
-            current = best;
         } else {
-            break;
+            // More simultaneous pitch ranges require more GP5 storage slots.
+            // Each added slot resolves at least one unmet range without changing pitches.
+            bases.push(missing[0]);
         }
-    }
-    if current == 0 {
-        Ok(Some(bases))
-    } else {
-        Ok(None)
     }
 }

@@ -261,7 +261,6 @@ kbd {
   }
 }
 
-/* Shared application frame and navigation. */
 /* Shared application frame and surfaces for every entry point. */
 .app-sidebar {
   position: fixed;

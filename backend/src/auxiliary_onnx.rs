@@ -224,11 +224,8 @@ impl LayoutDetector {
             return Err("Invalid layout threshold".into());
         }
         let input = layout_input(page, self.input_size)?;
-        let (resized_width, resized_height) = layout_dimensions(
-            page.width(),
-            page.height(),
-            self.input_size,
-        )?;
+        let (resized_width, resized_height) =
+            layout_dimensions(page.width(), page.height(), self.input_size)?;
         let size = self.input_size as usize;
         let tensor = Tensor::from_array(([1usize, 3, size, size], input)).map_err(err)?;
         let shape =
@@ -263,8 +260,7 @@ impl LayoutDetector {
 
 /// Letterbox with the same OpenCV cubic resize used in training.
 pub fn layout_input(page: &RgbImage, input_size: u32) -> Result<Vec<f32>> {
-    let (width, height) =
-        layout_dimensions(page.width(), page.height(), input_size)?;
+    let (width, height) = layout_dimensions(page.width(), page.height(), input_size)?;
     let resized = crate::image_transforms::resize_rgb_cubic(page, width, height);
     // Allocate only the bounded network canvas, even for very wide score strips.
     let size = input_size as usize;
@@ -347,9 +343,8 @@ impl SignatureReader {
                 .map_err(err)?
                 .custom(name)
                 .map_err(err)?
-                .map(|value| serde_json::from_str(&value).map_err(err))
-                .transpose()
-                .map(|v| v.unwrap_or(Value::Null))
+                .ok_or_else(|| format!("Missing {name} metadata"))
+                .and_then(|value| serde_json::from_str(&value).map_err(err))
         };
         let config = read_metadata("guitarocr.signature_config")?;
         let calibration = read_metadata("guitarocr.signature_calibration")?;
@@ -446,7 +441,9 @@ pub fn signature_evidence(logits: &[Vec<f32>], calibration: &Value) -> Result<Ve
             return Err("Signature classifier batch mismatch".into());
         }
         let winners = argmax_rows(values, classes[head])?;
-        let temperature = calibration["temperatures"][head].as_f64().unwrap_or(1.);
+        let temperature = calibration["temperatures"][head]
+            .as_f64()
+            .ok_or("Missing signature temperature")?;
         if !temperature.is_finite() || temperature <= 0. {
             return Err("Invalid signature calibration temperature".into());
         }
@@ -476,8 +473,11 @@ pub fn signature_evidence(logits: &[Vec<f32>], calibration: &Value) -> Result<Ve
             let kind = if value.is_null() { "absent" } else { "present" };
             let threshold = calibration["thresholds"][format!("{field}_{kind}")]
                 .as_f64()
-                .unwrap_or(1.01);
-            let calibrated = calibration["calibrated"].as_bool().unwrap_or(false);
+                .filter(|v| v.is_finite() && (0.0..=1.01).contains(v))
+                .ok_or("Invalid signature threshold")?;
+            let calibrated = calibration["calibrated"]
+                .as_bool()
+                .ok_or("Missing signature calibration status")?;
             let inconsistent = field == "time" && (labels[1][i] > 0) != (labels[2][i] > 0);
             let known = calibrated && conf >= threshold && !inconsistent;
             evidence[field] = json!({"status":if known { if value.is_null() { "absent" } else { "observed" } } else { "unknown" },

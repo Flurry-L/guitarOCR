@@ -1668,7 +1668,6 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "serde",
- "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
@@ -1684,7 +1683,6 @@ dependencies = [
  "getrandom 0.3.4",
  "libloading 0.8.9",
  "ort",
- "regex",
  "reqwest",
  "serde_json",
  "tokio",

@@ -61,9 +61,8 @@ def full_signature_array(path, augment=False, *, width=640, height=320):
     return (values.transpose(2, 0, 1) - .5) / .5
 
 
-def predictions_from_logits(outputs, calibration=None, *, source='visual_classifier'):
-    calibration = calibration or {}
-    temperatures = calibration.get('temperatures', [1., 1., 1.])
+def predictions_from_logits(outputs, calibration, *, source='visual_classifier'):
+    temperatures = calibration['temperatures']
     if len(outputs) != 3 or len(temperatures) != 3:
         raise ValueError('Signature classification requires three heads and temperatures')
     batch = len(outputs[0])
@@ -91,8 +90,7 @@ def predictions_from_logits(outputs, calibration=None, *, source='visual_classif
         for field, value, confidence in [('key', key_value, float(confidences[0][i])),
                                           ('time', time_value, time_confidence)]:
             kind = 'present' if value is not None else 'absent'
-            thresholds = calibration.get('thresholds', {})
-            threshold = thresholds.get('key_natural', thresholds.get('key_present', 1.01)) if field == 'key' and value == 0 else thresholds.get(f'{field}_{kind}', 1.01)
+            threshold = calibration['thresholds'][f'{field}_{kind}']
             known = bool(calibration.get('calibrated')) and confidence >= threshold
             if field == 'time' and inconsistent_time:
                 known = False

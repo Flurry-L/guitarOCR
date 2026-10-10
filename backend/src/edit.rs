@@ -68,6 +68,36 @@ mod observation_edit_tests {
     use super::*;
 
     #[test]
+    fn partial_metadata_edit_preserves_existing_values_and_unknown_tempo() {
+        let previous = json!({"title":"Before","artist":"Composer","instrument":"guitar",
+            "tuning_used":[64,59,55,50,45,40],"tuning_source":"manual","capo":3,
+            "transpose":-12,"document_metadata":{"tempo_quarter":null},
+            "measure_pitch_contexts":[{"measure_number":1,"pitch_context":{"capo":3}}]});
+        let layout = json!({"records":[]});
+        let edited = edited_single(&layout, &previous, &json!({"title":"After"})).unwrap();
+        assert_eq!(edited["title"], "After");
+        for key in [
+            "artist",
+            "instrument",
+            "tuning_used",
+            "capo",
+            "transpose",
+            "measure_pitch_contexts",
+        ] {
+            assert_eq!(edited[key], previous[key], "{key}");
+        }
+        assert!(edited["document_metadata"]["tempo_quarter"].is_null());
+        let mut previous = previous.clone();
+        previous["document_metadata"]["tempo_quarter"] = json!(96);
+        let edited = edited_single(&layout, &previous, &json!({"title":"After"})).unwrap();
+        assert_eq!(edited["document_metadata"]["tempo_quarter"], 96);
+        let edited = edited_single(&layout, &previous, &json!({"tempo_quarter":null})).unwrap();
+        assert!(edited["document_metadata"]["tempo_quarter"].is_null());
+        assert!(edited_single(&layout, &json!({}), &json!({"title":"Untitled"})).is_err());
+        assert!(edited_single(&layout, &json!({}), &json!({"instrument":"guitar"})).is_err());
+    }
+
+    #[test]
     fn incomplete_measure_survives_save_and_becomes_exportable_after_edit() {
         let output = tempfile::tempdir().unwrap();
         let mut source = json!({"mode":"tab","instrument":"guitar","tuning_used":[64,59,55,50,45,40],
@@ -86,7 +116,10 @@ mod observation_edit_tests {
         let measure = &document["parts"][0]["staves"][0]["measures"][0];
         assert_eq!(measure["incomplete"], true);
         assert_eq!(measure["voices"], json!([]));
-        assert_eq!(measure["observation"]["voices"][0]["events"][0]["notes"][0]["fret"], 5);
+        assert_eq!(
+            measure["observation"]["voices"][0]["events"][0]["notes"][0]["fret"],
+            5
+        );
         assert!(scorelib::music_exports::score_document(&document).is_err());
         assert!(correct_record(&mut saved, 1, &json!({"reviewed":true})).is_err());
 
@@ -94,7 +127,10 @@ mod observation_edit_tests {
         observed["voices"][0]["events"][0]["duration"] = json!("w");
         correct_record(&mut saved, 1, &json!({"observation":observed})).unwrap();
         crate::recognition::reassemble(&mut saved).unwrap();
-        assert!(saved["records"][0]["target"].as_str().unwrap().contains("@0:w:s1f5"));
+        assert!(saved["records"][0]["target"]
+            .as_str()
+            .unwrap()
+            .contains("@0:w:s1f5"));
         correct_record(&mut saved, 1, &json!({"reviewed":true})).unwrap();
         crate::recognition::reassemble(&mut saved).unwrap();
         assert_eq!(saved["records"][0]["reviewed"], true);
@@ -109,8 +145,11 @@ mod observation_edit_tests {
 /// Persist projections without changing musical records for annotation-only edits.
 fn write_recognition(output: &Path, mut result: Value) -> Result<PathBuf> {
     let rows = result["records"].as_array().ok_or("识别结果缺少小节")?;
-    let text = rows.iter().map(|r| r["target"].as_str())
-        .collect::<Option<Vec<_>>>().map(|lines| lines.join("\n") + "\n");
+    let text = rows
+        .iter()
+        .map(|r| r["target"].as_str())
+        .collect::<Option<Vec<_>>>()
+        .map(|lines| lines.join("\n") + "\n");
     let review: Vec<_> = rows
         .iter()
         .filter(|r| r["needs_review"] == true || r["target"].is_null())
@@ -193,7 +232,7 @@ fn correct_record(source: &mut Value, number: usize, body: &Value) -> Result<()>
     let bars = record_bars(&document);
     let source_mode = source["mode"].as_str().unwrap_or("tab").to_owned();
     let source_tuning = source["tuning_used"].clone();
-    let source_instrument = source["instrument"].as_str().unwrap_or("guitar").to_owned();
+    let source_instrument = source["instrument"].as_str().map(str::to_owned);
     let rows = source["records"].as_array_mut().ok_or("无效的识别结果")?;
     if number == 0 || number > rows.len() {
         return Err("无效的小节编号".into());
@@ -215,7 +254,8 @@ fn correct_record(source: &mut Value, number: usize, body: &Value) -> Result<()>
     } else if let Some(text) = body["target"].as_str() {
         text.to_owned()
     } else if reviewed || body.get("visual_techniques").is_some() {
-        old.clone().ok_or("该小节还有未识别的音符或节奏，请先补全内容")?
+        old.clone()
+            .ok_or("该小节还有未识别的音符或节奏，请先补全内容")?
     } else {
         return Err("请输入小节内容或核对标记".into());
     };
@@ -259,7 +299,10 @@ fn correct_record(source: &mut Value, number: usize, body: &Value) -> Result<()>
     if !timing.is_empty() {
         return Err(timing.join("；"));
     }
-    let instrument = row["instrument"].as_str().unwrap_or(&source_instrument);
+    let instrument = row["instrument"]
+        .as_str()
+        .or(source_instrument.as_deref())
+        .ok_or("请先选择乐器类型")?;
     if mode == "notation"
         && matches!(instrument, "guitar" | "bass")
         && row["tuning_explicit"] == true
@@ -314,17 +357,28 @@ fn correct_record(source: &mut Value, number: usize, body: &Value) -> Result<()>
             if peer["target"].is_null() {
                 // A shared meter edit is useful evidence even before this
                 // staff's notes can be assembled. It does not create notes.
-                if let Some((_, value)) = global_changes.iter().find(|(field, _)| *field == "time_signature") {
-                    if !peer["score_state"].is_object() { peer["score_state"] = json!({}); }
-                    if !peer["score_state_evidence"].is_object() { peer["score_state_evidence"] = json!({}); }
-                    if !peer["manual_state"].is_object() { peer["manual_state"] = json!({}); }
+                if let Some((_, value)) = global_changes
+                    .iter()
+                    .find(|(field, _)| *field == "time_signature")
+                {
+                    if !peer["score_state"].is_object() {
+                        peer["score_state"] = json!({});
+                    }
+                    if !peer["score_state_evidence"].is_object() {
+                        peer["score_state_evidence"] = json!({});
+                    }
+                    if !peer["manual_state"].is_object() {
+                        peer["manual_state"] = json!({});
+                    }
                     peer["manual_state"]["time"] = json!({"status":if value.is_null() {"absent"} else {"observed"},"value":value,"source":"manual"});
                     peer["score_state"]["time"] = value.clone();
-                    peer["score_state_evidence"]["time"] = json!({"status":"observed","value":value,"source":"manual"});
+                    peer["score_state_evidence"]["time"] =
+                        json!({"status":"observed","value":value,"source":"manual"});
                 }
                 continue;
             }
-            let mut measure = scorelib::score::parse_measure_target(peer["target"].as_str().unwrap())?;
+            let mut measure =
+                scorelib::score::parse_measure_target(peer["target"].as_str().unwrap())?;
             for (field, value) in &global_changes {
                 measure[*field] = value.clone();
                 if *field == "time_signature" {
@@ -368,8 +422,11 @@ fn correct_record(source: &mut Value, number: usize, body: &Value) -> Result<()>
                         "value": previous_time, "source":"manual",
                         "observation":{"status":"absent","value":null,"source":"manual"}
                     });
-                    if !peer["manual_state"].is_object() { peer["manual_state"] = json!({}); }
-                    peer["manual_state"]["time"] = json!({"status":"absent","value":null,"source":"manual"});
+                    if !peer["manual_state"].is_object() {
+                        peer["manual_state"] = json!({});
+                    }
+                    peer["manual_state"]["time"] =
+                        json!({"status":"absent","value":null,"source":"manual"});
                 }
                 // Do not accept a peer's unrelated key evidence as a side
                 // effect of a shared meter edit.
@@ -500,19 +557,25 @@ pub fn export(
         .map_err(|e| (400, e.to_string()))?;
     let fallback = state["input_names"][0].as_str().unwrap_or("乐谱");
     let filename = score_filename(source["title"].as_str().unwrap_or(""), fallback);
-    let gp5 = output.path().join(filename);
-    let report = scorelib::music_exports::write_gp5(&source, &gp5).map_err(|e| (400, e))?;
-    let mut exported = json!({"schema_version":"1.0","stage":"gp5_export","recognition":recognition,"gp5":gp5,"encoding_report":report["report_path"]});
-    for field in [
-        "visual_techniques_projection",
-        "chord_library_omissions",
-        "chord_label_projection",
-        "encoding_compatibility",
-    ] {
-        if let Some(warning) = report["report"][field]["warning"].as_str() {
-            let mut warnings = exported["warnings"].as_array().cloned().unwrap_or_default();
-            warnings.push(json!(warning));
-            exported["warnings"] = json!(warnings);
+    let gp5 = output.path().join(&filename);
+    let mut exported = json!({"schema_version":"1.0","stage":"gp5_export",
+        "recognition":recognition,"gp5":null,"musicxml":null,
+        "gp5_error":null,"musicxml_error":null,"warnings":[]});
+    match scorelib::music_exports::write_gp5(&source, &gp5) {
+        Ok(report) => {
+            exported["gp5"] = json!(gp5);
+            exported["encoding_report"] = report["report_path"].clone();
+            exported["warnings"] = json!(report["report"]
+                .as_object()
+                .into_iter()
+                .flat_map(|report| report.values())
+                .filter_map(|field| field["warning"].as_str())
+                .collect::<Vec<_>>());
+        }
+        Err(error) => {
+            exported["gp5_error"] = json!(error);
+            let _ = fs::remove_file(&gp5);
+            let _ = fs::remove_file(output.path().join(format!("{filename}.encoding.json")));
         }
     }
     let musicxml = gp5.with_extension("musicxml");
@@ -522,6 +585,16 @@ pub fn export(
             exported["musicxml_error"] = json!(error);
             let _ = fs::remove_file(&musicxml);
         }
+    }
+    if exported["gp5"].is_null() && exported["musicxml"].is_null() {
+        return Err((
+            400,
+            format!(
+                "GP5：{}；MusicXML：{}",
+                exported["gp5_error"].as_str().unwrap(),
+                exported["musicxml_error"].as_str().unwrap()
+            ),
+        ));
     }
     let manifest = output.path().join("manifest.json");
     json_file(&manifest, &exported).map_err(|e| (400, e))?;
@@ -536,7 +609,6 @@ pub fn export(
     let _ = output.keep();
     Ok(())
 }
-
 
 fn edited_single(layout: &Value, previous: &Value, values: &Value) -> Result<Value> {
     if !values.is_object() {
@@ -559,7 +631,7 @@ fn edited_single(layout: &Value, previous: &Value, values: &Value) -> Result<Val
     let instrument = values["instrument"]
         .as_str()
         .or_else(|| previous["instrument"].as_str())
-        .unwrap_or("guitar");
+        .ok_or("请先选择乐器类型")?;
     if !matches!(instrument, "guitar" | "bass" | "pitched" | "drums") {
         return Err("请选择乐器类型".into());
     }
@@ -569,7 +641,7 @@ fn edited_single(layout: &Value, previous: &Value, values: &Value) -> Result<Val
             .get("tuning_used")
             .or_else(|| previous.get("tuning_used"))
             .cloned()
-            .unwrap_or(json!([64, 59, 55, 50, 45, 40]))
+            .ok_or("请填写调弦")?
     } else {
         json!([])
     };
@@ -590,24 +662,25 @@ fn edited_single(layout: &Value, previous: &Value, values: &Value) -> Result<Val
     {
         return Err("调弦须包含1至12个0至127的MIDI音高".into());
     }
-    let integer = |key: &str, default: i64, min: i64, max: i64| -> Result<i64> {
-        values.get(key).map_or(Ok(default), |v| {
-            v.as_i64()
-                .filter(|n| (min..=max).contains(n))
-                .ok_or(format!("无效的{key}"))
-        })
+    let integer = |key: &str, previous_value: &Value, min: i64, max: i64| -> Result<Option<i64>> {
+        let value = values.get(key).unwrap_or(previous_value);
+        if value.is_null() {
+            return Ok(None);
+        }
+        value
+            .as_i64()
+            .filter(|n| (min..=max).contains(n))
+            .map(Some)
+            .ok_or(format!("无效的{key}"))
     };
-    let capo = integer("capo", 0, 0, 24)?;
-    let tempo = integer("tempo_quarter", 120, 20, 400)?;
-    let transpose = values
-        .get("transpose")
-        .filter(|v| !v.is_null())
-        .map(|v| {
-            v.as_i64()
-                .filter(|n| (-36..=36).contains(n))
-                .ok_or("记谱移调须为-36至36".to_string())
-        })
-        .transpose()?;
+    let capo = integer("capo", &previous["capo"], 0, 24)?.unwrap_or(0);
+    let tempo = integer(
+        "tempo_quarter",
+        &previous["document_metadata"]["tempo_quarter"],
+        20,
+        400,
+    )?;
+    let transpose = integer("transpose", &previous["transpose"], -36, 36)?;
     let program = values
         .get("midi_program")
         .filter(|v| !v.is_null())
@@ -707,7 +780,7 @@ fn edited_single(layout: &Value, previous: &Value, values: &Value) -> Result<Val
     }
     let contexts = if !confirm_instrument
         && !confirm_tuning
-        && previous["instrument"].as_str().unwrap_or("guitar") == instrument
+        && previous["instrument"] == instrument
         && previous["transpose"] == json!(transpose)
     {
         previous
@@ -786,7 +859,10 @@ fn edited_single(layout: &Value, previous: &Value, values: &Value) -> Result<Val
         .or_else(|| previous["title"].as_str())
         .unwrap_or("")
         .trim();
-    let artist = values["artist"].as_str().unwrap_or("");
+    let artist = values["artist"]
+        .as_str()
+        .or(previous["artist"].as_str())
+        .unwrap_or("");
     if title.chars().count() > 500 || artist.chars().count() > 500 {
         return Err("曲名或作者最多500个字符".into());
     }
@@ -800,16 +876,8 @@ fn edited_single(layout: &Value, previous: &Value, values: &Value) -> Result<Val
     } else {
         previous["tuning_source"].as_str().unwrap_or("default")
     };
-    let tuning_candidates = if confirm_tuning {
-        json!([tuning])
-    } else {
-        previous
-            .get("tuning_candidates")
-            .cloned()
-            .unwrap_or(json!([tuning]))
-    };
     Ok(
-        json!({"document_metadata":metadata,"predictions":previous["predictions"],"title":title,"artist":artist,"tuning_used":tuning,"tuning_source":tuning_source,"tuning_candidates":tuning_candidates,"capo":capo,"instrument":instrument,"midi_program":program,"transpose":transpose,"measure_pitch_contexts":contexts}),
+        json!({"document_metadata":metadata,"predictions":previous["predictions"],"title":title,"artist":artist,"tuning_used":tuning,"tuning_source":tuning_source,"capo":capo,"instrument":instrument,"midi_program":program,"transpose":transpose,"measure_pitch_contexts":contexts}),
     )
 }
 fn edited_information(layout: &Value, previous: &Value, values: &Value) -> Result<Value> {
@@ -919,7 +987,6 @@ fn edited_information(layout: &Value, previous: &Value, values: &Value) -> Resul
             profile[key] = edited["document_metadata"][key].clone();
         }
         profile["string_count"] = edited["document_metadata"]["string_count"].clone();
-        profile["fingering_tunings"] = json!([edited["tuning_used"]]);
         profile["part_name"] = name.clone();
     }
     result["measure_pitch_contexts"] = json!(contexts

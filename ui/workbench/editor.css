@@ -211,9 +211,6 @@ canvas {
 .editor-navigation select {
   max-width: 160px;
 }
-.editor-navigation #measureSelect {
-  max-width: 160px;
-}
 .editor-navigation #trackSelect {
   max-width: 140px;
 }
@@ -933,12 +930,6 @@ body[data-inference="disabled"]
   }
   .editor-navigation #saveStatus {
     display: none;
-  }
-  .editor-navigation #measureSelect {
-    max-width: 140px;
-  }
-  .editor-navigation #trackSelect {
-    max-width: 120px;
   }
   .command-toolbar {
     padding: 6px 8px;

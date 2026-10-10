@@ -340,12 +340,11 @@ class ObservationAssemblyTests(unittest.TestCase):
                 for external_voice in (0, 1):
                     grouped = {**local, (0, 1 - local_measure, external_voice, 0, 0):
                                [glyph(external_x, external_x + 4)]}
-                    relations, effects, _, _ = native_scope_evidence(
+                    relations, _, _ = native_scope_evidence(
                         page, [span], grouped, 0, system, local_measure, crop)
                     self.assertNotIn('voice', relations[0])
                     self.assertEqual(relations[0]['start'], None if local_measure == 0 else 'left')
                     self.assertEqual(relations[0]['end'], 'right' if local_measure == 0 else None)
-                    self.assertFalse(effects)
                     results.append(relations)
                 self.assertEqual(results[0], results[1])
 
@@ -364,10 +363,9 @@ class ObservationAssemblyTests(unittest.TestCase):
                             half_width = 2 if voice == wide_voice else 1
                             grouped[(0, 0, voice, event, 0)] = [
                                 glyph(origin - half_width, origin + half_width, y=40 + 6 * voice)]
-                    relations, effects, _, _ = native_scope_evidence(
+                    relations, _, _ = native_scope_evidence(
                         page, [span], grouped, 0, system, 0, crop)
                     self.assertEqual(relations, [connection('let', None, None)])
-                    self.assertFalse(effects)
 
     def test_native_scopes_keep_partial_and_ambiguous_visible_evidence(self):
         system = {'measure_boxes': [{'measure_index': 0}, {'measure_index': 1}]}
@@ -377,27 +375,24 @@ class ObservationAssemblyTests(unittest.TestCase):
         crop = [value * 25.4 / 72 for value in (0, 0, 50, 60)]
         label = {'kind': 'pm', 'style': 'label_only', 'text_bbox': [10, 20, 14, 25],
                  'start_x': 12, 'end_x': 14, 'line_y': 22}
-        relations, effects, _, _ = native_scope_evidence(
+        relations, _, _ = native_scope_evidence(
             EvidencePage(), [label], grouped, 0, system, 0, crop, 6)
         self.assertEqual(relations[0]['start'], [0, 0])
         self.assertIsNone(relations[0]['end'])
-        self.assertEqual(effects, {(0, 0, 0, 0): {'pm'}})
         pm = dict(label, style='labelled_dash', end_x=32)
         let = dict(pm, kind='let', text_bbox=[10, 10, 14, 15], line_y=12)
         page = EvidencePage(dashes=[(14, 22, 32), (14, 12, 32)])
-        relations, effects, _, _ = native_scope_evidence(page, [pm, let], grouped, 0, system, 0, crop, 6)
+        relations, _, _ = native_scope_evidence(page, [pm, let], grouped, 0, system, 0, crop, 6)
         self.assertEqual(len(relations), 2)
         self.assertGreater(relations[0]['lane'], relations[1]['lane'])
-        self.assertEqual(effects[(0, 0, 0, 1)], {'pm', 'let'})
         two_voices = {**grouped, **{(a, b, 1, d, e): gs for (a, b, _, d, e), gs in grouped.items()}}
-        relations, effects, _, _ = native_scope_evidence(page, [pm], two_voices, 0, system, 0, crop, 6)
+        relations, _, _ = native_scope_evidence(page, [pm], two_voices, 0, system, 0, crop, 6)
         self.assertEqual(relations[0]['kind'], 'pm')
         self.assertIsNone(relations[0]['start'])
         self.assertIsNone(relations[0]['end'])
         self.assertIsNone(relations[0].get('voice'))
-        self.assertFalse(effects)
         continuation = dict(pm, end_x=82)
-        relations, _, _, _ = native_scope_evidence(
+        relations, _, _ = native_scope_evidence(
             EvidencePage(dashes=[(14, 22, 82)]), [continuation], grouped, 0, system, 1,
             [value * 25.4 / 72 for value in (50, 0, 100, 60)], 6)
         self.assertIsNone(relations[0]['kind'])

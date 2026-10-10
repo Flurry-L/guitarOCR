@@ -39,56 +39,6 @@ fn marks(event: &Value) -> BTreeSet<String> {
         .collect()
 }
 
-/// Model replies require all existing sounding anchors exactly once.
-pub fn from_output(original: &str, raw: &str) -> R<Value> {
-    let measure = crate::score::parse_measure_target(original)?;
-    let expected = events(&measure)?;
-    let value: Value = serde_json::from_str(raw).map_err(|e| e.to_string())?;
-    if value
-        .as_object()
-        .is_none_or(|v| v.len() != 1 || !v.contains_key("events"))
-    {
-        return Err("Expected a JSON object containing only events".into());
-    }
-    let mut classified = BTreeMap::new();
-    for item in array(&value, "events")? {
-        let item = item
-            .as_array()
-            .filter(|v| v.len() == 3)
-            .ok_or("Expected [voice,onset,label]")?;
-        let key = (
-            item[0].as_i64().ok_or("Invalid voice")?,
-            item[1].as_i64().ok_or("Invalid onset")?,
-        );
-        let event = expected.get(&key).ok_or("Unknown sounding event anchor")?;
-        let label = item[2].as_str().ok_or("Invalid technique label")?;
-        let effects = match label {
-            "none" => BTreeSet::new(),
-            "pm" => BTreeSet::from(["pm".to_owned()]),
-            "let" => BTreeSet::from(["let".to_owned()]),
-            "both" => BTreeSet::from(["pm".to_owned(), "let".to_owned()]),
-            "unknown" => marks(event),
-            _ => return Err("Invalid technique label".into()),
-        };
-        if classified
-            .insert(
-                key,
-                json!({"voice":key.0,"onset":key.1,"effects":effects,
-            "status":if label=="unknown" {"unresolved"} else {"classified"}}),
-            )
-            .is_some()
-        {
-            return Err("Duplicate sounding event anchor".into());
-        }
-    }
-    if classified.len() != expected.len() {
-        return Err("Missing sounding event anchors".into());
-    }
-    Ok(
-        json!({"protocol":PROTOCOL,"scope":"visible_event","events":classified.into_values().collect::<Vec<_>>()}),
-    )
-}
-
 /// Saved/editor layers may cover a subset; omitted or unresolved events keep
 /// their original source effects. No chord owner is asserted by this object.
 pub fn validate_overlay(measure: &Value, overlay: &Value) -> R<()> {

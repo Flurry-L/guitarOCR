@@ -36,7 +36,8 @@ impl StructureRelation {
             .map_err(|e| e.to_string())?
             .ok_or("Structure relation model has no preprocessing contract")?;
         let contract: Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
-        if contract["same_part"] != true || contract["channels"] != 1
+        if contract["same_part"] != true
+            || contract["channels"] != 1
             || contract["geometry_features"] != 12
             || contract["grayscale"] != "ITU-R-601"
             || contract["resize"] != "contain_lanczos_white_center"
@@ -67,7 +68,8 @@ impl StructureRelation {
         let part_review_confidence = contract["part_review_confidence"]
             .as_f64()
             .filter(|v| v.is_finite() && (0.5..=1.).contains(v))
-            .ok_or("Invalid part relation confidence threshold")? as f32;
+            .ok_or("Invalid part relation confidence threshold")?
+            as f32;
         for name in ["pixels", "geometry"] {
             if !session.inputs.iter().any(|v| v.name == name) {
                 return Err(format!("Structure relation model missing input {name}"));

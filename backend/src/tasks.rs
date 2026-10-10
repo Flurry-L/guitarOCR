@@ -63,12 +63,13 @@ impl Tasks {
                 continue;
             }
             let path = entry.path().join("job.json");
-            let Ok(bytes) = fs::read(&path) else {
-                continue;
+            let bytes = match fs::read(&path) {
+                Ok(bytes) => bytes,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(format!("Could not read {}: {error}", path.display())),
             };
-            let Ok(mut state) = serde_json::from_slice::<Value>(&bytes) else {
-                continue;
-            };
+            let mut state = serde_json::from_slice::<Value>(&bytes)
+                .map_err(|error| format!("Invalid task journal {}: {error}", path.display()))?;
             if matches!(state["status"].as_str(), Some("queued" | "running")) {
                 state["status"] = json!("interrupted");
                 state["message"] = json!("应用上次退出，已保存的结果仍保留，可继续处理");
