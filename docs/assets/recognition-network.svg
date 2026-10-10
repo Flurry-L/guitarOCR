@@ -1,164 +1,135 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="780" viewBox="0 0 1440 780" role="img" aria-labelledby="title desc">
-  <title id="title">GuitarOCR 的单小节识别网络</title>
-  <desc id="desc">当前一张小节图被切为 14 乘 14 像素图块，经 24 层视觉 Transformer 编码、2 乘 2 空间下采样和多模态投影，形成 1536 维视觉 token。视觉 token 与任务提示及已生成 token 进入同一序列，由 16 层文本 Decoder 自回归生成包含 state、voices 和 relations 的可见观察 JSON。信息读取与小节识别采用同架构的两套独立权重，按阶段加载。</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="690" viewBox="0 0 1440 690" role="img" aria-labelledby="title desc">
+  <title id="title">单小节识别：从谱面图像到可见观察</title>
+  <desc id="desc">真实小节裁图被转换为图块序列。24 层视觉编码器生成特征，经过 2 乘 2 下采样和多模态投影得到视觉 token。视觉 token、任务提示和已有输出拼接为同一输入序列，16 层自回归文本 Decoder 生成 state、voices、relations 三类观察。信息模型与小节模型采用同架构的独立权重，按阶段加载。</desc>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M 1 1 L 8 5 L 1 9" fill="none" stroke="#52657D" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
-    </marker>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 1 1 L 8 5 L 1 9" fill="none" stroke="#48556A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker>
     <style>
-      text { font-family: 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif; fill: #182B45; }
-      .title { font-size: 34px; font-weight: 700; }
-      .subtitle { font-size: 23px; fill: #52657D; }
-      .heading { font-size: 25px; font-weight: 700; }
+      text { font-family: 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif; fill: #263247; }
+      .title { font-size: 30px; font-weight: 700; }
+      .heading { font-size: 24px; font-weight: 600; }
       .body { font-size: 23px; }
-      .detail { font-size: 22px; fill: #52657D; }
-      .code { font-family: 'DejaVu Sans Mono', monospace; font-size: 23px; }
-      .stage { fill: #FFFFFF; stroke: #D9E2EE; stroke-width: 2; }
-      .network { fill: #EEF3FF; stroke: #4168CF; stroke-width: 2; }
-      .data { fill: #F5F7FA; stroke: #D9E2EE; stroke-width: 2; }
-      .flow { fill: none; stroke: #52657D; stroke-width: 2.5; marker-end: url(#arrow); stroke-linejoin: round; stroke-linecap: round; }
-      .thin { fill: none; stroke: #52657D; stroke-width: 2; stroke-linecap: round; }
+      .note { font-size: 20px; fill: #748091; }
+      .code { font-family: 'DejaVu Sans Mono', monospace; font-size: 23px; fill: #4D938A; }
+      .flow { fill: none; stroke: #48556A; stroke-width: 2.1; marker-end: url(#arrow); stroke-linecap: round; stroke-linejoin: round; }
+      .layer { fill: #FFFFFF; stroke: #7079B8; stroke-width: 1.7; }
+      .guide { fill: none; stroke: #D4876C; stroke-width: 1.3; stroke-dasharray: 4 5; }
     </style>
   </defs>
-  <rect width="1440" height="780" fill="#FFFFFF"/>
-
+  <rect width="1440" height="690" fill="#FFFFFF"/>
   <g id="figure-heading">
-    <text x="40" y="55" class="title">从一张小节图，到可见的音乐观察</text>
-    <text x="40" y="96" class="subtitle">GLM-OCR 读取当前图上的符号；跨小节关系在后续组谱阶段连接。</text>
+    <text x="48" y="55" class="title">单小节识别：图像如何变成音乐观察</text>
+    <text x="48" y="93" class="body" fill="#748091">GLM-OCR 将可见符号编码成视觉序列，再逐 token 写出结构化答案。</text>
   </g>
-
-  <g id="pipeline-labels">
-    <text x="120" y="182" text-anchor="middle" class="detail">图像输入</text>
-    <text x="540" y="182" text-anchor="middle" class="detail">图像 → 视觉 token</text>
-    <text x="1015" y="182" text-anchor="middle" class="detail">视觉与文字 → 同一序列</text>
-    <text x="1292" y="182" text-anchor="middle" class="detail">逐 token 输出</text>
+  <g id="panel-headings">
+    <text x="48" y="163" class="heading">(a) 视觉编码</text>
+    <text x="774" y="163" class="heading">(b) 序列生成</text>
   </g>
-
-  <g id="current-measure-image">
-    <rect x="40" y="208" width="160" height="292" rx="16" class="stage"/>
-    <text x="120" y="246" text-anchor="middle" class="heading">小节裁图</text>
-    <rect x="52" y="270" width="136" height="108" rx="5" fill="#FFFFFF" stroke="#D9E2EE"/>
-    <g id="tab-example" stroke="#52657D" stroke-width="1.5">
-      <path d="M 61 289 H 179 M 61 303 H 179 M 61 317 H 179 M 61 331 H 179 M 61 345 H 179 M 61 359 H 179"/>
-      <path d="M 62 289 V 359 M 178 289 V 359"/>
+  <g id="measure-image">
+    <text x="156" y="231" text-anchor="middle" class="body">当前小节图</text>
+    <image x="48" y="250" width="216" height="202" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAASMAAAEQCAIAAAB0rIV5AAAVYElEQVR42u3de1BU5/3H8bPLggpCFgUkgSJLEBOBBAIlEWMmaVKVtAZFneKlZuKliZfE1mi9JFonY9KOTaJOMo1NO0601pRL00lDITZER4iCoVaEKBeBKnK/KawsLLDs74+d3/HJCSwLLgvB9+uPxGefL8/Z8+x+ztldePaozGazBGCYqZkCgKQBJA0ASQNIGkDSAJA0gKQBIGkASQNIGgCSBpA0ACQNIGkASQNA0gCSBpA0ACQNIGkASBpA0gCSBoCkASQNAEkDSBpA0gCQNGDU01j+d/HiRb1eL9/q5+en0+nkZkdHx/nz58Ufi4yMdHNzk5vXrl27fv263HRzc4uMjBTr8/LyjEaj3NTpdH5+fnKztbW1sLBQrH/00UednZ3l5pUrV+rr6+WmVqsNCwsT68+ePdvb2ys3Q0JCfHx85GZTU1NxcbFY//jjj4vNy5cvt7S0yE0fH5+QkBC52dPTk5ubK9aHhYVptVq5WVNTU1FRITddXFxiYmLE+vz8/Fu3bslNf3//wMDAUTu9np6eoaGhYv2ZM2fEq39Nnz7d29tbbjY2NpaUlMhNlUo1a9as0TO9BoPhv//9r1j/yCOPuLq6ys2rV69WVVXJzYkTJ0ZERIj1X3/9dVdXl+3T+9hjj2k0GuX0ms1ms9n82GOPiaVbt241C0pLSxUBLSgoEAt27dol9kZERJi/TdxzSZLeeecdsTc7O1sxfkNDg1iwdu1asXfu3LmK8cePHy8W/PWvfxV7U1JSvnUeV6sVP/7cc8+JBc8//7zYe/PmTcXdy8zMFAvee+89sfe+++5TjK94Zmzbtk3sFZ+mFt98841Y8NprrylyqBg/ICBALNi/f7/Ye/r0acX4TU1NYsGaNWvE3ri4OMX4Li4uYsHx48fF3qSkpG8dvDUaxY//9Kc/FQteeOEFsffGjRuKu3fy5Emx4ODBg2Kvn5+fYvzo6GixYMeOHWJvUVGRYvzLly+LBTt37hR7o6KiFOP7+/uLBQcOHBB7T506pRi/paVFLFi1atXtc9r69esXLFgglyqeGZMnT/7d734n3uLr6ys2f/zjH4vHYPF8Ij+3Wltb5ebs2bPF3sDAQMX44miSJCUkJNx///3iQUUx/t69e3t6esSoK46R4vgqlUrx4ytXroyNjRXrxd7x48cr7p54ZyRJmjlzplgwceJExfgbNmxISEgQTylir5eXl2L8KVOmiM05c+a4u7v31ytJ0vbt29va2uSm4pSi0+kU44tHdMv0BgcHy82goCDF+G+++abJZJKbDz/8sNj70EMPieOr1cq3JM8//7z4IiI8PNz69CruQGxsrFggToXFxo0b6+rqxFOK2Ovt7a0YXzwhWw7cHh4e/T23LdEVX/EppjcoKEgx/oQJE8Tm4sWLQ0JCVFwTFOATEYCkASBpAEkDSBoAkgaQNAAkDSBpAEkDQNIAkgaApAEkDSBpAEgaQNIAkgaApAEkDQBJA0gaQNIAkDSApAEgaQBJA0gaAJIGkDQAJA0gaQBJA0DSAJIGkDRZWVlZWlpaRUUFEwQM6D//+c/Vq1cHlzSTyXTo0KFNmzbt3r07JiYmKSmJeQSsyM/PT0xMPH369OCSVllZOW3atM8++ywrK2v27NlHjx41GAzMJtAnvV7/xz/+sb29fcBKjaKt0+l0Op0kSa6uruHh4fX19S4uLkwo0KfU1NTw8PDc3Nwhvk+zhLW7u/tXv/qVRqNhQoE+XzdWVVXNmzdPpVINJWm9vb05OTkvvPBCampqUVEREwr0eSr6+9//vnTp0nHjxtlS30fS1Gp1QEDAokWL3N3dt27dStiA70pJSYmIiAgODraxvu9Xhn5+fsuXLw8KClq2bFlxcfGDDz7IzAKy4uLiY8eOhYWF5eTkGAyGmpqa1NRUtVr985//fHBJswgKCgoODtZqtcwsINJqtUuWLLF8LK/X652dnbVarfWkWEva1atXf/CDH0RGRjKzgMjX13fdunWWf1dXV//zn/985pln5s+fP4ikffrppzt37oyKivLy8urq6nrttdfu/JyWm5ublZW1bt06d3d38faGhoYPP/wwISFhxowZPHgY21Rms1ls9/T0FBUV3bx5c+rUqQEBAXe+gdLS0sTERCcnp7S0tClTpsi3GwyGV199NSkp6eOPP547dy6PBMY25TlNo9GEh4fba/Ts7Oz169dfunQpKipKvL22tnbLli3Jyclubm48BrgbDNff8huNxl27dj377LPOzs6hoaFiV3p6emxs7L///e+nn37all/5ASStX11dXZWVlTt27Dhx4oTidw4VFRWzZ88+ffr04sWLSRru0leP9uLu7n7kyBHLGz9F18aN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"/>
+    <rect x="123.7" y="307.9" width="52" height="52" fill="#D4876C" fill-opacity="0.08" stroke="#D4876C" stroke-width="1.8"/>
+    <text x="156" y="484" text-anchor="middle" class="note">真实谱面裁图</text>
+  </g>
+  <g id="image-patches">
+    <path d="M 177 308 L 290 289 M 177 360 L 290 397" class="guide"/>
+    <rect x="301" y="289" width="20" height="20" fill="#FCF1EB" stroke="#D4876C" stroke-width="1"/><image x="302" y="290" width="18" height="18" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAIAAACQKrqGAAAAJElEQVR42mP8//8/A3GAiYFoMKqUUUVFhVilt27dIlbpEIotAKqGCQ3txtk8AAAAAElFTkSuQmCC"/>
+    <rect x="323" y="289" width="20" height="20" fill="#FCF1EB" stroke="#D4876C" stroke-width="1"/><image x="324" y="290" width="18" height="18" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAIAAACQKrqGAAAAJElEQVR42mP8//8/A3GAiYFoMKqUUUVFhVilt27dIlbpEIotAKqGCQ3txtk8AAAAAElFTkSuQmCC"/>
+    <rect x="345" y="289" width="20" height="20" fill="#FCF1EB" stroke="#D4876C" stroke-width="1"/><image x="346" y="290" width="18" height="18" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAIAAACQKrqGAAAAJElEQVR42mP8//8/A3GAiYFoMKqUUUVFhVilt27dIlbpEIotAKqGCQ3txtk8AAAAAElFTkSuQmCC"/>
+    <rect x="367" y="289" width="20" height="20" fill="#FCF1EB" stroke="#D4876C" stroke-width="1"/><image x="368" y="290" width="18" height="18" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAIAAACQKrqGAAAAJElEQVR42mP8//8/A3GAiYFoMKqUUUVFhVilt27dIlbpEIotAKqGCQ3txtk8AAAAAElFTkSuQmCC"/>
+    <rect x="389" y="289" width="20" height="20" fill="#FCF1EB" stroke="#D4876C" stroke-width="1"/><image x="390" y="290" width="18" height="18" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAIAAACQKrqGAAAAJElEQVR42mP8//8/A3GAiYFoMKqUUUVFhVilt27dIlbpEIotAKqGCQ3txtk8AAAAAElFTkSuQmCC"/>
+    <rect x="301" y="311" width="20" height="20" fill="#FCF1EB" stroke="#D4876C" stroke-width="1"/><image x="302" y="312" width="18" height="18" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAIAAACQKrqGAAAAm0lEQVR42mP8//8/A3GAiYFoQH+lJ06c6Orq+vz5M5T/Hwe4efOmoaGhiYnJixcvICLYlR46dEhHR4eRkRFZKboDfv78WVtb6+XlxcrKqq2tjc+tv379evToUWVl5c6dO1VUVJClWNCU8vLyLly4kIGB4c+fP2hSLOLi4nDO4cOH1dTUcAUIy6VLl+AcYWFhPGGHYip1Yuvfv38A7c5smBW3icsAAAAASUVORK5CYII="/>
+    <rect x="323" y="311" width="20" height="20" fill="#FCF1EB" stroke="#D4876C" stroke-width="1"/><image x="324" y="312" width="18" height="18" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAIAAACQKrqGAAAA5klEQVR42r2QoaqEQBiF9e6m4RbTgiKDT2K22nwBq9UoGnwEBZuYrNomKxONE+wjJg3iGMbZpOxeFtl0v/TDOZz/cGQhhPQdP9LX/I912zaEUNd1H7zinTRNAQCe53HO/0hvqW3bRlG0ruvHAvfzopT6vq9pGmPsqitjLAzDeZ6DIAAAXKUWRVHXdZIkhmFcLYAxjuPYdV3LsmRZfpWzLHscSJRS0zRt256mSQhBCNF1/VxgWZbh4Kaqap7niqIghMqyrKqKEDKOI8YYQggh/D24M8Y4503TnE/3fe/7fhgGx3FeyzwBsbCWxGmBZ3IAAAAASUVORK5CYII="/>
+    <rect x="345" y="311" width="20" height="20" fill="#FCF1EB" stroke="#D4876C" stroke-width="1"/><image x="346" y="312" width="18" height="18" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAIAAACQKrqGAAAAJ0lEQVR42mP8//8/A3GAiYFoMKqUNkoZxcTEiFX64sULYpXSJA0AAKNiCQ1DeQRTAAAAAElFTkSuQmCC"/>
+    <rect x="367" y="311" width="20" height="20" fill="#FCF1EB" stroke="#D4876C" stroke-width="1"/><image x="368" y="312" width="18" height="18" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAIAAACQKrqGAAAAr0lEQVR42mP8//8/A3GAiYFoQDelf//+nTdv3po1a9Al/mOA5cuXCwoKlpSU/P37FyLy+/fvtrY2FKU/fvyYMGGCgIAAExMTstLDhw+LiYkhHPDw4UN/f//y8nIzMzNBQUFkm48fP/7r1y+E0tevX7Oysq5cubK/v5+LiwtZaX5+/unTp7G49fr167KyssgOgAAmcXHxnJwcYgKL5dKlSxwcHEQpFRcXp3JsnT59GgA44IuLQPQJXAAAAABJRU5ErkJggg=="/>
+    <rect x="389" y="311" width="20" height="20" fill="#FCF1EB" stroke="#D4876C" stroke-width="1"/><image x="390" y="312" width="18" height="18" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAIAAACQKrqGAAAA4UlEQVR42rXOMaqEMBQF0IxMkxRiBH+T3sZSrNyACBbZguuwstLKnViKILgCQXARxkYQBFE0vik+2Izzmeaf5vHgXrgPAEDfUdDX/if6bNu2KAohhGEYvu/btq0oH/qEEE3TLMuilGKM4zjetg3uoCAIhBAAMAwD51zX9bqu76NlWV5PVVWU0jRNb6OK67rXmHmepZSEkPutV2kcR8/zGGNN09wP+D3TNIVhSAhJkuQ4jmVZft4gAOj7nnOOMY6iaF1XADjPc3iDuq5zHEdV1SzL9n2Hz5BpmoyxPM+llPCnF18/EeAvi1lXAAAAAElFTkSuQmCC"/>
+    <rect x="301" y="333" width="20" height="20" fill="#FCF1EB" stroke="#D4876C" stroke-width="1"/><image x="302" y="334" width="18" height="18" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAIAAACQKrqGAAAASklEQVR42mP4jwP8/v07ICDAxMTkxYsXEBEmBqIBCUoZ////T31TB1bpixcviFV66dKlAfcWIycnJzHq/v79y/j161dilO7ZswcAy8c1fyW4kgQAAAAASUVORK5CYII="/>
+    <rect x="323" y="333" width="20" height="20" fill="#FCF1EB" stroke="#D4876C" stroke-width="1"/><image x="324" y="334" width="18" height="18" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAIAAACQKrqGAAAAS0lEQVR42mP4jwpu3LghKyubn5//9+9fNCkmBqIBCUoZ////T31TaaOUWUtLS1tbmyhvMTAwEOmzAfcWIwMDAycnJ7FKv379SoxSACQsLxDs0ZJ4AAAAAElFTkSuQmCC"/>
+    <rect x="345" y="333" width="20" height="20" fill="#FCF1EB" stroke="#D4876C" stroke-width="1"/><image x="346" y="334" width="18" height="18" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAIAAACQKrqGAAAAJElEQVR42mP8//8/A3GAiYFoMKp0KCll5OTkJFbp169fiVQKAKK5BhGEY9eeAAAAAElFTkSuQmCC"/>
+    <rect x="367" y="333" width="20" height="20" fill="#FCF1EB" stroke="#D4876C" stroke-width="1"/><image x="368" y="334" width="18" height="18" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAIAAACQKrqGAAAAfElEQVR42sXPoQ0FIRBF0WGDoQg8FkFFWCR90AFtUAAFIEmQ9DAJApgVX/5kWbdHvlzzgP7UWqWU3vu11m/pvRtjLjjZe8cYSynnFBFzznNORkTwzgWvfZWmlFprAAB0opQKIRDR57eYEOK5GGNwzjnnDBGfU621tdY5dwMIQGh6185BSQAAAABJRU5ErkJggg=="/>
+    <rect x="389" y="333" width="20" height="20" fill="#FCF1EB" stroke="#D4876C" stroke-width="1"/><image x="390" y="334" width="18" height="18" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAIAAACQKrqGAAAAUUlEQVR42u3KoRHAQAgAQWBiqOMFGJrBUPFXQC1oohKTCOKz7mYO1lp77x5AM1NVuCCiu0cEPByZmZl3E5GIwBvsbpghGPvXDysy83StquF6Ao8SNQ6pRxqdAAAAAElFTkSuQmCC"/>
+    <rect x="301" y="355" width="20" height="20" fill="#FCF1EB" stroke="#D4876C" stroke-width="1"/><image x="302" y="356" width="18" height="18" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAIAAACQKrqGAAAAJUlEQVR42mP8//8/AxFg165dTAxEg1Glw1Qpy58/f4hR9/fvXwBrGAs0ctcqgQAAAABJRU5ErkJggg=="/>
+    <rect x="323" y="355" width="20" height="20" fill="#FCF1EB" stroke="#D4876C" stroke-width="1"/><image x="324" y="356" width="18" height="18" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAIAAACQKrqGAAAAJElEQVR42mNkYGD4//8/AxGAiYFoMKp0mCplYWBg+PPnDzFKAYw+Bg828rUiAAAAAElFTkSuQmCC"/>
+    <rect x="345" y="355" width="20" height="20" fill="#FCF1EB" stroke="#D4876C" stroke-width="1"/><image x="346" y="356" width="18" height="18" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAIAAACQKrqGAAAAHklEQVR42mP8//8/A3GAiYFoMKp0mCpl+fPnD5FKAZ4RBg9ZvCcxAAAAAElFTkSuQmCC"/>
+    <rect x="367" y="355" width="20" height="20" fill="#FCF1EB" stroke="#D4876C" stroke-width="1"/><image x="368" y="356" width="18" height="18" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAIAAACQKrqGAAAALklEQVR42mP4TwhoaGj09/f///+fiYFoMKp0mCpl+fPnD34V//////v3758/fwAxAjH6qMSrVgAAAABJRU5ErkJggg=="/>
+    <rect x="389" y="355" width="20" height="20" fill="#FCF1EB" stroke="#D4876C" stroke-width="1"/><image x="390" y="356" width="18" height="18" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAIAAACQKrqGAAAAHklEQVR42mP8//8/A3GAiYFoMKp0mCpl+fPnD5FKAZ4RBg9ZvCcxAAAAAElFTkSuQmCC"/>
+    <rect x="301" y="377" width="20" height="20" fill="#FCF1EB" stroke="#D4876C" stroke-width="1"/><image x="302" y="378" width="18" height="18" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAIAAACQKrqGAAAAJUlEQVR42mNkZmZmIAL8//+f8f///8Qo3bVrFxMD0WBU6TBVCgCtKAhM0aYU5AAAAABJRU5ErkJggg=="/>
+    <rect x="323" y="377" width="20" height="20" fill="#FCF1EB" stroke="#D4876C" stroke-width="1"/><image x="324" y="378" width="18" height="18" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAIAAACQKrqGAAAAJElEQVR42mNkYGBgZmZmIAIwMjAw/P//nxilTAxEg1Glw1QpAK3wAyFJJwSVAAAAAElFTkSuQmCC"/>
+    <rect x="345" y="377" width="20" height="20" fill="#FCF1EB" stroke="#D4876C" stroke-width="1"/><image x="346" y="378" width="18" height="18" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAIAAACQKrqGAAAAHklEQVR42mNkZmZmIA4w/v//n0ilTAxEg1Glw1QpALcCAyGuEfwVAAAAAElFTkSuQmCC"/>
+    <rect x="367" y="377" width="20" height="20" fill="#FCF1EB" stroke="#D4876C" stroke-width="1"/><image x="368" y="378" width="18" height="18" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAIAAACQKrqGAAAALklEQVR42mNkZmZmwAv+/v3LyMjIxMTE8J8Q0NDQ6O/v////PxMD0WBU6TBVCgDgoikkHMivRgAAAABJRU5ErkJggg=="/>
+    <rect x="389" y="377" width="20" height="20" fill="#FCF1EB" stroke="#D4876C" stroke-width="1"/><image x="390" y="378" width="18" height="18" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAIAAACQKrqGAAAAHklEQVR42mNkZmZmIA4w/v//n0ilTAxEg1Glw1QpALcCAyGuEfwVAAAAAElFTkSuQmCC"/>
+    <text x="355" y="440" text-anchor="middle" class="body">图块嵌入</text>
+    <text x="355" y="472" text-anchor="middle" class="note">14 × 14 像素</text>
+    <text x="355" y="500" text-anchor="middle" class="note">矩阵局部示意</text>
+  </g>
+  <g id="visual-encoder-layers">
+    <path d="M 410 344 H 438" class="flow"/>
+    <rect x="468" y="263" width="124" height="154" class="layer"/>
+    <rect x="458" y="273" width="124" height="154" class="layer"/>
+    <rect x="448" y="283" width="124" height="154" fill="#F0F1FA" stroke="#7079B8" stroke-width="1.7"/>
+    <text x="510" y="337" text-anchor="middle" class="body">Visual</text>
+    <text x="510" y="370" text-anchor="middle" class="body">Encoder</text>
+    <path d="M 467 395 H 553" stroke="#7079B8" stroke-width="1.3"/>
+    <text x="510" y="420" text-anchor="middle" font-size="20" fill="#7079B8">× 24</text>
+    <text x="520" y="481" text-anchor="middle" class="note">视觉 Transformer</text>
+  </g>
+  <g id="merge-and-project">
+    <path d="M 594 344 H 617" class="flow"/>
+    <g fill="#FCF1EB" stroke="#D4876C" stroke-width="1.3">
+      <rect x="630" y="317" width="20" height="20"/><rect x="655" y="317" width="20" height="20"/>
+      <rect x="630" y="342" width="20" height="20"/><rect x="655" y="342" width="20" height="20"/>
     </g>
-    <rect x="76" y="290" width="18" height="24" fill="#FFFFFF"/>
-    <rect x="109" y="318" width="18" height="24" fill="#FFFFFF"/>
-    <rect x="142" y="332" width="18" height="24" fill="#FFFFFF"/>
-    <g class="code" text-anchor="middle">
-      <text x="85" y="311">3</text>
-      <text x="118" y="339">5</text>
-      <text x="151" y="353">7</text>
-    </g>
-    <text x="120" y="431" text-anchor="middle" class="body">当前一张图</text>
-    <text x="120" y="465" text-anchor="middle" class="detail">保比例缩放</text>
+    <path d="M 683 339 H 701" class="flow"/>
+    <rect x="712" y="325" width="18" height="29" fill="#D4876C"/>
+    <text x="678" y="408" text-anchor="middle" class="body">合并 / 投影</text>
+    <text x="678" y="440" text-anchor="middle" class="note">2 × 2 → 1</text>
+    <text x="678" y="472" text-anchor="middle" class="note">1536 维 token</text>
   </g>
-
-  <g id="patch-embedding">
-    <rect x="235" y="208" width="150" height="292" rx="16" class="stage"/>
-    <text x="310" y="246" text-anchor="middle" class="heading">图块嵌入</text>
-    <g id="patch-grid" fill="#EEF3FF" stroke="#4168CF" stroke-width="1.5">
-      <rect x="270" y="280" width="17" height="17" rx="2"/><rect x="291" y="280" width="17" height="17" rx="2"/><rect x="312" y="280" width="17" height="17" rx="2"/><rect x="333" y="280" width="17" height="17" rx="2"/>
-      <rect x="270" y="301" width="17" height="17" rx="2"/><rect x="291" y="301" width="17" height="17" rx="2"/><rect x="312" y="301" width="17" height="17" rx="2"/><rect x="333" y="301" width="17" height="17" rx="2"/>
-      <rect x="270" y="322" width="17" height="17" rx="2"/><rect x="291" y="322" width="17" height="17" rx="2"/><rect x="312" y="322" width="17" height="17" rx="2"/><rect x="333" y="322" width="17" height="17" rx="2"/>
-      <rect x="270" y="343" width="17" height="17" rx="2"/><rect x="291" y="343" width="17" height="17" rx="2"/><rect x="312" y="343" width="17" height="17" rx="2"/><rect x="333" y="343" width="17" height="17" rx="2"/>
-    </g>
-    <text x="310" y="431" text-anchor="middle" class="body">14 × 14</text>
-    <text x="310" y="465" text-anchor="middle" class="detail">像素 / 图块</text>
+  <g id="combined-input-sequence">
+    <path d="M 733 340 H 753 V 284 H 766" class="flow"/>
+    <text x="833" y="248" text-anchor="middle" font-size="22" fill="#D4876C">视觉 token</text>
+    <text x="919" y="207" text-anchor="middle" font-size="22">任务提示</text>
+    <path d="M 919 218 V 259" class="flow"/>
+    <text x="1018" y="248" text-anchor="middle" font-size="22" fill="#4D938A">已生成 token</text>
+    <rect x="774" y="269" width="20" height="31" rx="2" fill="#D4876C"/>
+    <rect x="800" y="269" width="20" height="31" rx="2" fill="#D4876C"/>
+    <rect x="826" y="269" width="20" height="31" rx="2" fill="#D4876C"/>
+    <rect x="852" y="269" width="20" height="31" rx="2" fill="#D4876C"/>
+    <rect x="878" y="269" width="20" height="31" rx="2" fill="#D4876C"/>
+    <rect x="904" y="269" width="20" height="31" rx="2" fill="#B9BEC8"/>
+    <rect x="930" y="269" width="20" height="31" rx="2" fill="#B9BEC8"/>
+    <rect x="956" y="269" width="20" height="31" rx="2" fill="#4D938A"/>
+    <rect x="982" y="269" width="20" height="31" rx="2" fill="#4D938A"/>
+    <rect x="1008" y="269" width="20" height="31" rx="2" fill="#4D938A"/>
+    <rect x="1034" y="269" width="20" height="31" rx="2" fill="#4D938A"/>
+    <rect x="1060" y="269" width="20" height="31" rx="2" fill="#4D938A"/>
+    <text x="1098" y="293" class="body" fill="#748091">…</text>
+    <path d="M 776 313 V 320 H 1078 V 313" fill="none" stroke="#48556A" stroke-width="1.3"/>
+    <path d="M 984 320 V 349" class="flow"/>
   </g>
-
-  <g id="vision-transformer">
-    <rect x="420" y="208" width="190" height="292" rx="16" class="stage"/>
-    <text x="515" y="246" text-anchor="middle" class="heading">视觉编码器</text>
-    <rect x="452" y="278" width="133" height="79" rx="9" fill="#DCE6FF" stroke="#4168CF" stroke-width="1.5"/>
-    <rect x="447" y="285" width="133" height="79" rx="9" fill="#E5ECFF" stroke="#4168CF" stroke-width="1.5"/>
-    <rect x="442" y="292" width="133" height="79" rx="9" class="network"/>
-    <text x="509" y="340" text-anchor="middle" font-size="22">Transformer</text>
-    <text x="515" y="431" text-anchor="middle" class="body">24 层</text>
-    <text x="515" y="465" text-anchor="middle" class="detail">1024 维</text>
+  <g id="text-decoder-layers">
+    <rect x="882" y="353" width="212" height="108" class="layer"/>
+    <rect x="873" y="362" width="212" height="108" class="layer"/>
+    <rect x="864" y="371" width="212" height="108" fill="#7079B8"/>
+    <text x="970" y="415" text-anchor="middle" class="heading" style="fill:#FFFFFF">Text Decoder</text>
+    <text x="970" y="452" text-anchor="middle" class="body" style="fill:#FFFFFF">× 16</text>
+    <text x="979" y="518" text-anchor="middle" class="note">同一序列中的自回归预测</text>
+    <path d="M 1096 417 H 1160" class="flow"/>
   </g>
-
-  <g id="spatial-merge-and-projection">
-    <rect x="645" y="208" width="200" height="292" rx="16" class="stage"/>
-    <text x="745" y="246" text-anchor="middle" class="heading">多模态投影</text>
-    <g fill="#EEF3FF" stroke="#4168CF" stroke-width="1.5">
-      <rect x="668" y="299" width="24" height="24" rx="3"/><rect x="699" y="299" width="24" height="24" rx="3"/>
-      <rect x="668" y="330" width="24" height="24" rx="3"/><rect x="699" y="330" width="24" height="24" rx="3"/>
-    </g>
-    <path d="M 733 326 H 761" class="flow"/>
-    <rect x="778" y="309" width="34" height="34" rx="5" fill="#4168CF"/>
-    <text x="745" y="407" text-anchor="middle" class="body">2 × 2 下采样</text>
-    <text x="745" y="439" text-anchor="middle" class="body">视觉 token</text>
-    <text x="745" y="472" text-anchor="middle" class="detail">1536 维</text>
+  <g id="observation-output">
+    <text x="1294" y="247" text-anchor="middle" class="heading">可见观察</text>
+    <text x="1294" y="278" text-anchor="middle" class="note">JSON 字段示意</text>
+    <path d="M 1201 306 Q 1186 306 1186 322 V 383 Q 1186 399 1175 402 Q 1186 405 1186 421 V 485 Q 1186 501 1201 501" fill="none" stroke="#4D938A" stroke-width="2.2"/>
+    <text x="1210" y="329" class="code">state</text>
+    <text x="1210" y="358" font-size="20" fill="#748091">本节没有新拍号</text>
+    <text x="1210" y="397" class="code">voices</text>
+    <text x="1210" y="426" font-size="20" fill="#748091">一弦 11 品 …</text>
+    <text x="1210" y="465" class="code">relations</text>
+    <text x="1210" y="494" font-size="20" fill="#748091">续线：left → right</text>
   </g>
-
-  <g id="autoregressive-text-decoder">
-    <rect x="880" y="208" width="270" height="292" rx="16" class="stage"/>
-    <text x="1015" y="246" text-anchor="middle" class="heading">自回归文本解码</text>
-    <rect x="896" y="264" width="96" height="35" rx="6" class="data"/>
-    <rect x="998" y="264" width="137" height="35" rx="6" fill="#E9F5F2" stroke="#137F79" stroke-width="1.5"/>
-    <text x="944" y="289" text-anchor="middle" font-size="22">任务提示</text>
-    <text x="1067" y="289" text-anchor="middle" font-size="22">已生成 token</text>
-    <path d="M 944 300 V 309 H 987 V 316" class="flow"/>
-    <path d="M 1068 300 V 316" class="flow"/>
-    <g id="combined-token-sequence">
-      <rect x="898" y="320" width="22" height="27" rx="3" fill="#4168CF"/>
-      <rect x="924" y="320" width="22" height="27" rx="3" fill="#4168CF"/>
-      <rect x="950" y="320" width="22" height="27" rx="3" fill="#4168CF"/>
-      <rect x="976" y="320" width="22" height="27" rx="3" fill="#AAB7C7"/>
-      <rect x="1002" y="320" width="22" height="27" rx="3" fill="#AAB7C7"/>
-      <rect x="1028" y="320" width="22" height="27" rx="3" fill="#137F79"/>
-      <rect x="1054" y="320" width="22" height="27" rx="3" fill="#137F79"/>
-      <rect x="1080" y="320" width="22" height="27" rx="3" fill="#137F79"/>
-      <text x="1117" y="342" text-anchor="middle" font-size="24" fill="#52657D">…</text>
-    </g>
-    <path d="M 1015 348 V 374" class="flow"/>
-    <rect x="900" y="383" width="230" height="58" rx="9" class="network"/>
-    <text x="1015" y="420" text-anchor="middle" class="body">16 层 Decoder</text>
-    <text x="1015" y="475" text-anchor="middle" class="detail">1536 维</text>
-  </g>
-
-  <g id="visible-observation-json">
-    <rect x="1185" y="208" width="215" height="292" rx="16" class="data"/>
-    <text x="1292" y="246" text-anchor="middle" class="heading">可见观察 JSON</text>
-    <g class="code">
-      <text x="1207" y="293">{</text>
-      <text x="1227" y="328">state,</text>
-      <text x="1227" y="363">voices,</text>
-      <text x="1227" y="398">relations</text>
-      <text x="1207" y="433">}</text>
-    </g>
-    <text x="1292" y="475" text-anchor="middle" class="detail">交给后续组谱</text>
-  </g>
-
-  <g id="data-flow">
-    <path d="M 202 333 H 228" class="flow"/>
-    <path d="M 387 333 H 413" class="flow"/>
-    <path d="M 612 333 H 638" class="flow"/>
-    <path d="M 847 333 H 890" class="flow"/>
-    <path d="M 1132 412 H 1166 V 333 H 1178" class="flow"/>
-  </g>
-
-  <g id="sequence-legend">
-    <rect x="223" y="530" width="17" height="17" rx="3" fill="#4168CF"/>
-    <text x="251" y="547" class="detail">视觉 token</text>
-    <rect x="402" y="530" width="17" height="17" rx="3" fill="#AAB7C7"/>
-    <text x="430" y="547" class="detail">任务提示</text>
-    <rect x="572" y="530" width="17" height="17" rx="3" fill="#137F79"/>
-    <text x="600" y="547" class="detail">已生成 token</text>
-    <text x="790" y="547" class="detail">共同进入同一序列，逐步生成答案</text>
-  </g>
-
-  <g id="independent-deployment-tasks">
-    <rect x="40" y="590" width="1360" height="155" rx="16" class="data"/>
-    <text x="66" y="630" class="heading">同架构，两套独立权重，按阶段加载</text>
-    <text x="66" y="676" class="body" font-weight="700">信息模型</text>
-    <text x="248" y="676" class="body">谱头、谱行、标注图</text>
-    <path d="M 521 667 H 586" class="flow"/>
-    <text x="613" y="676" class="body">名称、调弦、谱号等信息</text>
-    <text x="66" y="716" class="body" font-weight="700">小节模型</text>
-    <text x="248" y="716" class="body">当前一张小节图</text>
-    <path d="M 521 707 H 586" class="flow"/>
-    <text x="613" y="716" class="body">state / voices / relations</text>
+  <g id="deployment-caption">
+    <path d="M 48 566 H 1392" stroke="#DDE1E7" stroke-width="1"/>
+    <text x="48" y="605" class="body">同架构、独立权重，按阶段加载。</text>
+    <text x="48" y="643" class="note">信息模型：谱头 / 谱行 / 标注图 → 名称、调弦、谱号等信息</text>
+    <text x="797" y="643" class="note">小节模型：当前裁图 → state / voices / relations</text>
   </g>
 </svg>

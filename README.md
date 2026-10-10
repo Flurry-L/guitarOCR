@@ -41,7 +41,7 @@ GuitarOCR 因此把识别分成 **页面定位 → 局部观察 → 全谱组装
 
 ![识别总览：页面定位后分别读取整谱信息和单节观察，交给音乐核心组装，再编辑和导出](docs/assets/recognition-pipeline.svg)
 
-*图 1：从图像到乐谱的数据流。蓝色表示学习模型，绿色表示音乐核心的组装过程。整谱信息和局部观察共同决定最终结果。*
+*图 1：以《春日影》的页面与裁图展示数据流，其余结构为机制示意。橙色关联图像，靛蓝表示网络，青绿表示音乐核心与组装结果。*
 
 ### 页面定位：确定音乐在哪里、属于谁
 
@@ -143,9 +143,9 @@ flowchart LR
     E -->|"识别结果"| API
     API <-->|"组谱与导出"| S["scorelib<br/>Observation → M → ScoreIR"]
     R["research · Python<br/>数据、训练、评测"] -->|"PyO3"| S
-    classDef app fill:#F5F7FA,stroke:#D9E2EE,color:#182B45
-    classDef net fill:#EEF3FF,stroke:#4168CF,color:#182B45
-    classDef core fill:#E9F5F2,stroke:#137F79,color:#182B45
+    classDef app fill:#F7F8FA,stroke:#DDE1E7,color:#263247
+    classDef net fill:#F0F1FA,stroke:#7079B8,color:#263247
+    classDef core fill:#EAF4F1,stroke:#4D938A,color:#263247
     class UI,API,R app
     class E net
     class S core
@@ -292,6 +292,7 @@ npm run build --prefix desktop
 
 以下工作可帮助理解图像到结构化文本的建模方式；本项目的可见观察与跨小节组装机制见前文。
 
+- [MinerU2.5 · A Decoupled Vision-Language Model for Efficient High-Resolution Document Parsing](https://arxiv.org/abs/2509.22186)：分开页面布局分析与原分辨率内容识别，图 2 展示页面、区域裁图与输出之间的数据流。
 - [Donut · OCR-free Document Understanding Transformer](https://arxiv.org/abs/2111.15664)：将文档图像与任务提示映射为结构化输出，图 3 展示了输入、网络、生成序列与结果之间的关系。
 - [Nougat · Neural Optical Understanding for Academic Documents](https://arxiv.org/abs/2308.13418)：将学术页面转换为标记文本，分别说明模型结构与页面、目标文本的训练配对。
 - [Pix2Struct · Screenshot Parsing as Pretraining for Visual Language Understanding](https://arxiv.org/abs/2210.03347)：通过截图与结构化目标解释视觉语言任务，展示输入分辨率、数据构造与监督目标如何影响模型。
