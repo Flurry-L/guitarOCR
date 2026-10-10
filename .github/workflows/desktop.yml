@@ -62,6 +62,18 @@ jobs:
               '--pdfium-wheel', str(next(wheels.glob('pypdfium2-*.whl'))),
               '--llama-archive', str(archive), '--llama-manifest', str(manifest),
               '--output', 'output/native-components'], check=True)
+          executable = Path('output/native-components/llama.cpp') / entry['executable']
+          executable.chmod(0o755)
+          subprocess.run([str(executable), '--version'], check=True, timeout=30)
+          help_text = subprocess.check_output([str(executable), '--help'], text=True, timeout=30)
+          for option in ('--cors-origins', '--no-cors-credentials', '--mmproj-device',
+                         '--no-webui', '--lora-init-without-apply'):
+              if option not in help_text:
+                  raise RuntimeError(f'Packaged inference runtime lacks {option}')
+          devices = subprocess.check_output([str(executable), '--list-devices'], text=True, timeout=30)
+          if 'Available devices:' not in devices:
+              raise RuntimeError('Packaged inference runtime cannot list its devices')
+          print(devices)
       - run: npm run native:build
         working-directory: desktop
       - run: npm run resources -- --manifest ../output/native-components/manifest.json --require-inference

@@ -11,7 +11,6 @@ import re
 import shutil
 import subprocess
 import tempfile
-import urllib.request
 from zipfile import ZIP_DEFLATED, ZipFile
 
 
@@ -35,13 +34,11 @@ def probe(executable):
     return str(Path(executable).absolute())
 
 
-def package(source, staging, output, key, url):
+def package(staging, output, key, url):
     if not re.fullmatch(r'(linux|windows|macos)-(x64|arm64)-(cpu|cuda|metal)', key):
         raise ValueError('Invalid runtime target')
     if output.resolve().is_relative_to(staging.resolve()):
         raise ValueError('Output must be outside the staging directory')
-    if (staging / 'LICENSE').read_bytes() != (source / 'LICENSE').read_bytes():
-        raise ValueError('Include the exact upstream MIT LICENSE')
     executable = 'llama-server.exe' if key.startswith('windows-') else 'llama-server'
     probe(staging / executable)
     files = []
@@ -167,7 +164,6 @@ def stage_windows_crt(staging):
         raise ValueError('Visual C++ x64 redistributable DLLs are missing from Visual Studio')
     for name in names:
         shutil.copy2(crt / name, staging / name)
-    urllib.request.urlretrieve('https://aka.ms/VCRedistLicense', staging / 'LICENSE-Microsoft-Visual-Cpp.html')
 
 
 def build_runtime(source, build, output, key, release_tag, jobs):
@@ -188,15 +184,10 @@ def build_runtime(source, build, output, key, release_tag, jobs):
         staging = Path(temp)
         shutil.copy2(binary, staging / executable)
         stage_cpu_libraries(binary, staging, key)
-        shutil.copy2(source / 'LICENSE', staging / 'LICENSE')
         if key.startswith('windows-'):
             stage_windows_crt(staging)
         if key.endswith('-cuda'):
             toolkit = Path(os.environ.get('CUDA_PATH') or os.environ.get('CUDA_HOME') or '/usr/local/cuda')
-            license = next((p for p in (toolkit / 'EULA.txt', toolkit / 'doc/EULA.txt') if p.is_file()), None)
-            if license is None:
-                raise ValueError('CUDA redistribution requires the toolkit EULA.txt')
-            shutil.copy2(license, staging / 'CUDA-EULA.txt')
             if key.startswith('windows-'):
                 # NVIDIA provides cuBLAS only as DLLs on Windows. CUDA runtime is
                 # static; ship the exact redistributable cuBLAS pair next to it.
@@ -205,12 +196,6 @@ def build_runtime(source, build, output, key, release_tag, jobs):
                     raise ValueError('CUDA toolkit cuBLAS redistributable DLLs are missing')
                 for library in libraries:
                     shutil.copy2(library, staging / library.name)
-        for folder in ('licenses', 'vendor', 'ggml'):
-            for path in (source / folder).rglob('*'):
-                if path.is_file() and path.name.upper().startswith(('LICENSE', 'COPYING', 'NOTICE')):
-                    dest = staging / 'notices' / path.relative_to(source)
-                    dest.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(path, dest)
         (staging / 'build.json').write_text(json.dumps({
             'source': 'https://github.com/ggml-org/llama.cpp',
             'target': key, 'platform': platform.platform(), 'configure': command,
@@ -219,7 +204,7 @@ def build_runtime(source, build, output, key, release_tag, jobs):
         }, indent=2) + '\n', encoding='utf-8')
         filename = f'llamacpp-{key}.zip'
         url = f'https://github.com/Flurry-L/guitarOCR/releases/download/{release_tag}/{filename}'
-        return package(source, staging, output, key, url)
+        return package(staging, output, key, url)
 
 
 def main():

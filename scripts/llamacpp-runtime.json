@@ -1,6 +1,5 @@
 {
   "source": "https://github.com/ggml-org/llama.cpp",
-  "license": "MIT",
   "artifacts": {
     "windows-x64-cpu": {
       "url": "https://github.com/Flurry-L/guitarOCR/releases/download/v0.1.0-resources/llamacpp-8019dc563b1e-windows-x64-cpu.zip",
@@ -8,14 +7,6 @@
       "sha256": "6fc0832a5bd0801facc54b10c332038dbf4884f46e48568512dac0016a8beb98",
       "executable": "llama-server.exe",
       "files": [
-        {
-          "name": "LICENSE",
-          "bytes": 1099
-        },
-        {
-          "name": "LICENSE-Microsoft-Visual-Cpp.html",
-          "bytes": 236931
-        },
         {
           "name": "build.json",
           "bytes": 1302
@@ -27,26 +18,6 @@
         {
           "name": "msvcp140.dll",
           "bytes": 643512
-        },
-        {
-          "name": "notices/licenses/LICENSE-jsonhpp",
-          "bytes": 1096
-        },
-        {
-          "name": "notices/vendor/cpp-httplib/LICENSE",
-          "bytes": 1097
-        },
-        {
-          "name": "notices/vendor/hash/rotate-bits/LICENSE.md",
-          "bytes": 1109
-        },
-        {
-          "name": "notices/vendor/hash/sha256/LICENSE",
-          "bytes": 42
-        },
-        {
-          "name": "notices/vendor/hash/xxhash/LICENSE",
-          "bytes": 1415
         },
         {
           "name": "vcruntime140.dll",
@@ -65,36 +36,12 @@
       "executable": "llama-server",
       "files": [
         {
-          "name": "LICENSE",
-          "bytes": 1078
-        },
-        {
           "name": "build.json",
           "bytes": 947
         },
         {
           "name": "llama-server",
           "bytes": 17851344
-        },
-        {
-          "name": "notices/licenses/LICENSE-jsonhpp",
-          "bytes": 1075
-        },
-        {
-          "name": "notices/vendor/cpp-httplib/LICENSE",
-          "bytes": 1075
-        },
-        {
-          "name": "notices/vendor/hash/rotate-bits/LICENSE.md",
-          "bytes": 1088
-        },
-        {
-          "name": "notices/vendor/hash/sha256/LICENSE",
-          "bytes": 41
-        },
-        {
-          "name": "notices/vendor/hash/xxhash/LICENSE",
-          "bytes": 1389
         }
       ]
     },
@@ -104,22 +51,6 @@
       "sha256": "9d85fdda652ed0f4c727881aff2083adab48c2fa9748059472e246f36c77be31",
       "executable": "llama-server.exe",
       "files": [
-        {
-          "name": "CUDA-EULA.html",
-          "bytes": 85051
-        },
-        {
-          "name": "LICENSE",
-          "bytes": 1078
-        },
-        {
-          "name": "LICENSE-LLVM-OpenMP",
-          "bytes": 19741
-        },
-        {
-          "name": "LICENSE-Microsoft-Visual-Cpp.html",
-          "bytes": 236931
-        },
         {
           "name": "build.json",
           "bytes": 683

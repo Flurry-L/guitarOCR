@@ -17,8 +17,6 @@
 //! Willow Garage Inc. (2009), and Itseez Inc. (2014-2015).
 //! PIL/Pillow copyrights: Secret Labs AB (1997-2011), Fredrik Lundh and
 //! contributors (1995-2011), Jeffrey 'Alex' Clark and contributors (2010).
-//! Full upstream copyrights, conditions, disclaimers and adaptation sources
-//! are retained in the repository's THIRD_PARTY_NOTICES.md.
 use image::RgbImage;
 
 const CUBIC_BITS: u32 = 11;

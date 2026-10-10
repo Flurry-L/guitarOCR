@@ -43,7 +43,7 @@ def stage_file(output, component, name, data, role):
 
 
 def collect_archive(archive_path, package, version, output, component):
-    """Verify a local upstream archive, then copy only native code and notices.
+    """Verify a local upstream archive, then copy only native libraries.
 
     Acquisition stays explicit: the build operator downloads the archive first.
     PyPI wheels use the full official archive digest; ORT's native
@@ -69,10 +69,8 @@ def collect_archive(archive_path, package, version, output, component):
         selected = {}
         for name, content in files.items():
             library = native_library(name) and name.startswith((package + '/', package + '.libs/', 'pypdfium2_raw/'))
-            notice = (name.startswith(f'{info}/licenses/') or PurePosixPath(name).name.upper().startswith(('LICENSE', 'COPYING', 'NOTICE', 'THIRDPARTYNOTICES', 'COPYRIGHT')))
-            if not library and not notice:
-                continue
-            selected[name] = (content, 'library' if library else 'license' if 'LICENSE' in name.upper() or name.endswith('/pdfium.txt') else 'notice')
+            if library:
+                selected[name] = (content, 'library')
         proof = 'Official PyPI archive SHA-256'
     else:
         if package != 'onnxruntime':
@@ -94,12 +92,11 @@ def collect_archive(archive_path, package, version, output, component):
             parts = PurePosixPath(name).parts
             name = '/'.join(parts[1:])  # Official archives contain one versioned root.
             library = name.startswith('lib/') and native_library(name)
-            notice = PurePosixPath(name).name.upper().startswith(('LICENSE', 'COPYING', 'NOTICE', 'THIRDPARTYNOTICES'))
-            if library or notice:
-                selected[name] = (content, 'library' if library else 'license' if 'LICENSE' in name.upper() else 'notice')
-        proof = 'Official GitHub release asset SHA-256; regular native files and notices only'
-    if not any(role == 'library' for _, role in selected.values()) or not any(role == 'license' for _, role in selected.values()):
-        raise ValueError(f'Archive lacks native libraries or licenses: {archive_path.name}')
+            if library:
+                selected[name] = (content, 'library')
+        proof = 'Official GitHub release asset SHA-256; regular native files only'
+    if not any(role == 'library' for _, role in selected.values()):
+        raise ValueError(f'Archive lacks native libraries: {archive_path.name}')
     files = [stage_file(output, component, name, content, role) for name, (content, role) in selected.items()]
     provenance = {'kind': 'native-files-extracted-from-wheel' if wheel else 'official-native-release',
                   'package': package, 'version': version, 'filename': archive_path.name,
@@ -131,6 +128,8 @@ def collect(llama_archive, llama_manifest, output, *, target="linux-x64-cpu", or
         for item in entry['files']:
             name = item['name']
             safe_name(name)
+            if name != entry['executable'] and not native_library(name):
+                continue
             data = archive.read(name)
             if len(data) != item['bytes']:
                 raise ValueError('llama archive entry size mismatch')
@@ -138,7 +137,7 @@ def collect(llama_archive, llama_manifest, output, *, target="linux-x64-cpu", or
             destination = output / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_bytes(data)
-            role = 'executable' if name == entry['executable'] else ('library' if native_library(name) else 'license' if name == 'LICENSE' else 'notice')
+            role = 'executable' if name == entry['executable'] else 'library'
             files.append({'path': relative, 'bytes': len(data), 'role': role})
     manifest = {'schema': 1, 'target': f'{dict(linux="linux", windows="win32", macos="darwin")[system]}-{arch}', 'components': [
         {'name': 'onnxruntime', 'version': '1.23.2', 'source': 'https://github.com/microsoft/onnxruntime', 'distribution': ort_source, 'files': ort_files},

@@ -5,8 +5,7 @@ The cubic contract is the scalar fixed-point algorithm in
 have different final rounding, even when ``setUseOptimized(False)`` is set.
 Do not substitute ``cv2.resize`` here: a one-byte tie can change model scores.
 
-Kernel and coefficient provenance: OpenCV 4.13.0 modules/imgproc/src/resize.cpp;
-see THIRD_PARTY_NOTICES.md for the license and source notice. This NumPy
+Kernel and coefficient provenance: OpenCV 4.13.0 modules/imgproc/src/resize.cpp. This NumPy
 implementation uses bounded row blocks and integer accumulation, without a
 native extension or architecture-dependent vector rounding.
 """

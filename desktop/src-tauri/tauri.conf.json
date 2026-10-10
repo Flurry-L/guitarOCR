@@ -20,8 +20,7 @@
     "targets": "all",
     "resources": {
       "resources/ui/": "ui/",
-      "resources/native/": "native/",
-      "resources/licenses/": "licenses/"
+      "resources/native/": "native/"
     },
     "icon": [
       "icons/32x32.png",

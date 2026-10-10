@@ -1,61 +1,114 @@
 {
   "generation": "current",
-  "availability": "local_unpublished",
+  "availability": "published",
   "files": {
     "auxiliary": [
       {
-        "path": "auxiliary/layout.onnx"
+        "path": "auxiliary/layout.onnx",
+        "asset": "auxiliary-layout.onnx",
+        "bytes": 131460618,
+        "sha256": "33016d3a8fcf41266cf0f5553ba8af4c282fc706924420efc72915ef56bce4b3"
       },
       {
-        "path": "auxiliary/signature.onnx"
+        "path": "auxiliary/signature.onnx",
+        "asset": "auxiliary-signature.onnx",
+        "bytes": 4484038,
+        "sha256": "6419be2df78f5e86a5e835e7599d67574e53bcce2bb75c1b5bb137866a906cd0"
       },
       {
-        "path": "auxiliary/structure_relations.onnx"
+        "path": "auxiliary/structure_relations.onnx",
+        "asset": "auxiliary-structure_relations.onnx",
+        "bytes": 4680927,
+        "sha256": "57b86ee9d72d60e5ab465d2b364bb326940934c5759a03355507ec1d39ce285e"
       },
       {
-        "path": "auxiliary/chord_evidence.onnx"
+        "path": "auxiliary/chord_evidence.onnx",
+        "asset": "auxiliary-chord_evidence.onnx",
+        "bytes": 42114899,
+        "sha256": "0b6d644bfe61205067f8ac07a6b51c311afede2d51ee8fa92eef6c57253f12ec"
       },
       {
-        "path": "auxiliary/staff_evidence.onnx"
+        "path": "auxiliary/staff_evidence.onnx",
+        "asset": "auxiliary-staff_evidence.onnx",
+        "bytes": 4490480,
+        "sha256": "ff7aaaa228e737ba7c4cb5bd98a5ba947265e96636d8b9301b7aee0cb572f184"
       },
       {
-        "path": "auxiliary/text_regions.onnx"
+        "path": "auxiliary/text_regions.onnx",
+        "asset": "auxiliary-text_regions.onnx",
+        "bytes": 4766778,
+        "sha256": "ac08a9348fbb169dfdcf06ba2fcb1baf2585d9d03ae64eac46b003ecb475604c"
       },
       {
-        "path": "auxiliary/chord_text_roles.onnx"
+        "path": "auxiliary/chord_text_roles.onnx",
+        "asset": "auxiliary-chord_text_roles.onnx",
+        "bytes": 2365454,
+        "sha256": "77cff83cfc8d4eaf90c146f02a340d41e365e4fbe6dd0d61549c2d54eda74b31"
       },
       {
-        "path": "auxiliary/staff_label.onnx"
+        "path": "auxiliary/staff_label.onnx",
+        "asset": "auxiliary-staff_label.onnx",
+        "bytes": 688883,
+        "sha256": "3f459bebfae278e89e7ecbd64af04d554f0c481f21c935675e465f21e10bb82f"
       },
       {
-        "path": "auxiliary/instrument_text.onnx"
+        "path": "auxiliary/instrument_text.onnx",
+        "asset": "auxiliary-instrument_text.onnx",
+        "bytes": 101832,
+        "sha256": "cd7866114be3ea1db4faca5d89cdd2baf5abbaf48434c6d7faf4775317aa32b3"
       },
       {
-        "path": "auxiliary/part_continuation.onnx"
+        "path": "auxiliary/part_continuation.onnx",
+        "asset": "auxiliary-part_continuation.onnx",
+        "bytes": 1025248,
+        "sha256": "1f3237fb2c4480796ab6849a941099fb6ddd3b7ea9f6154b38adde1270936208"
       },
       {
-        "path": "auxiliary/clef_spatial.onnx"
+        "path": "auxiliary/clef_spatial.onnx",
+        "asset": "auxiliary-clef_spatial.onnx",
+        "bytes": 2263350,
+        "sha256": "cd968e650bce06f67cd754f6ab62d5a457fd698c5c56f8a4bb00954d2ba2e006"
       },
       {
-        "path": "auxiliary/layout_quality.onnx"
+        "path": "auxiliary/layout_quality.onnx",
+        "asset": "auxiliary-layout_quality.onnx",
+        "bytes": 7266854,
+        "sha256": "1833dc80fc6c5adc7062e09e77aae73858d463b1bffdaed02c240f75d6efe758"
       }
     ],
     "llamacpp": [
       {
-        "path": "weights/score_ocr/gguf/model-Q8_0.gguf"
+        "path": "weights/score_ocr/gguf/model-Q8_0.gguf",
+        "asset": "score_ocr-gguf-model-Q8_0.gguf",
+        "bytes": 722295296,
+        "sha256": "dc60cf659af5343aadef3ee59bd3db5ba4f43cff03ef2194e24dc1ebccd27f95"
       },
       {
-        "path": "weights/score_ocr/gguf/vision-F16.gguf"
+        "path": "weights/score_ocr/gguf/vision-F16.gguf",
+        "asset": "score_ocr-gguf-vision-F16.gguf",
+        "bytes": 869017888,
+        "sha256": "1ebcbb8e67bbd7655cf9c2188078be1d144d1c06c7e1a2690582047d250028d1"
       },
       {
-        "path": "weights/information/gguf/model-Q8_0.gguf"
+        "path": "weights/information/gguf/model-Q8_0.gguf",
+        "asset": "information-gguf-model-Q8_0.gguf",
+        "bytes": 722295296,
+        "sha256": "eaec8cf434e07036e4b6f89ccc448762c34666e00dda05fee8dbe6e22028b736"
       },
       {
-        "path": "weights/information/gguf/vision-F16.gguf"
+        "path": "weights/information/gguf/vision-F16.gguf",
+        "asset": "information-gguf-vision-F16.gguf",
+        "bytes": 869017888,
+        "sha256": "c074773e9ba06167248e139b99294ba9c598e14a2a93413d5c9147323fb61097"
       },
       {
-        "path": "weights/information/gguf/information-adapter.gguf"
+        "path": "weights/information/gguf/information-adapter.gguf",
+        "asset": "information-gguf-information-adapter.gguf",
+        "bytes": 14955456,
+        "sha256": "2d6f0f77790d7ab09765b4b958590391f60aa92efebad15bdff65d0058b22beb"
       }
     ]
-  }
+  },
+  "repository": "Flurry-L/guitarOCR",
+  "release": "v0.1.0-resources"
 }

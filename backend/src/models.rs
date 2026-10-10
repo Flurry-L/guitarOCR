@@ -210,7 +210,7 @@ fn parse_metadata(
                 "Model catalog {} omits declared {capability}: {asset}. \
                  Rebuild with GUITAROCR_BUILD_MODEL_CATALOG=<matching-catalog.json>, \
                  or prepare desktop resources with --build --model-catalog <matching-catalog.json>. \
-                 See docs/native-packaging.md; --models only selects the cache directory.",
+                 See README.md; --models only selects the cache directory.",
                 catalog["generation"].as_str().unwrap()
             ));
         }

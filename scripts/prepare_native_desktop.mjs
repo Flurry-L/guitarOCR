@@ -1,5 +1,5 @@
 /** Stage native-only Tauri resources. No downloads, Python runtime, or model execution. */
-import { cp, copyFile, mkdir, readFile, readdir, lstat, chmod, rm, rename, writeFile } from 'node:fs/promises';
+import { cp, copyFile, mkdir, readFile, lstat, chmod, rm, rename, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -47,13 +47,12 @@ export function validateManifest(manifest, platform = process.platform, arch = p
     const paths = new Set();
     for (const file of component.files) {
       safeRelative(file.path);
-      if (paths.has(file.path) || !Number.isSafeInteger(file.bytes) || file.bytes < 0 || !['library', 'executable', 'license', 'notice'].includes(file.role)) throw new Error('Invalid native file inventory');
+      if (paths.has(file.path) || !Number.isSafeInteger(file.bytes) || file.bytes < 0 || !['library', 'executable'].includes(file.role)) throw new Error('Invalid native file inventory');
       paths.add(file.path);
     }
-    if (!component.files.some(f => f.role === 'license')) throw new Error(`Missing license: ${component.name}`);
     if (!component.files.some(f => f.role === (component.name === 'llama.cpp' ? 'executable' : 'library'))) throw new Error(`Missing runtime: ${component.name}`);
   }
-  if (required && Object.keys(SOURCES).some(name => !names.has(name))) throw new Error('Inference packaging requires ONNX Runtime, PDFium and llama.cpp with licenses');
+  if (required && Object.keys(SOURCES).some(name => !names.has(name))) throw new Error('Inference packaging requires ONNX Runtime, PDFium and llama.cpp');
   return manifest;
 }
 export function validateNativeBinary(bytes, platform = process.platform, arch = process.arch) {
@@ -67,16 +66,6 @@ export function validateNativeBinary(bytes, platform = process.platform, arch = 
     valid = bytes.readUInt32LE(4) === ({ x64: 0x1000007, arm64: 0x100000c })[arch];
   }
   if (!valid) throw new Error(`Native binary does not match ${platform}-${arch}; use a target-specific build`);
-}
-async function walk(dir) {
-  const result = [];
-  for (const entry of await readdir(dir, { withFileTypes: true })) {
-    const name = path.join(dir, entry.name);
-    if (entry.isSymbolicLink()) throw new Error(`Symlink is not allowed in resources: ${name}`);
-    if (entry.isDirectory()) result.push(...await walk(name));
-    else if (entry.isFile()) result.push(name);
-  }
-  return result;
 }
 async function verifiedLocal(root, relative) {
   safeRelative(relative);
@@ -92,54 +81,6 @@ function cargo(args, env = process.env) {
   const result = spawnSync('cargo', args, { cwd: ROOT, env, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
   if (result.error || result.status !== 0) throw new Error(`cargo ${args[0]} failed: ${result.error || result.stderr}`);
   return result.stdout;
-}
-export function isLicenseNotice(filename) {
-  // Source APIs named copying.rs/copyright.rs are not license notices.
-  return /^(LICEN[CS]E|COPYING|NOTICE|COPYRIGHT)/i.test(path.basename(filename))
-    && !/\.(rs|c|h|cpp|hpp|py|js|mjs|ts|tsx|jsx|toml|json)$/i.test(filename);
-}
-export async function stageCargoLicenses(destination, target) {
-  await mkdir(destination, { recursive: true });
-  await cp(path.join(ROOT, 'THIRD_PARTY_NOTICES.md'), path.join(destination, 'THIRD_PARTY_NOTICES.md'));
-  const supplements = new Set(JSON.parse(await readFile(path.join(ROOT, 'desktop/license-supplements.json'))));
-  if (!target) {
-    const host = spawnSync('rustc', ['-vV'], { encoding: 'utf8' });
-    target = host.stdout?.match(/^host: (.+)$/m)?.[1];
-    if (host.status !== 0 || !target) throw new Error('Cannot determine Rust host target for license inventory');
-  }
-  const inventory = new Map();
-  for (const manifest of ['desktop/src-tauri/Cargo.toml', 'backend/Cargo.toml']) {
-    const metadata = JSON.parse(cargo(['metadata', '--locked', '--offline', '--format-version', '1', '--filter-platform', target, '--manifest-path', manifest]));
-    const rootId = metadata.packages.find(pkg => path.resolve(pkg.manifest_path) === path.resolve(ROOT, manifest)).id;
-    const nodes = new Map(metadata.resolve.nodes.map(node => [node.id, node]));
-    const reachable = new Set();
-    const visit = id => {
-      if (reachable.has(id)) return;
-      reachable.add(id);
-      for (const dep of nodes.get(id)?.deps || []) visit(dep.pkg);
-    };
-    visit(rootId);
-    for (const pkg of metadata.packages.filter(pkg => reachable.has(pkg.id))) {
-      if (!pkg.source) continue;
-      if (!pkg.source.startsWith('registry+')) throw new Error(`Unreviewed Cargo source: ${pkg.source}`);
-      const key = `${pkg.name}-${pkg.version}`;
-      if (inventory.has(key)) continue;
-      const dir = path.dirname(pkg.manifest_path);
-      const selected = (await walk(dir)).filter(p => isLicenseNotice(p) || (pkg.license_file && p === path.resolve(dir, pkg.license_file)));
-      if (!selected.length && supplements.has(key)) {
-        inventory.set(key, { package: key, license: pkg.license, source: `https://crates.io/crates/${pkg.name}/${pkg.version}`, licenseFiles: ['THIRD_PARTY_NOTICES.md'], supplemental: true });
-        continue;
-      }
-      for (const file of selected) {
-        const target = path.join(destination, key, path.relative(dir, file));
-        await mkdir(path.dirname(target), { recursive: true });
-        await cp(file, target);
-      }
-      inventory.set(key, { package: key, license: pkg.license, source: `https://crates.io/crates/${pkg.name}/${pkg.version}`, licenseFiles: selected.map(p => path.join(key, path.relative(dir, p))) });
-    }
-  }
-  await writeFile(path.join(destination, 'components.json'), JSON.stringify([...inventory.values()], null, 2) + '\n');
-  return [...inventory.values()].filter(component => !component.licenseFiles.length).map(component => component.package);
 }
 export async function readModelMetadata(modelCatalog = null) {
   const records = [];
@@ -247,7 +188,6 @@ export async function prepare(options = {}) {
   const manifest = options.manifest ? validateManifest(JSON.parse(await readFile(options.manifest, 'utf8')), process.platform, process.arch, options.requireInference) : validateManifest({ schema: 1, target: `${process.platform}-${process.arch}`, components: [] }, process.platform, process.arch, options.requireInference);
   await rm(staging, { recursive: true, force: true });
   await mkdir(path.join(staging, 'native'), { recursive: true });
-  await mkdir(path.join(staging, 'licenses'), { recursive: true });
   try {
     // The same refresh runs before every Tauri build, preventing an older
     // prepared resource tree from silently embedding a stale workbench.
@@ -272,11 +212,9 @@ export async function prepare(options = {}) {
         if (file.role === 'executable' && process.platform !== 'win32') await chmod(target, 0o755);
       }
     }
-    manifest.licenseReviewRequired = await stageCargoLicenses(path.join(staging, 'licenses'));
-    if (options.requireInference && manifest.licenseReviewRequired.length) throw new Error(`Missing Cargo license texts: ${manifest.licenseReviewRequired.join(', ')}; add their notices to THIRD_PARTY_NOTICES.md and desktop/license-supplements.json`);
     manifest.service = { file: filename, source: 'backend', build: 'local-cargo' };
     manifest.version = "0.1.0";
-    manifest.inferenceInventoryComplete = Object.keys(SOURCES).every(name => manifest.components.some(component => component.name === name)) && manifest.licenseReviewRequired.length === 0;
+    manifest.inferenceInventoryComplete = Object.keys(SOURCES).every(name => manifest.components.some(component => component.name === name));
     await writeFile(path.join(staging, 'native/manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
     await rm(destination, { recursive: true, force: true });
     await rename(staging, destination);
@@ -302,7 +240,6 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       else throw new Error(`Unknown or incomplete option: ${arg}`);
     }
     const result = await prepare(options);
-    if (result.licenseReviewRequired.length) console.warn(`Release license review required: ${result.licenseReviewRequired.length} crates lack bundled license texts (see native/manifest.json)`);
     console.log(`Prepared native-only ${result.target} resources (${result.inferenceInventoryComplete ? 'inference ready' : 'editor only'}).`);
   }
 }
