@@ -1332,6 +1332,59 @@ fn nearest(records: &[Value], region: &Value) -> Option<usize> {
         .map(|(i, _)| i)
 }
 
+/// Tempo readings retain their position. A later marking cannot confirm a
+/// number predicted in an unrelated bar.
+fn attach_tempo_regions(records: &mut [Value], predictions: &[Value]) {
+    for row in records.iter_mut() {
+        row["tempo_regions"] = json!([]);
+    }
+    for region in predictions {
+        if region["kind"] != "tempo" && region["parsed"]["kind"] != "tempo" {
+            continue;
+        }
+        let Some(tempo) = region["parsed"]["tempo_quarter"].as_i64() else {
+            continue;
+        };
+        let Some(staff) = nearest(records, region) else {
+            continue;
+        };
+        let Ok(region_box) = bbox(region) else {
+            continue;
+        };
+        let reference = &records[staff];
+        let Some((index, _)) = records
+            .iter()
+            .enumerate()
+            .filter(|(_, row)| {
+                ["page", "part_id", "staff_id", "system_index"]
+                    .iter()
+                    .all(|key| row[*key] == reference[*key])
+            })
+            .filter_map(|(index, row)| {
+                let b = bbox(row).ok()?;
+                let x = region_box[0];
+                Some((
+                    index,
+                    ((b[0] - x).max(x - b[0] - b[2]).max(0.), (b[0] - x).abs()),
+                ))
+            })
+            .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+        else {
+            continue;
+        };
+        let bar = bar_index(&records[index]);
+        for row in records
+            .iter_mut()
+            .filter(|row| row["page"] == region["page"] && bar_index(row) == bar)
+        {
+            row["tempo_regions"].as_array_mut().unwrap().push(json!({
+                "page":region["page"],"bbox":region["bbox"],"tempo_quarter":tempo,
+                "source":"information_region","bar_index":bar
+            }));
+        }
+    }
+}
+
 fn staff_key(row: &Value) -> String {
     format!(
         "{}\u{0}{}\u{0}{}",
@@ -1733,6 +1786,7 @@ pub fn recognize_information<G: Generator + ?Sized>(
         &mut predictions,
         config.structure_output.as_deref(),
     )?;
+    attach_tempo_regions(&mut records, &predictions);
     let mut values = vec![];
     let mut profiles = vec![];
     let mut contexts = vec![];
@@ -2149,6 +2203,7 @@ pub fn recognize_information<G: Generator + ?Sized>(
                 "instrument_needs_review",
                 "tuning_needs_review",
                 "instrument_tuning_candidates",
+                "tempo_regions",
             ] {
                 if let Some(v) = r.get(key) {
                     profile[key] = v.clone();
@@ -2786,7 +2841,8 @@ fn assembly_auxiliary(row: &Value, information: &Value) -> Result<Value> {
                     })
             })
         });
-    let mut result = json!({"state":state,"staff_start":staff_start});
+    let mut result = json!({"state":state,"staff_start":staff_start,
+        "tempo_regions":list(row,"tempo_regions")});
     if flag(row, "manually_edited") {
         let target = row["target"]
             .as_str()
@@ -2913,6 +2969,7 @@ pub fn refresh_issues(row: &mut Value) -> Result<()> {
             "pitch_conversion" => "音高转换所需的谱号或移调信息不完整",
             "duplicate_bar_identity" => "多个小节占用了同一位置",
             "state_value_invalid" => "拍号、调号或谱号识别值无效",
+            "tempo_unconfirmed" => "速度变化尚无对应谱面标记支持，暂未生效；可对照原谱编辑确认",
             _ => "识别信息尚未完整组装",
         };
         add(code, message.into());
@@ -3335,6 +3392,68 @@ mod observation_pipeline_tests {
     }
     fn information() -> Value {
         json!({"parts":[],"document_metadata":{}})
+    }
+    #[test]
+    fn tempo_changes_require_local_regions_and_manual_edits_remain_authoritative() {
+        let mut rows: Vec<_> = (0..4)
+            .map(|bar| {
+                let mut row = record(bar, json!(5), json!([]));
+                row["page"] = json!(1);
+                row["system_index"] = json!(0);
+                row["bbox"] = json!([bar * 100, 50, 100, 100]);
+                row["observation"]["voices"][0]["events"][0]["duration"] = json!("w");
+                row
+            })
+            .collect();
+        rows[1]["observation"]["voices"][0]["events"][0]["effects"] = json!(["tempo:20"]);
+        rows[2]["observation"]["voices"][0]["events"][0]["effects"] = json!(["tempo:140"]);
+        let research = scorelib::observation::assemble(&rows, None).unwrap();
+        assert!(research["records"][1]["ir"]
+            .as_str()
+            .unwrap()
+            .contains("tempo:20"));
+        let predictions = json!([
+            {"kind":"tempo","page":1,"bbox":[5,30,40,15],"parsed":{"tempo_quarter":97}},
+            {"kind":"annotation","page":1,"bbox":[280,30,40,15],"parsed":{"kind":"tempo","tempo_quarter":140}},
+            {"kind":"tempo","page":2,"bbox":[105,30,40,15],"parsed":{"tempo_quarter":20}}
+        ]);
+        attach_tempo_regions(&mut rows, predictions.as_array().unwrap());
+        let original = rows[1]["observation"].clone();
+        let mut info = information();
+        info["document_metadata"]["tempo_quarter"] = json!(97);
+        finalize_records(&mut rows, &mut info).unwrap();
+        assert_eq!(rows[0]["tempo_regions"][0]["tempo_quarter"], 97);
+        assert_eq!(rows[1]["tempo_regions"], json!([]));
+        assert_eq!(
+            rows[2]["tempo_regions"][0]["bbox"],
+            json!([280, 30, 40, 15])
+        );
+        assert_eq!(rows[1]["observation"], original);
+        assert!(rows[1]["target"]
+            .as_str()
+            .unwrap()
+            .find("tempo:20")
+            .is_none());
+        assert!(list(&rows[1], "issues")
+            .iter()
+            .any(|issue| issue["code"] == "tempo_unconfirmed"));
+        assert!(rows[2]["target"].as_str().unwrap().contains("tempo:140"));
+        let export = scorelib::observation::export_measure(&rows[1]).unwrap();
+        assert!(list(&export["measure"]["voices"][0]["events"][0], "effects").is_empty());
+
+        rows[1]["manually_edited"] = json!(true);
+        rows[1]["target"] = json!("M time=4/4 tempo=80 | V0{@0:w:s1f5<tempo:20>}");
+        finalize_records(&mut rows, &mut info).unwrap();
+        assert_eq!(rows[1]["observation"], original);
+        assert!(rows[1]["target"].as_str().unwrap().contains("tempo:20"));
+        assert!(rows[1]["target"].as_str().unwrap().contains("tempo=80"));
+        assert!(
+            list(&rows[1]["resolved"]["voices"][0]["events"][0], "effects")
+                .contains(&json!("tempo:20"))
+        );
+        assert!(!list(&rows[1], "issues")
+            .iter()
+            .any(|issue| issue["code"] == "tempo_unconfirmed"));
     }
     #[test]
     fn printed_tuning_resolves_only_one_supported_string_count() {

@@ -21,9 +21,18 @@ const EVENT_EFFECTS: &[&str] = &[
     "stroke_down",
     "stroke_up",
 ];
-const NOTE_EFFECT_PATTERN: &str = r"^(?:harm:[^\s,{}|#]+|bend:[^\s:,{}|#]+:-?[0-9]+|trem:(?:8|16|32)|trill:(?:f[0-9]+(?:p[0-9]+)?|p[0-9]+)(?::(?:16|32|64))?|grace:(?:x|f[0-9]+(?:p[0-9]+)?|p[0-9]+)(?::(?:8|16|32|64|128))?:(?:none|slide|bend|hammer):(?:0|1|-):(?:0|1))$";
-const EVENT_EFFECT_PATTERN: &str =
-    r"^(?:slap:(?:none|tapping|slapping|popping)|(?:tempo|dyn):[0-9]+|(?:chord|text):[^\s,{}|#]+)$";
+// Match the IR's musical ranges before decoding, so a generated effect cannot
+// invalidate otherwise readable notes at the observation parser.
+const NOTE_EFFECT_PATTERN: &str = concat!(
+    r"^(?:harm:[^\s,{}|#()<>\[\]]+|bend:[^\s:,{}|#()<>\[\]]+:-?[0-9]+|trem:(?:8|16|32)",
+    r"|trill:(?:f(?:[0-9]|[12][0-9]|3[0-6])(?:p(?:[0-9]|[1-9][0-9]|1[01][0-9]|12[0-7]))?|p(?:[0-9]|[1-9][0-9]|1[01][0-9]|12[0-7]))(?::(?:16|32|64))?",
+    r"|grace:(?:f(?:[0-9]|[12][0-9]|3[0-6])(?:p(?:[0-9]|[1-9][0-9]|1[01][0-9]|12[0-7]))?|p(?:[0-9]|[1-9][0-9]|1[01][0-9]|12[0-7]))(?::(?:8|16|32|64|128))?:(?:none|slide|bend|hammer):(?:0|1|-):(?:0|1)",
+    r"|grace:x(?::(?:8|16|32|64|128))?:(?:none|slide|bend|hammer):(?:0|1|-):1)$",
+);
+const EVENT_EFFECT_PATTERN: &str = concat!(
+    r"^(?:slap:(?:none|tapping|slapping|popping)|tempo:[1-9][0-9]{0,2}",
+    r"|dyn:(?:[0-9]|[1-9][0-9]|1[01][0-9]|12[0-7])|(?:chord|text):[^\s,{}|#()<>\[\]]+)$",
+);
 fn array(v: &Value) -> &[Value] {
     v.as_array().map(Vec::as_slice).unwrap_or(&[])
 }
@@ -495,6 +504,47 @@ struct Row {
     voice_map: Value,
     voice_links: BTreeMap<(usize, i64, i64), Value>,
     relations: Value,
+}
+
+fn confirm_tempos(row: &mut Row, auxiliary: &Value) {
+    if auxiliary["source"] == "manual" {
+        return;
+    }
+    // Research can assemble observations without running the region reader.
+    // An explicit empty list means that pass found no supporting tempo mark.
+    let Some(regions) = auxiliary.get("tempo_regions") else {
+        return;
+    };
+    let mut pending = Vec::new();
+    for voice in row.value["resolved"]["voices"].as_array_mut().unwrap() {
+        let id = voice["voice"].clone();
+        for (index, event) in voice["events"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .enumerate()
+        {
+            let Some(effects) = event.get_mut("effects").and_then(Value::as_array_mut) else {
+                continue;
+            };
+            effects.retain(|effect| {
+                let Some(value) = effect.as_str().and_then(|s| s.strip_prefix("tempo:")) else {
+                    return true;
+                };
+                let tempo = value.parse::<i64>().unwrap();
+                let supported = array(regions)
+                    .iter()
+                    .any(|region| region["tempo_quarter"] == tempo);
+                if !supported {
+                    pending.push(json!({"voice":id,"event":index,"tempo_quarter":tempo}));
+                }
+                supported
+            });
+        }
+    }
+    for detail in pending {
+        issue(row, "tempo_unconfirmed", detail);
+    }
 }
 
 pub fn parse_measure_observation(value: &Value, mode: &str) -> Result<Value, String> {
@@ -2370,6 +2420,7 @@ pub fn assemble(records: &[Value], auxiliary: Option<&[Value]>) -> Result<Value,
             voice_links: BTreeMap::new(),
             relations,
         };
+        confirm_tempos(&mut row, extra);
         independent_dual_notes(&mut row);
         rows.push(row);
     }

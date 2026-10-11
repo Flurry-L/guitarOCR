@@ -81,13 +81,13 @@
         "path": "weights/score_ocr/gguf/model-Q8_0.gguf",
         "asset": "score_ocr-gguf-model-Q8_0.gguf",
         "bytes": 722295296,
-        "sha256": "9ad1c1776100ee1561419710de0b1ab215ae04ca0edd0ffad6aca7f98c5d5dad"
+        "sha256": "7a092e2f14b858641aba87adedc05f8c5fae6df0629e57c03b137b664033cf19"
       },
       {
         "path": "weights/score_ocr/gguf/vision-F16.gguf",
         "asset": "score_ocr-gguf-vision-F16.gguf",
         "bytes": 869017888,
-        "sha256": "4a56727a1aef48a30c47c66ad08b49bc3259063a8ae5ac9cf9be427bf399f8df"
+        "sha256": "71f756f591c0b1a321eec73466fa02db6b58d327372c80aeb4c1a00b0f6fde0c"
       },
       {
         "path": "weights/information/gguf/model-Q8_0.gguf",

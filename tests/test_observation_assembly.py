@@ -4,6 +4,7 @@ from copy import deepcopy
 import json
 import os
 from pathlib import Path
+import re
 from types import SimpleNamespace
 import unittest
 
@@ -59,6 +60,51 @@ def glyph(x0, x1, *, y=40, string=0):
 
 
 class ObservationAssemblyTests(unittest.TestCase):
+    def test_effect_generation_schema_matches_ir_boundaries(self):
+        from research.inference.assembly import observation_schema
+
+        event_cases = [(f'dyn:{value}', 0 <= value <= 127) for value in range(130)]
+        event_cases += [(f'tempo:{value}', 1 <= value <= 999) for value in (0, 1, 999, 1000)]
+        event_cases += [('dyn:211', False), ('dyn:-1', False)]
+        event_cases += [('chord:F%23', True), ('chord:C%28add9%29', True),
+                        ('text:%3C%5Bverse%5D%3E', True)]
+        event_cases += [(f'{kind}:ss{delimiter}', False)
+                        for kind in ('chord', 'text') for delimiter in '()<>[]']
+        note_cases = [(f'{kind}:f{fret}{tail}', fret <= 36)
+                      for kind, tail in [('trill', ':16'), ('grace', ':8:none:0:0')]
+                      for fret in range(38)]
+        note_cases += [(f'{kind}:p{pitch}{tail}', pitch <= 127)
+                       for kind, tail in [('trill', ':64'), ('grace', ':128:hammer:-:0')]
+                       for pitch in range(130)]
+        note_cases += [('trill:f36p127:32', True), ('trill:f37p127:32', False),
+                       ('grace:f36p128:16:bend:1:0', False),
+                       ('grace:x:none:0:1', True), ('grace:x:none:0:0', False),
+                       ('grace:x:128:slide:-:1', True)]
+        note_cases += [(f'harm:natural{delimiter}', False) for delimiter in '()<>[]']
+        note_cases += [(f'bend:bend{delimiter}:1', False) for delimiter in '()<>[]']
+        for mode in ('tab', 'notation', 'both'):
+            schema = observation_schema(mode)
+            event_schema = schema['properties']['voices']['items']['properties']['events']['items']
+            note_schema = event_schema['properties']['notes']
+            if 'anyOf' in note_schema:
+                note_schema = next(s for s in note_schema['anyOf'] if s.get('type') == 'array')
+            for cases, effect_schema, location in (
+                    (event_cases, event_schema['properties']['effects'], 'event'),
+                    (note_cases, note_schema['items']['properties']['effects'], 'note')):
+                pattern = effect_schema['items']['anyOf'][1]['pattern']
+                for effect, accepted in cases:
+                    with self.subTest(mode=mode, effect=effect):
+                        self.assertEqual(re.fullmatch(pattern, effect) is not None, accepted)
+                        observation = measure(0)['observation']
+                        event = observation['voices'][0]['events'][0]
+                        target = event if location == 'event' else event['notes'][0]
+                        target['effects'] = [effect]
+                        if accepted:
+                            parse_observation(observation)
+                        else:
+                            with self.assertRaises(ValueError):
+                                parse_observation(observation)
+
     def test_signature_classifier_absence_prevents_false_state_changes(self):
         rows = [measure(0), measure(1), measure(2)]
         rows[0]['observation']['state'].update(time={'status': 'observed', 'value': '6/8'},
@@ -573,8 +619,15 @@ class ObservationAssemblyTests(unittest.TestCase):
                                     [connection(kind, 'left', [0, 0, 0], shape=shape)])]
                     result = assemble(rows)
                     self.assertEqual(note(result, 1, 0)['fret'], target)
-                    self.assertIn(kind, note(result, 0, 3)['effects'])
-                    self.assertEqual(result['relations'][0]['status'], 'resolved')
+                    if target is None:
+                        self.assertNotIn(kind, note(result, 0, 3).get('effects', []))
+                        self.assertEqual(result['relations'][0]['status'], 'unresolved')
+                        self.assertEqual(result['relations'][0]['reason'], f'{kind}_value_unresolved')
+                    else:
+                        self.assertIn(kind, note(result, 0, 3)['effects'])
+                        self.assertEqual(result['relations'][0]['status'], 'resolved')
+                    self.assertEqual(result['records'][0]['observation']['relations'],
+                                     rows[0]['observation']['relations'])
                     self.assertEqual(result['records'][1]['ir'] is None, target is None)
 
     def test_visible_tie_fret_conflict_is_preserved(self):
@@ -598,13 +651,15 @@ class ObservationAssemblyTests(unittest.TestCase):
                 self.assertEqual(result['records'][1]['observation']['relations'], [])
                 self.assertEqual(note(result, 1, 0)['fret'], 7)
                 self.assertIn(kind, note(result, 0, 3)['effects'])
-                # Two competing notes must not turn a source-only mark into
-                # a guessed destination; its observed origin effect survives.
+                # Two competing notes leave the visible relation open; export
+                # cannot attach a slide without an established destination.
                 rows[1]['observation']['voices'][0]['events'][0]['notes'].append({'string': 1, 'fret': 9})
                 ambiguous = assemble(rows)
                 self.assertEqual(ambiguous['relations'][0]['end'], 'right')
                 self.assertEqual(ambiguous['relations'][0]['status'], 'open')
-                self.assertIn(kind, note(ambiguous, 0, 3)['effects'])
+                self.assertNotIn(kind, note(ambiguous, 0, 3).get('effects', []))
+                self.assertEqual(ambiguous['records'][0]['observation']['relations'],
+                                 rows[0]['observation']['relations'])
 
     def test_legato_slide_can_continue_as_only_its_curve(self):
         rows = [measure(0, relations=[connection('sl', [0, 3, 0], 'right', shape='diagonal')]),
