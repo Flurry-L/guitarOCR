@@ -83,9 +83,9 @@ function observeNotes(factories, sourceOf, records) {
         glyph.addTie = function (tie) {
           if (/^(tab|score)\.tie\.\d+$/.test(tie.slurEffectId || ""))
             wrapPaint(tie, () => ({ kind: "tie", staff_type, start: sourceOf.get(tie.startNote), end: sourceOf.get(tie.endNote) }));
-          else if (/^tab\.slur\.effect\./.test(tie.slurEffectId || ""))
+          else if (/^(tab|score)\.slur\.effect\./.test(tie.slurEffectId || ""))
             wrapPaint(tie, () => ({ kind: "technique", staff_type, start: sourceOf.get(tie.startNote), end: sourceOf.get(tie.endNote) }));
-          else if (staff_type === "tab" && owner && !tie.slurEffectId) {
+          else if (owner && !tie.slurEffectId) {
             // Native slides have no public type/owner fields. Capture their
             // creation owner and actual strokes; classify the visible line
             // relative to its note bounds after rendering, without source flags.
@@ -144,7 +144,8 @@ function observeNotes(factories, sourceOf, records) {
   for (const factory of factories) for (const band of factory.effectBands || []) {
     const effect = band.effect;
     const kind = effect.notationElement === alphaTab.NotationElement.EffectDynamics ? "dynamic"
-      : effect.notationElement === alphaTab.NotationElement.EffectChordNames ? "chord" : null;
+      : effect.notationElement === alphaTab.NotationElement.EffectChordNames ? "chord"
+      : effect.notationElement === alphaTab.NotationElement.EffectPickStroke ? "pick" : null;
     if (!kind || observedEffects.has(effect)) continue;
     observedEffects.add(effect);
     const create = effect.createNewGlyph;

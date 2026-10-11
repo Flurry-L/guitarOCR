@@ -635,28 +635,34 @@ def native_tuplet_evidence(page, grouped, staff_index, system, index, crop_mm):
     return counts, consumed, labels
 
 
-def native_dynamic_evidence(drawing, grouped, staff_index, index, crop_mm):
-    """Place a printed staff dynamic at its visible horizontal event anchor."""
-    from research.data.observations import DYNAMIC_SYMBOLS
+def native_event_symbol_evidence(drawing, grouped, staff_index, index, crop_mm):
+    """Place printed dynamics and picking signs at their visible event anchor."""
+    from research.data.observations import DYNAMIC_SYMBOLS, PICK_SYMBOLS
+
+    symbols = {code: f'dyn:{value}' for code, value in DYNAMIC_SYMBOLS.items()} | PICK_SYMBOLS
 
     left, top, right, bottom = crop_mm
     effects, boxes = {}, []
     for char in drawing.chars:
-        if len(char['text']) != 1 or ord(char['text']) not in DYNAMIC_SYMBOLS:
+        if len(char['text']) != 1 or ord(char['text']) not in symbols:
             continue
         x0, y0, x1, y1 = [char[k] * 25.4 / 72 for k in ('x0', 'top', 'x1', 'bottom')]
         if not (left <= x0 <= x1 <= right and top <= y0 <= y1 <= bottom):
             continue
+        effect = symbols[ord(char['text'])]
         candidates = {key[:4] for key, glyphs in grouped.items()
                       if key[:2] == (staff_index, index)
-                      and any(x0 <= g['render_origin_mm'][0] <= x1 for g in glyphs)}
-        # A dynamic applies to the staff at this onset. Simultaneous voices
-        # use the first local voice as its serialization anchor.
+                      and any(x0 <= (g['bbox_mm'][0] + g['bbox_mm'][2] / 2
+                                      if effect.startswith('pick_') else g['render_origin_mm'][0]) <= x1
+                              for g in glyphs)}
+        # Simultaneous voices share a staff dynamic, but a picking sign
+        # requires a unique event owner.
         events = {(key[1], key[3]) for key in candidates}
-        if not candidates or len(events) != 1:
-            raise ValueError('printed_dynamic_without_visible_onset')
+        if not candidates or len(events) != 1 or effect.startswith('pick_') and len(candidates) != 1:
+            raise ValueError('printed_event_symbol_without_visible_onset')
         owner = min(candidates)
-        effects.setdefault(owner, []).append(f"dyn:{DYNAMIC_SYMBOLS[ord(char['text'])]}")
+        if effect not in effects.setdefault(owner, []):
+            effects[owner].append(effect)
         boxes.append([char[k] for k in ('x0', 'top', 'x1', 'bottom')])
     return effects, boxes
 
@@ -688,7 +694,8 @@ def native_connection_representation(raw, grouped, staff_index, system):
     return min(distances, key=distances.get)
 
 
-def native_connection_evidence(page, layout, grouped, staff_index, system, index, crop_mm):
+def native_connection_evidence(page, layout, grouped, staff_index, system, index, crop_mm,
+                               other_staff_relations=()):
     """Read note connections from actual draw paths and local PDF lettering.
 
     Native owner pointers locate notes; class names and hidden fret strings do
@@ -720,6 +727,26 @@ def native_connection_evidence(page, layout, grouped, staff_index, system, index
         # covers numerical serialization, less than 0.001 pixel at training DPI.
         return len(a) == len(b) and all(abs(x - y) < 1e-4 for p, q in zip(a, b) for x, y in zip(p, q))
 
+    def head_owner(point):
+        # GP's notation beat-slur painter omits owner pointers. Its endpoints
+        # still align with actual painted heads; ambiguous unisons stay unknown.
+        px, py = point
+        candidates = []
+        for key, glyphs in grouped.items():
+            if key[0] != staff_index or key[1] not in measures:
+                continue
+            for glyph in glyphs:
+                if glyph['kind'] != 'notehead':
+                    continue
+                x, y, width, height = glyph['bbox_mm']
+                if x - 1e-4 <= px <= x + width + 1e-4:
+                    candidates.append((max(y - py, 0, py - y - height), key))
+        if not candidates:
+            return None
+        nearest = min(distance for distance, _ in candidates)
+        owners = {key for distance, key in candidates if abs(distance - nearest) < 1e-4}
+        return next(iter(owners)) if len(owners) == 1 else None
+
     drawn = []
     for raw in geometry.get('relations', []) if geometry.get('status') == 'complete' else []:
         if raw.get('page') != system['page'] or raw.get('system_index') != system['system_index']:
@@ -743,6 +770,10 @@ def native_connection_evidence(page, layout, grouped, staff_index, system, index
         if len(matched) != 1:
             continue
         start, end = owner_key(raw.get('start_owner')), owner_key(raw.get('end_owner'))
+        if len(points) == 4 and start is None and end is None:
+            a, b = head_owner(raw['points_mm'][0]), head_owner(raw['points_mm'][-1])
+            if a and b and a[2] == b[2] and (a[1], a[3]) < (b[1], b[3]):
+                start, end = a, b
         if len(points) == 2 and start is None and end is None:
             start, end = native_slide_owners(raw['points_mm'], grouped, staff_index, system)
         record = dict(raw=raw, points=points, box=bbox_of(points), start=start, end=end,
@@ -805,6 +836,18 @@ def native_connection_evidence(page, layout, grouped, staff_index, system, index
                           <= max([item['box'][2], *(local_glyphs[key]['render_origin_mm'][0] * factor
                                   for key in (item['start'], item['end']) if key in local_glyphs)])
                           for item in members)]
+        # Two staves can print the same H/P at the same x. Attach its actual
+        # ink to the nearer drawn curve, independently for each staff.
+        def distance(box):
+            return max(box[1] - word[3], 0, word[1] - box[3])
+        if matches:
+            nearest = min(distance(item['box']) for gi in matches for item in merged[gi])
+            other = [bbox_of([[x * factor, y * factor] for x, y in raw['points_mm']])
+                     for raw in other_staff_relations
+                     if raw.get('page') == system['page'] and raw.get('system_index') == system['system_index']
+                     and raw.get('points_mm')]
+            if any(box[0] <= center <= box[2] and distance(box) <= nearest for box in other):
+                continue
         if len(matches) == 1:
             word_owners.setdefault(matches[0], []).append(word)
 
@@ -838,7 +881,33 @@ def native_connection_evidence(page, layout, grouped, staff_index, system, index
         local_start = start is not None and start[1] == index
         local_end = end is not None and end[1] == index
         if kind in ('hammer', 'sl', 'ss') and local_start and local_end:
-            effects.setdefault(start, set()).add(kind)
+            origins = {start}
+            hopo_words = [word for word in words if word[4] in ('H', 'P')
+                          and left <= word[0] and word[2] <= right
+                          and top <= word[1] and word[3] <= bottom]
+            if kind == 'hammer' and len(hopo_words) > 1:
+                # One arc can carry H/P labels for several consecutive
+                # connections. Each visible label belongs to its own gap.
+                anchors = [(glyph['render_origin_mm'][0] * factor, key)
+                           for key, glyph in local_glyphs.items()
+                           if key[:3] == start[:3] and start[3] <= key[3] <= end[3]
+                           and visible_text(key) is not None]
+                origins = set()
+                for word in hopo_words:
+                    center = (word[0] + word[2]) / 2
+                    before = [(x, key) for x, key in anchors if x < center]
+                    after = [(x, key) for x, key in anchors if x > center]
+                    if not before or not after:
+                        raise ValueError('hopo_label_without_visible_note_gap')
+                    a = {key for x, key in before if abs(x - max(x for x, _ in before)) < 1e-4}
+                    b = {key for x, key in after if abs(x - min(x for x, _ in after)) < 1e-4}
+                    if len(a) != 1 or len(b) != 1:
+                        raise ValueError('ambiguous_hopo_label_note_gap')
+                    origins.update(a)
+                if len(origins) != len(hopo_words):
+                    raise ValueError('duplicate_hopo_label_note_gap')
+            for origin in origins:
+                effects.setdefault(origin, set()).add(kind)
             continue
         # At a system edge the painter can expose only one owner. Its open
         # segment is still visible even when it starts after the clef margin.
@@ -1026,7 +1095,7 @@ def native_observations(layout, score, document, dpi=180):
     event_marks = ('grace', 'ottavia_present', 'barre_present', 'fade_present', 'hairpin_present',
         'golpe_present', 'wah_present', 'slashed', 'timer_present', 'free_text_present',
         'lyrics',
-        'is_brushed', 'has_arpeggio', 'pick_stroke_present', 'slapped', 'popped',
+        'is_brushed', 'has_arpeggio', 'slapped', 'popped',
         'rasgueado_present', 'tremolo', 'whammy', 'whammy_extend', 'tremolo_bar_vibrato_present',
         'dead_slapped', 'sustain_pedal')
     page_objects, page_spans, result = {}, {}, {}
@@ -1093,14 +1162,17 @@ def native_observations(layout, score, document, dpi=180):
                            for key, glyphs in all_glyphs.items()}
                 visible = {key: glyphs for key, glyphs in visible.items() if glyphs}
                 connection_layout = layout
+                other_staff_relations = []
                 if mode == 'both':
                     geometry = layout['relation_geometry']
+                    other_staff_relations = [raw for raw in geometry.get('relations', [])
+                        if native_connection_representation(raw, all_glyphs, staff['staff_index'], system) != representation]
                     connection_layout = {**layout, 'relation_geometry': {**geometry, 'relations': [
                         raw for raw in geometry.get('relations', [])
                         if native_connection_representation(raw, all_glyphs, staff['staff_index'], system) == representation]}}
                 found, effects, hidden, curves, lines, labels = native_connection_evidence(
                     pdf_page, connection_layout, visible, staff['staff_index'], system,
-                    index, (left, top, right, bottom))
+                    index, (left, top, right, bottom), other_staff_relations)
                 if mode == 'both':
                     for relation in found:
                         relation['representation'] = representation
@@ -1117,7 +1189,7 @@ def native_observations(layout, score, document, dpi=180):
                 (left, top, right, bottom), strings)
             tuplet_counts, tuplet_curves, tuplet_labels = native_tuplet_evidence(
                 pdf_page, grouped, staff['staff_index'], system, index, (left, top, right, bottom))
-            dynamic_effects, dynamic_labels = native_dynamic_evidence(
+            symbol_effects, symbol_labels = native_event_symbol_evidence(
                 drawing, grouped, staff['staff_index'], index, (left, top, right, bottom))
             chord_effects, chord_labels, chord_evidence, diagram_labels = native_chord_evidence(
                 pdf_page, grouped, staff, measure, page, (left, top, right, bottom))
@@ -1169,7 +1241,7 @@ def native_observations(layout, score, document, dpi=180):
             for char in chars:
                 if any(x0 - 1e-6 <= char['x0'] and char['x1'] <= x1 + 1e-6
                        and y0 - 1e-6 <= char['top'] and char['bottom'] <= y1 + 1e-6
-                       for x0, y0, x1, y1 in scope_labels + tuplet_labels + dynamic_labels + tempo_labels + connection_labels + chord_labels):
+                       for x0, y0, x1, y1 in scope_labels + tuplet_labels + symbol_labels + tempo_labels + connection_labels + chord_labels):
                     continue
                 text = char['text']
                 for letter in text:
@@ -1362,7 +1434,7 @@ def native_observations(layout, score, document, dpi=180):
                                           status=status, notes=notes)
                     if mode == 'both':
                         observed_event['notation_notes'] = notation_notes
-                    printed_effects = list(dynamic_effects.get(owner, []))
+                    printed_effects = list(symbol_effects.get(owner, []))
                     printed_effects += chord_effects.get(owner, [])
                     if voice['voice_index'] == min(v['voice_index'] for v in measure['voices']):
                         printed_effects += tempo_effects.get(int(onset), [])

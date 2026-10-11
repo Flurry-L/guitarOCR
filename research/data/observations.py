@@ -21,6 +21,7 @@ ACCIDENTALS = {'E260': -1, 'E261': 0, 'E262': 1, 'E263': 2, 'E264': -2}
 TAB_TECHNIQUES = {'hammer', 'sl', 'ss', 'sib', 'sia', 'sou', 'sod'}
 DYNAMIC_SYMBOLS = {58666: 15, 58667: 31, 58656: 47, 58668: 63,
                    58669: 79, 58658: 95, 58671: 111, 58672: 127}
+PICK_SYMBOLS = {0xE610: 'pick_down', 0xE612: 'pick_up'}
 
 
 def glyph_code(node):
@@ -374,6 +375,14 @@ def tab_score(index, split):
         for ei, event in enumerate(events):
             if ei not in reserved and event['notes'] and rng.random() < .32:
                 rng.choice(event['notes'])['effects'].append(rng.choice(['sib', 'sia', 'sou', 'sod']))
+        # Match H/P and slide phrases with independent picking signs. Views
+        # with no sign retain exactly the same notes and local techniques.
+        if appearance:
+            for ei, event in enumerate(events):
+                if event['notes'] and (ei == 0 or any('hammer' in n['effects'] for n in event['notes'])
+                                       or ei % 3 == 0):
+                    event['effects'].append('pick_down' if appearance == 1 else 'pick_up'
+                                            if appearance == 2 else ['pick_down', 'pick_up'][ei % 2])
         if mi == 0 or rng.random() < .4:
             sounded = [event for event in events if event['notes']]
             if sounded:
@@ -624,9 +633,9 @@ def tab_crops(geometry, size):
         tops.extend(p['bbox'][1] for p in painted
                     if p['kind'] in ('fret', 'signature', 'notehead', 'accidental') and p['mi'] == mi
                     and (p['texts'] or p['symbols']))
-        chords = [p['bbox'] for p in painted if p['kind'] == 'chord' and p['mi'] == mi]
-        tops.extend(b[1] for b in chords)
-        bottoms.extend(b[1] + b[3] for b in chords)
+        marks = [p['bbox'] for p in painted if p['kind'] in ('chord', 'pick', 'dynamic') and p['mi'] == mi]
+        tops.extend(b[1] for b in marks)
+        bottoms.extend(b[1] + b[3] for b in marks)
         context = [p['bbox'] for p in geometry.get('context', []) if p['mi'] == mi]
         tops.extend(box[1] for box in context)
         bottoms.extend(box[1] + box[3] for box in context)
@@ -871,6 +880,14 @@ def tab_observations(state, geometry, page_image, output, index):
                 raise ValueError('Printed dynamic has no unique visible symbol in its measure crop')
             event = voices[dynamic['vi']]['events'][dynamic['ei']]
             event.setdefault('effects', []).append(f'dyn:{values.pop()}')
+        for pick in (p for p in painted if p['kind'] == 'pick' and p['mi'] == mi):
+            values = {PICK_SYMBOLS[symbol] for symbol in pick['symbols'] if symbol in PICK_SYMBOLS}
+            if len(values) != 1 or not intersects(pick['bbox'], crop):
+                raise ValueError('Printed picking sign has no unique visible symbol in its measure crop')
+            event = voices[pick['vi']]['events'][pick['ei']]
+            effect = values.pop()
+            if effect not in event.setdefault('effects', []):
+                event['effects'].append(effect)
         for technique in (p for p in painted if p['kind'] == 'technique' and p['paths']
                           and p['start']['mi'] == mi):
             a = technique['start']
@@ -1015,12 +1032,13 @@ def score_mode(index, split, mode):
             row['score_state']['key'] = key
             row['parsed'].update(key_signature=KeySignature((key, 0)).name,
                                  print_key_signature=mi in (0, 4))
-        # Ties remain as actual curves; TAB-specific effects already have
-        # their own corpus. Each staff supplies its own visible note group.
+        # Local techniques also occur on dual staves. Their labels come from
+        # each staff's actual paint, just as the two note groups do.
         for voice in row['parsed']['voices']:
             for event in voice['events']:
                 for note in event['notes']:
-                    note['effects'] = [effect for effect in note['effects'] if effect == 'tie']
+                    note['effects'] = [effect for effect in note['effects']
+                                       if effect == 'tie' or mode == 'both' and effect in TAB_TECHNIQUES]
         if mode == 'drums':
             row.update(instrument='drums', part_name='Drums', midi_program=0, tuning=[])
             row['pitch_context'].update(clef='percussion', instrument_transpose=0)

@@ -444,13 +444,39 @@ def create_chord_score(index, seed, bars):
     return song, 'guitar', 24, -12, None
 
 
+def create_picking_score(index, seed, bars):
+    """Picking signs alone and beside H/P phrases, with unmarked controls."""
+    song, instrument, program, shift, instruction = create_technique_score(index * 2, seed, bars)
+    rng = random.Random(f'picking:{seed}:{index}')
+    track = song.tracks[0]
+    track.offset = 0
+    for mi, measure in enumerate(track.measures):
+        events = measure.voices[0].beats
+        group = rng.choice([2, 3])
+        for ei, event in enumerate(events):
+            if ei % group == 0:
+                string, fret = rng.randint(1, len(track.strings)), rng.randint(4, 14)
+                direction = rng.choice([-1, 1])
+            event.effect = m.BeatEffect()
+            event.octave = m.Octave.none
+            event.text = ''
+            note = m.Note(event, string=string, value=fret + direction * (ei % group),
+                          type=m.NoteType.normal)
+            event.notes = [note]
+            if mi % 4 in (1, 3) and ei % group + 1 < group and ei + 1 < len(events):
+                note.effect.hammer = True
+            if mi % 4 in (2, 3) and ei % group == 0:
+                event.effect.pickStroke = rng.choice([m.BeatStrokeDirection.up, m.BeatStrokeDirection.down])
+    return song, instrument, program, shift, None
+
+
 def build(output, sources=1200, bars=24, seed=20260928, profile='general', format='gp5'):
     output = output.resolve()
     (output / 'sources').mkdir(parents=True, exist_ok=True)
     (output / 'labels').mkdir(exist_ok=True)
     catalog, manifest, native_styles = [], [], []
     for index in range(sources):
-        creator = {'general': create_score, 'techniques': create_technique_score,
+        creator = {'general': create_score, 'techniques': create_technique_score, 'picking': create_picking_score,
                    'chords': create_chord_score,
                    'native-coverage': create_native_coverage_score}[profile]
         phrase = index // 3 if profile == 'chords' else index
@@ -468,7 +494,7 @@ def build(output, sources=1200, bars=24, seed=20260928, profile='general', forma
                             beat.effect.chord = None
         source_id = f'{seed:08x}{index:08x}'
         # Rotate holdouts so every instrument has independently generated scores.
-        split = ('train', 'train', 'train', 'train', 'train', 'train', 'train', 'train', 'validation', 'test')[(phrase if profile in ('native-coverage', 'chords') else index // 4) % 10]
+        split = ('train', 'train', 'train', 'train', 'train', 'train', 'train', 'train', 'validation', 'test')[(phrase if profile in ('native-coverage', 'chords', 'picking') else index // 4) % 10]
         path = output / 'sources' / f'{source_id}.gp5'
         gp.write(song, str(path))
         if format == 'gp':
@@ -530,7 +556,7 @@ if __name__ == '__main__':
     parser.add_argument('--sources', type=int, default=1200)
     parser.add_argument('--bars', type=int, default=24)
     parser.add_argument('--seed', type=int, default=20260928)
-    parser.add_argument('--profile', choices=['general', 'techniques', 'chords', 'native-coverage'], default='general')
+    parser.add_argument('--profile', choices=['general', 'techniques', 'picking', 'chords', 'native-coverage'], default='general')
     parser.add_argument('--format', choices=['gp5', 'gp'], default='gp5',
                         help='Use gp to preserve authored chord-diagram placement in GP8')
     build(**vars(parser.parse_args()))
