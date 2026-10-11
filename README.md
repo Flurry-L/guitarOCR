@@ -1,10 +1,21 @@
 # GuitarOCR
 
-把乐谱 PDF 或图片变成可编辑的乐谱，支持按需修改并导出 **Guitar Pro（GP5）、MusicXML 或项目 ZIP**。支持 TAB、五线谱、五线谱＋TAB，以及吉他、贝斯、鼓、钢琴等乐器的多轨编辑。
+把乐谱 **PDF 或图片变成可编辑的乐谱**，按需修改并导出 Guitar Pro（GP5）、MusicXML 或项目 ZIP。从 TAB、五线谱和五线谱＋TAB，到钢琴双谱表、鼓谱与多乐器合奏，使用同一套识别与编辑流程。
 
-[下载 0.1](https://github.com/Flurry-L/guitarOCR/releases/tag/v0.1.0) · [工作原理](#工作原理) · [识别网络](#识别网络) · [识别表现](#识别表现) · [代码导览](#代码导览) · [源码运行](#源码运行) · [数据与训练](#数据与训练)
+[下载 0.1](https://github.com/Flurry-L/guitarOCR/releases/tag/v0.1.0) · [演示](#演示) · [工作原理](#工作原理) · [识别网络](#识别网络) · [识别表现](#识别表现) · [代码导览](#代码导览) · [源码运行](#源码运行) · [数据与训练](#数据与训练)
 
-![春日影识别项目：左侧编辑乐谱，右侧对照原始小节](docs/assets/workbench.webp)
+![六种典型场景的原谱与识别结果：TAB、五线谱、双谱、钢琴双谱表、鼓谱与多乐器合奏](docs/assets/score-types.webp)
+
+以上为真实识别项目的节选；未印乐器名称的样例，已在软件中确认乐器信息。
+
+## 演示
+
+点击预览图查看视频。
+
+| 六类乐谱识别 · 约 27 秒 | 修改音符与导出 · 约 19 秒 |
+| --- | --- |
+| <a href="docs/assets/score-types.mp4"><img src="docs/assets/score-types.gif" width="480" alt="六类谱面的原图与识别结果对照"></a> | <a href="docs/assets/editing.mp4"><img src="docs/assets/workbench.webp" width="480" alt="在 C4 谱号五线谱项目中选择音符、修改并导出"></a> |
+| 从单轨到合奏，逐项展示原谱与重新排版的识别结果。 | 将第 3 小节首音 D♯4 改为 E4，保存并导出 GP5 / MusicXML。 |
 
 ## 开始使用
 
@@ -92,7 +103,7 @@ PDF 先栅格化成页面图像。微调后的 **PP-DocLayoutV3** 在整页和�
 | --- | --- | --- |
 | **Observation JSON** | 当前图上的可见内容与开放端点 | 网络输出、组谱输入、回看识别依据 |
 | **M 文本** | 已组装的小节音符、节奏和奏法 | 查看或编辑一个小节的音乐内容 |
-| **ScoreIR** | `timeline` 与 `parts → staves → measures`，以及整谱注释 | 乐谱编辑、播放与 GP5 / MusicXML 导出 |
+| **ScoreIR** | `timeline` 与 `parts → staves → measures`，以及整谱注释 | 乐谱编辑与 GP5 / MusicXML 导出 |
 
 上面延音例子的两节可写成：
 
