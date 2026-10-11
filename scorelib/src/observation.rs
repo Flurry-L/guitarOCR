@@ -1185,6 +1185,19 @@ fn dual_note_pairs(
     let mut pairs = Vec::new();
     let mut remaining: Vec<usize> = (tab_count..notes.len()).collect();
     let mut matched = HashSet::new();
+    // One notation head can represent unisons played on different strings.
+    // An extra unreadable item on an already occupied string is not another
+    // unison: keep it unknown instead of manufacturing a duplicate tied note.
+    let candidates: Vec<_> = (0..tab_count)
+        .filter(|&i| {
+            notes[i]["pitch"].is_i64()
+                || notes[i]["string"].is_null()
+                || !notes[..tab_count]
+                    .iter()
+                    .enumerate()
+                    .any(|(j, note)| j != i && note["string"] == notes[i]["string"])
+        })
+        .collect();
     let pitches: BTreeSet<i64> = notes[..tab_count]
         .iter()
         .filter_map(|n| n["pitch"].as_i64())
@@ -1208,7 +1221,10 @@ fn dual_note_pairs(
         remaining.retain(|i| !notation.contains(i));
         pairs.push((tab, notation));
     }
-    let unmatched: Vec<_> = (0..tab_count).filter(|i| !matched.contains(i)).collect();
+    let unmatched: Vec<_> = candidates
+        .into_iter()
+        .filter(|i| !matched.contains(i))
+        .collect();
     if !unmatched.is_empty()
         && !remaining.is_empty()
         && remaining.len() <= unmatched.len()

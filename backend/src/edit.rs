@@ -107,6 +107,62 @@ mod observation_edit_tests {
     }
 
     #[test]
+    fn export_does_not_complete_a_duplicate_unknown_string_from_a_notation_tie() {
+        // Spring, bar 135: two visible TAB notes and a spurious unreadable
+        // third item on string 1 must not become two simultaneous 1:14 ties.
+        let source = json!({"instrument":"guitar","parts":[],"document_metadata":{},
+            "records":[{"source_id":"score","part_id":"guitar","staff_id":"both",
+                "bar_index":0,"measure_number":1,"mode":"both","instrument":"guitar",
+                "capo":0,"tuning":[64,59,55,50,45,40],"tuning_source":"manual",
+                "pitch_context":{"instrument_transpose":-12,"instrument_transpose_base":-12},
+                "observation":{"state":{"time":{"status":"observed","value":"6/8"},
+                    "key":{"status":"observed","value":0},
+                    "clef":{"status":"observed","value":"G2"},
+                    "clef_octave":{"status":"observed","value":0}},
+                    "voices":[{"voice":0,"events":[
+                        {"start":0,"duration":"e","status":"normal",
+                         "notes":[{"string":1,"fret":14},{"string":3,"fret":11}],
+                         "notation_notes":[{"staff_position":15,"accidental":1},
+                             {"staff_position":8,"accidental":1},{"staff_position":8,"accidental":null}]},
+                        {"start":480,"duration":"q","status":"normal",
+                         "notes":[{"string":1,"fret":14,"effects":["sod"]},
+                             {"string":3,"fret":11},{"string":1,"effects":["trem:32"]}],
+                         "notation_notes":[{"staff_position":15,"accidental":null},
+                             {"staff_position":8,"accidental":null}]}]}],
+                    "relations":[{"kind":"tie","start":[0,0,0],"end":[0,1,0],"representation":"notation"},
+                        {"kind":"tie","start":[0,0,1],"end":[0,1,3],"representation":"notation"}]}}]});
+        let original = source.clone();
+        let (document, summary, warnings) = export_score(&source).unwrap();
+        assert_eq!(source, original);
+        assert_eq!(summary["omitted_notes"], 1);
+        assert!(warnings.iter().any(|warning| warning.contains("延音")));
+        let events = document["parts"][0]["staves"][0]["measures"][0]["voices"][0]["events"]
+            .as_array()
+            .unwrap();
+        let known: Vec<_> = events
+            .iter()
+            .filter(|event| event["status"] == "normal")
+            .collect();
+        assert_eq!(known.len(), 2);
+        assert_eq!(known[1]["start"], 480);
+        assert_eq!(known[1]["notes"].as_array().unwrap().len(), 2);
+        assert_eq!(known[1]["notes"][0]["fret"], 14);
+        assert!(
+            known[1]["notes"][0]["effects"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("tie"))
+        );
+        let output = tempfile::tempdir().unwrap();
+        let report =
+            scorelib::music_exports::write_gp5(&document, &output.path().join("spring.gp5"))
+                .unwrap();
+        assert_eq!(report["report"]["readback_verified"], true);
+        scorelib::music_exports::write_musicxml(&document, &output.path().join("spring.musicxml"))
+            .unwrap();
+    }
+
+    #[test]
     fn partial_metadata_edit_preserves_existing_values_and_unknown_tempo() {
         let previous = json!({"title":"Before","artist":"Composer","instrument":"guitar",
             "tuning_used":[64,59,55,50,45,40],"tuning_source":"manual","capo":3,

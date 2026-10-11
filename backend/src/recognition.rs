@@ -2564,7 +2564,7 @@ pub fn rhythm_warnings(target: &str, time: &str) -> Result<Vec<String>> {
         }
         if over {
             warnings.push(format!(
-                "Voice {} exceeds the {time} measure duration; check onsets and durations",
+                "声部 {} 超出 {time} 小节时长，请检查音符起点与时值",
                 voice["voice"].as_i64().unwrap_or(0) + 1
             ));
         }

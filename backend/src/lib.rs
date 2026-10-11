@@ -83,14 +83,17 @@ async fn config(Extension(app): Extension<AppState>) -> ApiResult {
 
 async fn session(Extension(app): Extension<AppState>, Path(sid): Path<String>) -> ApiResult {
     let dir = view::directory(&app.projects, &sid).map_err(bad)?;
+    // Completion is published after the project is saved. Read it first so a
+    // job finishing during view assembly cannot mark an older revision complete.
+    let job = app.tasks.snapshot(&sid);
     let mut state = if dir.join("session.json").is_file() {
         view::project(&app.projects, &sid).map_err(bad)?
-    } else if app.tasks.snapshot(&sid).is_some() {
+    } else if job.is_some() {
         json!({"id":sid})
     } else {
         return Err(ApiError(StatusCode::NOT_FOUND, "项目不存在".into()));
     };
-    state["job"] = app.tasks.snapshot(&sid).unwrap_or(Value::Null);
+    state["job"] = job.unwrap_or(Value::Null);
     Ok(Json(state))
 }
 async fn sessions(Extension(app): Extension<AppState>) -> ApiResult {
@@ -105,6 +108,7 @@ async fn sessions(Extension(app): Extension<AppState>) -> ApiResult {
         if !path.try_exists().map_err(bad)? {
             continue;
         }
+        let job = app.tasks.snapshot(&sid);
         let saved = view::read_json(&path).map_err(bad)?;
         let project = view::project(&app.projects, &sid).map_err(bad)?;
         let title = project["metadata"]["title"]
@@ -129,7 +133,7 @@ async fn sessions(Extension(app): Extension<AppState>) -> ApiResult {
             .map(|v| v.as_secs_f64())
             .unwrap_or(0.);
         rows.push(json!({"id":sid, "title":title, "pages":saved["pages"].as_array().map(Vec::len).unwrap_or(0),
-            "stage":if saved["export"].is_string() {"已导出"} else if saved["recognition"].is_string() {"识别完成"} else {"编辑中"}, "updated":updated, "job":app.tasks.snapshot(&sid)}));
+            "stage":if saved["export"].is_string() {"已导出"} else if saved["recognition"].is_string() {"识别完成"} else {"编辑中"}, "updated":updated, "job":job}));
     }
     let known = rows
         .iter()
