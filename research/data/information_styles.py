@@ -9,9 +9,9 @@ from pathlib import Path
 from PIL import Image
 from scorelib.score import format_measure_target, parse_measure_target
 
-from research.data.prompts import CLEF_PROMPT, STAFF_PROMPT
+from research.data.prompts import CLEF_PROMPT
 from research.data.score_rendering import audit, browser_page
-from research.data.training_samples import chat
+from research.data.training_samples import chat, staff_sample
 from research.defaults import PROJECT_ROOT
 
 PROFILES = [
@@ -255,9 +255,8 @@ def build(output, train=108, validation=27, test=36):
                         )
                     ).save(staff)
                     data[split].append(
-                        chat(
-                            [staff],
-                            STAFF_PROMPT,
+                        staff_sample(
+                            staff,
                             {
                                 "instrument": first["instrument"],
                                 "string_count": value["parts"][0]["strings"],

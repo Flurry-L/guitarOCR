@@ -73,3 +73,23 @@ def chat(images, prompt, target, **provenance):
         "images": [str(Path(p).resolve()) for p in images],
         "provenance": provenance,
     }
+
+
+def staff_sample(image, target, **provenance):
+    """Use the full row and the same learned name detail as product inference."""
+    from PIL import Image
+    from research.common.ocr import load_policy, staff_detail
+    from research.data.prompts import STAFF_PROMPT
+    from research.defaults import WEIGHTS_ROOT
+
+    image = Path(image)
+    images = [image]
+    with Image.open(image) as source:
+        detail = staff_detail(source, WEIGHTS_ROOT / 'auxiliary/staff_label.onnx',
+                              load_policy(WEIGHTS_ROOT / 'information/merged'))
+    if detail is not None:
+        destination = image.with_stem(image.stem + '-label')
+        detail.save(destination)
+        images.append(destination)
+    target = {key: target[key] for key in ('instrument', 'string_count', 'name')}
+    return chat(images, STAFF_PROMPT, target, **provenance)

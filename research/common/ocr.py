@@ -3,6 +3,7 @@
 import json
 import math
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 from PIL import Image, ImageOps
@@ -70,6 +71,48 @@ def normalize_score_image(image, policy):
     canvas = Image.new("RGB", padded, "white")
     canvas.paste(image, ((padded[0] - width) // 2, (padded[1] - height) // 2))
     return canvas
+
+
+@lru_cache(maxsize=4)
+def _staff_label_reader(path):
+    import onnxruntime as ort
+
+    options = ort.SessionOptions()
+    options.intra_op_num_threads = 1
+    session = ort.InferenceSession(str(path), sess_options=options, providers=['CPUExecutionProvider'])
+    return session, json.loads(session.get_modelmeta().custom_metadata_map['guitarocr.staff_label'])
+
+
+def staff_detail(image, label_model, policy):
+    """The product's learned label crop, orientation and detail image budget."""
+    import numpy as np
+
+    session, config = _staff_label_reader(str(label_model))
+    width, height = config['input_size']
+    image = image.convert('RGB')
+    scale = min(width / image.width, height / image.height)
+    w, h = max(1, round(image.width * scale)), max(1, round(image.height * scale))
+    left, top = (width - w) // 2, (height - h) // 2
+    canvas = Image.new('RGB', (width, height), 'white')
+    canvas.paste(image.resize((w, h), Image.Resampling.LANCZOS), (left, top))
+    pixels = np.asarray(canvas, dtype=np.float32).transpose(2, 0, 1) / 127.5 - 1
+    scores, bounds, directions = session.run(
+        ['label_logits', 'bounds', 'orientation_logits'], {'images': pixels[None]})
+    index = int(scores.argmax())
+    probability = float(1 / (1 + np.exp(-np.clip(scores.flatten()[index], -80, 80))))
+    if probability < config['label_threshold']:
+        return None
+    stride = config['stride']
+    y, x = divmod(index, width // stride)
+    l, t, r, b = map(float, bounds.reshape(4, -1)[:, index])
+    sx, sy = w / image.width, h / image.height
+    x0, y0 = max(0., (x * stride - l * width - left) / sx), max(0., (y * stride - t * height - top) / sy)
+    x1, y1 = min(image.width, (x * stride + r * width - left) / sx), min(image.height, (y * stride + b * height - top) / sy)
+    if x1 <= x0 or y1 <= y0:
+        return None
+    angle = config['angles_ccw'][int(directions.reshape(4, -1)[:, index].argmax())]
+    crop = image.crop((math.floor(x0), math.floor(y0), math.ceil(x1), math.ceil(y1))).rotate(angle, expand=True)
+    return normalize_score_image(crop, dict(policy, max_upscale=16.))
 
 
 def install_training_policy(model):

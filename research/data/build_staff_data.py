@@ -8,8 +8,7 @@ from pathlib import Path
 
 from research.common.pdf import open_pdf
 from research.data.native_supervision import printed_text
-from research.data.prompts import STAFF_PROMPT
-from research.data.training_samples import dataset_entry
+from research.data.training_samples import dataset_entry, staff_sample
 
 
 def visible_instrument(name, mode, percussion):
@@ -94,13 +93,8 @@ def sample(job):
         if mode in {"tab", "both"}
         else None,
     }
-    return row["split"], {
-        "messages": [
-            {"role": "user", "content": "<image>" + STAFF_PROMPT},
-            {"role": "assistant", "content": json.dumps(target, separators=(",", ":"))},
-        ],
-        "images": [str(destination.resolve())],
-        "provenance": {
+    return row["split"], staff_sample(
+        destination, target, **{
             **row,
             "mode": mode,
             "kind": "staff",
@@ -108,7 +102,7 @@ def sample(job):
             "label_visibility": "visible_label" if visible_name else "absent_label",
             "focused_staff": True,
         },
-    }
+    )
 
 
 def build(roots, output, workers):

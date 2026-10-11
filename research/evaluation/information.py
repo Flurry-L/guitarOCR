@@ -164,10 +164,10 @@ def main():
             kind = next((kind for kind, prefix in kinds.items() if prompt.startswith(prefix)), None)
             if kind is None:
                 raise ValueError(f'Unknown information prompt: {path}:{index + 1}')
-            image = Path(row['images'][0])
-            image = image if image.is_absolute() else path.resolve().parent / image
+            images = [str(Path(image) if Path(image).is_absolute() else path.resolve().parent / image)
+                      for image in row['images']]
             tasks.append({'id': str(path) + ':' + str(index), 'corpus': str(path.parent), 'kind': kind,
-                          'image': str(image), 'prompt': prompt,
+                          'image': images[0], 'images': images, 'prompt': prompt,
                           'provenance': row.get('provenance', {}),
                           'expected': json.loads(row['messages'][-1]['content'])})
     if not tasks:
@@ -177,6 +177,7 @@ def main():
     records, metrics = [], defaultdict(Counter)
     loading = time.perf_counter()
     engine = VllmBackend(args.model, args.device, options={'max_model_len': 8192, 'max_num_seqs': args.batch_size,
+                        'limit_mm_per_prompt': {'image': max(len(row['images']) for row in tasks), 'video': 0},
                         'kv_cache_memory_bytes': 4 * 1024 ** 3})
     started = time.perf_counter()
     try:
@@ -185,8 +186,9 @@ def main():
                 subset = [row for row in tasks if row['kind'] == kind]
                 for offset in range(0, len(subset), args.batch_size):
                     batch = subset[offset:offset + args.batch_size]
-                    messages = [[{'role': 'user', 'content': [{'type': 'image', 'url': row['image']},
-                                 {'type': 'text', 'text': row['prompt']}]}] for row in batch]
+                    messages = [[{'role': 'user', 'content': [
+                        *({'type': 'image', 'url': image} for image in row['images']),
+                        {'type': 'text', 'text': row['prompt']}]}] for row in batch]
                     task = kind if kind in INFORMATION_TASKS else None
                     results = engine.generate_batch(messages, 512, task=task)
                     for row, (raw, tokens) in zip(batch, results, strict=True):

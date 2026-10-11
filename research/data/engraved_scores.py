@@ -20,8 +20,9 @@ from research.data.prompts import (
 )
 from scorelib.techniques import canonical_chord_marks
 
-from research.data.prompts import CLEF_PROMPT, HEADER_PROMPT, STAFF_PROMPT
-from research.data.training_samples import dataset_entry, visual_measure_sample
+from research.data.prompts import CLEF_PROMPT, HEADER_PROMPT
+from research.data.training_samples import dataset_entry, staff_sample, visual_measure_sample
+from research.data.build_staff_data import visible_instrument
 
 PROFILES = [
     ('Piano', 'pitched', 0, 'G2', 0, 64), ('Violin', 'pitched', 40, 'G2', 0, 72),
@@ -329,9 +330,32 @@ def render_score(score, root, family, split, *, font='Leipzig', spacing=None,
                     continue
                 top = max(0, min(r['bbox'][1] for r in rows) - 12)
                 bottom = min(image.height, max(r['bbox'][1] + r['bbox'][3] for r in rows) + 13)
+                visible_names, clipped_label = [], False
+                for label in systems[_system]:
+                    if label.get('class') not in ('label', 'labelAbbr'):
+                        continue
+                    rects = [n for n in label.findall('.//s:rect', ns)
+                             if float(n.get('width', 0)) > 0 and float(n.get('height', 0)) > 0]
+                    if not rects:
+                        continue
+                    y0 = (min(float(n.get('y')) for n in rects) + 500) * scale
+                    y1 = (max(float(n.get('y')) + float(n.get('height')) for n in rects) + 500) * scale
+                    if y1 <= top or y0 >= bottom:
+                        continue
+                    if y0 < top or y1 > bottom:
+                        clipped_label = True
+                        continue
+                    name = ' '.join(''.join(label.itertext()).split())
+                    if name:
+                        visible_names.append(name)
+                if clipped_label or len(visible_names) > 1:
+                    continue
+                name = visible_names[0] if visible_names else None
                 staff_path = root / f'staff-{pi}-{si}.png'
                 image.crop((0, int(top), image.width, int(bottom))).save(staff_path)
-                metadata.append(chat(staff_path, STAFF_PROMPT, {'instrument': score['parts'][pi]['instrument'], 'string_count': None}))
+                metadata.append(staff_sample(staff_path, {
+                    'instrument': visible_instrument(name, 'notation', False),
+                    'string_count': None, 'name': name}, family=family, split=split, renderer='verovio', task='staff'))
             if page == 1:
                 top = min(r['bbox'][1] for r in records if r['page'] == 1)
                 header_path = root / 'header.png'
