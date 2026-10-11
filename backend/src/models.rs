@@ -121,14 +121,13 @@ fn validate_information_model(capabilities: &Value) -> Result<(), String> {
     if declaration["model"] != "../../information/gguf/model-Q8_0.gguf"
         || declaration["projector"] != "../../information/gguf/vision-F16.gguf"
         || declaration["adapter"] != "../../information/gguf/information-adapter.gguf"
-        || tasks.is_empty()
-        || !tasks.is_subset(&["staff", "clef"].into_iter().collect())
+        || tasks != ["staff", "clef", "tempo"].into_iter().collect()
         || declaration["adapter_tasks"]
             .as_array()
             .is_none_or(|v| v.len() != tasks.len())
     {
         return Err(
-            "Information recognition requires its model, projector and staff/clef adapter".into(),
+            "Information recognition requires its model, projector and task adapter".into(),
         );
     }
     Ok(())

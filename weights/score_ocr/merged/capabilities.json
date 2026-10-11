@@ -21,7 +21,8 @@
     "adapter": "../../information/gguf/information-adapter.gguf",
     "adapter_tasks": [
       "staff",
-      "clef"
+      "clef",
+      "tempo"
     ]
   }
 }

@@ -111,10 +111,9 @@ export function validateDeclaredModelAssets(records) {
     throw new Error('Measure recognition requires single-image observation weights');
   }
   const information = capabilities.information_model;
-  if (!information || !Array.isArray(information.adapter_tasks) || !information.adapter_tasks.length ||
-      new Set(information.adapter_tasks).size !== information.adapter_tasks.length ||
-      !information.adapter_tasks.every(task => ['clef', 'staff'].includes(task))) {
-    throw new Error('Information recognition requires its model, projector and staff/clef adapter');
+  if (!information || !Array.isArray(information.adapter_tasks) || information.adapter_tasks.length !== 3 ||
+      !['clef', 'staff', 'tempo'].every(task => information.adapter_tasks.includes(task))) {
+    throw new Error('Information recognition requires its model, projector and task adapter');
   }
   for (const [field, filename] of [['model', 'model-Q8_0.gguf'], ['projector', 'vision-F16.gguf'], ['adapter', 'information-adapter.gguf']]) {
     if (information[field] !== `../../information/gguf/${filename}` || !catalog.has(`weights/information/gguf/${filename}`)) {

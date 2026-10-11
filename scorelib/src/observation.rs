@@ -527,18 +527,24 @@ fn confirm_tempos(row: &mut Row, auxiliary: &Value) {
             let Some(effects) = event.get_mut("effects").and_then(Value::as_array_mut) else {
                 continue;
             };
-            effects.retain(|effect| {
+            effects.retain_mut(|effect| {
                 let Some(value) = effect.as_str().and_then(|s| s.strip_prefix("tempo:")) else {
                     return true;
                 };
                 let tempo = value.parse::<i64>().unwrap();
-                let supported = array(regions)
+                let quarters: BTreeSet<_> = array(regions)
                     .iter()
-                    .any(|region| region["tempo_quarter"] == tempo);
-                if !supported {
-                    pending.push(json!({"voice":id,"event":index,"tempo_quarter":tempo}));
+                    .filter(|region| region["bpm"] == tempo || region["tempo_quarter"] == tempo)
+                    .filter_map(|region| region["tempo_quarter"].as_i64())
+                    .collect();
+                if quarters.len() == 1 {
+                    // The measure reader supplies the event; the independent
+                    // marking supplies its visible beat unit and conversion.
+                    *effect = json!(format!("tempo:{}", quarters.first().unwrap()));
+                    return true;
                 }
-                supported
+                pending.push(json!({"voice":id,"event":index,"tempo_quarter":tempo}));
+                false
             });
         }
     }
@@ -3091,6 +3097,57 @@ mod tests {
         assert!(array(&event["notes"][0]["effects"]).contains(&json!("pm")));
         assert!(array(&event["effects"]).contains(&json!("chord:F%23")));
         assert!(array(&event["effects"]).contains(&json!("dyn:79")));
+        // An independently read beat unit resolves the printed number while
+        // preserving the measure reader's onset and original observation.
+        for (raw, regions, expected) in [
+            (120, json!([{"bpm":120,"tempo_quarter":90}]), Some(90)),
+            (66, json!([{"bpm":66,"tempo_quarter":132}]), Some(132)),
+            (90, json!([{"bpm":120,"tempo_quarter":90}]), Some(90)),
+            (
+                120,
+                json!([{"bpm":120,"tempo_quarter":90},{"bpm":120,"tempo_quarter":90}]),
+                Some(90),
+            ),
+            (
+                120,
+                json!([{"bpm":120,"tempo_quarter":90},{"bpm":60,"tempo_quarter":120}]),
+                None,
+            ),
+            (120, json!([]), None),
+        ] {
+            let mut timed = observation.clone();
+            timed["relations"] = json!([]);
+            let mut later = timed["voices"][0]["events"][0].clone();
+            timed["voices"][0]["events"][0]["duration"] = json!("h");
+            later["start"] = json!(1920);
+            later["duration"] = json!("h");
+            later["effects"] = json!([format!("tempo:{raw}"), "dyn:79"]);
+            timed["voices"][0]["events"]
+                .as_array_mut()
+                .unwrap()
+                .push(later);
+            let result = assemble(
+                &[json!({"source_id":"score","part_id":0,"staff_id":0,
+                    "bar_index":0,"mode":"tab","observation":timed})],
+                Some(&[json!({"tempo_regions":regions})]),
+            )
+            .unwrap();
+            let record = &result["records"][0];
+            let event = &record["resolved"]["voices"][0]["events"][1];
+            let expected_effects = match expected {
+                Some(quarter) => json!([format!("tempo:{quarter}"), "dyn:79"]),
+                None => json!(["dyn:79"]),
+            };
+            assert_eq!(event["effects"], expected_effects);
+            assert_eq!(event["start"], 1920);
+            assert_eq!(record["observation"], timed);
+            assert_eq!(
+                array(&record["unresolved"])
+                    .iter()
+                    .any(|issue| issue["reason"] == "tempo_unconfirmed"),
+                expected.is_none()
+            );
+        }
         let mut wrong_task = observation;
         wrong_task["voices"][0]["events"][0]["effects"] =
             json!(["diagram:1:2/4/4/3/2/2:1/3/4/2/1/1:-"]);

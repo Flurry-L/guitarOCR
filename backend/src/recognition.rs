@@ -35,6 +35,7 @@ pub enum OcrTask {
     Base,
     Staff,
     Clef,
+    Tempo,
 }
 impl OcrTask {
     fn adapter_key(self) -> Option<&'static str> {
@@ -42,6 +43,7 @@ impl OcrTask {
             Self::Base => None,
             Self::Staff => Some("staff"),
             Self::Clef => Some("clef"),
+            Self::Tempo => Some("tempo"),
         }
     }
 
@@ -49,6 +51,7 @@ impl OcrTask {
         match kind {
             "staff" => Self::Staff,
             "clef" => Self::Clef,
+            "tempo" => Self::Tempo,
             _ => Self::Base,
         }
     }
@@ -138,6 +141,7 @@ impl Generator for guitarocr_engine::runtime::Session<'_> {
     ) -> Result<()> {
         let staff = self.task_adapter_applied(OcrTask::Staff);
         let clef = self.task_adapter_applied(OcrTask::Clef);
+        let tempo = self.task_adapter_applied(OcrTask::Tempo);
         let mut requests = messages.map(|request| {
             request.map(|(m, s, task)| {
                 (
@@ -146,6 +150,7 @@ impl Generator for guitarocr_engine::runtime::Session<'_> {
                     match task {
                         OcrTask::Staff => staff,
                         OcrTask::Clef => clef,
+                        OcrTask::Tempo => tempo,
                         _ => false,
                     },
                 )
@@ -460,7 +465,7 @@ pub const HEADER_PROMPT: &str = "Read only visible song title, artist or author 
 
 pub const DIAGRAM_NAME_PROMPT: &str = "Transcribe only the visible chord symbol in this cropped heading, preserving accidentals, extensions and slash bass. Return JSON with text, or null if unreadable. Do not infer the name from a fingering or identify the song.";
 
-pub const TEMPO_PROMPT: &str = "Read the printed quarter-note tempo. Return one JSON object with tempo_quarter; use null if unreadable.";
+pub const TEMPO_PROMPT: &str = "Read the visible metronome marking: a beat note, an equals sign and a number. Return JSON with beat_unit (whole, half, quarter, eighth, or sixteenth), dotted (true or false), and bpm (the printed number). Do not convert the number. Use null for all three fields when no complete metronome marking is visible or its beat unit or value is unreadable.";
 pub const STAFF_PROMPT: &str = "Read the first staff and its instrument label. Return JSON with instrument (guitar, bass, pitched, drums, or null if unknown) and string_count (number of TAB lines, or null if TAB is absent), and name (the visible instrument label, preserving abbreviations, or null if absent). Use the percussion clef for drums. Use pitched for other melodic instruments or unlabelled melodic notation; use null for unnamed TAB. Do not infer a string count from the five lines of standard notation.";
 pub const CLEF_PROMPT: &str = "Read the visible clef. Return JSON with clef (G2, F4, C3, C4, percussion, tab, or null) and clef_octave (0, -12, 12, -24, 24, or null if unreadable). A small 8 or 15 below the clef lowers its pitches; above raises them. Use tab with clef_octave 0 for a TAB symbol.";
 pub const ANNOTATION_PROMPT: &str = "Classify and read the visible score annotation. Return JSON with kind (instrument, ottava, capo, chord, chord_diagram, technique, tempo, title, credit, other, or null if unreadable), semitones (sounding minus written pitch, or null), capo (fret number, or null), and text (visible words, or null). A chord name such as Bb or F# and a chord fingering diagram are NOT transposition instructions. Let ring, P.M., vibrato and their continuation lines are techniques, NOT ottava. Use title for a song title and credit for a composer, arranger, artist or studio credit; preserve the original language. Use null pitch fields for non-pitch annotations. For ottava use 12 for 8va, -12 for 8vb, 24 for 15ma, -24 for 15mb. For instrument transposition use only an explicit instruction or an unambiguous instrument label. Do not treat a key signature or tuning as an instrument transposition. For chord_diagram also return diagram with base_fret, frets (absolute fret numbers, 0 open, \"x\" muted, LOW to HIGH string), fingers (visible numbers or null per string), barres ([absolute fret, zero-based low string index, high string index]). Preserve chord accidentals and slash bass. Read only visible dots and finger numbers; never derive a fingering from the chord name. Transcribe the evidence; do not invent missing words.";
@@ -480,8 +485,13 @@ pub fn information_schema(kind: &str) -> Result<Value> {
         }
         "tempo" => {
             properties.insert(
-                "tempo_quarter".into(),
-                json!({"anyOf":[{"type":"integer","minimum":20,"maximum":400},{"type":"null"}]}),
+                "beat_unit".into(),
+                json!({"enum":["whole","half","quarter","eighth","sixteenth",null]}),
+            );
+            properties.insert("dotted".into(), nullable("boolean"));
+            properties.insert(
+                "bpm".into(),
+                json!({"anyOf":[{"type":"integer","minimum":1,"maximum":999},{"type":"null"}]}),
             );
         }
         "staff" => {
@@ -638,12 +648,28 @@ pub fn parse_info_response(raw: &str, kind: &str) -> Value {
             json!({"clef":v["clef"].as_str().filter(|s|["G2","F4","C3","C4","percussion","tab"].contains(s)),"clef_octave":v["clef_octave"].as_i64().filter(|n|[-24,-12,0,12,24].contains(n))})
         }
         "tempo" => {
-            let n = integer_range(&v["tempo_quarter"], 20, 400);
-            if n.is_null() {
-                json!({})
-            } else {
-                json!({"tempo_quarter":n})
+            let denominator = match v["beat_unit"].as_str() {
+                Some("whole") => 1.,
+                Some("half") => 2.,
+                Some("quarter") => 4.,
+                Some("eighth") => 8.,
+                Some("sixteenth") => 16.,
+                _ => return json!({}),
+            };
+            let Some(dotted) = v["dotted"].as_bool() else {
+                return json!({});
+            };
+            let Some(bpm) = integer_range(&v["bpm"], 1, 999).as_i64() else {
+                return json!({});
+            };
+            // GP5 stores an integer quarter-note tempo. OCR only transcribes
+            // the printed pulse; musical unit conversion belongs here.
+            let quarter =
+                (bpm as f64 * 4. / denominator * if dotted { 1.5 } else { 1. }).round() as i64;
+            if !(1..=999).contains(&quarter) {
+                return json!({});
             }
+            json!({"tempo_quarter":quarter,"beat_unit":v["beat_unit"],"dotted":dotted,"bpm":bpm})
         }
         "annotation" | "transposition" | "text_annotation" => {
             let mut kind = text(&v, "kind", "");
@@ -686,9 +712,10 @@ pub fn parse_info_response(raw: &str, kind: &str) -> Value {
         _ => json!({}),
     }
 }
-pub fn metadata_from_predictions(predictions: &[Value]) -> Value {
+fn metadata_from_predictions(predictions: &[Value], opening_bar: i64) -> Value {
     let mut m = json!({"source":"image_score_ocr"});
     let mut fields = json!({});
+    let mut opening_tempo_x = f64::INFINITY;
     for p in predictions {
         let kind = text(p, "kind", "");
         if let Some(key) = header_field(kind) {
@@ -710,26 +737,17 @@ pub fn metadata_from_predictions(predictions: &[Value]) -> Value {
                     }
                 }
             }
-        } else if kind == "staff" || (kind == "tempo" && m["tempo_quarter"].is_null()) {
+        } else if kind == "staff" {
             merge(&mut m, &p["parsed"]);
-        } else if kind == "annotation"
-            && p["parsed"]["kind"] == "tempo"
-            && m["tempo_quarter"].is_null()
+        } else if (kind == "tempo" || p["parsed"]["kind"] == "tempo")
+            && p["bar_index"] == opening_bar
         {
-            let tempo = integer_range(&p["parsed"]["tempo_quarter"], 20, 400);
-            if !tempo.is_null() {
+            let tempo = integer_range(&p["parsed"]["tempo_quarter"], 1, 999);
+            let x = bbox(p).map(|b| b[0]).unwrap_or(f64::INFINITY);
+            if !tempo.is_null() && x < opening_tempo_x {
                 m["tempo_quarter"] = tempo;
-                continue;
-            }
-            if let Some(c) = Regex::new(r"♩\s*(?:[=:]\s*)?(\d{2,3})(?:\D|$)")
-                .unwrap()
-                .captures(text(&p["parsed"], "text", ""))
-            {
-                if let Ok(n) = c[1].parse::<i64>() {
-                    if (20..=400).contains(&n) {
-                        m["tempo_quarter"] = json!(n);
-                    }
-                }
+                m["tempo_source"] = json!("information_region");
+                opening_tempo_x = x;
             }
         }
     }
@@ -990,9 +1008,37 @@ fn recognize_regions_with_evidence<G: Generator + ?Sized>(
         if responses.len() != batch.len() {
             return Err("Incomplete information batch".into());
         }
-        for (index, ((region, image), response)) in
-            batch.iter().zip(&images).zip(responses).enumerate()
-        {
+        // Tempo presence and value are learned together, including crops with
+        // no tempo. The generic annotation category does not gate this task.
+        let tempo_indices: Vec<_> = batch
+            .iter()
+            .enumerate()
+            .filter(|(_, region)| {
+                matches!(text(region, "kind", ""), "annotation" | "transposition")
+            })
+            .map(|(index, _)| index)
+            .collect();
+        let tempo_messages = tempo_indices
+            .iter()
+            .map(|&index| {
+                Ok((
+                    image_messages(&[images[index].clone()], TEMPO_PROMPT, policy)?,
+                    Some(information_schema("tempo")?),
+                    OcrTask::Tempo,
+                ))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let tempo_responses = if tempo_messages.is_empty() {
+            vec![]
+        } else {
+            engine.generate_task_batch(tempo_messages, 64)?
+        };
+        if tempo_responses.len() != tempo_indices.len() {
+            return Err("Incomplete tempo information batch".into());
+        }
+        let mut tempo_responses: BTreeMap<_, _> =
+            tempo_indices.into_iter().zip(tempo_responses).collect();
+        for (index, (region, response)) in batch.iter().zip(responses).enumerate() {
             let kind = text(region, "kind", "");
             check(cancelled)?;
             let read_kind = if region["source"] == "text_region_network" {
@@ -1006,24 +1052,27 @@ fn recognize_regions_with_evidence<G: Generator + ?Sized>(
                 json!({"raw":response.content,"parsed":parsed,"generated_token_count":response.completion_tokens}),
             ];
             if matches!(kind, "annotation" | "transposition") {
-                if let Some(evidence) = evidence.as_ref().filter(|_| read_kind != "text_annotation")
-                {
-                    (parsed, visual_evidence) =
-                        chord_evidence::apply_evidence(&parsed, &evidence[index])?;
-                } else if parsed["kind"] == "chord_diagram" {
-                    visual_evidence = json!({"status":"unavailable","review_required":true});
-                }
-                if parsed["kind"] == "tempo" {
-                    check(cancelled)?;
-                    let tempo = engine.generate(
-                        image_messages(&[image.clone()], TEMPO_PROMPT, policy)?,
-                        64,
-                        Some(information_schema("tempo")?),
-                    )?;
-                    let value = parse_info_response(tempo.content.trim(), "tempo");
-                    attempts.push(json!({"purpose":"tempo_value","raw":tempo.content,
-                        "parsed":value,"generated_token_count":tempo.completion_tokens}));
+                let tempo = tempo_responses.remove(&index).unwrap();
+                let value = parse_info_response(tempo.content.trim(), "tempo");
+                attempts.push(json!({"purpose":"tempo_marking","raw":tempo.content,
+                    "parsed":value,"generated_token_count":tempo.completion_tokens,
+                    "task_adapter_applied":engine.task_adapter_applied(OcrTask::Tempo)}));
+                if value["tempo_quarter"].is_i64() {
+                    parsed = json!({"kind":"tempo",
+                        "text":parsed["text"],"semitones":null,"capo":null});
                     merge(&mut parsed, &value);
+                } else {
+                    if parsed["kind"] == "tempo" {
+                        parsed["kind"] = json!("other");
+                    }
+                    if let Some(evidence) =
+                        evidence.as_ref().filter(|_| read_kind != "text_annotation")
+                    {
+                        (parsed, visual_evidence) =
+                            chord_evidence::apply_evidence(&parsed, &evidence[index])?;
+                    } else if parsed["kind"] == "chord_diagram" {
+                        visual_evidence = json!({"status":"unavailable","review_required":true});
+                    }
                 }
             }
             let confirmed = ["instrument", "ottava", "capo"].contains(&text(&parsed, "kind", ""))
@@ -1334,7 +1383,7 @@ fn nearest(records: &[Value], region: &Value) -> Option<usize> {
 
 /// Tempo readings retain their position. A later marking cannot confirm a
 /// number predicted in an unrelated bar.
-fn attach_tempo_regions(records: &mut [Value], predictions: &[Value]) {
+fn attach_tempo_regions(records: &mut [Value], predictions: &mut [Value]) {
     for row in records.iter_mut() {
         row["tempo_regions"] = json!([]);
     }
@@ -1373,12 +1422,15 @@ fn attach_tempo_regions(records: &mut [Value], predictions: &[Value]) {
             continue;
         };
         let bar = bar_index(&records[index]);
+        region["bar_index"] = json!(bar);
         for row in records
             .iter_mut()
             .filter(|row| row["page"] == region["page"] && bar_index(row) == bar)
         {
             row["tempo_regions"].as_array_mut().unwrap().push(json!({
                 "page":region["page"],"bbox":region["bbox"],"tempo_quarter":tempo,
+                "beat_unit":region["parsed"]["beat_unit"],"dotted":region["parsed"]["dotted"],
+                "bpm":region["parsed"]["bpm"],
                 "source":"information_region","bar_index":bar
             }));
         }
@@ -1786,7 +1838,8 @@ pub fn recognize_information<G: Generator + ?Sized>(
         &mut predictions,
         config.structure_output.as_deref(),
     )?;
-    attach_tempo_regions(&mut records, &predictions);
+    attach_tempo_regions(&mut records, &mut predictions);
+    let opening_bar = records.iter().map(bar_index).min().unwrap();
     let mut values = vec![];
     let mut profiles = vec![];
     let mut contexts = vec![];
@@ -1803,7 +1856,7 @@ pub fn recognize_information<G: Generator + ?Sized>(
             })
             .cloned()
             .collect();
-        let mut metadata = metadata_from_predictions(&local_predictions);
+        let mut metadata = metadata_from_predictions(&local_predictions, opening_bar);
         headers::resolve_title(&mut metadata, &local_predictions, &config.fallback_title);
         let rows: Vec<Value> = records
             .iter()
@@ -3135,9 +3188,48 @@ pub fn finalize_records(records: &mut [Value], information: &mut Value) -> Resul
     }
     attach_chord_annotations(records, &annotations)?;
     let opening = records.first().map(bar_index);
+    // The information pass has no event onsets. If the only opening marking
+    // is subsequently located inside the bar, it must not become its header.
+    if information["document_metadata"]["tempo_source"] == "information_region" {
+        let initial = information["document_metadata"]["tempo_quarter"].as_i64();
+        if let Some(initial) = initial {
+            let first = records.iter().find(|row| Some(bar_index(row)) == opening);
+            let evidence_count = first.map_or(0, |row| {
+                list(row, "tempo_regions")
+                    .iter()
+                    .filter(|region| region["tempo_quarter"] == initial)
+                    .count()
+            });
+            let mut later = false;
+            let mut opening_or_unknown = false;
+            for row in records.iter().filter(|row| Some(bar_index(row)) == opening) {
+                for voice in list(&row["resolved"], "voices") {
+                    for event in list(voice, "events") {
+                        if list(event, "effects").contains(&json!(format!("tempo:{initial}"))) {
+                            if event["start"].as_i64().is_some_and(|start| start > 0) {
+                                later = true;
+                            } else {
+                                opening_or_unknown = true;
+                            }
+                        }
+                    }
+                }
+            }
+            if evidence_count == 1 && later && !opening_or_unknown {
+                information["document_metadata"]["tempo_quarter"] = Value::Null;
+                for part in information["parts"].as_array_mut().into_iter().flatten() {
+                    if part["document_metadata"]["tempo_source"] == "information_region"
+                        && part["document_metadata"]["tempo_quarter"] == initial
+                    {
+                        part["document_metadata"]["tempo_quarter"] = Value::Null;
+                    }
+                }
+            }
+        }
+    }
     let tempo = information["document_metadata"]["tempo_quarter"]
         .as_i64()
-        .filter(|n| (20..=400).contains(n));
+        .filter(|n| (1..=999).contains(n));
     for row in records.iter_mut() {
         if !row["target"].is_string() {
             continue;
@@ -3394,6 +3486,104 @@ mod observation_pipeline_tests {
         json!({"parts":[],"document_metadata":{}})
     }
     #[test]
+    fn tempo_reader_resolves_annotation_categories_and_rejects_absent_marks() {
+        for (unit, dotted, bpm, quarter) in [
+            ("whole", false, 120, 480),
+            ("half", true, 80, 240),
+            ("quarter", false, 97, 97),
+            ("eighth", true, 125, 94),
+            ("sixteenth", false, 80, 20),
+        ] {
+            let raw = json!({"beat_unit":unit,"dotted":dotted,"bpm":bpm}).to_string();
+            assert_eq!(parse_info_response(&raw, "tempo")["tempo_quarter"], quarter);
+        }
+        assert!(
+            parse_info_response(r#"{"beat_unit":null,"dotted":null,"bpm":120}"#, "tempo")
+                ["tempo_quarter"]
+                .is_null()
+        );
+        struct Reader(usize);
+        impl Generator for Reader {
+            fn task_adapter_applied(&self, task: OcrTask) -> bool {
+                task == OcrTask::Tempo
+            }
+            fn generate_task(
+                &mut self,
+                task: OcrTask,
+                _: Value,
+                _: usize,
+                _: Option<Value>,
+            ) -> Result<llama::Generation> {
+                let (expected, value) = match self.0 {
+                    0 => (
+                        OcrTask::Base,
+                        json!({"kind":"chord_diagram","text":"h = 132","diagram":null}),
+                    ),
+                    1 => (OcrTask::Base, json!({"kind":"tempo","text":"♩ = 20"})),
+                    2 => (
+                        OcrTask::Tempo,
+                        json!({"beat_unit":"quarter","dotted":false,"bpm":97}),
+                    ),
+                    3 => (
+                        OcrTask::Tempo,
+                        json!({"beat_unit":"eighth","dotted":true,"bpm":176}),
+                    ),
+                    4 => (
+                        OcrTask::Tempo,
+                        json!({"beat_unit":null,"dotted":null,"bpm":null}),
+                    ),
+                    _ => panic!("Unexpected information request"),
+                };
+                assert_eq!(task, expected);
+                self.0 += 1;
+                Ok(llama::Generation {
+                    content: value.to_string(),
+                    completion_tokens: 12,
+                })
+            }
+            fn generate(
+                &mut self,
+                _: Value,
+                _: usize,
+                _: Option<Value>,
+            ) -> Result<llama::Generation> {
+                panic!("Information requests must declare their task")
+            }
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("region.png");
+        RgbImage::from_pixel(100, 40, Rgb([255; 3]))
+            .save(&path)
+            .unwrap();
+        let regions = json!([
+            {"kind":"annotation","image":path,"page":1,"bbox":[0,0,100,40]},
+            {"kind":"annotation","image":path,"page":1,"bbox":[100,0,100,40]},
+            {"kind":"tempo","image":path,"page":1,"bbox":[200,0,100,40]}
+        ]);
+        let mut engine = Reader(0);
+        let predictions = recognize_regions_with_evidence(
+            &mut engine,
+            regions.as_array().unwrap(),
+            None,
+            &|| false,
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(engine.0, 5);
+        assert_eq!(predictions[0]["parsed"]["kind"], "tempo");
+        assert_eq!(predictions[0]["parsed"]["tempo_quarter"], 132);
+        assert_eq!(
+            predictions[0]["attempts"][0]["parsed"]["kind"],
+            "chord_diagram"
+        );
+        assert_eq!(predictions[0]["attempts"][1]["task_adapter_applied"], true);
+        assert_eq!(predictions[1]["parsed"]["kind"], "other");
+        assert!(metadata_from_predictions(&predictions[1..2], 0)["tempo_quarter"].is_null());
+        assert_eq!(predictions[2]["parsed"]["tempo_quarter"], 97);
+        assert_eq!(predictions[2]["task_adapter_applied"], true);
+    }
+    #[test]
     fn tempo_changes_require_local_regions_and_manual_edits_remain_authoritative() {
         let mut rows: Vec<_> = (0..4)
             .map(|bar| {
@@ -3412,12 +3602,28 @@ mod observation_pipeline_tests {
             .as_str()
             .unwrap()
             .contains("tempo:20"));
-        let predictions = json!([
+        let mut predictions = json!([
             {"kind":"tempo","page":1,"bbox":[5,30,40,15],"parsed":{"tempo_quarter":97}},
             {"kind":"annotation","page":1,"bbox":[280,30,40,15],"parsed":{"kind":"tempo","tempo_quarter":140}},
             {"kind":"tempo","page":2,"bbox":[105,30,40,15],"parsed":{"tempo_quarter":20}}
         ]);
-        attach_tempo_regions(&mut rows, predictions.as_array().unwrap());
+        attach_tempo_regions(&mut rows, predictions.as_array_mut().unwrap());
+        assert_eq!(
+            metadata_from_predictions(predictions.as_array().unwrap(), 0)["tempo_quarter"],
+            97
+        );
+        assert!(
+            metadata_from_predictions(&predictions.as_array().unwrap()[1..], 0)["tempo_quarter"]
+                .is_null()
+        );
+        let opening_candidates = vec![
+            json!({"kind":"tempo","bar_index":0,"bbox":[80,30,20,15],"parsed":{"tempo_quarter":144}}),
+            predictions[0].clone(),
+        ];
+        assert_eq!(
+            metadata_from_predictions(&opening_candidates, 0)["tempo_quarter"],
+            97
+        );
         let original = rows[1]["observation"].clone();
         let mut info = information();
         info["document_metadata"]["tempo_quarter"] = json!(97);
@@ -3440,6 +3646,24 @@ mod observation_pipeline_tests {
         assert!(rows[2]["target"].as_str().unwrap().contains("tempo:140"));
         let export = scorelib::observation::export_measure(&rows[1]).unwrap();
         assert!(list(&export["measure"]["voices"][0]["events"][0], "effects").is_empty());
+
+        let mut late_rows = vec![rows[0].clone()];
+        late_rows[0]["observation"]["voices"][0]["events"] = json!([
+            {"start":0,"duration":"q","status":"rest","notes":[]},
+            {"start":960,"duration":"h.","status":"normal","notes":[{"string":1,"fret":5}],"effects":["tempo:97"]}
+        ]);
+        let mut late_info = information();
+        late_info["document_metadata"] =
+            metadata_from_predictions(&predictions.as_array().unwrap()[..1], 0);
+        finalize_records(&mut late_rows, &mut late_info).unwrap();
+        assert!(late_info["document_metadata"]["tempo_quarter"].is_null());
+        let late_measure =
+            score::parse_measure_target(late_rows[0]["target"].as_str().unwrap()).unwrap();
+        assert!(late_measure["tempo_quarter"].is_null());
+        assert!(late_rows[0]["target"]
+            .as_str()
+            .unwrap()
+            .contains("tempo:97"));
 
         rows[1]["manually_edited"] = json!(true);
         rows[1]["target"] = json!("M time=4/4 tempo=80 | V0{@0:w:s1f5<tempo:20>}");

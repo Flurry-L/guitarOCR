@@ -10,8 +10,11 @@ HEADER_PROMPT = (
     "An instrument's transposition designation is not a tuning label."
 )
 TEMPO_PROMPT = (
-    "Read the printed quarter-note tempo. Return one JSON object with "
-    "tempo_quarter; use null if unreadable."
+    "Read the visible metronome marking: a beat note, an equals sign and a number. "
+    "Return JSON with beat_unit (whole, half, quarter, eighth, or sixteenth), dotted "
+    "(true or false), and bpm (the printed number). Do not convert the number. "
+    "Use null for all three fields when no complete metronome marking is visible "
+    "or its beat unit or value is unreadable."
 )
 STAFF_PROMPT = (
     'Read the first staff and its instrument label. Return JSON with instrument '

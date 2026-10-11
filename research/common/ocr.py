@@ -82,7 +82,7 @@ def install_training_policy(model):
     MMPluginMixin._preprocess_image = preprocess
 
 
-INFORMATION_TASKS = frozenset({'staff', 'clef'})
+INFORMATION_TASKS = frozenset({'staff', 'clef', 'tempo'})
 
 
 @dataclass(frozen=True)

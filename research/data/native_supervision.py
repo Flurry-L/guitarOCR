@@ -257,7 +257,7 @@ def tempo_target(score: dict, indication: dict) -> dict | None:
         tempo = matches[0]
     if not tempo["visible"] or tempo["unit_name"] != "Quarter":
         return None
-    return {"tempo_quarter": int(tempo["value"])}
+    return {"beat_unit": "quarter", "dotted": False, "bpm": int(tempo["value"])}
 
 
 @lru_cache(maxsize=8192)

@@ -105,7 +105,7 @@
         "path": "weights/information/gguf/information-adapter.gguf",
         "asset": "information-gguf-information-adapter.gguf",
         "bytes": 14955456,
-        "sha256": "2d6f0f77790d7ab09765b4b958590391f60aa92efebad15bdff65d0058b22beb"
+        "sha256": "8473a6d31dbedd65c5e6cc639d25dae6ea216cce5675a889df302878f11a5ba0"
       }
     ]
   },

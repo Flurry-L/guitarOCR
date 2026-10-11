@@ -11,7 +11,8 @@
     "peft": "information_adapter",
     "tasks": [
       "staff",
-      "clef"
+      "clef",
+      "tempo"
     ]
   }
 }

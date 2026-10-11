@@ -266,6 +266,10 @@ mod observation_edit_tests {
         assert_eq!(edited["document_metadata"]["tempo_quarter"], 96);
         let edited = edited_single(&layout, &previous, &json!({"tempo_quarter":null})).unwrap();
         assert!(edited["document_metadata"]["tempo_quarter"].is_null());
+        assert_eq!(edited["document_metadata"]["tempo_source"], "manual");
+        let edited = edited_single(&layout, &previous, &json!({"tempo_quarter":476})).unwrap();
+        assert_eq!(edited["document_metadata"]["tempo_quarter"], 476);
+        assert_eq!(edited["document_metadata"]["tempo_source"], "manual");
         assert!(edited_single(&layout, &json!({}), &json!({"title":"Untitled"})).is_err());
         assert!(edited_single(&layout, &json!({}), &json!({"instrument":"guitar"})).is_err());
     }
@@ -1074,8 +1078,8 @@ fn edited_single(layout: &Value, previous: &Value, values: &Value) -> Result<Val
     let tempo = integer(
         "tempo_quarter",
         &previous["document_metadata"]["tempo_quarter"],
-        20,
-        400,
+        1,
+        999,
     )?;
     let transpose = integer("transpose", &previous["transpose"], -36, 36)?;
     let program = values
@@ -1114,6 +1118,9 @@ fn edited_single(layout: &Value, previous: &Value, values: &Value) -> Result<Val
         }
     }
     metadata["tempo_quarter"] = json!(tempo);
+    if values.get("tempo_quarter").is_some() {
+        metadata["tempo_source"] = json!("manual");
+    }
     if confirm_instrument {
         metadata["instrument"] = json!(instrument);
         metadata["instrument_source"] = json!("manual");
@@ -1439,13 +1446,11 @@ fn edited_information(layout: &Value, previous: &Value, values: &Value) -> Resul
             }
         }
     }
-    for key in ["subtitle", "header_notes"] {
+    for key in ["subtitle", "header_notes", "tempo_quarter", "tempo_source"] {
         result["document_metadata"][key] = edited["document_metadata"][key].clone();
     }
-    result["document_metadata"]["tempo_quarter"] =
-        edited["document_metadata"]["tempo_quarter"].clone();
     for part in result["parts"].as_array_mut().unwrap() {
-        for key in ["subtitle", "header_notes"] {
+        for key in ["subtitle", "header_notes", "tempo_quarter", "tempo_source"] {
             part["document_metadata"][key] = edited["document_metadata"][key].clone();
         }
         part["title"] = edited["title"].clone();
@@ -1454,8 +1459,6 @@ fn edited_information(layout: &Value, previous: &Value, values: &Value) -> Resul
             &mut part["document_metadata"],
             &edited["document_metadata"],
         );
-        part["document_metadata"]["tempo_quarter"] =
-            edited["document_metadata"]["tempo_quarter"].clone();
     }
     Ok(result)
 }

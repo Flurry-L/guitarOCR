@@ -12,6 +12,9 @@ from pathlib import Path
 
 from research.common.ocr import INFORMATION_TASKS
 from research.data.pack_score import samples
+from research.data.prompts import (
+    ANNOTATION_PROMPT, CLEF_PROMPT, HEADER_PROMPT, STAFF_PROMPT, TEMPO_PROMPT,
+)
 from research.inference.vllm import VllmBackend
 
 
@@ -146,18 +149,18 @@ def main():
     if args.batch_size < 1:
         parser.error('--batch-size must be positive')
     kinds = {
-        'header': 'Read only visible song title',
-        'tempo': 'Read the printed quarter-note tempo.',
-        'staff': 'Read the first staff and its instrument label.',
-        'clef': 'Read the visible clef.',
-        'annotation': 'Classify and read the visible score annotation.',
+        'header': HEADER_PROMPT,
+        'tempo': TEMPO_PROMPT,
+        'staff': STAFF_PROMPT,
+        'clef': CLEF_PROMPT,
+        'annotation': ANNOTATION_PROMPT,
     }
     tasks = []
     for path in args.dataset:
         for index, row in enumerate(samples(path)):
             if not row['messages'][-1]['content'].lstrip().startswith('{'):
                 continue
-            prompt = row['messages'][0]['content'].replace('<image>', '')
+            prompt = row['messages'][0]['content'].replace('<image>', '').strip()
             kind = next((kind for kind, prefix in kinds.items() if prompt.startswith(prefix)), None)
             if kind is None:
                 raise ValueError(f'Unknown information prompt: {path}:{index + 1}')
