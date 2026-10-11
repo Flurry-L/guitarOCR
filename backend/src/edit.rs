@@ -67,6 +67,46 @@ mod observation_edit_tests {
     use super::*;
 
     #[test]
+    fn export_retains_known_chord_tones_without_completing_the_observation() {
+        let source = json!({"instrument":"guitar","parts":[],"document_metadata":{},
+            "records":[{"source_id":"score","part_id":"guitar","staff_id":"tab",
+                "bar_index":0,"measure_number":1,"mode":"tab","instrument":"guitar",
+                "capo":0,"tuning":[64,59,55,50,45,40],"tuning_source":"manual",
+                "observation":{"state":{"time":{"status":"observed","value":"4/4"}},
+                    "voices":[{"voice":0,"events":[{"start":960,"duration":"h","status":"normal",
+                        "notes":[{"string":1,"fret":5},{"string":2,"fret":null}],
+                        "effects":["chord:F%230","chord:hammer"]}]}],
+                    "relations":[]}}]});
+        let original = source.clone();
+        let (document, summary, warnings) = export_score(&source).unwrap();
+        assert_eq!(source, original);
+        assert_eq!(summary["partial_measures"], 1);
+        assert_eq!(summary["omitted_notes"], 1);
+        let measure = &document["parts"][0]["staves"][0]["measures"][0];
+        let event = measure["voices"][0]["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|event| event["status"] == "normal")
+            .unwrap();
+        assert_eq!(event["notes"].as_array().unwrap().len(), 1);
+        assert_eq!(event["notes"][0]["fret"], 5);
+        assert_eq!(event["start"], 960);
+        assert!(event["effects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|effect| effect.as_str().unwrap().starts_with("text:")));
+        assert!(!warnings.is_empty());
+        let output = tempfile::tempdir().unwrap();
+        let gp5 = scorelib::music_exports::write_gp5(&document, &output.path().join("partial.gp5"))
+            .unwrap();
+        assert_eq!(gp5["report"]["readback_verified"], true);
+        scorelib::music_exports::write_musicxml(&document, &output.path().join("partial.musicxml"))
+            .unwrap();
+    }
+
+    #[test]
     fn partial_metadata_edit_preserves_existing_values_and_unknown_tempo() {
         let previous = json!({"title":"Before","artist":"Composer","instrument":"guitar",
             "tuning_used":[64,59,55,50,45,40],"tuning_source":"manual","capo":3,
@@ -555,6 +595,198 @@ fn score_filename(title: &str, fallback: &str) -> String {
     }
     name + ".gp5"
 }
+fn export_chord_labels(measure: &mut Value) -> bool {
+    let mut changed = false;
+    for voice in measure["voices"].as_array_mut().unwrap() {
+        for event in voice["events"].as_array_mut().unwrap() {
+            let Some(effects) = event.get_mut("effects").and_then(Value::as_array_mut) else {
+                continue;
+            };
+            let names: Vec<_> = effects
+                .iter()
+                .filter_map(Value::as_str)
+                .filter_map(|effect| effect.strip_prefix("chord:"))
+                .map(|name| {
+                    percent_encoding::percent_decode_str(name)
+                        .decode_utf8_lossy()
+                        .into_owned()
+                })
+                .collect();
+            let valid = names
+                .iter()
+                .filter(|name| crate::recognition::is_chord_symbol(name))
+                .count();
+            for effect in effects {
+                let Some(name) = effect
+                    .as_str()
+                    .and_then(|effect| effect.strip_prefix("chord:"))
+                else {
+                    continue;
+                };
+                let decoded = percent_encoding::percent_decode_str(name).decode_utf8_lossy();
+                if valid > 1 || !crate::recognition::is_chord_symbol(&decoded) {
+                    // Both formats have one chord-name slot per beat. Preserve
+                    // ambiguous labels as readable text instead of losing music.
+                    *effect = json!(format!("text:{name}"));
+                    changed = true;
+                }
+            }
+        }
+    }
+    changed
+}
+
+/// Build the files from retained musical evidence without changing the project
+/// or requiring every image observation to have a complete combined IR.
+fn export_score(source: &Value) -> Result<(Value, Value, Vec<String>)> {
+    let mut source = source.clone();
+    crate::recognition::reassemble(&mut source)?;
+    let mut document = score_document(&source)?;
+    let rows = source["records"].as_array().ok_or("识别结果缺少小节")?;
+    let timeline = document["timeline"].clone();
+    let mut summary = json!({"partial_measures":0,"omitted_notes":0,
+        "omitted_events":0,"tab_preferred_events":0,"adjusted_events":0,
+        "split_events":0,"overflow_events":0});
+    let mut warnings = Vec::new();
+    for part in document["parts"].as_array_mut().unwrap() {
+        for staff in part["staves"].as_array_mut().unwrap() {
+            for measure in staff["measures"].as_array_mut().unwrap() {
+                let row = rows
+                    .iter()
+                    .find(|row| row["measure_number"] == measure["source_record"])
+                    .ok_or("导出小节缺少来源")?;
+                let mut details = Vec::new();
+                let mut labels = Vec::new();
+                let index = measure["index"].as_u64().unwrap() as usize;
+                if measure["incomplete"] == true {
+                    let mut evidence = row.clone();
+                    if evidence["score_state"]["time"].is_null() {
+                        evidence["score_state"]["time"] = timeline[index]["time_signature"].clone();
+                    }
+                    let projection = scorelib::observation::export_measure(&evidence)?;
+                    let mut partial = projection["measure"].clone();
+                    crate::recognition::convert_export_measure(&evidence, &mut partial)?;
+                    for (key, value) in partial.as_object().unwrap() {
+                        measure[key] = value.clone();
+                    }
+                    measure.as_object_mut().unwrap().remove("incomplete");
+                    summary["partial_measures"] =
+                        json!(summary["partial_measures"].as_u64().unwrap() + 1);
+                    for key in ["omitted_notes", "omitted_events", "tab_preferred_events"] {
+                        summary[key] = json!(
+                            summary[key].as_u64().unwrap() + projection[key].as_u64().unwrap()
+                        );
+                    }
+                    details.extend(
+                        projection["warnings"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .map(str::to_owned),
+                    );
+                    if projection["tab_preferred_events"].as_u64().unwrap() > 0 {
+                        labels.push("双谱按TAB");
+                    }
+                    if projection["omitted_notes"].as_u64().unwrap() > 0
+                        || projection["omitted_events"].as_u64().unwrap() > 0
+                    {
+                        labels.push("缺音或节奏");
+                    }
+                }
+                let rhythm = scorelib::observation::export_rhythm(
+                    measure,
+                    timeline[index]["time_signature"]
+                        .as_str()
+                        .ok_or("导出小节缺少拍号")?,
+                )?;
+                *measure = rhythm["measure"].clone();
+                for key in ["adjusted_events", "split_events", "overflow_events"] {
+                    summary[key] =
+                        json!(summary[key].as_u64().unwrap() + rhythm[key].as_u64().unwrap());
+                }
+                if rhythm["adjusted_events"].as_u64().unwrap() > 0
+                    || rhythm["overflow_events"].as_u64().unwrap() > 0
+                {
+                    labels.push("节奏");
+                }
+                details.extend(
+                    rhythm["warnings"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_owned),
+                );
+                if export_chord_labels(measure) {
+                    labels.push("和弦名");
+                    details.push("未确认或同拍有多个候选的和弦名称已按原文保留为文字".into());
+                }
+                for issue in row["issues"].as_array().into_iter().flatten() {
+                    let code = issue["code"].as_str().unwrap_or("");
+                    let label = match code {
+                        "chord" => Some("和弦名"),
+                        "chord_diagram" => Some("指法图"),
+                        code if code.starts_with("tie_") => Some("延音"),
+                        code if code.starts_with("sl_") || code.starts_with("ss_") => Some("滑音"),
+                        code if code.starts_with("hammer_") => Some("击勾弦"),
+                        code if code.starts_with("range_") || code.starts_with("relation_") => {
+                            Some("奏法范围")
+                        }
+                        code if code.starts_with("ottava_") => Some("八度记号"),
+                        "timing" => Some("节奏"),
+                        _ => None,
+                    };
+                    if let Some(label) = label {
+                        if !labels.contains(&label) {
+                            labels.push(label);
+                        }
+                        if let Some(message) = issue["message"].as_str() {
+                            if !details.iter().any(|s| s == message) {
+                                details.push(message.to_owned());
+                            }
+                        }
+                    }
+                }
+                if !labels.is_empty() {
+                    let annotation = format!("待核对：{}", labels.join("、"));
+                    // A beat annotation travels into GP5/MusicXML, where the
+                    // user can continue editing. It is not a musical section.
+                    if let Some(event) = measure["voices"]
+                        .as_array_mut()
+                        .unwrap()
+                        .iter_mut()
+                        .flat_map(|v| v["events"].as_array_mut().unwrap())
+                        .next()
+                    {
+                        let text = percent_encoding::utf8_percent_encode(
+                            &annotation,
+                            percent_encoding::NON_ALPHANUMERIC,
+                        )
+                        .to_string();
+                        event
+                            .as_object_mut()
+                            .unwrap()
+                            .entry("effects")
+                            .or_insert_with(|| json!([]))
+                            .as_array_mut()
+                            .unwrap()
+                            .push(json!(format!("text:{text}")));
+                    }
+                }
+                if !details.is_empty() {
+                    warnings.push(format!(
+                        "第 {} 小节：{}",
+                        measure["index"].as_u64().unwrap() + 1,
+                        details.join("；")
+                    ));
+                }
+            }
+        }
+    }
+    Ok((document, summary, warnings))
+}
+
 pub fn export(
     root: &Path,
     sid: &str,
@@ -577,19 +809,25 @@ pub fn export(
     let fallback = state["input_names"][0].as_str().unwrap_or("乐谱");
     let filename = score_filename(source["title"].as_str().unwrap_or(""), fallback);
     let gp5 = output.path().join(&filename);
+    let (document, summary, warnings) = export_score(&source).map_err(|e| (400, e))?;
     let mut exported = json!({"schema_version":"1.0","stage":"gp5_export",
         "recognition":recognition,"gp5":null,"musicxml":null,
-        "gp5_error":null,"musicxml_error":null,"warnings":[]});
-    match scorelib::music_exports::write_gp5(&source, &gp5) {
+        "gp5_error":null,"musicxml_error":null,"summary":summary,"warnings":warnings});
+    match scorelib::music_exports::write_gp5(&document, &gp5) {
         Ok(report) => {
             exported["gp5"] = json!(gp5);
             exported["encoding_report"] = report["report_path"].clone();
-            exported["warnings"] = json!(report["report"]
+            let warnings = report["report"]
                 .as_object()
                 .into_iter()
                 .flat_map(|report| report.values())
                 .filter_map(|field| field["warning"].as_str())
-                .collect::<Vec<_>>());
+                .map(|warning| json!(warning))
+                .collect::<Vec<_>>();
+            exported["warnings"]
+                .as_array_mut()
+                .unwrap()
+                .extend(warnings);
         }
         Err(error) => {
             exported["gp5_error"] = json!(error);
@@ -598,7 +836,7 @@ pub fn export(
         }
     }
     let musicxml = gp5.with_extension("musicxml");
-    match scorelib::music_exports::write_musicxml(&source, &musicxml) {
+    match scorelib::music_exports::write_musicxml(&document, &musicxml) {
         Ok(_) => exported["musicxml"] = json!(musicxml),
         Err(error) => {
             exported["musicxml_error"] = json!(error);

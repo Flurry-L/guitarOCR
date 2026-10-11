@@ -22,6 +22,7 @@ const { renderMeasures, updateMeasureControls, openIssue } = initMeasures({
   start,
   go,
   renderExport,
+  exportScore,
   setBusy,
 });
 const { renderMetadata, updateMetadataControls } = initMetadata({ start, go, render, setBusy });
@@ -527,7 +528,7 @@ function renderExport() {
   const measures = ui.state.measures || [];
   const count = new Set(measures.map((m, i) => m.bar_index ?? i)).size,
     parts = new Set(measures.map((m) => m.part_id || "part-1")).size,
-    review = ui.state.review_measures?.length || 0;
+    review = new Set(measures.flatMap((m, i) => m.needs_review ? [m.bar_index ?? i] : [])).size;
   $("exportSummary").replaceChildren();
   for (const [value, label] of [
     [ui.state.pages.length, "页乐谱"],
@@ -557,35 +558,57 @@ function renderExport() {
     $("downloadScoreText").download = "score.txt";
   }
   $("downloadGP5").hidden = !ui.state.gp5_url;
-  $("export").hidden = ui.state.export === true;
+  $("export").hidden = !!ui.state.gp5_url;
   $("export").disabled = ui.busy || !count;
   if (ui.state.gp5_url) {
     $("downloadGP5").href = ui.state.gp5_url;
     $("downloadGP5").download = ui.state.gp5_name;
   }
-  const warnings = [review ? `检测到 ${review} 个小节有问题，可返回编辑。` : "", ...(ui.state.export_warnings || [])].filter(Boolean);
+  const summary = ui.state.export_summary || {};
+  const changes = [
+    summary.partial_measures > 0 && `${summary.partial_measures} 个小节保留了可用内容`,
+    summary.omitted_notes > 0 && `${summary.omitted_notes} 个音符未写入`,
+    summary.omitted_events > 0 && `${summary.omitted_events} 处音符或节奏未写入`,
+    summary.tab_preferred_events > 0 && `${summary.tab_preferred_events} 处双谱按 TAB 导出`,
+    summary.adjusted_events > 0 && `${summary.adjusted_events} 处重叠时值已缩短`,
+    summary.overflow_events > 0 && `${summary.overflow_events} 处超拍内容已保留`,
+  ].filter(Boolean);
+  $("exportMessage").textContent = changes.length
+    ? `${changes.join("，")}。待修改的位置已在谱中标记，可在 Guitar Pro 中继续编辑。`
+    : `${review ? `${review} 个小节有未确定或冲突的内容。` : ""}导出会保留已识别的音符与节奏，未确定内容会在谱中标记，可在 Guitar Pro 中继续编辑。`;
+  const warnings = ui.state.export_warnings || [];
   $("exportWarning").hidden = !warnings.length;
   $("reviewBeforeExport").hidden = !review;
-  $("exportWarning").textContent = warnings.join("\n");
+  $("exportWarningSummary").textContent = `查看导出处理说明（${warnings.length} 项）`;
+  $("exportWarningDetails").replaceChildren(...warnings.map(message => el("li", message)));
 }
 $("reviewBeforeExport").onclick = () => {
   go(3);
   openIssue();
 };
-$("export").onclick = action(async () => {
+async function exportScore() {
   const navigation = workspace.navigation();
-  setBusy(true);
-  try {
-    receiveProject(
-      await api(endpoint("/export"), "POST", undefined, ui.state.revision),
-    );
-  } finally {
-    setBusy(false);
+  if (!ui.state.gp5_url) {
+    setBusy(true);
+    notice("正在生成导出文件…");
+    try {
+      receiveProject(
+        await api(endpoint("/export"), "POST", undefined, ui.state.revision),
+      );
+    } finally {
+      setBusy(false);
+    }
   }
   renderExport();
-  const formats = [ui.state.gp5_url && "GP5", ui.state.musicxml_url && "MusicXML"].filter(Boolean);
-  if (workspace.navigation() === navigation) notice(`${formats.join("、")} 已生成，可以下载。`);
-});
+  if (workspace.navigation() !== navigation) return;
+  if (ui.state.gp5_url) {
+    $("downloadGP5").click();
+    notice("GP5 已生成，已开始下载。可在 Guitar Pro 中继续编辑。");
+  } else {
+    notice("GP5 未能生成，请查看导出说明。已生成的格式仍可下载。", true);
+  }
+}
+$("export").onclick = action(exportScore);
 window.addEventListener("beforeunload", (e) => {
   if (hasDrafts()) {
     e.preventDefault();

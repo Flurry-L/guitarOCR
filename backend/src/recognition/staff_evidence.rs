@@ -165,6 +165,48 @@ pub fn resolve_string_count(
         "provisional":needs_review && !value.is_null()})
 }
 
+/// A printed tuning can disambiguate existing visual counts once the
+/// instrument is known. It cannot establish a new count on its own.
+pub fn resolve_string_count_with_tuning(
+    mut count: Value,
+    instrument: &Value,
+    tuning_name: &str,
+) -> Value {
+    if count["source"] == "manual"
+        || count["needs_review"] != true
+        || instrument["status"] != "resolved"
+        || instrument["needs_review"] != false
+        || tuning_name.trim().is_empty()
+    {
+        return count;
+    }
+    let Some(instrument) = instrument["value"].as_str() else {
+        return count;
+    };
+    let supported: std::collections::BTreeSet<_> = count["candidates"]
+        .as_object()
+        .into_iter()
+        .flat_map(|candidates| candidates.values())
+        .filter_map(Value::as_u64)
+        .filter(|n| (1..=12).contains(n))
+        .filter(|n| super::tuning_from_name(tuning_name, instrument, Some(*n as usize)).is_some())
+        .collect();
+    if supported.len() == 1 {
+        let value = json!(supported.first().unwrap());
+        count["value"] = value.clone();
+        count["source"] = json!("printed_tuning_agreement");
+        count["needs_review"] = json!(false);
+        count["provisional"] = json!(false);
+        count["staff_conflict"] = json!(
+            !count["candidates"]["staff_model"].is_null()
+                && count["candidates"]["staff_model"] != value
+        );
+        count["tuning_evidence"] =
+            json!({"text":tuning_name,"instrument":instrument,"string_count":value});
+    }
+    count
+}
+
 pub fn resolve_instrument_with_label(
     has_tab: bool,
     staff: &Value,

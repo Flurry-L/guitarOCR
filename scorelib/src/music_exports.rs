@@ -829,6 +829,69 @@ pub fn write_gp5(input: &Value, output: &Path) -> R<Value> {
     gp5::write(input, output)
 }
 
+#[test]
+fn partial_export_encodes_mixed_known_positions_and_pitches() {
+    let record = json!({"mode":"both","score_state":{"time":"4/4"},
+        "resolved":{"voices":[{"voice":0,"events":[
+            {"start":0,"duration":"q","status":"normal","notes":[{"string":1,"fret":5}],
+             "effects":["text:F%230","text:hammer","text:%E5%BE%85%E6%A0%B8%E5%AF%B9"]},
+            {"start":960,"duration":"q","status":"normal","notes":[{"pitch":null}]},
+            {"start":1920,"duration":"h","status":"normal","notes":[{"pitch":67}]}]}]}});
+    let mut measure = crate::observation::export_measure(&record).unwrap()["measure"].clone();
+    measure["index"] = json!(0);
+    measure["mode"] = json!("both");
+    let score = json!({"schema":"guitarocr.score/2","ticks_per_quarter":960,
+        "timeline":[{"index":0,"time_signature":"4/4"}],"parts":[{"id":"guitar","name":"Guitar",
+        "instrument":"guitar","tuning":[64,59,55,50,45,40],"capo":0,"midi_program":25,
+        "staves":[{"id":"staff","measures":[measure]}]}]});
+    let (bytes, report) = gp5::encode(&score).unwrap();
+    assert!(!bytes.is_empty());
+    assert_eq!(report["readback_verified"], true);
+    let (label, _, _) = encoding_rs::GBK.encode("F#0\nhammer\n待核对");
+    assert!(bytes
+        .windows(label.len())
+        .any(|window| window == label.as_ref()));
+    let xml = String::from_utf8(score_musicxml(&score).unwrap()).unwrap();
+    assert_eq!(xml.matches("<pitch>").count(), 2);
+    assert!(xml.contains("<rest"));
+}
+
+#[test]
+fn rhythm_projection_encodes_tied_fragments_and_keeps_overflow_attacks() {
+    let source = json!({"index":0,"mode":"tab","voices":[{"voice":0,"events":[
+        {"start":0,"duration":{"value":4},"status":"normal","notes":[{"string":1,"fret":5,"effects":["ss"]},{"string":2,"fret":"x","effects":[]},{"string":3,"fret":0,"effects":["dead"]}],"effects":["text:keep"]},
+        {"start":600,"duration":{"value":4},"status":"normal","notes":[{"string":1,"fret":7,"effects":[]}],"effects":[]},
+        {"start":4320,"duration":{"value":4},"status":"normal","notes":[{"string":1,"fret":9,"effects":[]}],"effects":[]}]}]});
+    let result = crate::observation::export_rhythm(&source, "4/4").unwrap();
+    assert_eq!(result["adjusted_events"], 1);
+    assert_eq!(result["split_events"], 1);
+    assert_eq!(result["overflow_events"], 1);
+    let events = &result["measure"]["voices"][0]["events"];
+    assert_eq!(events[0]["notes"][0]["effects"], json!([]));
+    assert_eq!(events[1]["start"], 480);
+    assert_eq!(events[1]["notes"][0]["effects"], json!(["tie", "ss"]));
+    assert_eq!(events[0]["notes"].as_array().unwrap().len(), 3);
+    assert_eq!(events[1]["notes"].as_array().unwrap().len(), 1);
+    assert_eq!(events[1]["effects"], json!([]));
+    assert_eq!(events.as_array().unwrap().last().unwrap()["start"], 4320);
+    let score = json!({"schema":"guitarocr.score/2","ticks_per_quarter":960,
+        "timeline":[{"index":0,"time_signature":"4/4"}],"parts":[{"id":"guitar","name":"Guitar",
+        "instrument":"guitar","tuning":[64,59,55,50,45,40],"capo":0,"midi_program":25,
+        "staves":[{"id":"staff","measures":[result["measure"]]}]}]});
+    let (_, report) = gp5::encode(&score).unwrap();
+    assert_eq!(report["readback_verified"], true);
+    assert_eq!(source["voices"][0]["events"][0]["duration"]["value"], 4);
+    score_musicxml(&score).unwrap();
+    let mut dead_only = source;
+    dead_only["voices"][0]["events"][0]["notes"] = json!([{"string":2,"fret":"x","effects":[]}]);
+    let result = crate::observation::export_rhythm(&dead_only, "4/4").unwrap();
+    let events = &result["measure"]["voices"][0]["events"];
+    assert_eq!(events[0]["notes"][0]["fret"], "x");
+    assert_eq!(events[1]["status"], "rest");
+    assert_eq!(events[1]["notes"], json!([]));
+    assert_eq!(events[2]["start"], 600);
+}
+
 fn atomic_write(path: &Path, bytes: &[u8]) -> R<()> {
     use std::io::Write;
     let parent = path

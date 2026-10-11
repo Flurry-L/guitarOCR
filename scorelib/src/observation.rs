@@ -1432,12 +1432,8 @@ fn note_technique(chain: &Value, rows: &mut [Row]) -> Option<String> {
         chain["kind"].as_str().unwrap(),
     );
     if start.is_array() && end == "right" {
-        if let Some(note) = note_mut(
-            &mut rows[start[0].as_u64().unwrap() as usize],
-            &local_ref(start),
-        ) {
-            add_effect(note, kind);
-        }
+        // sl/ss/hammer need a destination. Slide-out marks are the separate
+        // sou/sod note effects; an unmatched crop edge cannot establish one.
         return Some(format!("{kind}_endpoint_unresolved"));
     }
     if let Some(problem) = connection_problem(start, end, rows, Some(kind)) {
@@ -1450,6 +1446,18 @@ fn note_technique(chain: &Value, rows: &mut [Row]) -> Option<String> {
     };
     if !same_voice {
         return Some(format!("{kind}_voice_unresolved"));
+    }
+    for endpoint in [start, end] {
+        let row = &rows[endpoint[0].as_u64().unwrap() as usize];
+        let note = note(row, &local_ref(endpoint)).unwrap();
+        let field = if row.value["mode"] == "tab" || note.get("string").is_some() {
+            "fret"
+        } else {
+            "pitch"
+        };
+        if note[field].is_null() {
+            return Some(format!("{kind}_value_unresolved"));
+        }
     }
     add_effect(
         note_mut(
@@ -1520,6 +1528,17 @@ fn tie(chain: &Value, rows: &mut [Row]) -> Option<String> {
     )
     .unwrap()
     .clone();
+    let source = &rows[start[0].as_u64().unwrap() as usize];
+    let field = if source.value["mode"] == "tab" || first.get("string").is_some() {
+        "fret"
+    } else {
+        "pitch"
+    };
+    if first[field].is_null() {
+        // Keep the visible connection, but an unknown source cannot establish
+        // a sounding tie to a known note later in an editable export.
+        return Some("tie_value_unresolved".into());
+    }
     let b = &mut rows[end[0].as_u64().unwrap() as usize];
     let mode = b.value["mode"].as_str().unwrap().to_owned();
     let last = note_mut(b, &local_ref(end)).unwrap();
@@ -1845,6 +1864,319 @@ fn ir(row: &mut Row) -> Option<String> {
             None
         }
     }
+}
+
+/// Project the known music of an incomplete observation for an editable export.
+/// Pitches remain written pitches: the product applies its shared pitch-context
+/// conversion before encoding. This never changes the observation or its IR.
+/// Rests inserted here occupy unknown spans in the export, not recognized rests.
+pub fn export_measure(record: &Value) -> Result<Value, String> {
+    let resolved = &record["resolved"];
+    let signature = record["score_state"]["time"]
+        .as_str()
+        .or_else(|| known(&resolved["state"], "time").as_str());
+    let length = signature
+        .and_then(|time| time.split_once('/'))
+        .and_then(|(n, d)| n.parse::<i64>().ok().zip(d.parse::<i64>().ok()))
+        .filter(|(n, d)| *n > 0 && *d > 0)
+        .map(|(n, d)| 3840 * n / d);
+    let mut omitted_notes = 0;
+    let mut omitted_events = 0;
+    let mut tab_preferred_events = 0;
+    let mut voices = Vec::new();
+    let complete_position = |note: &Value| {
+        note["string"].as_i64().is_some_and(|s| s > 0)
+            && (note["fret"].as_i64().is_some_and(|f| f >= 0) || note["fret"] == "x")
+    };
+    for voice in array(&resolved["voices"]) {
+        if array(&voice["events"]).is_empty() {
+            voices.push(json!({"voice":voice["voice"],"events":[]}));
+            continue;
+        }
+        let mut events = Vec::new();
+        for (index, event) in array(&voice["events"]).iter().enumerate() {
+            let (Some(start), Some(rhythm)) = (
+                event["start"].as_i64().filter(|s| *s >= 0),
+                duration(&event["duration"]),
+            ) else {
+                omitted_events += 1;
+                omitted_notes += array(&event["notes"]).len();
+                continue;
+            };
+            if !matches!(event["status"].as_str(), Some("normal" | "rest" | "empty")) {
+                omitted_events += 1;
+                omitted_notes += array(&event["notes"]).len();
+                continue;
+            }
+            let conflict = record["mode"] == "both"
+                && array(&record["unresolved"]).iter().any(|issue| {
+                    issue["reason"] == "dual_note_pairing_unresolved"
+                        && issue["voice"] == voice["voice"]
+                        && issue["event"] == index
+                });
+            let prefer_tab = conflict && array(&event["notes"]).iter().any(complete_position);
+            if prefer_tab {
+                tab_preferred_events += 1;
+            }
+            let mut notes = Vec::new();
+            for note in array(&event["notes"]) {
+                let position = complete_position(note);
+                // An unmatched notation reading describes the same chord, not
+                // additional notes to stack on top of its visible TAB fingering.
+                if prefer_tab && note.get("string").is_none() {
+                    continue;
+                }
+                let pitch = note["pitch"].as_i64().filter(|p| (0..=127).contains(p));
+                if !position && (pitch.is_none() || prefer_tab) {
+                    omitted_notes += 1;
+                    continue;
+                }
+                let mut projected =
+                    json!({"effects":note.get("effects").cloned().unwrap_or(json!([]))});
+                if position {
+                    projected["string"] = note["string"].clone();
+                    projected["fret"] = note["fret"].clone();
+                }
+                if !prefer_tab {
+                    if let Some(pitch) = pitch {
+                        projected["pitch"] = json!(pitch);
+                    }
+                }
+                for key in ["velocity", "swap_accidentals"] {
+                    if let Some(value) = note.get(key) {
+                        projected[key] = value.clone();
+                    }
+                }
+                notes.push(projected);
+            }
+            let status = if event["status"] == "normal" && notes.is_empty() {
+                omitted_events += 1;
+                json!("rest")
+            } else {
+                event["status"].clone()
+            };
+            events.push(json!({"start":start,"duration":rhythm,"status":status,
+                "notes":notes,"effects":event.get("effects").cloned().unwrap_or(json!([]))}));
+        }
+        events.sort_by_key(|event| event["start"].as_i64().unwrap());
+        let mut occupied = Vec::new();
+        let mut cursor = 0;
+        for event in events {
+            let start = event["start"].as_i64().unwrap();
+            let ticks = score::duration_ticks(&event["duration"])?;
+            // Keep original durations here; export_rhythm bounds any overlap
+            // at the next attack without moving notes.
+            let end = if event["status"] == "empty" {
+                start
+            } else {
+                start + (ticks.numerator / ticks.denominator) as i64
+            };
+            cursor = cursor.max(end);
+            occupied.push(event);
+        }
+        if let Some(length) = length.filter(|length| *length > cursor) {
+            for mut rest in score::rest_events(length - cursor)? {
+                rest["start"] = json!(cursor + rest["start"].as_i64().unwrap());
+                occupied.push(rest);
+            }
+        }
+        voices.push(json!({"voice":voice["voice"],"events":occupied}));
+    }
+    if voices.is_empty() {
+        voices.push(json!({"voice":0,"events":[]}));
+    }
+    if voices
+        .iter()
+        .all(|voice| array(&voice["events"]).is_empty())
+        && omitted_events == 0
+    {
+        omitted_events = 1;
+    }
+    let mut warnings = Vec::new();
+    if omitted_notes > 0 {
+        warnings.push(format!(
+            "{omitted_notes} 个音符尚未确定，已保留同拍的其他音符"
+        ));
+    }
+    if omitted_events > 0 {
+        warnings.push(format!(
+            "{omitted_events} 处音符或节奏尚未确定，空缺用占位休止保留时间"
+        ));
+    }
+    if tab_preferred_events > 0 {
+        warnings.push(format!(
+            "{tab_preferred_events} 处双谱读数不一致，导出采用已识别的 TAB 指法"
+        ));
+    }
+    Ok(
+        json!({"measure":{"voices":voices,"time_signature":signature,
+        "print_time_signature":resolved["state"]["time"]["status"]=="observed"},
+        "omitted_notes":omitted_notes,"omitted_events":omitted_events,
+        "tab_preferred_events":tab_preferred_events,"warnings":warnings}),
+    )
+}
+
+/// Make an explicitly approximate file projection while retaining every known
+/// attack. A later attack bounds an overlapping duration in the same voice.
+/// Overflow stays in its source bar; valid pickup measures are not padded.
+pub fn export_rhythm(measure: &Value, time_signature: &str) -> Result<Value, String> {
+    let (n, d) = time_signature
+        .split_once('/')
+        .ok_or("Missing export meter")?;
+    let n = n.parse::<i64>().map_err(|_| "Invalid export meter")?;
+    let d = d.parse::<i64>().map_err(|_| "Invalid export meter")?;
+    if n <= 0 || d <= 0 {
+        return Err("Invalid export meter".into());
+    }
+    let length = 3840 * n / d;
+    let mut projected = measure.clone();
+    let voices = projected["voices"]
+        .as_array_mut()
+        .ok_or("Missing export voices")?;
+    let all_empty = voices
+        .iter()
+        .all(|voice| array(&voice["events"]).is_empty());
+    if voices.is_empty() {
+        voices.push(json!({"voice":0,"events":[]}));
+    }
+    let (mut adjusted_events, mut split_events, mut overflow_events) = (0, 0, 0);
+    for (vi, voice) in voices.iter_mut().enumerate() {
+        let mut events = array(&voice["events"]).to_vec();
+        if events.is_empty() {
+            if all_empty && vi == 0 {
+                voice["events"] = json!(score::rest_events(length)?);
+            }
+            continue;
+        }
+        events.sort_by_key(|event| event["start"].as_i64().unwrap_or(0));
+        let mut out = Vec::new();
+        let mut cursor = 0;
+        for (index, event) in events.iter().enumerate() {
+            let start = event["start"].as_i64().ok_or("Missing event onset")?;
+            if start < cursor {
+                return Err("Simultaneous events in one voice need distinct note ownership".into());
+            }
+            if start > cursor {
+                for mut rest in score::rest_events(start - cursor)? {
+                    rest["start"] = json!(cursor + rest["start"].as_i64().unwrap());
+                    out.push(rest);
+                }
+            }
+            let ticks = score::duration_ticks(&event["duration"])?;
+            let next = events.get(index + 1).and_then(|e| e["start"].as_i64());
+            let shortened = event["status"] != "empty"
+                && next.is_some_and(|next| {
+                    i128::from(next - start) * ticks.denominator < ticks.numerator
+                });
+            let pieces = if shortened {
+                let span = next.unwrap() - start;
+                if span <= 0 {
+                    return Err(
+                        "Simultaneous events in one voice need distinct note ownership".into(),
+                    );
+                }
+                adjusted_events += 1;
+                let pieces = score::rest_events(span)?;
+                if pieces.len() > 1 {
+                    split_events += 1;
+                }
+                pieces
+            } else {
+                vec![json!({"start":0,"duration":event["duration"]})]
+            };
+            let mut end = start;
+            for (piece_index, piece) in pieces.iter().enumerate() {
+                let mut retained = event.clone();
+                retained["start"] = json!(start + piece["start"].as_i64().unwrap());
+                retained["duration"] = piece["duration"].clone();
+                if pieces.len() > 1 {
+                    let last = piece_index + 1 == pieces.len();
+                    if piece_index > 0 {
+                        retained["effects"] = json!(array(&event["effects"])
+                            .iter()
+                            .filter(|e| e.as_str().is_some_and(|s| s.starts_with("ottava:")))
+                            .cloned()
+                            .collect::<Vec<_>>());
+                        // A dead note is an attack, not a pitch to sustain.
+                        // Later duration fragments must not strike it again.
+                        let notes = retained["notes"].as_array_mut().ok_or("Missing notes")?;
+                        notes.retain(|note| {
+                            note["fret"] != "x" && !array(&note["effects"]).contains(&json!("dead"))
+                        });
+                        if notes.is_empty() {
+                            retained["status"] = json!("rest");
+                        }
+                    }
+                    for note in retained["notes"].as_array_mut().ok_or("Missing notes")? {
+                        let effects = array(&note["effects"]).to_vec();
+                        let outgoing = |effect: &&Value| {
+                            matches!(
+                                effect.as_str(),
+                                Some("sl" | "ss" | "hammer" | "sou" | "sod")
+                            )
+                        };
+                        let mut kept = if piece_index == 0 {
+                            effects
+                                .iter()
+                                .filter(|e| !outgoing(e))
+                                .cloned()
+                                .collect::<Vec<_>>()
+                        } else {
+                            effects
+                                .iter()
+                                .filter(|e| {
+                                    e.as_str().is_some_and(|s| {
+                                        matches!(s, "pm" | "let" | "vib" | "trem")
+                                            || s.starts_with("harm:")
+                                            || s.starts_with("trem:")
+                                    })
+                                })
+                                .cloned()
+                                .collect::<Vec<_>>()
+                        };
+                        if piece_index > 0 && !kept.contains(&json!("tie")) {
+                            kept.push(json!("tie"));
+                        }
+                        if last {
+                            kept.extend(effects.iter().filter(outgoing).cloned());
+                        }
+                        note["effects"] = json!(kept);
+                    }
+                }
+                let ticks = score::duration_ticks(&retained["duration"])?;
+                end = retained["start"].as_i64().unwrap()
+                    + if event["status"] == "empty" {
+                        0
+                    } else {
+                        (ticks.numerator / ticks.denominator) as i64
+                    };
+                out.push(retained);
+            }
+            if end > length {
+                overflow_events += 1;
+            }
+            cursor = end;
+        }
+        voice["events"] = json!(out);
+    }
+    let mut warnings = Vec::new();
+    if adjusted_events > 0 {
+        warnings.push(format!(
+            "{adjusted_events} 个重叠事件按下一音的起点截短，已保留所有音符起点"
+        ));
+    }
+    if split_events > 0 {
+        warnings.push(format!("{split_events} 个时值用分段时值表示"));
+    }
+    if overflow_events > 0 {
+        warnings.push(format!(
+            "{overflow_events} 个事件超过拍号长度，已保留在本节原有时间位置"
+        ));
+    }
+    Ok(
+        json!({"measure":projected,"adjusted_events":adjusted_events,
+        "split_events":split_events,"overflow_events":overflow_events,"warnings":warnings}),
+    )
 }
 // A manual edit may change values while retaining visual relation anchors.
 // Structural edits invalidate those anchors; the original observation is still
@@ -2273,17 +2605,6 @@ pub fn assemble(records: &[Value], auxiliary: Option<&[Value]>) -> Result<Value,
             }
         } else if matches!(chain["kind"].as_str(), Some("hammer" | "sl" | "ss")) {
             slide_destination(&mut chain, &rows, &following);
-            if let Some(reason) = note_technique(&chain, &mut rows) {
-                chain["status"] = json!(if chain["end"] == "right" {
-                    "open"
-                } else {
-                    "unresolved"
-                });
-                chain["reason"] = json!(reason);
-                for n in &connected {
-                    issue(&mut rows[n.record], &reason, json!({"relation":n.index}));
-                }
-            }
         } else if chain["kind"].is_null() {
             chain["status"] = json!("unknown");
             for n in &connected {
@@ -2328,6 +2649,30 @@ pub fn assemble(records: &[Value], auxiliary: Option<&[Value]>) -> Result<Value,
             });
             chains[i]["reason"] = json!(reason);
             for segment in array(&chains[i]["segments"]) {
+                issue(
+                    &mut rows[segment["record"].as_u64().unwrap() as usize],
+                    &reason,
+                    json!({"relation":segment["relation"]}),
+                );
+            }
+        }
+    }
+    // Ties can supply the source or destination pitch of a visible technique.
+    // Apply these effects only after that propagation, while anchors are local.
+    for chain in &mut chains {
+        if !matches!(chain["kind"].as_str(), Some("hammer" | "sl" | "ss"))
+            || chain["status"] == "unresolved"
+        {
+            continue;
+        }
+        if let Some(reason) = note_technique(chain, &mut rows) {
+            chain["status"] = json!(if chain["end"] == "right" {
+                "open"
+            } else {
+                "unresolved"
+            });
+            chain["reason"] = json!(reason);
+            for segment in array(&chain["segments"]) {
                 issue(
                     &mut rows[segment["record"].as_u64().unwrap() as usize],
                     &reason,
@@ -2399,6 +2744,8 @@ pub fn observation_prompt(mode: &str) -> Result<String, String> {
         "Do not output MIDI pitch or a global voice identity. ",
         "Include only visible effects using IR names. ",
         "A printed H/P curve uses hammer on its origin note. ",
+        "A fully visible local H/P connection already recorded as a note effect does not need a duplicate relation. ",
+        "A downstroke staple uses event effect pick_down; an upstroke V uses pick_up. These picking signs are not chord names or dynamics. ",
         "A slide between two notes uses sl when a legato arc is printed, or ss for a plain shift slide. ",
         "A short diagonal entering a note from below uses sib, entering from above sia; leaving a note downwards uses sod, leaving upwards sou. ",
         "Place these on the note they touch; an entering or leaving slide need not connect to another note. ",
@@ -2432,6 +2779,177 @@ pub fn observation_prompt(mode: &str) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn partial_export_keeps_known_chord_members_and_later_onsets() {
+        let row = json!({"source_id":"score","part_id":0,"staff_id":0,"bar_index":0,"mode":"tab",
+            "observation":{"state":{"time":{"status":"observed","value":"4/4"}},
+            "relations":[],"voices":[{"voice":0,"events":[
+                {"start":0,"duration":"q","status":"normal","notes":[{"string":1,"fret":5},{"string":2,"fret":null}]},
+                {"start":960,"duration":null,"status":"normal","notes":[{"string":3,"fret":null}]},
+                {"start":1920,"duration":"q","status":"normal","notes":[{"string":2,"fret":7}]}]}]}});
+        let assembled = assemble(&[row], None).unwrap();
+        let record = &assembled["records"][0];
+        let original = record.clone();
+        assert!(record["ir"].is_null());
+        let projection = export_measure(record).unwrap();
+        let rhythm = export_rhythm(&projection["measure"], "4/4").unwrap();
+        let events = array(&rhythm["measure"]["voices"][0]["events"]);
+        assert_eq!(events.len(), 4);
+        assert_eq!(
+            events[0]["notes"],
+            json!([{"string":1,"fret":5,"effects":[]}])
+        );
+        assert_eq!(events[1]["start"], 960);
+        assert_eq!(events[1]["status"], "rest");
+        assert_eq!(events[2]["start"], 1920);
+        assert_eq!(events[2]["notes"][0]["fret"], 7);
+        assert_eq!(events[3]["start"], 2880);
+        assert_eq!(projection["omitted_notes"], 2);
+        assert_eq!(projection["omitted_events"], 1);
+        assert_eq!(record, &original);
+    }
+
+    #[test]
+    fn partial_dual_export_uses_tab_without_doubling_the_chord() {
+        let record = json!({"mode":"both","score_state":{"time":"4/4"},
+            "unresolved":[{"reason":"dual_note_pairing_unresolved","voice":0,"event":0}],
+            "resolved":{"voices":[{"voice":0,"events":[
+                {"start":0,"duration":"h","status":"normal","notes":[
+                    {"string":1,"fret":5,"pitch":81,"effects":["pm"]},
+                    {"string":2,"fret":null,"pitch":null},
+                    {"staff_position":5,"pitch":79}]},
+                {"start":1920,"duration":"h","status":"normal","notes":[{"pitch":76}]}]}]}});
+        let projection = export_measure(&record).unwrap();
+        let events = &projection["measure"]["voices"][0]["events"];
+        assert_eq!(
+            events[0]["notes"],
+            json!([{"string":1,"fret":5,"effects":["pm"]}])
+        );
+        assert_eq!(events[1]["notes"], json!([{"pitch":76,"effects":[]}]));
+        assert_eq!(projection["omitted_notes"], 1);
+        assert_eq!(projection["tab_preferred_events"], 1);
+    }
+
+    #[test]
+    fn rhythm_export_keeps_spring_attacks_and_reports_only_actual_empty_bars() {
+        let measure = json!({"section":"Kept","voices":[{"voice":0,"events":[]},
+            {"voice":1,"events":([240,360,480,720,1200,1680].into_iter().map(|start|
+                json!({"start":start,"duration":{"value":8,"dotted":true},"status":"normal",
+                    "notes":[{"string":2,"fret":17}],"effects":[]})).collect::<Vec<_>>())}]});
+        let result = export_rhythm(&measure, "6/8").unwrap();
+        assert_eq!(result["measure"]["section"], "Kept");
+        assert_eq!(result["adjusted_events"], 5);
+        assert_eq!(result["measure"]["voices"][0]["events"], json!([]));
+        let notes = array(&result["measure"]["voices"][1]["events"])
+            .iter()
+            .filter(|event| event["status"] == "normal")
+            .collect::<Vec<_>>();
+        assert_eq!(
+            notes
+                .iter()
+                .map(|event| event["start"].clone())
+                .collect::<Vec<_>>(),
+            vec![
+                json!(240),
+                json!(360),
+                json!(480),
+                json!(720),
+                json!(1200),
+                json!(1680)
+            ]
+        );
+        assert_eq!(
+            notes
+                .iter()
+                .map(|event| score::duration_ticks(&event["duration"]).unwrap().numerator)
+                .collect::<Vec<_>>(),
+            vec![120, 120, 240, 480, 480, 720]
+        );
+        let record =
+            json!({"resolved":{"voices":[{"voice":0,"events":[]},{"voice":1,"events":[]}]}});
+        let partial = export_measure(&record).unwrap();
+        assert_eq!(partial["omitted_events"], 1);
+        let empty = export_rhythm(&partial["measure"], "4/4").unwrap();
+        assert!(!array(&empty["measure"]["voices"][0]["events"]).is_empty());
+        assert!(array(&empty["measure"]["voices"][1]["events"]).is_empty());
+    }
+
+    #[test]
+    fn connections_need_known_endpoints_but_slide_out_does_not() {
+        let row = json!({"source_id":"score","part_id":0,"staff_id":0,"bar_index":0,"mode":"tab",
+            "observation":{"state":{"time":{"status":"observed","value":"4/4"}},
+            "relations":[{"kind":"ss","start":[0,0,0],"end":"right"}],
+            "voices":[{"voice":0,"events":[{"start":0,"duration":"w","status":"normal",
+                "notes":[{"string":1,"fret":5,"effects":["sou"]}]}]}]}});
+        let result = assemble(&[row.clone()], None).unwrap();
+        let measure =
+            score::parse_measure_target(result["records"][0]["ir"].as_str().unwrap()).unwrap();
+        assert_eq!(
+            measure["voices"][0]["events"][0]["notes"][0]["effects"],
+            json!(["sou"])
+        );
+        assert_eq!(
+            result["records"][0]["unresolved"][0]["reason"],
+            "ss_endpoint_unresolved"
+        );
+        let mut next = row.clone();
+        next["bar_index"] = json!(1);
+        next["observation"]["relations"] = json!([{"kind":"ss","start":"left","end":[0,0,0]}]);
+        next["observation"]["voices"][0]["events"][0]["notes"][0] = json!({"string":1,"fret":7});
+        let linked = assemble(&[row.clone(), next], None).unwrap();
+        let measure =
+            score::parse_measure_target(linked["records"][0]["ir"].as_str().unwrap()).unwrap();
+        assert!(
+            array(&measure["voices"][0]["events"][0]["notes"][0]["effects"]).contains(&json!("ss"))
+        );
+        assert_eq!(linked["relations"][0]["status"], "resolved");
+
+        // The visible relation remains, but omitting its unknown endpoint must
+        // not turn the known note into an orphan tie or an unrelated slide.
+        for kind in ["tie", "ss", "hammer"] {
+            let mut partial = row.clone();
+            partial["observation"]["voices"][0]["events"] = json!([
+                {"start":0,"duration":"h","status":"normal","notes":[{"string":1,"fret":if kind=="tie"{Value::Null}else{json!(5)}}]},
+                {"start":1920,"duration":"h","status":"normal","notes":[{"string":1,"fret":if kind=="tie"{json!(5)}else{Value::Null}}]}
+            ]);
+            partial["observation"]["relations"] =
+                json!([{"kind":kind,"start":[0,0,0],"end":[0,1,0]}]);
+            let result = assemble(&[partial], None).unwrap();
+            assert_eq!(
+                result["relations"][0]["reason"],
+                format!("{kind}_value_unresolved")
+            );
+            let export = export_measure(&result["records"][0]).unwrap();
+            let notes: Vec<_> = array(&export["measure"]["voices"][0]["events"])
+                .iter()
+                .flat_map(|event| array(&event["notes"]))
+                .collect();
+            assert_eq!(notes.len(), 1);
+            assert_eq!(notes[0]["fret"], 5);
+            assert!(!array(&notes[0]["effects"]).contains(&json!(kind)));
+        }
+
+        // A resolved incoming tie may establish the next slide's source value.
+        let mut continued = row;
+        continued["observation"]["voices"][0]["events"] = json!([
+            {"start":0,"duration":"q","status":"normal","notes":[{"string":1,"fret":5}]},
+            {"start":960,"duration":"q","status":"normal","notes":[{"string":1,"fret":null}]},
+            {"start":1920,"duration":"h","status":"normal","notes":[{"string":1,"fret":7}]}
+        ]);
+        continued["observation"]["relations"] = json!([
+            {"kind":"tie","start":[0,0,0],"end":[0,1,0]},
+            {"kind":"ss","start":[0,1,0],"end":[0,2,0]}
+        ]);
+        let result = assemble(&[continued], None).unwrap();
+        let target =
+            score::parse_measure_target(result["records"][0]["ir"].as_str().unwrap()).unwrap();
+        assert_eq!(target["voices"][0]["events"][1]["notes"][0]["fret"], 5);
+        assert_eq!(
+            target["voices"][0]["events"][1]["notes"][0]["effects"],
+            json!(["tie", "ss"])
+        );
+    }
 
     #[test]
     fn chord_name_keeps_its_event_without_supplying_diagram_notes() {

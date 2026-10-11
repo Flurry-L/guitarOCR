@@ -185,10 +185,11 @@ fn beat(
         } else if let Some(v) = ef.strip_prefix("dyn:") {
             *velocity = v.parse().map_err(|_| "Invalid dynamic")?;
         } else if let Some(v) = ef.strip_prefix("text:") {
-            if text.is_some() {
-                return Err("Multiple text effects on one GP5 beat unsupported".into());
-            }
-            text = Some(percent_decode(v)?);
+            let value = percent_decode(v)?;
+            text = Some(match text {
+                Some(existing) => format!("{existing}\n{value}"),
+                None => value,
+            });
         } else if let Some(v) = ef.strip_prefix("ottava:") {
             octave = match v {
                 "12" => 0x10,

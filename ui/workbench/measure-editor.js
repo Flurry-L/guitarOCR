@@ -26,7 +26,7 @@ import {
   drumNames,
 } from "./score-model.js";
 
-export function initMeasures({ start, go, renderExport, setBusy }) {
+export function initMeasures({ start, go, renderExport, exportScore, setBusy }) {
   let draft,
     observationDraft,
     visualTechniques,
@@ -283,7 +283,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
   });
   $("retryIssues").onclick = action(async () => {
     const targets = [...ui.state.review_measures];
-    if (!confirm(`重新识别 ${targets.length} 个有问题的小节，将替换这些小节的人工修改，并重新连接相邻小节。失败或停止会保留原结果。继续？`)) return;
+    if (!confirm(`重新识别 ${targets.length} 个有问题的谱表小节，将替换这些小节的人工修改，并重新连接相邻小节。失败或停止会保留原结果。继续？`)) return;
     if (ui.measureDirty && !targets.includes(ui.measureIndex + 1) && !(await save())) return;
     await start("/recognize", { measures: targets });
   });
@@ -396,7 +396,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     if (!measures.length) $("recognize").closest("details").open = true;
     const bars = new Set(measures.map((m, i) => m.bar_index ?? i)).size,
       parts = new Set(measures.map((m) => m.part_id || "part-1")).size;
-    const issues = ui.state.review_measures?.length || 0;
+    const issues = new Set(measures.flatMap((m, i) => m.needs_review ? [m.bar_index ?? i] : [])).size;
     $("recognitionSummary").textContent =
       `${bars} 小节${parts > 1 ? ` · ${parts} 音轨` : ""}${issues ? ` · ${issues} 个小节有问题` : ""}`;
     $("scoreTitle").textContent =
@@ -513,7 +513,6 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     if (hit?.preview) {
       selected = firstHit();
       inspector(true);
-      $("incompleteObservation").open = true;
       ui.editorMode = "score";
       editorMode();
     } else if (hit) selected = { ...hit };
@@ -578,7 +577,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
     panel.hidden = !current().parsed.incomplete || !observationDraft;
     fields.replaceChildren();
     if (panel.hidden) return;
-    panel.open = true;
+    panel.open = false;
     const field = (parent, label, object, key, {scale = 1, choices, text = false} = {}) => {
       const wrapper = el("label", label), input = el(choices ? "select" : "input");
       if (choices) input.replaceChildren(new Option("未知", ""), ...choices.map(([v, name]) => new Option(name, v)));
@@ -646,7 +645,7 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
       m.needs_review && (track === "all" || (m.part_id || "part-1") === track));
     $("toExport").disabled = busy || !count;
     $("finishEditing").disabled = busy || !count;
-    $("finishEditing").textContent = ui.measureDirty ? "保存并导出" : "下一步：导出";
+    $("finishEditing").textContent = $("toExport").textContent = ui.measureDirty ? "保存并导出 GP5" : "直接导出 GP5";
     $("trackSelect").disabled = busy || !count;
     $("reviewFilter").disabled = busy || !count;
     $("saveMeasure").disabled = busy || !ui.measureDirty;
@@ -1478,9 +1477,12 @@ export function initMeasures({ start, go, renderExport, setBusy }) {
       setBusy(false);
     }
   });
-  $("finishEditing").onclick = $("toExport").onclick = async () => {
+  $("finishEditing").onclick = $("toExport").onclick = action(async () => {
     const navigation = ui.navigation;
-    if (!ui.measureDirty || (await save())) go(4, ui.navigation === navigation);
-  };
+    if (ui.measureDirty && !(await save())) return;
+    if (ui.navigation !== navigation) return;
+    go(4);
+    if (ui.step === 4) await exportScore();
+  });
   return { renderMeasures, updateMeasureControls, openIssue };
 }

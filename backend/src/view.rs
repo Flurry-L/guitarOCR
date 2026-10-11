@@ -271,6 +271,7 @@ pub fn project(root: &Path, sid: &str) -> Result<Value> {
     if state["export"] == true {
         let exported = stage(&saved["export"], "gp5_export", &root)?;
         state["export_warnings"] = exported.get("warnings").cloned().unwrap_or(json!([]));
+        state["export_summary"] = exported["summary"].clone();
         for (key, format) in [("gp5_error", "GP5"), ("musicxml_error", "MusicXML")] {
             state[key] = exported[key].clone();
             if let Some(error) = exported[key].as_str() {

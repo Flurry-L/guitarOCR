@@ -1804,11 +1804,6 @@ pub fn recognize_information<G: Generator + ?Sized>(
                 },
             )
         };
-        let count = count_evidence["value"].as_u64().map(|n| n as usize);
-        metadata["string_count"] = json!(count);
-        metadata["string_count_source"] = count_evidence["source"].clone();
-        metadata["string_count_evidence"] = count_evidence.clone();
-        metadata["string_count_needs_review"] = count_evidence["needs_review"].clone();
         let named: HashSet<i64> = local_predictions
             .iter()
             .filter(|p| p["kind"] == "transposition" && p["parsed"]["kind"] == "instrument")
@@ -1888,6 +1883,16 @@ pub fn recognize_information<G: Generator + ?Sized>(
         {
             return Err("Tuning must contain 1..12 MIDI open pitches".into());
         }
+        let count_evidence = staff_evidence::resolve_string_count_with_tuning(
+            count_evidence,
+            &identity_evidence,
+            text(&metadata, "tuning_name", ""),
+        );
+        let count = count_evidence["value"].as_u64().map(|n| n as usize);
+        metadata["string_count"] = json!(count);
+        metadata["string_count_source"] = count_evidence["source"].clone();
+        metadata["string_count_evidence"] = count_evidence.clone();
+        metadata["string_count_needs_review"] = count_evidence["needs_review"].clone();
         let named_tuning = tuning_from_name(text(&metadata, "tuning_name", ""), &instrument, count);
         let tuning = if instrument.is_empty() || matches!(instrument.as_str(), "pitched" | "drums")
         {
@@ -2432,6 +2437,11 @@ fn convert_pitch_direction(
     direction: i64,
 ) -> Result<String> {
     let mut m = score::parse_measure_target(target)?;
+    convert_measure_pitch(&mut m, context, direction)?;
+    score::format_measure_target(&m, mode, true)
+}
+
+fn convert_measure_pitch(m: &mut Value, context: &Value, direction: i64) -> Result<()> {
     let instrument = context["instrument_transpose"].as_i64().unwrap_or(0);
     let base = instrument + context["clef_octave"].as_i64().unwrap_or(0)
         - context["capo"].as_i64().unwrap_or(0);
@@ -2457,11 +2467,19 @@ fn convert_pitch_direction(
                 if list(note, "effects").iter().any(|e| e == "dead") {
                     continue;
                 }
-                let pitch = note["pitch"].as_i64().ok_or("Missing written pitch")? + shift;
-                if !(0..=127).contains(&pitch) {
-                    return Err("Transposed pitch is outside MIDI range".into());
+                // A partial export can retain a visible TAB position without
+                // a notation pitch. Its string/fret already identifies sound.
+                if let Some(pitch) = note["pitch"].as_i64() {
+                    let pitch = pitch + shift;
+                    if !(0..=127).contains(&pitch) {
+                        return Err("Transposed pitch is outside MIDI range".into());
+                    }
+                    note["pitch"] = json!(pitch);
+                } else if !(note["string"].is_i64()
+                    && (note["fret"].is_i64() || note["fret"] == "x"))
+                {
+                    return Err("Missing written pitch".into());
                 }
-                note["pitch"] = json!(pitch);
                 for effect in note["effects"].as_array_mut().unwrap() {
                     let raw = effect.as_str().unwrap();
                     let mut parts: Vec<String> = raw.split(':').map(str::to_owned).collect();
@@ -2482,7 +2500,51 @@ fn convert_pitch_direction(
             }
         }
     }
-    score::format_measure_target(&m, mode, true)
+    Ok(())
+}
+
+fn written_measure_state(row: &Value, measure: &mut Value) -> Result<()> {
+    if row["mode"] != "tab" {
+        if let Some(fifths) = row["score_state"]["key"].as_i64() {
+            measure["key_signature"] = json!(key_name(fifths, false)?);
+            measure["print_key_signature"] = json!(
+                row["score_state_evidence"]["key"]["status"] == "observed"
+                    && row["score_state_evidence"]["key"]["reason"] != "empty_initial_signature"
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Convert a projection of retained observations using the same pitch context
+/// as full measures. Visible TAB positions need no inferred notation pitch.
+pub(crate) fn convert_export_measure(row: &Value, measure: &mut Value) -> Result<()> {
+    written_measure_state(row, measure)?;
+    if row["mode"] == "tab" || row["instrument"] == "drums" {
+        return Ok(());
+    }
+    if row["mode"] == "both" {
+        for voice in measure["voices"].as_array_mut().unwrap() {
+            for event in voice["events"].as_array_mut().unwrap() {
+                for note in event["notes"].as_array_mut().unwrap() {
+                    if note["string"].is_i64() && (note["fret"].is_i64() || note["fret"] == "x") {
+                        note.as_object_mut().unwrap().remove("pitch");
+                    }
+                }
+            }
+        }
+    }
+    let has_written_pitch = list(measure, "voices").iter().any(|voice| {
+        list(voice, "events").iter().any(|event| {
+            list(event, "notes")
+                .iter()
+                .any(|note| note["pitch"].is_i64())
+        })
+    });
+    if has_written_pitch && row["score_state"]["clef_octave"].is_null() {
+        return Err("谱号的八度尚未确定，无法转换已识别的五线谱音高".into());
+    }
+    convert_measure_pitch(measure, &product_pitch_context(row), 1)
 }
 pub fn rhythm_warnings(target: &str, time: &str) -> Result<Vec<String>> {
     let m = score::parse_measure_target(target)?;
@@ -2764,11 +2826,12 @@ fn assembly_auxiliary(row: &Value, information: &Value) -> Result<Value> {
 pub fn refresh_issues(row: &mut Value) -> Result<()> {
     row["timing_errors"] = json!([]);
     row["fingering_errors"] = json!([]);
+    let chord_errors;
     if let Some(target) = row["target"].as_str() {
         let measure = score::parse_measure_target(target)?;
         let mut warnings = scorelib::gp5_constraints::timing_errors(&measure)?;
         warnings.extend(meter_warnings(target, row)?);
-        warnings.extend(chord_recognition_errors(&measure));
+        chord_errors = chord_recognition_errors(&measure);
         row["timing_errors"] = json!(warnings);
         if row["mode"] == "notation" && matches!(text(row, "instrument", ""), "guitar" | "bass") {
             row["fingering_errors"] = json!(scorelib::gp5_constraints::notation_fingering_errors(
@@ -2776,6 +2839,12 @@ pub fn refresh_issues(row: &mut Value) -> Result<()> {
                 &integers(&row["tuning"])?
             )?);
         }
+    } else {
+        chord_errors = chord_recognition_errors(if row["resolved"].is_object() {
+            &row["resolved"]
+        } else {
+            &row["observation"]
+        });
     }
     let mut issues = Vec::new();
     let mut add = |code: &str, message: String| {
@@ -2784,8 +2853,14 @@ pub fn refresh_issues(row: &mut Value) -> Result<()> {
             issues.push(issue);
         }
     };
-    if !row["target"].is_string() {
+    if !row["target"].is_string()
+        && list(row, "unresolved").is_empty()
+        && list(row, "recognition_errors").is_empty()
+    {
         add("incomplete", "音符或节奏尚未识别完整".into());
+    }
+    for message in chord_errors {
+        add("chord", message);
     }
     for (field, code) in [
         ("recognition_errors", "recognition"),
@@ -2802,19 +2877,43 @@ pub fn refresh_issues(row: &mut Value) -> Result<()> {
     for unresolved in list(row, "unresolved") {
         let code = text(unresolved, "reason", "unresolved");
         let message = match code {
-            "note_unresolved" => "音符内容尚不完整",
-            "event_unresolved" | "voices_unresolved" | "ir_unresolved" => "音符或节奏尚未识别完整",
-            "tie_endpoint_unresolved" | "tie_identity_unresolved" | "tie_value_unresolved" => {
-                "延音线尚未连接到对应音符"
-            }
+            "note_unresolved" => "音符的音高、弦或品位尚不明确",
+            "event_unresolved" => "音符或休止的起点、时值或类型尚不明确",
+            "event_notes_unresolved" => "已识别节奏，但对应音符尚不明确",
+            "voices_unresolved" => "本节尚未识别到声部",
+            "ir_unresolved" => "本节音符或节奏无法组成有效的小节",
+            "dual_note_pairing_unresolved" => "本节五线谱与 TAB 的音符尚未对应",
+            "tie_endpoint_unresolved" => "延音线尚未连接到对应音符",
+            "tie_identity_unresolved" => "延音两端的弦或谱位尚未对应",
+            "tie_value_unresolved" => "延音对应音符的音高或品位尚不明确",
+            "tie_endpoint_conflict" => "延音两端的音高或品位不一致",
+            "tie_voice_unresolved" => "延音两端的声部尚未对应",
+            "tie_timing_unresolved" => "延音两端的起点或时值尚不明确",
+            "tie_not_continuous" => "延音两端的音符在时间上未衔接",
+            "hammer_endpoint_unresolved" => "击勾弦连线尚未连接到对应音符",
+            "hammer_identity_unresolved" => "击勾弦两端尚未对应到同一根弦",
+            "hammer_value_unresolved" => "击勾弦对应音符的音高或品位尚不明确",
+            "hammer_voice_unresolved" => "击勾弦两端的声部尚未对应",
+            "hammer_timing_unresolved" => "击勾弦两端的起点或时值尚不明确",
+            "hammer_not_continuous" => "击勾弦两端的音符在时间上未衔接",
             "sl_endpoint_unresolved" | "ss_endpoint_unresolved" => "滑音线尚未连接到对应音符",
+            "sl_identity_unresolved" | "ss_identity_unresolved" => "滑音两端尚未对应到同一根弦",
+            "sl_value_unresolved" | "ss_value_unresolved" => "滑音对应音符的音高或品位尚不明确",
+            "sl_voice_unresolved" | "ss_voice_unresolved" => "滑音两端的声部尚未对应",
+            "sl_timing_unresolved" | "ss_timing_unresolved" => "滑音两端的起点或时值尚不明确",
+            "sl_not_continuous" | "ss_not_continuous" => "滑音两端的音符在时间上未衔接",
+            "connection_endpoint_unresolved" => "连线尚未连接到对应音符",
+            "connection_voice_unresolved" => "连线所属声部尚不明确",
             "relation_kind_unresolved" => "连接线或奏法延长线的种类尚不明确",
             "range_endpoint_unresolved" => "奏法延长线的起止位置尚不明确",
+            "range_voice_unresolved" => "奏法延长线所属声部尚不明确",
+            "ottava_value_unresolved" => "八度线的升降方向或八度数尚不明确",
+            "ottava_range_conflict" => "同一位置的八度线指示不一致",
             "manual_relation_anchors_changed" => "编辑后连接线的音符位置发生变化",
             "pitch_conversion" => "音高转换所需的谱号或移调信息不完整",
             "duplicate_bar_identity" => "多个小节占用了同一位置",
             "state_value_invalid" => "拍号、调号或谱号识别值无效",
-            _ => "跨小节信息尚未连接完整",
+            _ => "识别信息尚未完整组装",
         };
         add(code, message.into());
     }
@@ -2891,6 +2990,9 @@ pub fn finalize_records(records: &mut [Value], information: &mut Value) -> Resul
         .zip(list(&assembled, "records"))
         .enumerate()
     {
+        row.as_object_mut()
+            .unwrap()
+            .remove("chord_name_corrections");
         for key in ["resolved", "unresolved", "ir"] {
             row[key] = assembly[key].clone();
         }
@@ -2924,16 +3026,7 @@ pub fn finalize_records(records: &mut [Value], information: &mut Value) -> Resul
                 let mode = text(row, "mode", "tab").to_owned();
                 let converted = (|| -> Result<String> {
                     let mut measure = score::parse_measure_target(written)?;
-                    if mode != "tab" {
-                        if let Some(fifths) = row["score_state"]["key"].as_i64() {
-                            measure["key_signature"] = json!(key_name(fifths, false)?);
-                            measure["print_key_signature"] = json!(
-                                row["score_state_evidence"]["key"]["status"] == "observed"
-                                    && row["score_state_evidence"]["key"]["reason"]
-                                        != "empty_initial_signature"
-                            );
-                        }
-                    }
+                    written_measure_state(row, &mut measure)?;
                     let written = score::format_measure_target(&measure, &mode, true)?;
                     row["written_target"] = json!(written);
                     if mode == "tab" || row["instrument"] == "drums" {
@@ -3209,11 +3302,18 @@ pub fn chord_recognition_errors(measure: &Value) -> Vec<String> {
     let mut errors = Vec::new();
     for voice in list(measure, "voices") {
         for event in list(voice, "events") {
-            let Some(name) = event_chord_name(event) else {
-                continue;
-            };
-            if !is_chord_symbol(&name) {
-                errors.push(format!("Uncertain chord symbol {:?}: re-read its visible name and onset; titles, section labels, instrument names and technique instructions belong in text, not chord. Keep all musical events and do not invent a replacement chord", name.chars().take(64).collect::<String>()));
+            for name in list(event, "effects")
+                .iter()
+                .filter_map(Value::as_str)
+                .filter_map(|effect| effect.strip_prefix("chord:"))
+                .map(unquote)
+            {
+                if !is_chord_symbol(&name) {
+                    errors.push(format!(
+                        "和弦名称「{}」可能有误，已原样保留，可编辑或直接导出",
+                        name.chars().take(64).collect::<String>()
+                    ));
+                }
             }
         }
     }
@@ -3235,6 +3335,61 @@ mod observation_pipeline_tests {
     }
     fn information() -> Value {
         json!({"parts":[],"document_metadata":{}})
+    }
+    #[test]
+    fn printed_tuning_resolves_only_one_supported_string_count() {
+        let count = |staff, network, manual| {
+            staff_evidence::resolve_string_count(
+                true,
+                &json!(staff),
+                &json!({"mode":{"accepted":true,"value":"both"},
+                    "string_count":{"accepted":true,"value":network}}),
+                manual,
+            )
+        };
+        let identity = json!({"value":"guitar","status":"resolved","needs_review":false});
+        let original = count(6, 4, None);
+        assert_eq!(original["value"], 4);
+        let resolved = staff_evidence::resolve_string_count_with_tuning(
+            original.clone(),
+            &identity,
+            "Standard tuning",
+        );
+        assert_eq!(resolved["value"], 6);
+        assert_eq!(resolved["source"], "printed_tuning_agreement");
+        assert_eq!(resolved["needs_review"], false);
+        assert_eq!(resolved["candidates"], original["candidates"]);
+        assert_eq!(
+            tuning_from_name(
+                "Standard tuning",
+                "guitar",
+                resolved["value"].as_u64().map(|n| n as usize)
+            ),
+            Some(vec![64, 59, 55, 50, 45, 40])
+        );
+        for (evidence, identity, name) in [
+            (count(6, 7, None), identity.clone(), "Standard tuning"),
+            (count(6, 4, Some(4)), identity.clone(), "Standard tuning"),
+            (original.clone(), identity.clone(), "unreadable"),
+            (original.clone(), identity.clone(), ""),
+            (
+                original,
+                json!({"value":"guitar","status":"unresolved","needs_review":true}),
+                "Standard tuning",
+            ),
+        ] {
+            assert_eq!(
+                staff_evidence::resolve_string_count_with_tuning(evidence.clone(), &identity, name),
+                evidence
+            );
+        }
+        let bass = staff_evidence::resolve_string_count_with_tuning(
+            count(4, 5, None),
+            &json!({"value":"bass","status":"resolved","needs_review":false}),
+            "Drop D",
+        );
+        assert_eq!(bass["value"], 4);
+        assert_eq!(bass["needs_review"], false);
     }
     #[test]
     fn diagnostics_follow_problems_instead_of_manual_review_flags() {
@@ -3268,6 +3423,64 @@ mod observation_pipeline_tests {
         refresh_issues(&mut rows[0]).unwrap();
         assert_eq!(rows[0]["issues"][0]["code"], "tie_endpoint_unresolved");
         assert_eq!(rows[0]["needs_review"], true);
+    }
+    #[test]
+    fn chord_warnings_preserve_music_and_partial_issues_explain_the_cause() {
+        let mut row = record(0, json!(5), json!([]));
+        row["observation"]["voices"][0]["events"][0]["duration"] = json!("w");
+        let effects = json!([
+            "chord:F%230",
+            "chord:hammer",
+            "chord:F%23%C2%B0",
+            "chord:F%23dim"
+        ]);
+        row["observation"]["voices"][0]["events"][0]["effects"] = effects.clone();
+        let observation = row["observation"].clone();
+        let mut rows = vec![row];
+        finalize_records(&mut rows, &mut information()).unwrap();
+        let row = &mut rows[0];
+        assert_eq!(row["observation"], observation);
+        assert_eq!(row["timing_errors"], json!([]));
+        assert_eq!(list(row, "issues").len(), 2);
+        assert!(list(row, "issues").iter().all(|i| i["code"] == "chord"));
+        assert!(row["issues"][0]["message"]
+            .as_str()
+            .unwrap()
+            .contains("F#0"));
+        assert!(row["issues"][1]["message"]
+            .as_str()
+            .unwrap()
+            .contains("hammer"));
+        let measure = score::parse_measure_target(row["target"].as_str().unwrap()).unwrap();
+        let event = &measure["voices"][0]["events"][0];
+        assert_eq!(event["notes"][0]["fret"], 5);
+        for effect in effects.as_array().unwrap() {
+            assert!(list(event, "effects").contains(effect));
+        }
+
+        row["target"] = Value::Null;
+        row["unresolved"] = json!([
+            {"reason":"dual_note_pairing_unresolved","voice":0,"event":0},
+            {"reason":"hammer_identity_unresolved","relation":0},
+            {"reason":"ss_identity_unresolved","relation":1}
+        ]);
+        refresh_issues(row).unwrap();
+        assert_eq!(row["timing_errors"], json!([]));
+        let issues = list(row, "issues");
+        assert_eq!(issues.len(), 5);
+        assert!(issues.iter().all(|i| i["code"] != "incomplete"));
+        let pairing = issues
+            .iter()
+            .find(|i| i["code"] == "dual_note_pairing_unresolved")
+            .unwrap();
+        assert!(pairing["message"]
+            .as_str()
+            .unwrap()
+            .contains("五线谱与 TAB"));
+        assert!(issues
+            .iter()
+            .all(|i| !i["message"].as_str().unwrap().contains("跨小节")));
+        assert_eq!(row["observation"], observation);
     }
     struct LocalOnly {
         output: String,

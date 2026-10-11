@@ -251,7 +251,123 @@ pub(super) fn prepare_regions(
     Ok(())
 }
 
+fn fuse_chord_name(row: &mut Value, predictions: &[Value]) -> Result<()> {
+    if flag(row, "manually_edited") {
+        return Ok(());
+    }
+    let measure = match row["target"].as_str() {
+        Some(target) => score::parse_measure_target(target)?,
+        None => row["resolved"].clone(),
+    };
+    let mut invalid = Vec::new();
+    let mut used = HashSet::new();
+    for voice in list(&measure, "voices") {
+        for event in list(voice, "events") {
+            for effect in list(event, "effects").iter().filter_map(Value::as_str) {
+                let Some(name) = effect.strip_prefix("chord:").map(unquote) else {
+                    continue;
+                };
+                if is_chord_symbol(&name) {
+                    used.insert(chord_key(&name));
+                } else {
+                    invalid.push((
+                        voice["voice"].clone(),
+                        event["start"].clone(),
+                        effect.to_owned(),
+                        name,
+                    ));
+                }
+            }
+        }
+    }
+    let [(voice, start, original_effect, original_name)] = invalid.as_slice() else {
+        return Ok(());
+    };
+    // A damaged chord spelling has a note-name prefix. A title or an IR
+    // technique such as "hammer" is a different classification error.
+    let key = chord_key(original_name);
+    let mut letters = key.chars();
+    let root = letters.next();
+    let suffix = letters.as_str();
+    let chord_prefix = matches!(root, Some('A'..='H'))
+        && (suffix.starts_with(['#', 'b', '/', '(', '+', '-', '°', 'ø', 'Δ'])
+            || suffix.starts_with(|c: char| c.is_ascii_digit())
+            || ["maj", "min", "dim", "aug", "sus", "add", "omit", "no", "m"]
+                .iter()
+                .any(|prefix| suffix.starts_with(prefix)));
+    if !chord_prefix || original_name.chars().count() > 32 || !start.is_i64() {
+        return Ok(());
+    }
+    let mut candidates = BTreeMap::new();
+    for p in predictions {
+        let name = text(&p["parsed"], "text", "");
+        let name_key = chord_key(name);
+        if p["page"] == row["page"]
+            && text(p, "part_id", "part-1") == text(row, "part_id", "part-1")
+            && list(p, "context_measures") == std::slice::from_ref(&row["measure_number"])
+            && visible_context(row, p)
+            && matches!(text(&p["parsed"], "kind", ""), "chord" | "chord_diagram")
+            && scorelib::chords::decision(p) != Some("rejected")
+            && p["name_evidence"]["status"] == "unique"
+            && p["chord_evidence"]["name_needs_review"] != true
+            && is_chord_symbol(name)
+            && !used.contains(&name_key)
+        {
+            candidates.entry(name_key).or_insert(p);
+        }
+    }
+    if candidates.len() != 1 {
+        return Ok(());
+    }
+    let source = *candidates.values().next().unwrap();
+    let name = text(&source["parsed"], "text", "");
+    let replacement = format!(
+        "chord:{}",
+        percent_encoding::utf8_percent_encode(name, percent_encoding::NON_ALPHANUMERIC)
+    );
+    let replace = |measure: &mut Value| {
+        for v in measure
+            .get_mut("voices")
+            .and_then(Value::as_array_mut)
+            .into_iter()
+            .flatten()
+        {
+            if v["voice"] != *voice {
+                continue;
+            }
+            for event in v["events"].as_array_mut().into_iter().flatten() {
+                if event["start"] != *start {
+                    continue;
+                }
+                for effect in event["effects"].as_array_mut().into_iter().flatten() {
+                    if effect.as_str() == Some(original_effect.as_str()) {
+                        *effect = json!(replacement);
+                    }
+                }
+            }
+        }
+    };
+    let mode = text(row, "mode", "notation").to_owned();
+    if row["target"].is_string() {
+        for field in ["target", "written_target", "ir"] {
+            if let Some(target) = row[field].as_str() {
+                let mut measure = score::parse_measure_target(target)?;
+                replace(&mut measure);
+                row[field] = json!(score::format_measure_target(&measure, &mode, true)?);
+            }
+        }
+    }
+    replace(&mut row["resolved"]);
+    row["chord_name_corrections"] = json!([{"voice":voice,"start":start,
+        "from":original_name,"to":name,"source":"local_name_reader",
+        "page":source["page"],"bbox":source["bbox"]}]);
+    Ok(())
+}
+
 pub fn attach_chord_annotations(records: &mut [Value], predictions: &[Value]) -> Result<()> {
+    for row in records.iter_mut() {
+        fuse_chord_name(row, predictions)?;
+    }
     // Read beat evidence before updating any record. A diagram can enter two
     // crop margins while only one measure actually prints its chord event.
     let mut chord_owners = Vec::new();
@@ -474,6 +590,66 @@ fn attach_technique_regions(records: &mut [Value], predictions: &[Value]) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unique_local_name_corrects_only_the_existing_chord_slot() {
+        let mut row = json!({"measure_number":1,"page":1,"part_id":"guitar","mode":"tab",
+            "bbox":[0,0,300,200],"target":"M | V0{@0:q:s1f5<chord:E> @960:q:s1f7<chord:F%23E>}",
+            "raw_observation_text":"original model answer",
+            "observation":{"voices":[{"voice":0,"events":[
+                {"start":0,"notes":[{"string":1,"fret":5}],"effects":["chord:E"]},
+                {"start":960,"notes":[{"string":1,"fret":7}],"effects":["chord:F%23E"]}]}]}});
+        row["written_target"] = row["target"].clone();
+        row["resolved"] = row["observation"].clone();
+        let original = row.clone();
+        let candidate = json!({"page":1,"part_id":"guitar","bbox":[160,10,40,60],
+            "context_measures":[1],"parsed":{"kind":"chord_diagram","text":"F♯/E"},
+            "name_evidence":{"status":"unique","candidates":["F♯/E"]},
+            "chord_evidence":{"name_needs_review":false},"image":"name.png"});
+        fuse_chord_name(&mut row, std::slice::from_ref(&candidate)).unwrap();
+        assert_eq!(row["observation"], original["observation"]);
+        assert_eq!(
+            row["raw_observation_text"],
+            original["raw_observation_text"]
+        );
+        assert_eq!(row["target"], row["written_target"]);
+        let measure = score::parse_measure_target(row["target"].as_str().unwrap()).unwrap();
+        let event = &measure["voices"][0]["events"][1];
+        assert_eq!(event["start"], 960);
+        assert_eq!(event["notes"][0]["fret"], 7);
+        assert_eq!(event_chord_name(event).as_deref(), Some("F♯/E"));
+        assert_eq!(row["chord_name_corrections"][0]["from"], "F#E");
+
+        let mut partial = original.clone();
+        partial["target"] = Value::Null;
+        let written = partial["written_target"].clone();
+        fuse_chord_name(&mut partial, std::slice::from_ref(&candidate)).unwrap();
+        assert!(partial["target"].is_null());
+        assert_eq!(partial["written_target"], written);
+        assert_eq!(partial["observation"], original["observation"]);
+        assert_eq!(
+            event_chord_name(&partial["resolved"]["voices"][0]["events"][1]).as_deref(),
+            Some("F♯/E")
+        );
+
+        let mut crossing = candidate.clone();
+        crossing["context_measures"] = json!([1, 2]);
+        let mut unchanged = original.clone();
+        fuse_chord_name(&mut unchanged, &[crossing]).unwrap();
+        assert_eq!(unchanged, original);
+        let mut other = candidate.clone();
+        other["parsed"]["text"] = json!("G");
+        let mut unchanged = original.clone();
+        fuse_chord_name(&mut unchanged, &[candidate.clone(), other]).unwrap();
+        assert_eq!(unchanged, original);
+        for name in ["hammer", "Chorus"] {
+            let mut unchanged = original.clone();
+            unchanged["target"] = json!(format!("M | V0{{@0:q:s1f5<chord:{name}>}}"));
+            let before = unchanged.clone();
+            fuse_chord_name(&mut unchanged, std::slice::from_ref(&candidate)).unwrap();
+            assert_eq!(unchanged, before);
+        }
+    }
 
     #[test]
     fn chord_context_preserves_music_and_attaches_only_local_evidence() {

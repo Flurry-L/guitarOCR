@@ -416,7 +416,7 @@
                   ><button id="nextMeasure" aria-label="下一小节">›</button>
                 </div>
                 <div class="row review-actions" role="group" aria-label="乐谱操作">
-                  <button id="finishEditing" class="primary">下一步：导出</button>
+                  <button id="finishEditing" class="primary">直接导出 GP5</button>
                   <button id="nextIssue" class="quiet">下一个问题</button>
                 </div>
                 <div class="row">
@@ -827,8 +827,8 @@
                 </button>
                 <div id="reviewHint" class="hint warning" hidden=""></div>
                 <details id="incompleteObservation" hidden>
-                  <summary>补全已识别的音符</summary>
-                  <p class="muted small">留空表示尚未确定。对照原谱补全后保存，软件会重新连接相邻小节。</p>
+                  <summary>查看或修改识别细节</summary>
+                  <p class="muted small">留空表示尚未确定。可在这里修改，也可直接导出到 Guitar Pro 继续编辑。</p>
                   <div id="observationFields"></div>
                 </details>
                 <p id="editHint" class="muted small"></p>
@@ -1098,8 +1098,8 @@
             ></div>
           </div>
           <div class="footer">
-            <span class="muted">点击小节或音符即可编辑，也可直接导出。</span
-            ><button id="toExport" class="primary">导出乐谱 →</button>
+            <span class="muted">可直接导出到 Guitar Pro 继续编辑，也可在这里按需修改。</span
+            ><button id="toExport" class="primary">直接导出 GP5</button>
           </div>
         </section>
         <section data-panel="4" class="panel">
@@ -1110,9 +1110,13 @@
             <button id="backToReview" data-step="3" class="quiet">← 返回编辑</button>
           </div>
           <div id="exportSummary" class="export-summary"></div>
-          <div id="exportWarning" class="hint" hidden=""></div>
+          <p id="exportMessage" class="muted"></p>
+          <details id="exportWarning" hidden>
+            <summary id="exportWarningSummary">查看导出处理说明</summary>
+            <ul id="exportWarningDetails"></ul>
+          </details>
           <div class="row">
-            <button id="export" class="primary">生成导出文件</button>
+            <button id="export" class="primary">导出并下载 GP5</button>
             <button id="reviewBeforeExport" hidden="">查看问题小节</button>
           </div>
           <div class="export-formats" aria-label="主要导出格式">
