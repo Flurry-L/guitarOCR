@@ -1911,15 +1911,15 @@ pub fn export_measure(record: &Value) -> Result<Value, String> {
         }
         let mut events = Vec::new();
         for (index, event) in array(&voice["events"]).iter().enumerate() {
-            let (Some(start), Some(rhythm)) = (
-                event["start"].as_i64().filter(|s| *s >= 0),
-                duration(&event["duration"]),
-            ) else {
+            let Some(start) = event["start"].as_i64().filter(|s| *s >= 0) else {
                 omitted_events += 1;
                 omitted_notes += array(&event["notes"]).len();
                 continue;
             };
-            if !matches!(event["status"].as_str(), Some("normal" | "rest" | "empty")) {
+            let rhythm = duration(&event["duration"]);
+            if (!event["duration"].is_null() && rhythm.is_none())
+                || !matches!(event["status"].as_str(), Some("normal" | "rest" | "empty"))
+            {
                 omitted_events += 1;
                 omitted_notes += array(&event["notes"]).len();
                 continue;
@@ -1965,26 +1965,54 @@ pub fn export_measure(record: &Value) -> Result<Value, String> {
                 }
                 notes.push(projected);
             }
+            // Keep an attack whose duration is unreadable. The temporary end
+            // belongs only to the editable file projection; no observation or
+            // unknown onset is completed from a hidden source rhythm.
+            let estimated_end =
+                if rhythm.is_none() && event["status"] == "normal" && !notes.is_empty() {
+                    array(&voice["events"])
+                        .iter()
+                        .enumerate()
+                        .filter(|(other, _)| *other != index)
+                        .filter_map(|(_, other)| other["start"].as_i64())
+                        .filter(|&onset| onset >= start)
+                        .chain(length.filter(|&end| end > start))
+                        .min()
+                        .filter(|&end| end > start && score::rest_events(end - start).is_ok())
+                } else {
+                    None
+                };
+            if rhythm.is_none() && estimated_end.is_none() {
+                omitted_events += 1;
+                omitted_notes += notes.len();
+                continue;
+            }
             let status = if event["status"] == "normal" && notes.is_empty() {
                 omitted_events += 1;
                 json!("rest")
             } else {
                 event["status"].clone()
             };
-            events.push(json!({"start":start,"duration":rhythm,"status":status,
-                "notes":notes,"effects":event.get("effects").cloned().unwrap_or(json!([]))}));
+            let mut projected = json!({"start":start,"duration":rhythm,"status":status,
+                "notes":notes,"effects":event.get("effects").cloned().unwrap_or(json!([]))});
+            if let Some(end) = estimated_end {
+                projected["export_estimated_end"] = json!(end);
+            }
+            events.push(projected);
         }
         events.sort_by_key(|event| event["start"].as_i64().unwrap());
         let mut occupied = Vec::new();
         let mut cursor = 0;
         for event in events {
             let start = event["start"].as_i64().unwrap();
-            let ticks = score::duration_ticks(&event["duration"])?;
             // Keep original durations here; export_rhythm bounds any overlap
             // at the next attack without moving notes.
-            let end = if event["status"] == "empty" {
+            let end = if let Some(end) = event["export_estimated_end"].as_i64() {
+                end
+            } else if event["status"] == "empty" {
                 start
             } else {
+                let ticks = score::duration_ticks(&event["duration"])?;
                 start + (ticks.numerator / ticks.denominator) as i64
             };
             cursor = cursor.max(end);
@@ -2055,7 +2083,8 @@ pub fn export_rhythm(measure: &Value, time_signature: &str) -> Result<Value, Str
     if voices.is_empty() {
         voices.push(json!({"voice":0,"events":[]}));
     }
-    let (mut adjusted_events, mut split_events, mut overflow_events) = (0, 0, 0);
+    let (mut adjusted_events, mut split_events, mut overflow_events, mut estimated_durations) =
+        (0, 0, 0, 0);
     for (vi, voice) in voices.iter_mut().enumerate() {
         let mut events = array(&voice["events"]).to_vec();
         if events.is_empty() {
@@ -2078,20 +2107,32 @@ pub fn export_rhythm(measure: &Value, time_signature: &str) -> Result<Value, Str
                     out.push(rest);
                 }
             }
-            let ticks = score::duration_ticks(&event["duration"])?;
             let next = events.get(index + 1).and_then(|e| e["start"].as_i64());
-            let shortened = event["status"] != "empty"
-                && next.is_some_and(|next| {
-                    i128::from(next - start) * ticks.denominator < ticks.numerator
-                });
-            let pieces = if shortened {
-                let span = next.unwrap() - start;
+            let estimated_end = event["export_estimated_end"].as_i64();
+            let shortened = if estimated_end.is_some() {
+                false
+            } else {
+                let ticks = score::duration_ticks(&event["duration"])?;
+                event["status"] != "empty"
+                    && next.is_some_and(|next| {
+                        i128::from(next - start) * ticks.denominator < ticks.numerator
+                    })
+            };
+            let pieces = if estimated_end.is_some() || shortened {
+                let end = estimated_end
+                    .map(|end| next.map_or(end, |next| end.min(next)))
+                    .unwrap_or_else(|| next.unwrap());
+                let span = end - start;
                 if span <= 0 {
                     return Err(
                         "Simultaneous events in one voice need distinct note ownership".into(),
                     );
                 }
-                adjusted_events += 1;
+                if estimated_end.is_some() {
+                    estimated_durations += 1;
+                } else {
+                    adjusted_events += 1;
+                }
                 let pieces = score::rest_events(span)?;
                 if pieces.len() > 1 {
                     split_events += 1;
@@ -2103,6 +2144,10 @@ pub fn export_rhythm(measure: &Value, time_signature: &str) -> Result<Value, Str
             let mut end = start;
             for (piece_index, piece) in pieces.iter().enumerate() {
                 let mut retained = event.clone();
+                retained
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("export_estimated_end");
                 retained["start"] = json!(start + piece["start"].as_i64().unwrap());
                 retained["duration"] = piece["duration"].clone();
                 if pieces.len() > 1 {
@@ -2176,6 +2221,11 @@ pub fn export_rhythm(measure: &Value, time_signature: &str) -> Result<Value, Str
         voice["events"] = json!(out);
     }
     let mut warnings = Vec::new();
+    if estimated_durations > 0 {
+        warnings.push(format!(
+            "{estimated_durations} 处音符时值未确定，导出临时延续至下一已知起点或小节末尾，请核对节奏"
+        ));
+    }
     if adjusted_events > 0 {
         warnings.push(format!(
             "{adjusted_events} 个重叠事件按下一音的起点截短，已保留所有音符起点"
@@ -2191,7 +2241,8 @@ pub fn export_rhythm(measure: &Value, time_signature: &str) -> Result<Value, Str
     }
     Ok(
         json!({"measure":projected,"adjusted_events":adjusted_events,
-        "split_events":split_events,"overflow_events":overflow_events,"warnings":warnings}),
+        "split_events":split_events,"overflow_events":overflow_events,
+        "estimated_durations":estimated_durations,"warnings":warnings}),
     )
 }
 // A manual edit may change values while retaining visual relation anchors.

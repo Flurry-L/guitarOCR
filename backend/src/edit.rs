@@ -163,6 +163,84 @@ mod observation_edit_tests {
     }
 
     #[test]
+    fn export_preserves_polyphonic_attacks_with_explicitly_estimated_durations() {
+        // Native TAB can share one visible stem between different source
+        // voices. Keep the unreadable lower durations unknown in the project.
+        let source = json!({"instrument":"guitar","parts":[],"document_metadata":{},
+            "records":[{"source_id":"score","part_id":"guitar","staff_id":"tab",
+                "bar_index":0,"measure_number":1,"mode":"tab","instrument":"guitar",
+                "capo":0,"tuning":[64,59,55,50,45,40],"tuning_source":"manual",
+                "observation":{"state":{"time":{"status":"observed","value":"4/4"}},
+                    "voices":[{"voice":0,"events":[
+                        {"start":0,"duration":"e[3:2]","status":"normal","notes":[{"string":4,"fret":4}]},
+                        {"start":320,"duration":"e[3:2]","status":"normal","notes":[{"string":4,"fret":9}]},
+                        {"start":640,"duration":"e[3:2]","status":"rest","notes":[]},
+                        {"start":960,"duration":"q.","status":"normal","notes":[{"string":4,"fret":5}]},
+                        {"start":2400,"duration":"e","status":"rest","notes":[]},
+                        {"start":2880,"duration":"q","status":"normal","notes":[{"string":4,"fret":4}]}]},
+                        {"voice":1,"events":[
+                        {"start":0,"duration":null,"status":"normal","notes":[{"string":6,"fret":2}]},
+                        {"start":960,"duration":null,"status":"normal","notes":[{"string":6,"fret":10}]},
+                        {"start":null,"duration":null,"status":"normal","notes":[{"string":6,"fret":2}]},
+                        {"start":2880,"duration":null,"status":"normal","notes":[{"string":6,"fret":4}]}]}],
+                    "relations":[]}}]});
+        let original = source.clone();
+        let (document, summary, warnings) = export_score(&source).unwrap();
+        assert_eq!(source, original);
+        assert_eq!(summary["estimated_durations"], 3);
+        assert_eq!(summary["omitted_events"], 1);
+        assert_eq!(summary["omitted_notes"], 1);
+        assert!(warnings.iter().any(|warning| warning.contains("临时")));
+        let lower = &document["parts"][0]["staves"][0]["measures"][0]["voices"][1]["events"];
+        assert_eq!(
+            lower
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|e| e["start"].clone())
+                .collect::<Vec<_>>(),
+            vec![json!(0), json!(960), json!(2880)]
+        );
+        assert_eq!(lower[1]["notes"][0]["fret"], 10);
+        assert_eq!(lower[2]["duration"]["value"], 4);
+        assert!(lower
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|e| e.get("export_estimated_end").is_none()));
+        let output = tempfile::tempdir().unwrap();
+        let report =
+            scorelib::music_exports::write_gp5(&document, &output.path().join("polyphonic.gp5"))
+                .unwrap();
+        assert_eq!(report["report"]["readback_verified"], true);
+        let xml =
+            String::from_utf8(scorelib::music_exports::score_musicxml(&document).unwrap()).unwrap();
+        assert_eq!(xml.matches("<pitch>").count(), 7);
+        assert!(xml.contains("<voice>2</voice>"));
+
+        // A nonstandard gap uses the existing tied fragments. An unknown
+        // rest bounds the estimate but contributes no invented note; without
+        // a later boundary, an unknown duration beyond the bar stays omitted.
+        let record = json!({"mode":"tab","score_state":{"time":"4/4"},
+            "resolved":{"voices":[{"voice":0,"events":[
+                {"start":0,"duration":null,"status":"normal","notes":[{"string":1,"fret":5},{"string":2,"fret":"x"}]},
+                {"start":600,"duration":null,"status":"rest","notes":[]},
+                {"start":4320,"duration":null,"status":"normal","notes":[{"string":1,"fret":9}]}]}]}});
+        let partial = scorelib::observation::export_measure(&record).unwrap();
+        assert_eq!(partial["omitted_events"], 2);
+        assert_eq!(partial["omitted_notes"], 1);
+        let projected = scorelib::observation::export_rhythm(&partial["measure"], "4/4").unwrap();
+        assert_eq!(projected["estimated_durations"], 1);
+        assert_eq!(projected["split_events"], 1);
+        let events = &projected["measure"]["voices"][0]["events"];
+        assert_eq!(events[1]["start"], 480);
+        assert_eq!(events[1]["notes"].as_array().unwrap().len(), 1);
+        assert_eq!(events[1]["notes"][0]["effects"], json!(["tie"]));
+        assert_eq!(events[2]["start"], 600);
+        assert_eq!(events[2]["status"], "rest");
+    }
+
+    #[test]
     fn partial_metadata_edit_preserves_existing_values_and_unknown_tempo() {
         let previous = json!({"title":"Before","artist":"Composer","instrument":"guitar",
             "tuning_used":[64,59,55,50,45,40],"tuning_source":"manual","capo":3,
@@ -702,7 +780,7 @@ fn export_score(source: &Value) -> Result<(Value, Value, Vec<String>)> {
     let timeline = document["timeline"].clone();
     let mut summary = json!({"partial_measures":0,"omitted_notes":0,
         "omitted_events":0,"tab_preferred_events":0,"adjusted_events":0,
-        "split_events":0,"overflow_events":0});
+        "split_events":0,"overflow_events":0,"estimated_durations":0});
     let mut warnings = Vec::new();
     for part in document["parts"].as_array_mut().unwrap() {
         for staff in part["staves"].as_array_mut().unwrap() {
@@ -757,12 +835,18 @@ fn export_score(source: &Value) -> Result<(Value, Value, Vec<String>)> {
                         .ok_or("导出小节缺少拍号")?,
                 )?;
                 *measure = rhythm["measure"].clone();
-                for key in ["adjusted_events", "split_events", "overflow_events"] {
+                for key in [
+                    "adjusted_events",
+                    "split_events",
+                    "overflow_events",
+                    "estimated_durations",
+                ] {
                     summary[key] =
                         json!(summary[key].as_u64().unwrap() + rhythm[key].as_u64().unwrap());
                 }
                 if rhythm["adjusted_events"].as_u64().unwrap() > 0
                     || rhythm["overflow_events"].as_u64().unwrap() > 0
+                    || rhythm["estimated_durations"].as_u64().unwrap() > 0
                 {
                     labels.push("节奏");
                 }

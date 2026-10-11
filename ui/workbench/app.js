@@ -534,7 +534,7 @@ function renderExport() {
     [ui.state.pages.length, "页乐谱"],
     [count, "个小节"],
     ...(parts > 1 ? [[parts, "条音轨"]] : []),
-    ...(review ? [[review, "个小节有问题"]] : []),
+    ...(review ? [[review, "个小节有提示"]] : []),
   ]) {
     const stat = el("div", undefined, "stat");
     stat.append(el("strong", value), el("span", label));
@@ -570,6 +570,7 @@ function renderExport() {
     summary.omitted_notes > 0 && `${summary.omitted_notes} 个音符未写入`,
     summary.omitted_events > 0 && `${summary.omitted_events} 处音符或节奏未写入`,
     summary.tab_preferred_events > 0 && `${summary.tab_preferred_events} 处双谱按 TAB 导出`,
+    summary.estimated_durations > 0 && `${summary.estimated_durations} 处时值已临时补入，待核对`,
     summary.adjusted_events > 0 && `${summary.adjusted_events} 处重叠时值已缩短`,
     summary.overflow_events > 0 && `${summary.overflow_events} 处超拍内容已保留`,
   ].filter(Boolean);

@@ -1054,6 +1054,79 @@ def native_beam_path(curve, drawing):
                    for line in drawing.lines) for p, q in ((a, d), (b, c)))
 
 
+def native_shared_tab_rhythm(drawing, grouped, staff_index, measure, crop_mm, tuplet_counts):
+    """Reject competing source rhythms unsupported by a shared drawn stem.
+
+    TAB can print different source voices on one rhythmic column. Fret owners
+    identify the notes, but do not give each voice its own stem. Printed dots
+    and traced tuplet brackets may disambiguate the shared rhythm; otherwise
+    conflicting durations remain unknown.
+    """
+    index = measure['measure_index']
+    left, top, right, bottom = crop_mm
+    events, columns, origins = {}, [], []
+    for voice in measure['voices']:
+        for event in voice['events']:
+            owner = (staff_index, index, voice['voice_index'], event['event_index'])
+            glyphs = [g for key, gs in grouped.items() if key[:4] == owner for g in gs]
+            if not glyphs:
+                continue
+            x = glyphs[0]['render_origin_mm'][0]
+            origins.append(x)
+            if (event['rest'] or event['placeholder']
+                    or any(abs(g['render_origin_mm'][0] - x) > 1e-4 for g in glyphs)):
+                continue
+            rhythm = event['rhythm']
+            events[owner] = (rhythm['note_value_code'], rhythm['augmentation_dots'],
+                             tuple(rhythm['tuplets']['primary'] or (1, 1)))
+            column = next((c for c in columns if abs(c[0] - x) < 1e-4), None)
+            if column is None:
+                column = (x, [], [])
+                columns.append(column)
+            column[1].append(owner)
+            column[2].extend(glyphs)
+    unknown = set()
+    for x, owners, glyphs in columns:
+        if len({o[2] for o in owners}) < 2 or len({events[o] for o in owners}) < 2:
+            continue
+        band_top = min(g['bbox_mm'][1] for g in glyphs)
+        band_bottom = max(g['bbox_mm'][1] + g['bbox_mm'][3] for g in glyphs)
+        # Internal pieces between fret digits belong to the same column.
+        # An independent stem above and below the notes is not a shared stem.
+        stems = [(line['top'] * 25.4 / 72, line['bottom'] * 25.4 / 72)
+                 for line in drawing.lines
+                 if line.get('stroke') and abs(line['x0'] - line['x1']) < 1e-6
+                 and abs(line['x0'] * 25.4 / 72 - x) < 1e-4
+                 and top <= line['top'] * 25.4 / 72 <= line['bottom'] * 25.4 / 72 <= bottom
+                 and (line['top'] * 25.4 / 72 < band_top
+                      or line['bottom'] * 25.4 / 72 > band_bottom)]
+        if len(stems) != 1:
+            continue
+        stem_top, stem_bottom = stems[0]
+        next_x = min((other for other in origins if other > x + 1e-4), default=right)
+        dots = sum(char['text'].count('\ue1e7') for char in drawing.chars
+                   if x < char['x0'] * 25.4 / 72 < char['x1'] * 25.4 / 72 < next_x
+                   and top <= char['top'] * 25.4 / 72 <= char['bottom'] * 25.4 / 72 <= bottom
+                   and (char['top'] * 25.4 / 72 <= stem_top <= char['bottom'] * 25.4 / 72
+                        or char['top'] * 25.4 / 72 <= stem_bottom <= char['bottom'] * 25.4 / 72))
+        counts = {tuplet_counts[o] for o in owners if o in tuplet_counts}
+        # An unprinted source tuplet was already unreadable before considering
+        # shared stems; it must not erase another voice's visible plain rhythm.
+        matches = set()
+        for owner in owners:
+            _, source_dots, (enters, times) = events[owner]
+            ratio_visible = (enters == times or enters > 2 and enters & (enters - 1) != 0
+                and times == 1 << (enters.bit_length() - 1) and tuplet_counts.get(owner) == enters)
+            if ratio_visible and source_dots == dots and (not counts or counts == {enters}):
+                matches.add(owner)
+        # A symbol can rule out a source duration without proving which of two
+        # remaining base values owns the only stem. Do not choose by voice id.
+        if len({events[o] for o in matches}) != 1:
+            matches.clear()
+        unknown.update(set(owners) - matches)
+    return unknown
+
+
 def native_observations(layout, score, document, dpi=180):
     """Compile drawn notes, rhythm and connections, retaining visible unknowns.
 
@@ -1279,6 +1352,9 @@ def native_observations(layout, score, document, dpi=180):
                     if mode == 'tab':
                         raise ValueError('unsupported_printed_tab_key')
                     state['key'] = {'status': 'observed', 'value': signature['accidental_count']}
+            shared_rhythm_unknown = (native_shared_tab_rhythm(
+                drawing, grouped, staff['staff_index'], measure, (left, top, right, bottom), tuplet_counts)
+                if mode == 'tab' else set())
             voices, reference_voices, event_indices, note_indices = [], [], {}, {}
             event_origins = {}
             for voice in measure['voices']:
@@ -1299,7 +1375,8 @@ def native_observations(layout, score, document, dpi=180):
                     # A lone printed count encodes the conventional group
                     # (3 in 2, 5/6/7 in 4, etc.), not an arbitrary source ratio.
                     conventional = enters > 2 and enters & (enters - 1) != 0 and times == 1 << (enters.bit_length() - 1)
-                    rhythm_visible = enters == times or (conventional and tuplet_counts.get(owner) == enters)
+                    rhythm_visible = (owner not in shared_rhythm_unknown
+                        and (enters == times or (conventional and tuplet_counts.get(owner) == enters)))
                     duration = dict(value=1 << (code - 2), dotted=dots == 1,
                                     double_dotted=dots == 2, tuplet_enters=enters, tuplet_times=times)
                     onset = Fraction(*event['offset']) * 960
@@ -1388,8 +1465,11 @@ def native_observations(layout, score, document, dpi=180):
                             reference_notes.append(ref)
                         if not notes and not notation_notes:
                             raise ValueError('normal_event_without_visible_notes')
-                        rhythm_glyphs = [g for key, gs in all_glyphs.items() if key[:4] == owner
-                                         for g in gs if g['kind'] == ('fret' if mode == 'tab' else 'notehead')]
+                        # A tied TAB note can omit its fret while still printing
+                        # a stem at the connector's traced note anchor.
+                        rhythm_glyphs = [g for key, gs in (grouped if mode == 'tab' else all_glyphs).items()
+                                         if key[:4] == owner for g in gs
+                                         if g['kind'] in (('fret', 'hidden_fret') if mode == 'tab' else ('notehead',))]
                         glyph = max(rhythm_glyphs, key=lambda g: g['bbox_mm'][1])
                         gx, gy, gw, gh = glyph['bbox_mm']
                         origin_x = glyph['render_origin_mm'][0]
