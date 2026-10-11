@@ -103,7 +103,9 @@ pub(crate) fn resolve(
         {
             Some("competing_part_continuations")
         } else if name.is_empty() && !confirmed_continuation {
-            Some("missing_part_name")
+            // The first staff groups establish parts even without printed names.
+            // A later anonymous group needs evidence that it continues a part.
+            (previous > 0).then_some("missing_part_name")
         } else if !confirmed_continuation && (counts[&name] > 1 || candidates.len() > 1) {
             Some("ambiguous_part_name")
         } else if candidates
@@ -140,7 +142,7 @@ pub(crate) fn resolve(
         });
         mapping.insert(local, index);
         let mut identity = json!({
-            "status":status,"source":if confirmed_continuation {"part_continuation_network"} else {"printed_name"},"page":page,"local_part":local,
+            "status":status,"source":if confirmed_continuation {"part_continuation_network"} else if previous == 0 && name.is_empty() {"initial_staff_group"} else {"printed_name"},"page":page,"local_part":local,
             "name":profile["name"],"part_id":parts[index]["id"],
             "candidates":candidates.iter().map(|&i|parts[i]["id"].clone()).collect::<Vec<_>>(),
             "review_reason":reason,
@@ -159,6 +161,33 @@ pub(crate) fn resolve(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn initial_unnamed_staff_groups_establish_parts_without_review() {
+        let mut profiles: Vec<Value> = ["pitched", "drums"]
+            .into_iter()
+            .map(|instrument| json!({"name":"", "name_source":"missing",
+                "instrument":instrument, "instrument_evidence":{"value":instrument,"status":"resolved"}}))
+            .collect();
+        let mut parts = vec![];
+        let (mapping, evidence) = super::super::resolve_identity_batch(
+            &mut profiles,
+            &[[0, 0, 0], [0, 1, 0]],
+            1,
+            Some(0),
+            &mut parts,
+        )
+        .unwrap();
+        assert_eq!(parts.len(), 2);
+        for local in 0..2 {
+            assert_eq!(mapping[&local], local);
+            assert_eq!(evidence[&local]["status"], "new");
+            assert_eq!(evidence[&local]["source"], "initial_staff_group");
+            assert!(evidence[&local]["review_reason"].is_null());
+            assert_eq!(profiles[local]["identity_status"], "resolved");
+            assert_eq!(profiles[local]["needs_review"], false);
+        }
+    }
 
     #[test]
     fn uncertain_continuation_does_not_create_a_track() {

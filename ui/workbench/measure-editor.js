@@ -806,7 +806,7 @@ export function initMeasures({ start, go, renderExport, exportScore, setBusy }) 
         ? "休止符"
         : "空弦位";
     $("noteDescription").textContent = e
-      ? `${{ 1: "全", 2: "二分", 4: "四分", 8: "八分", 16: "十六分", 32: "三十二分", 64: "六十四分" }[e.duration.value] || e.duration.value}音符${e.duration.double_dotted ? " · 双附点" : e.duration.dotted ? " · 附点" : ""}${e.notes.length > 1 ? ` · ${e.notes.length} 音和弦` : ""}`
+      ? `${{ 1: "全", 2: "二分", 4: "四分", 8: "八分", 16: "十六分", 32: "三十二分", 64: "六十四分" }[e.duration.value] || e.duration.value}音符${e.duration.double_dotted ? " · 双附点" : e.duration.dotted ? " · 附点" : ""}${e.notes.length > 1 ? ` · ${e.notes.length} ${drums ? "个鼓音" : "音和弦"}` : ""}`
       : "";
     const signature =
       draft.time_signature ||

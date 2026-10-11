@@ -303,6 +303,9 @@ async function watch(after, initial, navigation = workspace.navigation()) {
         continue;
       }
       if (!current.pages && !["queued", "running"].includes(job?.status)) {
+        ui.state = current;
+        go(0, false);
+        renderFiles();
         throw new Error(job?.error || "页面导入未完成，请重新上传乐谱。");
       }
       if (current.pages) {
@@ -368,8 +371,9 @@ $("upload").onclick = action(async () => {
   if (hasDrafts() && !confirm("开始新项目后将放弃原项目未保存的修改，继续？")) return;
   let generation = ui.openGeneration;
   const navigation = workspace.navigation();
+  const selectedFiles = [...ui.files];
   const form = new FormData();
-  ui.files.forEach((f) => form.append("files", f));
+  selectedFiles.forEach((f) => form.append("files", f));
   const automatic = $("importAction").value === "full";
   if (automatic && uploadConfig.native) {
     const options = nativeModelOptions({});
@@ -393,6 +397,12 @@ $("upload").onclick = action(async () => {
     localStorage.setItem("guitarocr-session", ui.sid);
     renderFiles();
     await watch(() => go(automatic ? 3 : 1));
+  } catch (error) {
+    if (generation === ui.openGeneration && !ui.state?.pages) {
+      ui.files = selectedFiles;
+      renderFiles();
+    }
+    throw error;
   } finally {
     if (generation === ui.openGeneration) setBusy(false);
   }
@@ -524,7 +534,7 @@ function render() {
   if (ui.step === 1) loadPage();
 }
 function renderExport() {
-  if (!ui.state) return;
+  if (!ui.state?.pages) return;
   const measures = ui.state.measures || [];
   const count = new Set(measures.map((m, i) => m.bar_index ?? i)).size,
     parts = new Set(measures.map((m) => m.part_id || "part-1")).size,

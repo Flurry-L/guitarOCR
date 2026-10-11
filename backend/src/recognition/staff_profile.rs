@@ -51,7 +51,15 @@ impl StaffProfileReader {
             .transpose()?;
         let mut staff_images = vec![image.clone()];
         if let Some(evidence) = proposed_label.as_ref() {
-            if let Some(crop) = staff_label::label_crop(&image, evidence)? {
+            if let Some(mut crop) = staff_label::label_crop(&image, evidence)? {
+                if let Some(policy) = policy {
+                    // Give a short label the normal minimum visual area. A
+                    // tiny detail beside the complete row otherwise gets too
+                    // few image patches to influence the joint reading.
+                    let mut detail_policy = policy.clone();
+                    detail_policy.max_upscale = 16.;
+                    crop = normalize_score_image(&crop, &detail_policy)?;
+                }
                 staff_images.push(crop);
             }
         }

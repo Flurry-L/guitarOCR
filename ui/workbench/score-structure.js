@@ -164,7 +164,7 @@ export function musicalContext(state, index, draft, selected, profile) {
   const minor = String(key).includes("Minor");
   const keyNames = minor ? ["A♭", "E♭", "B♭", "F", "C", "G", "D", "A", "E", "B", "F♯", "C♯", "G♯", "D♯", "A♯"] :
     ["C♭", "G♭", "D♭", "A♭", "E♭", "B♭", "F", "C", "G", "D", "A", "E", "B", "F♯", "C♯"];
-  const keyName = key === undefined || key === null ? null :
+  const keyName = profile.instrument === "drums" || key === undefined || key === null ? null :
     `${keyNames[writtenKey(key, profile.pitch_context?.instrument_transpose) + 7]}${minor ? " 小调" : ""}`;
   const event = draft.voices[selected.vi]?.events[selected.ei];
   return {

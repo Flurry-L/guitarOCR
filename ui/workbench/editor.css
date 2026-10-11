@@ -378,7 +378,7 @@ button[aria-pressed="true"],
   min-height: 200px;
   outline: none;
   user-select: none;
-  touch-action: pan-y;
+  touch-action: pan-x pan-y;
 }
 #scoreCanvas:focus-visible {
   box-shadow: inset 2px 0 var(--score-accent);

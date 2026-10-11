@@ -429,10 +429,8 @@ fn beat(
     Ok(())
 }
 pub(super) fn encode(input: &Value) -> R<(Vec<u8>, Value)> {
-    let (mut score, visual_events) =
-        crate::visual_techniques::project_score(&score_document(input)?)?;
+    let (score, visual_events) = crate::visual_techniques::project_score(&score_document(input)?)?;
     let omitted_diagrams = super::chord_library::omitted(&score)?;
-    super::fingering::assign(&mut score)?;
     let timeline = arr(&score, "timeline")?;
     if timeline.is_empty() {
         return Err("At least one measure required".into());
@@ -442,14 +440,6 @@ pub(super) fn encode(input: &Value) -> R<(Vec<u8>, Value)> {
     for p in arr(&score, "parts")? {
         if !["guitar", "bass", "pitched", "drums"].contains(&txt(p, "instrument", "")) {
             return Err("Unknown GP5 instrument".into());
-        }
-        let tuning = arr(p, "tuning")?;
-        if tuning.is_empty()
-            || tuning
-                .iter()
-                .any(|v| v.as_i64().is_none_or(|n| !(0..=127).contains(&n)))
-        {
-            return Err("Invalid GP5 tuning".into());
         }
         let program = num(p, "midi_program", 25);
         let channel = if txt(p, "instrument", "") == "drums" {
@@ -472,6 +462,20 @@ pub(super) fn encode(input: &Value) -> R<(Vec<u8>, Value)> {
             channels[&id].0
         };
         for s in arr(p, "staves")? {
+            // GP5 gives each staff its own track. Allocate its storage strings
+            // independently, so a piano's bass range does not constrain its treble.
+            let mut assigned = p.clone();
+            assigned["staves"] = json!([s]);
+            super::fingering::assign_part(&mut assigned)?;
+            let s = &assigned["staves"][0];
+            let tuning = arr(&assigned, "tuning")?;
+            if tuning.is_empty()
+                || tuning
+                    .iter()
+                    .any(|v| v.as_i64().is_none_or(|n| !(0..=127).contains(&n)))
+            {
+                return Err("Invalid GP5 tuning".into());
+            }
             let modes = arr(s, "measures")?
                 .iter()
                 .map(|m| txt(m, "mode", "both"))
@@ -491,6 +495,22 @@ pub(super) fn encode(input: &Value) -> R<(Vec<u8>, Value)> {
                 .collect::<Vec<_>>();
             for vs in voices.chunks(2) {
                 for start in (0..tuning.len()).step_by(7) {
+                    let strings = (start..(start + 7).min(tuning.len())).collect::<Vec<_>>();
+                    if start > 0
+                        && matches!(txt(p, "instrument", ""), "pitched" | "drums")
+                        && !arr(s, "measures")?.iter().any(|m| {
+                            m["voices"]
+                                .as_array()
+                                .into_iter()
+                                .flatten()
+                                .filter(|v| vs.contains(&num(v, "voice", 0)))
+                                .flat_map(|v| v["events"].as_array().into_iter().flatten())
+                                .flat_map(|e| e["notes"].as_array().into_iter().flatten())
+                                .any(|n| strings.contains(&(num(n, "string", 0) as usize - 1)))
+                        })
+                    {
+                        continue;
+                    }
                     let instrument = txt(p, "instrument", "guitar");
                     let default_name = match instrument {
                         "guitar" => "Guitar",
@@ -508,7 +528,9 @@ pub(super) fn encode(input: &Value) -> R<(Vec<u8>, Value)> {
                             _ => "Melodic instrument",
                         },
                     };
-                    let mut name = if txt(p, "name", instrument) == instrument {
+                    let mut name = if txt(p, "name", instrument).is_empty()
+                        || txt(p, "name", instrument) == instrument
+                    {
                         default_name
                     } else {
                         txt(p, "name", default_name)
@@ -541,10 +563,10 @@ pub(super) fn encode(input: &Value) -> R<(Vec<u8>, Value)> {
                         );
                     }
                     tracks.push(Track {
-                        part: p.clone(),
+                        part: assigned.clone(),
                         staff: s.clone(),
                         voices: vs.to_vec(),
-                        strings: (start..(start + 7).min(tuning.len())).collect(),
+                        strings,
                         channel,
                         mode: mode.clone(),
                         name,

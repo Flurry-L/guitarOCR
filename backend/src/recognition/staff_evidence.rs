@@ -259,6 +259,18 @@ pub fn resolve_instrument_with_label(
             return json!({"value":previous["value"],"source":"confirmed_continuation","status":"resolved",
                 "candidates":candidates,"needs_review":false,"provisional":false,"label_evidence":label});
         }
+        // Standard notation establishes a melodic or percussion category
+        // without naming its instrument. An unlabelled guitar/bass prediction
+        // establishes only melodic notation, not strings or octave transposition.
+        if !has_tab && label["status"] == "absent" && known(&candidates["staff_model"]) {
+            let category = if candidates["staff_model"] == "drums" {
+                "drums"
+            } else {
+                "pitched"
+            };
+            return json!({"value":category,"source":"staff_model","status":"resolved",
+                "candidates":candidates,"needs_review":false,"provisional":false,"label_evidence":label});
+        }
         return json!({"value":null,"source":"unresolved_label","status":"unresolved",
             "candidates":candidates,"needs_review":true,"provisional":false,"label_evidence":label});
     }
@@ -275,4 +287,117 @@ pub fn resolve_instrument_with_label(
         "status":if needs_review {"unresolved"} else {"resolved"},
         "candidates":candidates,"needs_review":needs_review,
         "provisional":false})
+}
+
+/// A visible clef defines notation's category even when Staff misnames it.
+/// It does not replace a printed, continued, or manually chosen instrument.
+pub fn apply_notation_clefs(
+    identity: &mut Value,
+    has_tab: bool,
+    label: Option<&Value>,
+    predictions: &[Value],
+) {
+    if has_tab
+        || label.is_none_or(|label| label["status"] != "absent")
+        || matches!(
+            identity["source"].as_str(),
+            Some(
+                "manual"
+                    | "label_text"
+                    | "confirmed_continuation"
+                    | "visible_instrument_annotation"
+            )
+        )
+    {
+        return;
+    }
+    let categories: std::collections::BTreeSet<_> = predictions
+        .iter()
+        .filter(|prediction| prediction["kind"] == "clef")
+        .filter_map(|prediction| match prediction["parsed"]["clef"].as_str() {
+            Some("percussion") => Some("drums"),
+            Some("G2" | "F4" | "C3" | "C4") => Some("pitched"),
+            _ => None,
+        })
+        .collect();
+    if categories.is_empty() {
+        return;
+    }
+    identity["candidates"]["visible_clef"] = json!(categories);
+    let category = if categories.len() == 1 {
+        categories.first().copied()
+    } else {
+        None
+    };
+    identity["value"] = json!(category);
+    identity["source"] = json!("visible_clef");
+    identity["status"] = json!(if category.is_some() {
+        "resolved"
+    } else {
+        "unresolved"
+    });
+    identity["needs_review"] = json!(category.is_none());
+    identity["provisional"] = json!(false);
+}
+
+#[test]
+fn unnamed_notation_keeps_its_visual_category_without_guessing_an_instrument() {
+    for instrument in ["guitar", "bass", "pitched", "drums"] {
+        let mut label = json!({"status":"absent","visible":false,
+            "identity":{"value":null,"accepted":false},
+            "staff_prediction":{"instrument":instrument,"name":null}});
+        let category = resolve_instrument_with_label(false, &Value::Null, None, Some(&label), None);
+        assert_eq!(
+            category["value"],
+            if instrument == "drums" {
+                "drums"
+            } else {
+                "pitched"
+            }
+        );
+        assert_eq!(category["needs_review"], false);
+        assert_eq!(category["source"], "staff_model");
+        let prior = json!({"value":"guitar","source":"label_text","status":"resolved"});
+        let continued =
+            resolve_instrument_with_label(false, &Value::Null, None, Some(&label), Some(&prior));
+        assert_eq!(continued["value"], "guitar");
+        assert_eq!(continued["source"], "confirmed_continuation");
+        for status in ["read", "unreadable"] {
+            label["status"] = json!(status);
+            let unresolved =
+                resolve_instrument_with_label(false, &Value::Null, None, Some(&label), None);
+            assert!(unresolved["value"].is_null());
+        }
+    }
+    for instrument in ["guitar", "bass", "pitched", "drums"] {
+        let label = json!({"status":"absent", "staff_prediction":{"instrument":instrument}});
+        let tab = resolve_instrument_with_label(true, &Value::Null, None, Some(&label), None);
+        assert!(tab["value"].is_null());
+    }
+    let label = json!({"status":"absent","staff_prediction":{"instrument":"pitched"}});
+    for (clefs, expected) in [
+        (vec!["percussion", "percussion"], Some("drums")),
+        (vec!["G2", "F4"], Some("pitched")),
+        (vec!["G2", "percussion"], None),
+    ] {
+        let predictions: Vec<_> = clefs
+            .iter()
+            .map(|clef| json!({"kind":"clef","parsed":{"clef":clef}}))
+            .collect();
+        let mut identity =
+            resolve_instrument_with_label(false, &Value::Null, None, Some(&label), None);
+        apply_notation_clefs(&mut identity, false, Some(&label), &predictions);
+        assert_eq!(identity["value"], json!(expected));
+        for source in [
+            "manual",
+            "label_text",
+            "confirmed_continuation",
+            "visible_instrument_annotation",
+        ] {
+            identity["value"] = json!("bass");
+            identity["source"] = json!(source);
+            apply_notation_clefs(&mut identity, false, Some(&label), &predictions);
+            assert_eq!(identity["value"], "bass");
+        }
+    }
 }

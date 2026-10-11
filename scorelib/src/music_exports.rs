@@ -830,6 +830,43 @@ pub fn write_gp5(input: &Value, output: &Path) -> R<Value> {
 }
 
 #[test]
+fn gp5_virtual_strings_are_scoped_to_each_staff() {
+    let chord = |low, count| {
+        json!({"start":0,"duration":{"value":1},"status":"normal",
+        "notes":(low..low+count).map(|pitch| json!({"pitch":pitch})).collect::<Vec<_>>(),"effects":[]})
+    };
+    let staff = |id, low| {
+        json!({"id":id,"measures":[{"index":0,"mode":"notation",
+        "voices":[{"voice":0,"events":[chord(low, 7)]}]}]})
+    };
+    let mut score = json!({"schema":"guitarocr.score/2","ticks_per_quarter":960,
+        "timeline":[{"index":0,"time_signature":"4/4"}],"parts":[{"id":"piano","name":"",
+        "instrument":"pitched","tuning":[],"capo":0,"midi_program":0,
+        "staves":[staff("staff-1",72),staff("staff-2",24)]}]});
+    let (_, report) = gp5::encode(&score).unwrap();
+    assert_eq!(report["tracks"], 2);
+    assert_eq!(report["readback_verified"], true);
+
+    // Eight simultaneous notes genuinely need a second GP5 track. Another
+    // voice group on the same staff must not inherit an empty overflow track.
+    score["parts"][0]["staves"][0]["measures"][0]["voices"] = json!([
+        {"voice":0,"events":[chord(72,8)]},
+        {"voice":1,"events":[{"start":0,"duration":{"value":1},"status":"rest","notes":[]}]},
+        {"voice":2,"events":[chord(72,1)]}]);
+    let (_, report) = gp5::encode(&score).unwrap();
+    assert_eq!(report["tracks"], 4);
+    assert_eq!(
+        report["mapping"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|track| track["strings"].as_array().unwrap().contains(&json!(8)))
+            .count(),
+        1
+    );
+}
+
+#[test]
 fn partial_export_encodes_mixed_known_positions_and_pitches() {
     let record = json!({"mode":"both","score_state":{"time":"4/4"},
         "resolved":{"voices":[{"voice":0,"events":[

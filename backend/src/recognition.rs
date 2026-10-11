@@ -1579,12 +1579,17 @@ pub fn apply_pitch_regions(
         let key = staff_key(r);
         let state=states.entry(key.clone()).or_insert_with(||json!({"instrument_transpose":transpose.or(default_transpose).unwrap_or(if ["guitar","bass"].contains(&instrument.as_str()){-12}else{0}),"clef":null,"clef_octave":0}));
         let pending = uncertain.entry(key.clone()).or_default();
-        apply_clef_changes(
-            state,
-            pending,
-            changes.get(&i).map(Vec::as_slice).unwrap_or(&[]),
-            &r["measure_number"],
-        );
+        // TAB pitch comes from string, fret and tuning. A clef candidate on a
+        // pure TAB row must not alter the notation state of this staff.
+        let uses_clef = r["mode"] != "tab";
+        if uses_clef {
+            apply_clef_changes(
+                state,
+                pending,
+                changes.get(&i).map(Vec::as_slice).unwrap_or(&[]),
+                &r["measure_number"],
+            );
+        }
         for p in changes.get(&i).into_iter().flatten() {
             let parsed = &p["parsed"];
             if p["kind"] == "clef" {
@@ -1618,7 +1623,7 @@ pub fn apply_pitch_regions(
             }
         }
         let mut local_clef = json!({});
-        if changes.get(&i).is_some_and(|changes| {
+        if uses_clef && changes.get(&i).is_some_and(|changes| {
             changes
                 .iter()
                 .any(|p| p["kind"] == "clef" && p["parsed"]["clef"] != "tab")
@@ -1668,7 +1673,9 @@ pub fn apply_pitch_regions(
         } else {
             "sounding"
         });
-        r["pitch_issues"] = json!(pending.iter().map(|field|
+        r["pitch_issues"] = json!(pending.iter()
+            .filter(|field| uses_clef || !["clef", "clef_octave"].contains(&field.as_str()))
+            .map(|field|
             json!({"code":"pitch_instruction","message":format!("音高指示尚不明确：{field}")}))
             .chain(unresolved.contains(&i).then(|| json!({"code":"pitch_instruction","message":"无法确定谱面音高指示的含义"})))
             .collect::<Vec<_>>());
@@ -1946,6 +1953,12 @@ pub fn recognize_information<G: Generator + ?Sized>(
             identity_evidence["provisional"] = json!(false);
             identity_evidence["provisional_source"] = Value::Null;
         }
+        staff_evidence::apply_notation_clefs(
+            &mut identity_evidence,
+            has_tab,
+            label_evidence,
+            &local_predictions,
+        );
         let instrument = if named_pitched {
             "pitched"
         } else {
@@ -3376,6 +3389,22 @@ pub fn update_information(source: &Value, information: &Value) -> Result<Option<
                     row[field] = value.clone();
                 }
             }
+            // These diagnostics belong to the freshly resolved staff grid.
+            // Removing an old warning is as meaningful as adding a new one.
+            for field in [
+                "part_identity",
+                "page_staff_evidence",
+                "structure_needs_review",
+                "structure_review_reasons",
+                "alignment_needs_review",
+                "alignment_review_reasons",
+                "alignment_source",
+            ] {
+                row.as_object_mut().unwrap().remove(field);
+                if let Some(value) = updated.get(field) {
+                    row[field] = value.clone();
+                }
+            }
         }
         let profile = list(information, "measure_profiles")
             .iter()
@@ -4108,5 +4137,27 @@ mod observation_pipeline_tests {
             assert!(row["target"].as_str().unwrap().contains("p50"));
         }
         assert_eq!(records[0]["observation"]["state"]["clef"]["value"], "C3");
+
+        // An unreadable TAB logo is irrelevant to pitch, but an unreadable
+        // capo still matters. TAB must not clear a previous notation uncertainty.
+        let mut mixed = vec![records[0].clone(); 3];
+        for (i, row) in mixed.iter_mut().enumerate() {
+            row["bbox"] = json!([i * 100, 0, 100, 200]);
+            row["mode"] = json!(if i == 1 { "tab" } else { "notation" });
+        }
+        let evidence = vec![
+            json!({"kind":"clef","page":1,"bbox":[5,20,10,35],
+                "parsed":{"clef":null,"clef_octave":null}}),
+            json!({"kind":"clef","page":1,"bbox":[105,20,10,35],
+                "parsed":{"clef":null,"clef_octave":null}}),
+            json!({"kind":"transposition","page":1,"bbox":[105,10,20,10],
+                "parsed":{"kind":"capo","capo":null}}),
+        ];
+        let mixed = apply_pitch_regions(&mixed, &evidence, "pitched", Some(0), None).unwrap();
+        assert_eq!(list(&mixed[0], "pitch_issues").len(), 2);
+        assert_eq!(mixed[1]["clef_observation"], json!({}));
+        assert_eq!(list(&mixed[1], "pitch_issues").len(), 1);
+        assert_eq!(mixed[1]["pitch_issues"][0]["message"], "音高指示尚不明确：capo");
+        assert_eq!(list(&mixed[2], "pitch_issues").len(), 3);
     }
 }

@@ -61,182 +61,185 @@ fn solve(
     }
 }
 
-pub(super) fn assign(score: &mut Value) -> R<()> {
-    for p in score["parts"].as_array_mut().ok_or("Missing score parts")? {
-        let instrument = txt(p, "instrument", "guitar").to_owned();
-        let virtual_slots = instrument == "pitched" || instrument == "drums";
-        if virtual_slots {
-            let bases = if instrument == "drums" {
-                vec![0; 7]
-            } else {
-                storage_bases(p)?
-            };
-            p["tuning"] = json!(bases);
-            p["capo"] = json!(0);
-        }
-        let tuning = arr(p, "tuning")?
+pub(super) fn assign_part(p: &mut Value) -> R<()> {
+    let instrument = txt(p, "instrument", "guitar").to_owned();
+    let virtual_slots = instrument == "pitched" || instrument == "drums";
+    if virtual_slots {
+        let bases = if instrument == "drums" {
+            vec![0; 7]
+        } else {
+            storage_bases(p)?
+        };
+        p["tuning"] = json!(bases);
+        p["capo"] = json!(0);
+    }
+    let tuning = arr(p, "tuning")?
+        .iter()
+        .map(|v| v.as_i64().ok_or_else(|| "Invalid tuning".to_owned()))
+        .collect::<R<Vec<_>>>()?;
+    for staff in p["staves"].as_array_mut().ok_or("Missing staves")? {
+        let ms = staff["measures"].as_array_mut().ok_or("Missing measures")?;
+        ms.sort_by_key(|m| num(m, "index", 0));
+        let voices = ms
             .iter()
-            .map(|v| v.as_i64().ok_or_else(|| "Invalid tuning".to_owned()))
-            .collect::<R<Vec<_>>>()?;
-        for staff in p["staves"].as_array_mut().ok_or("Missing staves")? {
-            let ms = staff["measures"].as_array_mut().ok_or("Missing measures")?;
-            ms.sort_by_key(|m| num(m, "index", 0));
-            let voices = ms
-                .iter()
-                .flat_map(|m| m["voices"].as_array().into_iter().flatten())
-                .map(|v| num(v, "voice", 0))
-                .collect::<std::collections::BTreeSet<_>>();
-            for voice in voices {
-                let mut chains: Vec<Chain> = vec![];
-                let mut previous: HashMap<i64, Vec<usize>> = HashMap::new();
-                let mut event_index = 0;
-                for (mi, m) in ms.iter().enumerate() {
-                    let Some(v) = m["voices"]
-                        .as_array()
-                        .unwrap()
-                        .iter()
-                        .find(|v| num(v, "voice", 0) == voice)
-                    else {
-                        continue;
-                    };
-                    for (ei, e) in arr(v, "events")?.iter().enumerate() {
-                        let mut tied_used = std::collections::HashSet::new();
-                        let mut updated: HashMap<i64, Vec<usize>> = HashMap::new();
-                        for (ni, n) in arr(e, "notes")?.iter().enumerate() {
-                            let s = n["string"].as_i64();
-                            let f = num(n, "fret", 0);
-                            if !virtual_slots {
-                                if let (Some(source), Some(explicit), Some(fret)) =
-                                    (s, n["pitch"].as_i64(), n["fret"].as_i64())
+            .flat_map(|m| m["voices"].as_array().into_iter().flatten())
+            .map(|v| num(v, "voice", 0))
+            .collect::<std::collections::BTreeSet<_>>();
+        for voice in voices {
+            let mut chains: Vec<Chain> = vec![];
+            let mut previous: HashMap<i64, Vec<usize>> = HashMap::new();
+            let mut event_index = 0;
+            for (mi, m) in ms.iter().enumerate() {
+                let Some(v) = m["voices"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|v| num(v, "voice", 0) == voice)
+                else {
+                    continue;
+                };
+                for (ei, e) in arr(v, "events")?.iter().enumerate() {
+                    let mut tied_used = std::collections::HashSet::new();
+                    let mut updated: HashMap<i64, Vec<usize>> = HashMap::new();
+                    for (ni, n) in arr(e, "notes")?.iter().enumerate() {
+                        let s = n["string"].as_i64();
+                        let f = num(n, "fret", 0);
+                        if !virtual_slots {
+                            if let (Some(source), Some(explicit), Some(fret)) =
+                                (s, n["pitch"].as_i64(), n["fret"].as_i64())
+                            {
+                                if source < 1
+                                    || tuning.get(source as usize - 1).map(|t| t + fret)
+                                        != Some(explicit)
                                 {
-                                    if source < 1
-                                        || tuning.get(source as usize - 1).map(|t| t + fret)
-                                            != Some(explicit)
-                                    {
-                                        return Err("Explicit pitch conflicts with string/fret; refusing fingering rewrite".into());
-                                    }
+                                    return Err("Explicit pitch conflicts with string/fret; refusing fingering rewrite".into());
                                 }
                             }
-                            let pitch = n["pitch"]
-                                .as_i64()
-                                .or_else(|| {
-                                    s.and_then(|s| {
-                                        if s > 0 {
-                                            tuning.get(s as usize - 1).map(|p| p + f)
-                                        } else {
-                                            None
-                                        }
-                                    })
-                                })
-                                .ok_or("Cannot resolve note pitch for fingering")?;
-                            let mut candidates = if let Some(s) = s.filter(|_| !virtual_slots) {
-                                if s < 1 || s as usize > tuning.len() {
-                                    return Err("String outside tuning".into());
-                                }
-                                vec![s as usize - 1]
-                            } else {
-                                tuning
-                                    .iter()
-                                    .enumerate()
-                                    .filter(|(_, base)| {
-                                        if instrument == "drums" {
-                                            (0..=99).contains(&(pitch - **base))
-                                        } else {
-                                            (0..=30).contains(&(pitch - **base))
-                                        }
-                                    })
-                                    .map(|(i, _)| i)
-                                    .collect::<Vec<_>>()
-                            };
-                            candidates.retain(|slot| {
-                                let open = tuning[*slot];
-                                let f = pitch - open;
-                                let max = if instrument == "drums" { 99 } else { 30 };
-                                effects(n).iter().all(|ef| {
-                                    if ef.starts_with("grace:") || ef.starts_with("trill:") {
-                                        super::gp5_techniques::ornament_fret(
-                                            ef.split(':').nth(1).unwrap_or(""),
-                                            open,
-                                            f,
-                                            max,
-                                        )
-                                        .is_ok()
+                        }
+                        let pitch = n["pitch"]
+                            .as_i64()
+                            .or_else(|| {
+                                s.and_then(|s| {
+                                    if s > 0 {
+                                        tuning.get(s as usize - 1).map(|p| p + f)
                                     } else {
-                                        true
+                                        None
                                     }
                                 })
-                            });
-                            if candidates.is_empty() {
-                                return Err(format!(
-                                    "No playable native GP5 fingering for pitch {pitch}"
-                                ));
+                            })
+                            .ok_or("Cannot resolve note pitch for fingering")?;
+                        let mut candidates = if let Some(s) = s.filter(|_| !virtual_slots) {
+                            if s < 1 || s as usize > tuning.len() {
+                                return Err("String outside tuning".into());
                             }
-                            let tie = effects(n).contains(&"tie");
-                            let origin = if tie {
-                                previous
-                                    .get(&pitch)
-                                    .and_then(|cs| cs.iter().find(|c| !tied_used.contains(*c)))
-                                    .copied()
-                            } else {
-                                None
-                            };
-                            let ci = if let Some(ci) = origin {
-                                tied_used.insert(ci);
-                                chains[ci].end = event_index;
-                                chains[ci].notes.push((mi, ei, ni));
-                                chains[ci].candidates.retain(|s| candidates.contains(s));
-                                if chains[ci].candidates.is_empty() {
-                                    return Err("Tie chain requires incompatible strings; refusing pitch substitution".into());
+                            vec![s as usize - 1]
+                        } else {
+                            tuning
+                                .iter()
+                                .enumerate()
+                                .filter(|(_, base)| {
+                                    if instrument == "drums" {
+                                        (0..=99).contains(&(pitch - **base))
+                                    } else {
+                                        (0..=30).contains(&(pitch - **base))
+                                    }
+                                })
+                                .map(|(i, _)| i)
+                                .collect::<Vec<_>>()
+                        };
+                        candidates.retain(|slot| {
+                            let open = tuning[*slot];
+                            let f = pitch - open;
+                            let max = if instrument == "drums" { 99 } else { 30 };
+                            effects(n).iter().all(|ef| {
+                                if ef.starts_with("grace:") || ef.starts_with("trill:") {
+                                    super::gp5_techniques::ornament_fret(
+                                        ef.split(':').nth(1).unwrap_or(""),
+                                        open,
+                                        f,
+                                        max,
+                                    )
+                                    .is_ok()
+                                } else {
+                                    true
                                 }
-                                ci
-                            } else {
-                                chains.push(Chain {
-                                    start: event_index,
-                                    end: event_index,
-                                    notes: vec![(mi, ei, ni)],
-                                    candidates,
-                                });
-                                chains.len() - 1
-                            };
-                            updated.entry(pitch).or_default().push(ci);
+                            })
+                        });
+                        if candidates.is_empty() {
+                            return Err(format!(
+                                "No playable native GP5 fingering for pitch {pitch}"
+                            ));
                         }
-                        for (pitch, cs) in updated {
-                            previous.insert(pitch, cs);
-                        }
-                        event_index += 1;
+                        let tie = effects(n).contains(&"tie");
+                        let origin = if tie {
+                            previous
+                                .get(&pitch)
+                                .and_then(|cs| cs.iter().find(|c| !tied_used.contains(*c)))
+                                .copied()
+                        } else {
+                            None
+                        };
+                        let ci = if let Some(ci) = origin {
+                            tied_used.insert(ci);
+                            chains[ci].end = event_index;
+                            chains[ci].notes.push((mi, ei, ni));
+                            chains[ci].candidates.retain(|s| candidates.contains(s));
+                            if chains[ci].candidates.is_empty() {
+                                return Err("Tie chain requires incompatible strings; refusing pitch substitution".into());
+                            }
+                            ci
+                        } else {
+                            chains.push(Chain {
+                                start: event_index,
+                                end: event_index,
+                                notes: vec![(mi, ei, ni)],
+                                candidates,
+                            });
+                            chains.len() - 1
+                        };
+                        updated.entry(pitch).or_default().push(ci);
                     }
-                }
-                if chains.len() > 20000 {
-                    return Err("Native GP5 fingering exceeds 20000-chain resource limit".into());
-                }
-                let mut order = (0..chains.len()).collect::<Vec<_>>();
-                order.sort_by_key(|i| {
-                    (
-                        chains[*i].candidates.len(),
-                        std::cmp::Reverse(chains[*i].end - chains[*i].start),
-                        chains[*i].start,
-                    )
-                });
-                let mut assigned = vec![None; chains.len()];
-                let mut budget = 20_000_000;
-                if !solve(&order, &chains, &mut assigned, &mut budget) {
-                    return Err(if budget==0{"Native GP5 fingering search limit reached; no approximate assignment written"}else{"No tie-safe GP5 string assignment exists for this tuning"}.into());
-                }
-                for (ci, c) in chains.iter().enumerate() {
-                    let string = assigned[ci].unwrap();
-                    for &(mi, ei, ni) in &c.notes {
-                        let v = ms[mi]["voices"]
-                            .as_array_mut()
-                            .unwrap()
-                            .iter_mut()
-                            .find(|v| num(v, "voice", 0) == voice)
-                            .unwrap();
-                        let n = &mut v["events"][ei]["notes"][ni];
-                        if let Some(pitch) = n["pitch"].as_i64() {
-                            n["fret"] = json!(pitch - tuning[string]);
-                        }
-                        n["string"] = json!(string + 1);
+                    for (pitch, cs) in updated {
+                        previous.insert(pitch, cs);
                     }
+                    event_index += 1;
+                }
+            }
+            if chains.len() > 20000 {
+                return Err("Native GP5 fingering exceeds 20000-chain resource limit".into());
+            }
+            let mut order = (0..chains.len()).collect::<Vec<_>>();
+            order.sort_by_key(|i| {
+                (
+                    chains[*i].candidates.len(),
+                    std::cmp::Reverse(chains[*i].end - chains[*i].start),
+                    chains[*i].start,
+                )
+            });
+            let mut assigned = vec![None; chains.len()];
+            let mut budget = 20_000_000;
+            if !solve(&order, &chains, &mut assigned, &mut budget) {
+                return Err(if budget == 0 {
+                    "Native GP5 fingering search limit reached; no approximate assignment written"
+                } else {
+                    "No tie-safe GP5 string assignment exists for this tuning"
+                }
+                .into());
+            }
+            for (ci, c) in chains.iter().enumerate() {
+                let string = assigned[ci].unwrap();
+                for &(mi, ei, ni) in &c.notes {
+                    let v = ms[mi]["voices"]
+                        .as_array_mut()
+                        .unwrap()
+                        .iter_mut()
+                        .find(|v| num(v, "voice", 0) == voice)
+                        .unwrap();
+                    let n = &mut v["events"][ei]["notes"][ni];
+                    if let Some(pitch) = n["pitch"].as_i64() {
+                        n["fret"] = json!(pitch - tuning[string]);
+                    }
+                    n["string"] = json!(string + 1);
                 }
             }
         }
