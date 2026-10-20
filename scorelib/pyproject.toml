@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "scorelib"
-version = "0.1.0"
+version = "0.3.0"
 requires-python = ">=3.10"
 description = "Shared score IR, musical rules and GP5/MusicXML conversion"
 dependencies = ["PyGuitarPro>=0.7,<1"]

@@ -301,7 +301,7 @@
                 <option value="drums">鼓组</option>
               </select></label
             ><label id="midiProgramField"
-              >播放音色<select id="midiProgram"></select></label
+              >导出音色<select id="midiProgram"></select></label
             ><label
               >速度（BPM）<input
                 id="tempo"
@@ -328,9 +328,9 @@
               <small
                 >实际音高减去谱面音高，例如降 B 调小号填 -2。8va／8vb
                 按谱中范围识别。</small
-              > </label
-            ><label id="tuningField"
-              >常用调弦<select id="tuningPreset">
+            > </label>
+            <div id="tuningField" class="tuning-fields">
+              <label>常用调弦（1 弦 → 低音弦）<select id="tuningPreset" aria-describedby="tuningPreview">
                 <option value="64,59,55,50,45,40">
                   六弦吉他（E B G D A E）
                 </option>
@@ -343,18 +343,22 @@
                   六弦贝斯（C G D A E B）
                 </option>
                 <option value="64,59,55,50,45,38">Drop D（E B G D A D）</option>
+                <option value="62,57,55,50,45,38">DADGAD（D A G D A D）</option>
+                <option value="62,57,54,50,45,38">Open D（D A F♯ D A D）</option>
+                <option value="62,59,55,50,43,38">Open G（D B G D G D）</option>
+                <option value="63,58,54,49,44,39">半音降调 E♭（E♭ B♭ G♭ D♭ A♭ E♭）</option>
                 <option value="62,57,53,48,43,38">
                   全音降调（D A F C G D）
                 </option>
-                <option value="custom">自定义</option>
-              </select></label
-            ><label id="customTuning" hidden=""
-              >各弦音高（从第 1 弦到低音弦）<input
-                id="tuning"
-              /><small
-                >填 MIDI 音高编号，例如 E4 为 64。各弦用逗号分隔。</small
-              ></label
-            >
+                <option value="custom">自定义（输入音名或 MIDI）</option>
+              </select></label>
+              <label id="customTuning" hidden>各弦音高（从第 1 弦到低音弦）<input
+                  id="tuning"
+                  aria-describedby="tuningPreview"
+                  placeholder="例如 E4, B3, G3, D3, A2, E2 或 64, 59, 55, 50, 45, 40"
+              /></label>
+              <small id="tuningPreview" class="muted" aria-live="polite">可直接填音名（如 E4, B3, G3, D3, A2, E2）或 MIDI 编号（如 64, 59, 55, 50, 45, 40）。</small>
+            </div>
           </div>
           <div id="infoWarnings" class="hint" hidden=""></div>
           <details id="libraryChordReview" class="measure-settings library-chord-review" hidden open>
@@ -368,7 +372,7 @@
             <label>识别候选<select id="libraryChordCandidate"></select></label>
             <div class="metadata">
               <label>和弦名称<input id="libraryChordName" maxlength="160" placeholder="例如 B♭maj7、D/F♯" /></label>
-              <label>指法（低音弦 → 高音弦）<input id="libraryChordFrets" placeholder="例如 x 3 2 0 1 0" /></label>
+              <label>指法（低音弦 → 高音弦）<input id="libraryChordFrets" placeholder="例如 x 3 2 0 1 0" aria-describedby="libraryChordStrings" /><small id="libraryChordStrings" aria-live="polite"></small></label>
               <label>图示起始品<input id="libraryChordBase" type="number" min="1" max="36" value="1" /></label>
               <label>手指数字（- 表示无标注）<input id="libraryChordFingers" placeholder="例如 - 3 2 - 1 -" /></label>
               <label>横按（品位:弦号-弦号）<input id="libraryChordBarres" placeholder="例如 1:6-1；1 弦为最高音弦" /></label>
@@ -416,6 +420,7 @@
                   ><button id="nextMeasure" aria-label="下一小节">›</button>
                 </div>
                 <div class="row review-actions" role="group" aria-label="乐谱操作">
+                  <button id="playMeasure" type="button" class="quiet" title="试听当前小节（空格键）" aria-pressed="false">▶ 试听本节</button>
                   <button id="finishEditing" class="primary">直接导出 GP5</button>
                   <button id="nextIssue" class="quiet">下一个问题</button>
                 </div>
@@ -958,7 +963,8 @@
                     >指法（低音弦 → 高音弦）<input
                       id="chordFrets"
                       placeholder="例如 x 3 2 0 1 0"
-                  /></label>
+                      aria-describedby="chordStrings"
+                  /><small id="chordStrings" aria-live="polite"></small></label>
                   <label
                     >图示起始品<input
                       id="chordBase"
@@ -1004,13 +1010,15 @@
                         max="999"
                     /></label>
                     <label
-                      >当前拍起点
+                      >起点（四分音符数，从 0 计）
                       <input
                         id="eventStart"
                         type="number"
                         min="0"
                         step="0.0625"
-                    /></label>
+                        placeholder="0 为小节开头"
+                        aria-describedby="eventStartHint"
+                    /><small id="eventStartHint" aria-live="polite"></small></label>
                     <label>段落名称<input id="measureSection" placeholder="例如 主歌、Chorus" /></label>
                     <label>本小节摇摆节奏<select id="tripletFeel"><option value="">未标注</option><option value="none">直奏</option><option value="eighth">八分音符 Swing</option><option value="sixteenth">十六分音符 Swing</option></select></label>
                     <label>当前拍文字<input id="beatText" placeholder="例如 轻柔、渐慢" /></label>
@@ -1059,12 +1067,26 @@
                     </select></label
                   >
                   <div id="textEditor" hidden="">
+                    <p id="mTextSummary" class="small muted"></p>
                     <textarea
                       id="measureText"
                       aria-label="小节文本"
                       rows="7"
                       spellcheck="false"
                     ></textarea>
+                    <details class="m-syntax-help">
+                      <summary>M 语法速查</summary>
+                      <p class="small muted">
+                        示例：<code>M time=4/4 tempo=120 | V0{@0:q:s1f5 @960:q:r @1920:h:s2f3,s3f2}</code><br />
+                        · <strong>起点</strong>：四分音符 = 960 tick；在 4/4 拍中，第 1 拍为 <code>@0</code>，第 2 拍为 <code>@960</code><br />
+                        · <strong>时值</strong>：<code>w</code>全 / <code>h</code>二分 / <code>q</code>四分 / <code>e</code>八分 / <code>s</code>十六分，附点加 <code>.</code>，三连音加 <code>[3:2]</code><br />
+                        · <strong>音符</strong>：TAB 填 <code>s弦f品</code>（如 <code>s1f5</code>），五线谱填 <code>p音高</code>（如 <code>p64</code>）<br />
+                        · <strong>休止与空拍</strong>：<code>r</code> 休止，<code>e</code> 空拍（如 <code>@0:q:e</code>），<code>^</code> 复制前一事件的音符与效果<br />
+                        · <strong>同拍多音</strong>：用英文逗号 <code>,</code> 连接，如 <code>s1f0,s2f1</code><br />
+                        · <strong>鼓谱</strong>：<code>p36</code> 底鼓、<code>p38</code> 军鼓；同拍多音如 <code>p36,p42</code>（底鼓与闭镲）<br />
+                        · <strong>声部</strong>：用 <code>||</code> 分隔，如 <code>V0{…} || V1{…}</code>
+                      </p>
+                    </details>
                   </div>
                 </details>
               </aside>
@@ -1215,6 +1237,7 @@
       </div>
       <div class="shortcut-list">
         <div><span>保存当前小节</span><kbd>Ctrl / ⌘ S</kbd></div>
+        <div><span>试听 / 停止当前小节</span><kbd>Space</kbd></div>
         <div><span>撤销 / 重做</span><kbd>Ctrl / ⌘ Z / ⇧ Z</kbd></div>
         <div><span>移动音符 / 琴弦</span><kbd>← ↑ ↓ →</kbd></div>
         <div><span>输入品位</span><kbd>0–9 / X</kbd></div>

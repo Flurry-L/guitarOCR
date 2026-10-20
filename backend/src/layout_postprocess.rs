@@ -129,7 +129,7 @@ fn pitch(label: &str) -> bool {
     )
 }
 fn header_text(label: &str) -> bool {
-    crate::recognition::header_field(label.trim_end_matches("_region")).is_some()
+    scorelib::information::prompts::header_field(label.trim_end_matches("_region")).is_some()
 }
 fn median(mut values: Vec<f64>) -> f64 {
     values.sort_by(f64::total_cmp);

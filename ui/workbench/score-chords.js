@@ -1,16 +1,12 @@
 import { $, el, action, notice } from "./dom.js";
-import { ui, endpoint, receiveProject } from "./state.js";
+import { ui, endpoint, receiveProject, metadataPart } from "./state.js";
 import { api } from "./api.js";
+import { decodeScoreText } from "./score-theory.js";
 const chordKey = name => String(name || "").replaceAll("♭", "b").replaceAll("♯", "#").replace(/\s/g, "");
 
 export function chordFromEffects(effects = []) {
   const symbol = effects.find((e) => e.startsWith("chord:"));
-  let name = symbol?.slice(6) || "";
-  try {
-    name = decodeURIComponent(name);
-  } catch {
-    /* Preserve malformed text for editing. */
-  }
+  const name = decodeScoreText(symbol?.slice(6) || "");
   const encoded = effects.find((e) => e.startsWith("diagram:"));
   if (!encoded) return { name, diagram: null };
   const [, base, frets, fingers, barres] = encoded.split(":");
@@ -60,35 +56,33 @@ export function chordReviewReason(annotation) {
 }
 
 export function chordLibraryEntries(state, partId = "part-1") {
-  const sources = state.metadata?.parts?.length
-    ? state.metadata.parts.filter(part => part.id === partId) : [state.metadata];
+  const source = metadataPart(state.metadata, partId);
   const values = new Map();
-  for (const source of sources)
-    for (const annotation of source?.document_metadata?.score_annotations || []) {
-      if (chordReviewDecision(annotation) === "rejected") continue;
-      const parsed = annotation.parsed;
-      const id = JSON.stringify([parsed?.text, parsed?.diagram || null]);
-      if (["chord", "chord_diagram"].includes(parsed?.kind) && parsed.text && !values.has(id))
-        values.set(id, parsed);
-      const evidence = annotation.chord_evidence;
-      if (parsed?.text && evidence?.name_needs_review && chordReviewDecision(annotation) !== "confirmed") {
-        const previous = values.get(id);
-        values.set(id, {...parsed, ...previous, review: true,
-          labels: [...new Set([...(previous?.labels || []), "名称待确认"])],
-          reason: chordReviewReason(annotation)});
-      }
-      if (parsed?.text && hasPendingChordCandidate(annotation)) {
-        for (const [key, label] of [["original_diagram", "原始候选"], ["rejected_diagram_candidate", "待确认的原始候选"], ["diagram", "图示模型候选"], ["proposed_diagram", "图示模型候选"], ["secondary_diagram", "另一图示模型候选"]]) {
-          const diagram = evidence[key];
-          if (!diagram?.frets?.length) continue;
-          const candidateId = JSON.stringify([parsed.text, diagram]);
-          const previous = values.get(candidateId);
-          values.set(candidateId, {text: parsed.text, diagram, review: true,
-            labels: [...new Set([...(previous?.labels || []), label])],
-            reason: evidence.name_needs_review || !previous?.reason ? chordReviewReason(annotation) : previous.reason});
-        }
+  for (const annotation of source?.document_metadata?.score_annotations || []) {
+    if (chordReviewDecision(annotation) === "rejected") continue;
+    const parsed = annotation.parsed;
+    const id = JSON.stringify([parsed?.text, parsed?.diagram || null]);
+    if (["chord", "chord_diagram"].includes(parsed?.kind) && parsed.text && !values.has(id))
+      values.set(id, parsed);
+    const evidence = annotation.chord_evidence;
+    if (parsed?.text && evidence?.name_needs_review && chordReviewDecision(annotation) !== "confirmed") {
+      const previous = values.get(id);
+      values.set(id, {...parsed, ...previous, review: true,
+        labels: [...new Set([...(previous?.labels || []), "名称待确认"])],
+        reason: chordReviewReason(annotation)});
+    }
+    if (parsed?.text && hasPendingChordCandidate(annotation)) {
+      for (const [key, label] of [["original_diagram", "原始候选"], ["rejected_diagram_candidate", "待确认的原始候选"], ["diagram", "图示模型候选"], ["proposed_diagram", "图示模型候选"], ["secondary_diagram", "另一图示模型候选"]]) {
+        const diagram = evidence[key];
+        if (!diagram?.frets?.length) continue;
+        const candidateId = JSON.stringify([parsed.text, diagram]);
+        const previous = values.get(candidateId);
+        values.set(candidateId, {text: parsed.text, diagram, review: true,
+          labels: [...new Set([...(previous?.labels || []), label])],
+          reason: evidence.name_needs_review || !previous?.reason ? chordReviewReason(annotation) : previous.reason});
       }
     }
+  }
   const illustrated = new Set([...values.values()].filter(value => value.diagram).map(value => chordKey(value.text)));
   return [...values.values()].filter(value => value.diagram || !illustrated.has(chordKey(value.text)));
 }
@@ -286,10 +280,20 @@ export function readChordFields(prefix = "chord") {
   return {name, diagram: d};
 }
 
-export function writeChordFields({name, diagram}, prefix = "chord") {
+function updateChordStrings(prefix, expectedStrings = 6) {
+  const text = $(prefix + "Frets").value.trim().toLowerCase();
+  const frets = text ? text.split(/[\s,]+/) : [];
+  const total = Math.max(frets.length, expectedStrings || 6);
+  $(prefix + "Strings").textContent = frets.length
+    ? frets.map((fret, i) => `${total - i}弦:${fret}`).join(" · ")
+    : "从低音弦填到 1 弦，x 表示不弹。";
+}
+
+export function writeChordFields({name, diagram}, prefix = "chord", expectedStrings = 6) {
   const field = name => $(prefix + name);
   field("Name").value = name;
   field("Frets").value = diagram?.frets.join(" ") || "";
+  updateChordStrings(prefix, expectedStrings);
   field("Base").value = diagram?.base_fret || 1;
   field("Fingers").value =
     diagram?.fingers?.map((f) => f ?? "-").join(" ") || "";
@@ -304,32 +308,23 @@ export function writeChordFields({name, diagram}, prefix = "chord") {
   );
 }
 
-export function chordEditor(change, event) {
-  const assign = (name, diagram) =>
-    change(() => {
-      if (!event()) return;
-      event().effects = [
-        ...(event().effects || []).filter(
-          (e) => !e.startsWith("chord:") && !e.startsWith("diagram:"),
-        ),
-        ...effectsFor(name, diagram),
-      ];
-    });
-  $("applyChord").onclick = () =>
-    change(() => {
-      const {name, diagram: d} = readChordFields();
-      event().effects = [
-        ...(event().effects || []).filter(
-          (e) => !e.startsWith("chord:") && !e.startsWith("diagram:"),
-        ),
-        ...effectsFor(name, d),
-      ];
-    });
+export function chordEditor(change, event, getStringCount) {
+  $("chordFrets").oninput = () => updateChordStrings("chord", getStringCount());
+  function setChord({name, diagram}) {
+    const current = event();
+    if (!current) return;
+    current.effects = [
+      ...(current.effects || []).filter(e => !e.startsWith("chord:") && !e.startsWith("diagram:")),
+      ...effectsFor(name, diagram),
+    ];
+  }
+  const assign = (name, diagram) => change(() => setChord({name, diagram}));
+  $("applyChord").onclick = () => change(() => setChord(readChordFields()));
   $("removeChord").onclick = () => assign("", null);
   return {
     render(e) {
       const { name, diagram } = chordFromEffects(e?.effects);
-      writeChordFields({name, diagram});
+      writeChordFields({name, diagram}, "chord", getStringCount());
       $("applyChord").disabled = $("removeChord").disabled = !e;
     },
     library(state, partId = "part-1") {
@@ -361,8 +356,7 @@ export function chordEditor(change, event) {
 }
 
 function libraryReviewEntries(metadata, partId) {
-  const part = metadata?.parts?.length
-    ? metadata.parts.find(part => part.id === partId) : metadata;
+  const part = metadataPart(metadata, partId);
   return (part?.document_metadata?.score_annotations || []).flatMap((annotation, index) => {
     const choices = new Map();
     for (const [diagram, label] of [[annotation.parsed?.diagram, "当前指法"],
@@ -383,6 +377,7 @@ function libraryReviewEntries(metadata, partId) {
 export function initChordLibraryReview({render, setBusy}) {
   let entries = [], partId = "", selected = "", sourceRequest = 0;
   const current = () => entries.find(entry => String(entry.index) === selected);
+  const getStringCount = () => metadataPart(ui.state?.metadata, partId)?.tuning_used?.length || 6;
   const status = annotation => chordReviewDecision(annotation) === "confirmed" ? "已确认"
     : chordReviewDecision(annotation) === "rejected" ? "已排除"
     : hasPendingChordCandidate(annotation) ? "待确认" : "已识别";
@@ -401,7 +396,7 @@ export function initChordLibraryReview({render, setBusy}) {
     $("libraryChordCandidate").replaceChildren(...entry.choices.map((choice, index) => new Option(choice.label, index)));
     $("libraryChordCandidate").closest("label").hidden = entry.choices.length < 2;
     const name = entry.annotation.parsed?.text || entry.annotation.chord_review?.original_parsed?.text || "";
-    writeChordFields({name, diagram: entry.annotation.parsed?.diagram || entry.choices[0]?.diagram}, "libraryChord");
+    writeChordFields({name, diagram: entry.annotation.parsed?.diagram || entry.choices[0]?.diagram}, "libraryChord", getStringCount());
     controls();
     const annotation = entry.annotation, page = ui.state.pages[(annotation.page || 1) - 1];
     $("libraryChordSourceLabel").textContent = page ? `原谱第 ${annotation.page || 1} 页` : "原谱裁图不可用";
@@ -435,13 +430,14 @@ export function initChordLibraryReview({render, setBusy}) {
   };
   $("libraryChordCandidate").onchange = () => {
     const diagram = current()?.choices[+$("libraryChordCandidate").value]?.diagram;
-    writeChordFields({name: $("libraryChordName").value, diagram}, "libraryChord");
+    writeChordFields({name: $("libraryChordName").value, diagram}, "libraryChord", getStringCount());
     ui.libraryDirty = true;
     controls();
   };
   for (const field of ["Name", "Frets", "Base", "Fingers", "Barres"])
     $("libraryChord" + field).oninput = () => {
       ui.libraryDirty = true;
+      updateChordStrings("libraryChord", getStringCount());
       try {
         const {name, diagram} = readChordFields("libraryChord");
         $("libraryChordPreview").replaceChildren(...(diagram ? [diagramSvg(name, diagram)] : []));

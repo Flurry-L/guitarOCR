@@ -2,7 +2,7 @@
 
 import math
 import numpy as np
-from PIL import Image
+from research.common.images import contain_lanczos
 
 SIZE = (256, 256)
 LABELS = [dict(clef=clef, clef_octave=octave) for clef in ['G2', 'F4'] for octave in [-24, -12, 0, 12, 24]]
@@ -24,11 +24,7 @@ def image_tensor(image, query_bbox):
     image, query = clef_context(image, query_bbox)
     image = image.convert('L')
     scale = min(SIZE[0] / image.width, SIZE[1] / image.height)
-    resized = image.resize((max(1, round(image.width * scale)), max(1, round(image.height * scale))),
-                           Image.Resampling.LANCZOS)
-    canvas = Image.new('L', SIZE, 255)
-    left, top = (SIZE[0] - resized.width) // 2, (SIZE[1] - resized.height) // 2
-    canvas.paste(resized, (left, top))
+    canvas, (_, _, left, top) = contain_lanczos(image, SIZE)
     x, y, width, height = query
     mask = np.zeros((SIZE[1], SIZE[0]), dtype=np.float32)
     x0, y0 = max(0, math.floor(x * scale + left)), max(0, math.floor(y * scale + top))

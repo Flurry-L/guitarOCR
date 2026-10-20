@@ -1,4 +1,5 @@
 //! Printed chord diagrams and explicit review decisions shared by recognition and export.
+use regex::Regex;
 use serde_json::{json, Value};
 
 pub fn decision(annotation: &Value) -> Option<&str> {
@@ -243,4 +244,43 @@ impl Diagram {
             barres,
         }
     }
+}
+
+pub fn chord_key(value: &str) -> String {
+    value
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect::<String>()
+        .replace('♭', "b")
+        .replace('♯', "#")
+}
+
+pub fn is_chord_symbol(name: &str) -> bool {
+    use std::sync::OnceLock;
+    use unicode_normalization::UnicodeNormalization;
+    static PATTERN: OnceLock<Regex> = OnceLock::new();
+    static MODIFIER: OnceLock<Regex> = OnceLock::new();
+    let pattern = PATTERN.get_or_init(|| {
+        let accidental = r"(?:##|bb|#|b|x)?";
+        let root = format!(r"(?:[A-Ha-h]{accidental}|{accidental}(?:[IViv]+|[1-7]))");
+        let quality = r"(?:[mM]aj|[mM]in|dim|aug|sus|dom|m|M|\+|-|°|ø|Δ|o)?";
+        let extension = r"(?:2|4|5|6|7|9|11|13)?";
+        let modifier = r"(?:[#b](?:5|6|7|9|11|13)|(?:[mM]aj|M)(?:7|9|11|13)|(?:sus|add|omit|no)(?:2|3|4|5|6|7|9|11|13)|alt)";
+        let suffix = format!(r"{quality}{extension}(?:M|\+|-|°|ø)?(?:{modifier}){{0,4}}");
+        let group = format!(r"(?:\((?:{modifier}|{extension})(?:,?(?:{modifier}|{extension})){{0,3}}\))?");
+        Regex::new(&format!(r"\A{root}{suffix}{group}(?:/(?:{root}|9|11|13))?\z")).unwrap()
+    });
+    let modifier = MODIFIER
+        .get_or_init(|| Regex::new(r"(?:[#b]|sus|add|omit|no)(?:2|3|4|5|6|7|9|11|13)").unwrap());
+    let normalized = chord_key(&name.nfkc().collect::<String>())
+        .replace("major", "maj")
+        .replace("minor", "min");
+    if ["nc", "n.c", "n.c.", "nochord"].contains(&normalized.to_lowercase().as_str()) {
+        return true;
+    }
+    let pieces: Vec<_> = modifier.find_iter(&normalized).collect();
+    let repeated = pieces
+        .windows(2)
+        .any(|p| p[0].end() == p[1].start() && p[0].as_str() == p[1].as_str());
+    pattern.is_match(&normalized) && !repeated
 }

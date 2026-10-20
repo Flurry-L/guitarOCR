@@ -212,7 +212,7 @@ export async function prepare(options = {}) {
       }
     }
     manifest.service = { file: filename, source: 'backend', build: 'local-cargo' };
-    manifest.version = "0.1.0";
+    manifest.version = JSON.parse(await readFile(path.join(ROOT, 'desktop/package.json'), 'utf8')).version;
     manifest.inferenceInventoryComplete = Object.keys(SOURCES).every(name => manifest.components.some(component => component.name === name));
     await writeFile(path.join(staging, 'native/manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
     await rm(destination, { recursive: true, force: true });

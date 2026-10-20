@@ -1,16 +1,7 @@
 import { $ } from "./dom.js";
-import { writtenKey } from "./score-structure.js";
+import { writtenKey, keyCode, keyChoices, decodeScoreText } from "./score-theory.js";
 import { parsePosition } from "./score-effects.js";
 import { parsePitch, pitchName, pitchShift } from "./score-model.js";
-
-const tonics = ["CFlat", "GFlat", "DFlat", "AFlat", "EFlat", "BFlat", "F", "C", "G", "D", "A", "E", "B", "FSharp", "CSharp"];
-const minors = ["AFlat", "EFlat", "BFlat", "F", "C", "G", "D", "A", "E", "B", "FSharp", "CSharp", "GSharp", "DSharp", "ASharp"];
-const keyCode = (fifths, minor) => (minor ? minors : tonics)[fifths + 7] + (minor ? "Minor" : "Major");
-const keyChoices = [false, true].flatMap(minor =>
-  (minor ? minors : tonics).map((tonic, index) => ({
-    value: keyCode(index - 7, minor),
-    label: `${tonic.replace("Flat", "♭").replace("Sharp", "♯")} ${minor ? "小调" : "大调"}`,
-  })));
 
 // The inspector edits the printed key; the existing ScoreIR keeps concert key.
 function keyForDisplay(key, profile) {
@@ -58,7 +49,6 @@ const jumps = ["Da Capo", "Da Capo al Fine", "Da Capo al Coda", "Da Capo al Doub
   "Da Segno", "Da Segno al Fine", "Da Segno al Coda", "Da Segno al Double Coda",
   "Da Segno Segno", "Da Segno Segno al Fine", "Da Segno Segno al Coda", "Da Segno Segno al Double Coda",
   "Da Coda", "Da Double Coda"];
-const decode = value => { try { return decodeURIComponent(value); } catch { return value; } };
 export function measureProperties({ getDraft, getProfile, getEvent, change }) {
   $("measureKey").replaceChildren(new Option("沿用上一小节", ""), ...keyChoices.map(c => new Option(c.label, c.value)));
   for (const [id, values] of [["measureDirection", targets], ["measureJump", jumps]])
@@ -92,7 +82,7 @@ export function measureProperties({ getDraft, getProfile, getEvent, change }) {
         }
       }
       const event = getEvent(), text = event?.effects?.find(effect => effect.startsWith("text:"));
-      $("beatText").value = text ? decode(text.slice(5)) : "";
+      $("beatText").value = text ? decodeScoreText(text.slice(5)) : "";
       $("beatText").disabled = disabled || !event;
     },
   };

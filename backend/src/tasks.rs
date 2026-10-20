@@ -191,16 +191,16 @@ impl Tasks {
                 operation(progress.clone())
             }))
             .unwrap_or_else(|_| Err("处理过程异常退出，原有结果仍保留".into()));
-            let final_state = if progress.cancelled() {
-                json!({"status":"cancelled","error":null,"message":"任务已停止，原有结果与已完成阶段保留"})
-            } else {
-                match result {
-                    Ok(()) => json!({"status":"complete","message":"处理完成"}),
-                    Err(error) => json!({"status":"failed","error":error}),
+            let mut final_state = match result {
+                Ok(()) => json!({"status":"complete","message":"处理完成"}),
+                Err(_) if progress.cancelled() => {
+                    json!({"status":"cancelled","error":null,"message":"任务已停止，原有结果与已完成阶段保留"})
                 }
+                Err(error) => json!({"status":"failed","error":error}),
             };
+            final_state["cancellable"] = json!(false);
+            final_state["finished"] = json!(now());
             let _ = progress.update(final_state);
-            let _ = progress.update(json!({"cancellable":false,"finished":now()}));
         });
         Ok(json!({"id":sid,"job":state}))
     }
@@ -215,8 +215,11 @@ impl Tasks {
             if state["status"] == "queued" {
                 state["status"] = json!("cancelled");
                 state["cancellable"] = json!(false);
+                state["finished"] = json!(now());
+                state["message"] = json!("已停止排队，原有结果保留");
+            } else {
+                state["message"] = json!("正在停止，已保存的结果保留");
             }
-            state["message"] = json!("正在停止，已保存的结果保留");
 
             persist(&self.root.join(sid).join("job.json"), &state)?;
         }
@@ -234,6 +237,16 @@ impl Progress {
             Ok(())
         }
     }
+    /// Publish a prepared stage in order with cancellation. The closure only
+    /// writes the result; progress reporting happens outside this lock.
+    pub fn commit<T>(&self, publish: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+        let state = self.job.state.lock().map_err(|_| "Job state failed")?;
+        self.checkpoint()?;
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(publish));
+        // Let the job runner record a panic after releasing the state lock.
+        drop(state);
+        result.unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+    }
     pub fn update(&self, fields: Value) -> Result<(), String> {
         let jobs = self.owner.jobs.lock().map_err(|_| "Job lock failed")?;
         if !jobs
@@ -249,3 +262,6 @@ impl Progress {
         persist(&self.owner.root.join(&self.sid).join("job.json"), &state)
     }
 }
+
+#[cfg(test)]
+mod tests;

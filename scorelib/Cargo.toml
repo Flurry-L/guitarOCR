@@ -11,8 +11,10 @@ crate-type = ["rlib", "cdylib"]
 python = ["dep:pyo3"]
 
 [dependencies]
+serde = { version = "1", features = ["derive"] }
 getrandom = "0.3"
 serde_json = { version = "1", features = ["arbitrary_precision", "preserve_order"] }
 regex = "1"
+unicode-normalization = "0.1"
 encoding_rs = "0.8"
 pyo3 = { version = "0.25", optional = true, features = ["extension-module", "abi3-py310"] }

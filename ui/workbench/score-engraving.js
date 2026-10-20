@@ -1,6 +1,7 @@
 import * as alphaTab from "./vendor/alphaTab.mjs";
 import { addGraceNotes, noteEffects, beatEffects, swappedAccidental, dynamicValue } from "./score-effects.js";
-import { buildMasterBars, writtenKey } from "./score-structure.js";
+import { buildMasterBars } from "./score-structure.js";
+import { writtenKey } from "./score-theory.js";
 import { pitchShift, ticks, projectVisibleTechniques, observationPreview } from "./score-model.js";
 
 export const scoreDisplaySettings = Object.freeze({effectBandPaddingBottom: 8});
@@ -107,7 +108,8 @@ export function engrave(state, settings, edited = null, mode = null) {
       tracks.set(partId, track);
       track.name = record.part_name || "";
       track.playbackInfo.program =
-        record.midi_program ?? state.metadata?.midi_program ?? 0;
+        record.midi_program ?? state.metadata?.midi_program ??
+        ({ guitar: 24, bass: 33 }[profile.instrument] ?? 0);
     }
     const drums = profile.instrument === "drums";
     if (!staff) {

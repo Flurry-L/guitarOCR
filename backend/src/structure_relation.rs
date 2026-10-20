@@ -197,17 +197,7 @@ pub fn prepare_inputs(
         let top = pair[0] as u32;
         let bottom = (pair[1] as u32).max(top + 1).min(page.height());
         let crop = imageops::crop_imm(&gray, 0, top, page.width(), bottom - top).to_image();
-        let scale = (768 as f64 / crop.width() as f64).min(192 as f64 / crop.height() as f64);
-        let width = (crop.width() as f64 * scale).round_ties_even().max(1.) as u32;
-        let height = (crop.height() as f64 * scale).round_ties_even().max(1.) as u32;
-        let resized = crate::image_transforms::resize_rgb_lanczos(&crop, width, height);
-        let mut canvas = RgbImage::from_pixel(768, 192, image::Rgb([255; 3]));
-        imageops::replace(
-            &mut canvas,
-            &resized,
-            ((768 - width) / 2) as i64,
-            ((192 - height) / 2) as i64,
-        );
+        let (canvas, _) = crate::image_transforms::contain_rgb(&crop, 768, 192);
         pixels.extend(canvas.pixels().map(|p| f32::from(p.0[0]) / 255.));
         geometry.extend([
             pair[0] / page.height() as f32,

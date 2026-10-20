@@ -52,6 +52,14 @@ export function receiveProject(saved, { preserveDrafts = false } = {}) {
 }
 export const endpoint = (part) => `/api/sessions/${ui.sid}${part}`;
 
+export function metadataPart(metadata, partId) {
+  return metadata?.parts?.length ? metadata.parts.find(part => part.id === partId) : metadata;
+}
+
+export function projectTitle(state, empty = "未命名乐谱") {
+  return state.metadata?.title || state.metadata?.document_metadata?.title_fallback || state.input_names?.[0] || empty;
+}
+
 // Keep the draft's original revision, even if a newer snapshot arrives elsewhere.
 // A save response may update only the project snapshot from which it was sent.
 export async function commitMeasureDraft({ sid, index, revision, body }, send) {

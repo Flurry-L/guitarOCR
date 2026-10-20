@@ -338,8 +338,7 @@ impl Pipeline {
         state["export"] = Value::Null;
         state.as_object_mut().unwrap().remove("ocr_task");
         bump(&mut state)?;
-        progress.checkpoint()?;
-        write_session_atomic(root, sid, &state).map_err(|e| e.to_string())?;
+        progress.commit(|| write_session_atomic(root, sid, &state).map_err(|e| e.to_string()))?;
         let _ = output.keep();
         Ok(())
     }
@@ -405,7 +404,8 @@ impl Pipeline {
             if retry.is_some() && !state["recognition"].is_string() {
                 return Err("请先完成一次识别再重试部分小节".into());
             }
-            write_session_atomic(root, sid, &state).map_err(|e| e.to_string())?;
+            progress
+                .commit(|| write_session_atomic(root, sid, &state).map_err(|e| e.to_string()))?;
             path
         };
         let retry = if resume {
@@ -514,7 +514,7 @@ impl Pipeline {
         state["export"] = Value::Null;
         state.as_object_mut().unwrap().remove("ocr_task");
         bump(&mut state)?;
-        write_session_atomic(root, sid, &state).map_err(|e| e.to_string())?;
+        progress.commit(|| write_session_atomic(root, sid, &state).map_err(|e| e.to_string()))?;
         Ok(())
     }
     pub fn process(&self, root: &Path, sid: &str, body: &Value, progress: &Progress) -> Result<()> {

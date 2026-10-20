@@ -1,11 +1,12 @@
-import { ui, endpoint, receiveProject, commitMeasureDraft } from "./state.js";
+import { ui, endpoint, receiveProject, commitMeasureDraft, projectTitle } from "./state.js";
 import { $, el, action, notice } from "./dom.js";
 import { api } from "./api.js";
 import { editorMenu } from "./editor-menu.js";
 import { scoreView } from "./score-view.js";
 import { measureProfile, reviewKind } from "./score-engraving.js";
+import { durations, durationName } from "./score-theory.js";
 import { dynamicValue } from "./score-effects.js";
-import { musicalContext } from "./score-structure.js";
+import { measureContext, musicalContext } from "./score-structure.js";
 import { measureProperties, effectProperties } from "./properties.js";
 import { chordEditor, unresolvedChordChoices } from "./score-chords.js";
 import {
@@ -24,7 +25,13 @@ import {
   insertEvent,
   removeEvent,
   drumNames,
+  staffPositionChoices,
+  staffPositionLabel,
+  beatStartChoices,
+  beatStartLabel,
+  summarizeMText,
 } from "./score-model.js";
+import { playMeasure, stopPlayback, isActive } from "./audio-preview.js";
 
 export function initMeasures({ start, go, renderExport, exportScore, setBusy }) {
   let draft,
@@ -139,6 +146,12 @@ export function initMeasures({ start, go, renderExport, exportScore, setBusy }) 
     if (e.target.closest(".command-toolbar"))
       $("scoreCanvas").focus({ preventScroll: true });
   });
+  $("scoreCanvas").addEventListener("keydown", (e) => {
+    if (e.key === " " && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      if (!e.repeat) $("playMeasure").click();
+    }
+  });
   const view = scoreView($("scoreCanvas"), {
     onSelect: (hit) => selectMeasure(hit.mi, hit),
     onContext: async (hit, x, y) => {
@@ -194,7 +207,8 @@ export function initMeasures({ start, go, renderExport, exportScore, setBusy }) 
     );
   }
   const event = () => draft?.voices[selected?.vi]?.events[selected?.ei];
-  const chords = chordEditor(change, event);
+  const timeSignature = () => measureContext(ui.state, ui.measureIndex, draft).time;
+  const chords = chordEditor(change, event, () => profile?.tuning.length);
   function feedback(message = "", error = false) {
     $("measureFeedback").textContent = message;
     $("measureFeedback").hidden = !message;
@@ -244,6 +258,7 @@ export function initMeasures({ start, go, renderExport, exportScore, setBusy }) 
     return true;
   }
   function updateDirty() {
+    stopPlayback();
     ui.measureDirty =
       (ui.editorMode === "text"
         ? $("measureText").value.trim() !== current()?.score_text?.trim()
@@ -400,7 +415,7 @@ export function initMeasures({ start, go, renderExport, exportScore, setBusy }) 
     $("recognitionSummary").textContent =
       `${bars} 小节${parts > 1 ? ` · ${parts} 音轨` : ""}${issues ? ` · ${issues} 个小节有问题` : ""}`;
     $("scoreTitle").textContent =
-      ui.state.metadata?.title || ui.state.metadata?.document_metadata?.title_fallback || ui.state.input_names?.[0] || "未命名乐谱";
+      projectTitle(ui.state);
     $("scoreCredits").textContent = ui.state.metadata?.artist || "";
     $("measureSelect").replaceChildren(
       ...measures.map((m, i) => {
@@ -546,6 +561,7 @@ export function initMeasures({ start, go, renderExport, exportScore, setBusy }) 
   }
   $("nextIssue").onclick = openIssue;
   function loadMeasure() {
+    stopPlayback();
     profile = measureProfile(current());
     draft = clone(current().parsed);
     observationDraft = clone(current().observation);
@@ -578,32 +594,71 @@ export function initMeasures({ start, go, renderExport, exportScore, setBusy }) 
     fields.replaceChildren();
     if (panel.hidden) return;
     panel.open = false;
-    const field = (parent, label, object, key, {scale = 1, choices, text = false} = {}) => {
-      const wrapper = el("label", label), input = el(choices ? "select" : "input");
-      if (choices) input.replaceChildren(new Option("未知", ""), ...choices.map(([v, name]) => new Option(name, v)));
-      else { input.type = text ? "text" : "number"; input.step = scale === 1 ? "1" : "any"; }
-      if (choices && object[key] != null && !choices.some(([v]) => String(v) === String(object[key])))
-        input.append(new Option(object[key], object[key]));
-      input.value = object[key] == null ? "" : typeof object[key] === "number" ? object[key] / scale : object[key];
+    const meter = observationDraft.state?.time?.value || current()?.score_state?.time || ui.state.metadata?.time_signature || "4/4";
+    const field = (parent, label, object, key, { choices, text = false, numeric = !choices,
+      custom = false, formatValue = String, placeholder = "" } = {}) => {
+      const wrapper = el("label", label);
+      const input = el(choices ? "select" : "input");
+      const customInput = custom ? el("input") : null;
+      const customHint = custom ? el("small", "", "muted") : null;
+      if (choices) {
+        input.replaceChildren(new Option("未知", ""), ...choices.map(([value, name]) => new Option(name, value)));
+        if (object[key] != null && !choices.some(([value]) => String(value) === String(object[key]))) {
+          input.append(new Option(formatValue(object[key]), object[key]));
+        }
+        if (custom) input.append(new Option("自定义…", "custom"));
+      } else {
+        input.type = text ? "text" : "number";
+        input.step = "1";
+      }
+      input.value = object[key] == null ? "" : String(object[key]);
       input.setAttribute("aria-label", label);
-      input.oninput = () => {
-        input.setCustomValidity("");
-        const value = input.value === "" ? null : (choices && (key !== "accidental" || input.value === "unknown") || text && input.value.toLowerCase() === "x")
-          ? input.value.toLowerCase() : Number(input.value) * scale;
-        if (typeof value === "number" && (!Number.isSafeInteger(value) || key === "fret" && value < 0))
-          input.setCustomValidity(key === "fret" ? "品位请输入非负整数或 X。" : "请输入有效整数；起点可使用能换算为整数 tick 的拍数。");
-        if (input.validity.valid) object[key] = value;
+      const update = (control) => {
+        const raw = control.value.trim();
+        let value = raw || null;
+        if (raw && numeric && raw !== "unknown" && raw.toLowerCase() !== "x") value = Number(raw);
+        if (text && raw.toLowerCase() === "x") value = "x";
+        control.setCustomValidity("");
+        if (typeof value === "number" && (!Number.isSafeInteger(value) || ["start", "fret"].includes(key) && value < 0))
+          control.setCustomValidity("请输入有效整数；起点和品位从 0 开始。");
+        if (control.validity.valid) object[key] = value;
+        if (customHint) customHint.textContent = control.validity.valid && value !== null ? formatValue(value) : "";
         updateDirty();
         updateMeasureControls();
       };
-      wrapper.append(input); parent.append(wrapper);
+      input.oninput = () => {
+        if (custom && input.value === "custom") {
+          customInput.value = object[key] ?? "";
+          customInput.setCustomValidity("");
+          customHint.textContent = object[key] == null ? "" : formatValue(object[key]);
+          wrapper.append(customInput, customHint);
+          customInput.focus();
+          return;
+        }
+        customInput?.remove();
+        customHint?.remove();
+        update(input);
+      };
+      if (customInput) {
+        customInput.type = "number";
+        customInput.step = "1";
+        customInput.placeholder = placeholder;
+        customInput.setAttribute("aria-label", key === "start" ? "自定义起点（tick）" : "自定义谱位");
+        customInput.oninput = () => update(customInput);
+      }
+      wrapper.append(input);
+      parent.append(wrapper);
     };
-    const durations = [["w", "全音符"], ["h", "二分"], ["q", "四分"], ["e", "八分"], ["s", "十六分"], ["t", "三十二分"], ["f", "六十四分"]];
-    const choices = durations.flatMap(([v, name]) => [[v, name], [v + ".", name + "附点"], [v + "[3:2]", name + "三连音"]]);
+    const clef = observationDraft.state?.clef?.value || current()?.score_state?.clef || profile.pitch_context?.clef || (profile.instrument === "bass" ? "F4" : "G2");
+    const startChoices = beatStartChoices(meter);
+    const posChoices = staffPositionChoices(clef, profile.instrument);
+    const choices = durations.flatMap(([v, , name]) => [[v, name], [v + ".", name + "附点"], [v + "[3:2]", name + "三连音"]]);
     for (const voice of observationDraft.voices || []) for (const [ei, event] of voice.events.entries()) {
-      const group = el("fieldset"), title = el("legend", `声部 ${voice.voice + 1} · 第 ${ei + 1} 个${event.status === "rest" ? "休止" : "音符"}`);
+      const group = el("fieldset", undefined, "measure-property-fields"),
+        title = el("legend", `声部 ${voice.voice + 1} · 第 ${ei + 1} 个${event.status === "rest" ? "休止" : "音符"}`);
       group.append(title);
-      field(group, "起点（四分拍，从 0 开始）", event, "start", {scale: 960});
+      field(group, "节拍位置（起点）", event, "start", {choices: startChoices, numeric: true, custom: true,
+        formatValue: value => beatStartLabel(value, meter), placeholder: "输入 tick（四分音符 = 960）"});
       field(group, "时值", event, "duration", {choices});
       if (event.status == null) field(group, "类型", event, "status", {choices: [["normal", "音符"], ["rest", "休止"]]});
       const representations = profile.mode === "both"
@@ -615,8 +670,9 @@ export function initMeasures({ start, go, renderExport, exportScore, setBusy }) 
           field(group, prefix + "弦", note, "string");
           field(group, prefix + "品位（闷音填 X）", note, "fret", {text: true});
         } else {
-          field(group, prefix + "谱表位置（底线 0，每线或间加 1）", note, "staff_position");
-          field(group, prefix + "临时升降号（留空表示未打印）", note, "accidental", {choices: [["unknown", "看不清"], ["0", "还原"], ["1", "升"], ["-1", "降"], ["2", "重升"], ["-2", "重降"]]});
+          field(group, prefix + (profile.instrument === "drums" ? "五线谱鼓位" : "五线谱音高 / 线间位置"), note, "staff_position", {choices: posChoices, numeric: true, custom: true,
+            formatValue: value => staffPositionLabel(value, clef, profile.instrument), placeholder: "0 为第一线，每线或间加 1"});
+          field(group, prefix + "临时升降号（留空表示未打印）", note, "accidental", {numeric: true, choices: [["unknown", "看不清"], ["0", "还原"], ["1", "升"], ["-1", "降"], ["2", "重升"], ["-2", "重降"]]});
           if (profile.instrument === "drums") field(group, prefix + "音头形状", note, "notehead", {
             choices: [["normal", "普通"], ["x", "叉形"], ["circle-x", "圆圈叉形"], ["circle-slash", "圆圈斜线"],
               ["diamond", "菱形"], ["heavy-x", "粗叉形"], ["heavy-x-hat", "带帽粗叉形"], ["triangle-up", "三角形"]],
@@ -645,6 +701,8 @@ export function initMeasures({ start, go, renderExport, exportScore, setBusy }) 
       m.needs_review && (track === "all" || (m.part_id || "part-1") === track));
     $("toExport").disabled = busy || !count;
     $("finishEditing").disabled = busy || !count;
+    $("playMeasure").disabled = busy || !count || !draft || draft.incomplete;
+    if (busy) stopPlayback();
     $("finishEditing").textContent = $("toExport").textContent = ui.measureDirty ? "保存并导出 GP5" : "直接导出 GP5";
     $("trackSelect").disabled = busy || !count;
     $("reviewFilter").disabled = busy || !count;
@@ -683,6 +741,7 @@ export function initMeasures({ start, go, renderExport, exportScore, setBusy }) 
         )
           node.disabled = busy || !draft || ui.editorMode === "text";
       });
+    $("eventStart").disabled ||= !event();
     document.querySelectorAll("[data-effect],#bendValue").forEach((node) => {
       node.disabled ||= !event()?.notes[selected?.ni];
     });
@@ -694,9 +753,16 @@ export function initMeasures({ start, go, renderExport, exportScore, setBusy }) 
         node.disabled = busy || !event() || ui.editorMode !== "score";
       });
   }
+  function updateMTextSummary() {
+    $("mTextSummary").textContent = summarizeMText($("measureText").value, {
+      instrument: profile?.instrument,
+      timeSignature: current()?.score_state?.time || ui.state.metadata?.time_signature || "4/4",
+    });
+  }
   function editorMode() {
     $("editMode").value = ui.editorMode;
     $("textEditor").hidden = ui.editorMode !== "text";
+    if (ui.editorMode === "text") updateMTextSummary();
   }
   $("editMode").onchange = async () => {
     const next = $("editMode").value;
@@ -753,6 +819,9 @@ export function initMeasures({ start, go, renderExport, exportScore, setBusy }) 
     $("chordChoiceHint").textContent = choices.map(choice => `${choice.name || "和弦"}：${choice.reason || "有多种指法，请从指法库选择当前拍使用的图示。"}`).join(" ");
     chords.render(e);
     chords.library(ui.state, current()?.part_id || "part-1");
+    const signature = timeSignature();
+    $("eventStart").value = e ? e.start / 960 : "";
+    updateEventStartHint();
     if (e) {
       const voices = Math.min(
         16,
@@ -783,9 +852,10 @@ export function initMeasures({ start, go, renderExport, exportScore, setBusy }) 
         $("eventTuplet").append(o);
         $("eventTuplet").value = tuplet;
       }
-      $("eventStart").value = e.start / 960;
       $("selectedNote").textContent =
-        `${measureLabel(current(), ui.measureIndex)} · 声部 ${draft.voices[selected.vi].voice + 1} · 第 ${e.start / 960 + 1} 拍${selected.kind === "tab" ? ` · 第 ${selected.string} 弦` : ""}${n ? "" : " · 休止或空位"}`;
+        `${measureLabel(current(), ui.measureIndex)} · 声部 ${draft.voices[selected.vi].voice + 1} · ${beatStartLabel(e.start, signature)}${selected.kind === "tab" ? ` · 第 ${selected.string} 弦` : ""}${n ? "" : " · 休止或空位"}`;
+    } else {
+      $("selectedNote").textContent = `${measureLabel(current(), ui.measureIndex)} · 声部 ${draft.voices[selected.vi].voice + 1}`;
     }
     const drums = profile.instrument === "drums",
       tab = selected.kind === "tab";
@@ -806,20 +876,15 @@ export function initMeasures({ start, go, renderExport, exportScore, setBusy }) 
         ? "休止符"
         : "空弦位";
     $("noteDescription").textContent = e
-      ? `${{ 1: "全", 2: "二分", 4: "四分", 8: "八分", 16: "十六分", 32: "三十二分", 64: "六十四分" }[e.duration.value] || e.duration.value}音符${e.duration.double_dotted ? " · 双附点" : e.duration.dotted ? " · 附点" : ""}${e.notes.length > 1 ? ` · ${e.notes.length} ${drums ? "个鼓音" : "音和弦"}` : ""}`
+      ? `${durationName(e.duration.value)}${e.duration.double_dotted ? " · 双附点" : e.duration.dotted ? " · 附点" : ""}${e.notes.length > 1 ? ` · ${e.notes.length} ${drums ? "个鼓音" : "音和弦"}` : ""}`
       : "";
-    const signature =
-      draft.time_signature ||
-      current().score_state?.time ||
-      ui.state.metadata?.time_signature ||
-      "4/4";
     const [beats, unit] = String(signature).split("/").map(Number);
-    const expected = (beats * 3840) / unit;
+    const beatTicks = 3840 / unit, expected = beats * beatTicks;
     const voiceEvents = draft.voices[selected.vi]?.events || [];
     const used = Math.max(0, ...voiceEvents.map((e) => e.start + ticks(e)));
     const over = used > expected;
     $("rhythmStatus").textContent = Number.isFinite(expected)
-      ? `${signature} · 本声部 ${Number((used / 960).toFixed(3))} / ${expected / 960} 拍${over ? " · 超出小节" : used < expected ? " · 尚有空拍" : " · 时值完整"}`
+      ? `${signature} · 本声部 ${Number((used / beatTicks).toFixed(3))} / ${beats} 拍${over ? " · 超出小节" : used < expected ? " · 尚有空拍" : " · 时值完整"}`
       : "";
     $("rhythmStatus").classList.toggle("warning", over);
     $("fretTools").hidden = !tab;
@@ -1096,6 +1161,14 @@ export function initMeasures({ start, go, renderExport, exportScore, setBusy }) 
   };
   for (const id of ["durationDots", "eventTuplet"])
     $(id).onchange = () => duration();
+  function updateEventStartHint() {
+    const value = $("eventStart").valueAsNumber;
+    const tick = Math.round(value * 960);
+    $("eventStartHint").textContent = Number.isFinite(tick) && tick >= 0
+      ? `${beatStartLabel(tick, timeSignature())} · ${tick} tick（四分音符 = 960 tick）`
+      : "0 为小节开头；1 表示经过一个四分音符。";
+  }
+  $("eventStart").oninput = updateEventStartHint;
   $("eventStart").onchange = () =>
     change(() => {
       const value = Number($("eventStart").value);
@@ -1156,9 +1229,38 @@ export function initMeasures({ start, go, renderExport, exportScore, setBusy }) 
         : null;
     });
   $("measureText").oninput = () => {
+    updateMTextSummary();
     updateDirty();
     updateMeasureControls();
   };
+  function updatePlayButton(status) {
+    const button = $("playMeasure");
+    button.setAttribute("aria-pressed", String(status !== "idle"));
+    button.setAttribute("aria-busy", String(status === "loading"));
+    button.textContent = { idle: "▶ 试听本节", loading: "⏳ 加载音色…", playing: "■ 停止试听" }[status];
+    button.title = status === "loading" ? "正在加载音色，点击取消（空格键）" : "试听当前小节（空格键）";
+  }
+  async function togglePlayMeasure() {
+    if (isActive()) {
+      stopPlayback();
+      return;
+    }
+    if (!draft || ui.busy || saving) return;
+    const navigation = ui.navigation;
+    if ((ui.editorMode === "text" && ui.measureDirty || observationChanged()) && !(await save())) return;
+    if (ui.navigation !== navigation || ui.step !== 3) return;
+    try {
+      await playMeasure(ui.state, ui.measureIndex, {
+        measure: draft,
+        visualTechniques,
+        onStatus: updatePlayButton,
+      });
+    } catch (error) {
+      feedback(error.message, true);
+    }
+  }
+  $("playMeasure").onclick = togglePlayMeasure;
+  window.addEventListener("guitarocr:leave-project", stopPlayback);
   document.querySelectorAll("[data-effect]").forEach(
     (b) =>
       (b.onclick = () =>
@@ -1440,6 +1542,7 @@ export function initMeasures({ start, go, renderExport, exportScore, setBusy }) 
               : n.string === chosen.string,
           ) ?? -1;
       $("measureText").value = current().score_text;
+      updateMTextSummary();
       renderSummary();
       renderReference();
       draw();

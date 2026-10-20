@@ -1,5 +1,6 @@
 //! Read one complete staff profile and retain its independent visual evidence.
 use super::*;
+use scorelib::information::prompts::STAFF_PROMPT;
 
 pub(super) struct StaffProfileReader {
     count: Option<staff_evidence::StaffReader>,
@@ -72,7 +73,7 @@ impl StaffProfileReader {
         if let Some(reader) = self.count.as_mut() {
             region["staff_evidence"] = reader.predict(&image)?;
         }
-        region["parsed"] = parse_info_response(&response.content, "staff");
+        region["parsed"] = information::parse_response(&response.content, "staff");
         if let Some(mut evidence) = proposed_label {
             evidence["text"] = Value::Null;
             evidence["raw"] = Value::Null;
@@ -81,7 +82,7 @@ impl StaffProfileReader {
                 json!(engine.task_adapter_applied(OcrTask::Staff));
             evidence["text_source"] = json!("complete_staff_with_label_proposal");
             if staff_images.len() > 1 {
-                evidence["text"] = cleaned(&region["parsed"]["name"]);
+                evidence["text"] = clean_text(&region["parsed"]["name"]);
                 evidence["raw"] = json!(response.content);
                 evidence["status"] = json!(if evidence["text"].is_null() {
                     "unreadable"

@@ -2,53 +2,13 @@
 
 import re
 
-HEADER_PROMPT = (
-    "Read only visible song title, artist or author credit (including composer, arranger or studio), "
-    "and tuning label. Preserve the original language and spelling. Return one JSON object with "
-    "title, artist, tuning_name; use null for absent fields. Tempo, playing techniques and chord names "
-    "are not titles or author credits. Instrument and voice names are not song titles. "
-    "An instrument's transposition designation is not a tuning label."
-)
-TEMPO_PROMPT = (
-    "Read the visible metronome marking: a beat note, an equals sign and a number. "
-    "Return JSON with beat_unit (whole, half, quarter, eighth, or sixteenth), dotted "
-    "(true or false), and bpm (the printed number). Do not convert the number. "
-    "Use null for all three fields when no complete metronome marking is visible "
-    "or its beat unit or value is unreadable."
-)
-STAFF_PROMPT = (
-    'Read the first staff and its instrument label. Return JSON with instrument '
-    '(guitar, bass, pitched, drums, or null if unknown) and string_count '
-    '(number of TAB lines, or null if TAB is absent), and name (the visible '
-    'instrument label, preserving abbreviations, or null if absent). Use the percussion clef '
-    'for drums. Use pitched for other melodic instruments or unlabelled '
-    'melodic notation; use null for unnamed TAB. Do not infer a '
-    'string count from the five lines of standard notation.'
-)
-CLEF_PROMPT = (
-    'Read the visible clef. Return JSON with clef (G2, F4, C3, C4, percussion, tab, '
-    'or null) and clef_octave (0, -12, 12, -24, 24, or null if unreadable). '
-    'A small 8 or 15 below the clef lowers its pitches; above raises them. '
-    'Use tab with clef_octave 0 for a TAB symbol.'
-)
-ANNOTATION_PROMPT = (
-    'Classify and read the visible score annotation. Return JSON with kind '
-    '(instrument, ottava, capo, chord, chord_diagram, technique, tempo, title, credit, other, '
-    'or null if unreadable), semitones (sounding minus written pitch, or null), '
-    'capo (fret number, or null), and text (visible words, or null). '
-    'A chord name such as Bb or F# and a chord fingering diagram are NOT '
-    'transposition instructions. Let ring, P.M., vibrato and their continuation '
-    'lines are techniques, NOT ottava. Use title for a song title and credit for a composer, arranger, artist or studio credit; preserve the original language. Use null pitch fields for non-pitch annotations. '
-    'For ottava use 12 for 8va, -12 for 8vb, 24 for 15ma, -24 for 15mb. '
-    'For instrument transposition use only an explicit instruction or an '
-    'unambiguous instrument label. Do not treat a key signature or tuning as '
-    'an instrument transposition. For chord_diagram also return diagram with '
-    'base_fret, frets (absolute fret numbers, 0 open, "x" muted, LOW to HIGH string), '
-    'fingers (visible numbers or null per string), barres ([absolute fret, zero-based '
-    'low string index, high string index]). Preserve chord accidentals and slash bass. '
-    'Read only visible dots and finger numbers; never derive a fingering from the chord name. '
-    'Transcribe the evidence; do not invent missing words.'
-)
+from scorelib.information import prompt
+
+HEADER_PROMPT = prompt("header")
+TEMPO_PROMPT = prompt("tempo")
+STAFF_PROMPT = prompt("staff")
+CLEF_PROMPT = prompt("clef")
+ANNOTATION_PROMPT = prompt("annotation")
 TRANSPOSITION_PROMPT = ANNOTATION_PROMPT
 
 

@@ -1,5 +1,6 @@
 import * as alphaTab from "./vendor/alphaTab.mjs";
-import { pitchName } from "./score-model.js";
+import { pitchName, beatStartLabel } from "./score-model.js";
+import { writtenKey, keyName, decodeScoreText } from "./score-theory.js";
 const M = alphaTab.model;
 const directions = {
   Coda: "TargetCoda", "Double Coda": "TargetDoubleCoda", Segno: "TargetSegno",
@@ -13,7 +14,6 @@ const directions = {
   "Da Segno Segno al Fine": "JumpDalSegnoSegnoAlFine", "Da Coda": "JumpDaCoda",
   "Da Double Coda": "JumpDaDoubleCoda",
 };
-const decode = (value) => { try { return decodeURIComponent(value); } catch { return value; } };
 
 // A master bar belongs to the whole score. Gather all synchronized staves
 // before creating it; a sparse first staff must not erase another staff's signs.
@@ -44,7 +44,7 @@ export function buildMasterBars(score, records, state) {
     const section = [...new Set(entries.map(({data}) => data.section).filter(Boolean))];
     if (section.length) {
       master.section = new M.Section();
-      master.section.text = section.map(decode).join(" / ");
+      master.section.text = section.map(decodeScoreText).join(" / ");
     }
     master.tripletFeel = { eighth: M.TripletFeel.Triplet8th, sixteenth: M.TripletFeel.Triplet16th }[choose("triplet_feel", "摇摆节奏")] ?? M.TripletFeel.NoTripletFeel;
     const tempo = choose("tempo_quarter", "速度") || (index === 0 ? state.metadata?.document_metadata?.tempo_quarter : null);
@@ -73,62 +73,12 @@ export function buildMasterBars(score, records, state) {
   return warnings;
 }
 
-const keys = {
-  C: 0,
-  G: 1,
-  D: 2,
-  A: 3,
-  E: 4,
-  B: 5,
-  FSharp: 6,
-  CSharp: 7,
-  F: -1,
-  BFlat: -2,
-  EFlat: -3,
-  AFlat: -4,
-  DFlat: -5,
-  GFlat: -6,
-  CFlat: -7,
-  AMinor: 0,
-  EMinor: 1,
-  BMinor: 2,
-  FSharpMinor: 3,
-  CSharpMinor: 4,
-  GSharpMinor: 5,
-  DSharpMinor: 6,
-  ASharpMinor: 7,
-  DMinor: -1,
-  GMinor: -2,
-  CMinor: -3,
-  FMinor: -4,
-  BFlatMinor: -5,
-  EFlatMinor: -6,
-  AFlatMinor: -7,
-};
-export function writtenKey(key, shift) {
-  if (typeof key === "number") return key; // score_state keys are already written.
-  const normalized = String(key)
-    .replace(/[♯#]/g, "Sharp")
-    .replace(/[♭b]/g, "Flat")
-    .replace(/Major(?=Sharp|Flat|$)/, "")
-    .replace(/Minor(Sharp|Flat)/, "$1Minor");
-  const fifths = keys[normalized] ?? 0;
-  if (!shift || shift % 12 === 0) return fifths;
-  const tonic = (((7 * fifths - shift) % 12) + 12) % 12;
-  return Array.from({ length: 15 }, (_, i) => i - 7)
-    .filter((k) => (((7 * k) % 12) + 12) % 12 === tonic)
-    .sort(
-      (a, b) =>
-        Math.abs(a) - Math.abs(b) ||
-        Math.abs(a - fifths) - Math.abs(b - fifths),
-    )[0];
-}
-
-export function musicalContext(state, index, draft, selected, profile) {
+export function measureContext(state, index, draft, onset = 0) {
   const current = state.measures[index], bar = current.bar_index ?? index;
   let time = state.metadata?.time_signature || "4/4", key = current.score_state?.key;
   let tempo = state.metadata?.document_metadata?.tempo_quarter;
-  const groups = new Map();
+  let tempoChanges = [];
+  const groups = new Map(), dynamics = {};
   state.measures.forEach((record, mi) => {
     const position = record.bar_index ?? mi;
     if (position > bar) return;
@@ -142,36 +92,46 @@ export function musicalContext(state, index, draft, selected, profile) {
     tempo = group.find(({data}) => data.tempo_quarter)?.data.tempo_quarter || tempo;
     const tempoEvents = [];
     for (const {record,data} of group) {
-      if (record.part_id === current.part_id && record.staff_id === current.staff_id)
+      const sameStaff = record.part_id === current.part_id && record.staff_id === current.staff_id;
+      if (sameStaff)
         key = data.key_signature ?? key ?? record.score_state?.key;
-      for (const voice of data.voices || []) for (const [eventIndex, event] of (voice.events || []).entries()) {
-        if (position === bar && event.start > (draft.voices[selected.vi]?.events[selected.ei]?.start ?? 0)) continue;
-        const mark = event.effects?.find(effect => effect.startsWith("tempo:"));
-        if (mark) tempoEvents.push({start: event.start, value: Number(mark.slice(6)),
-          lane: `${record.part_id || ""}/${record.staff_id || ""}`, voice: voice.voice, eventIndex});
+      for (const voice of data.voices || []) {
+        const events = [...(voice.events || [])].sort((a, b) => a.start - b.start);
+        for (const [eventIndex, event] of events.entries()) {
+          const mark = event.effects?.find(effect => effect.startsWith("tempo:"));
+          if (mark) tempoEvents.push({start: event.start, value: Number(mark.slice(6)),
+            lane: `${record.part_id || ""}/${record.staff_id || ""}`, voice: voice.voice, eventIndex});
+          const dynamic = event.effects?.find(effect => effect.startsWith("dyn:"));
+          if (dynamic && sameStaff && (position < bar || event.start <= onset))
+            dynamics[voice.voice] = Number(dynamic.slice(4));
+        }
       }
     }
     // Tempo applies to the whole score. A later event wins across all tracks
     // and voices. At the same start, use the first lane/voice/event in this
     // fixed ordering, matching the stable track priority for master-bar marks.
     tempoEvents.sort((a,b) => a.start-b.start || a.lane.localeCompare(b.lane) || a.voice-b.voice || a.eventIndex-b.eventIndex);
-    let previousStart;
-    for (const change of tempoEvents) {
-      if (change.start !== previousStart) tempo = change.value;
-      previousStart = change.start;
+    const changes = tempoEvents.filter((change, i) => i === 0 || change.start !== tempoEvents[i - 1].start);
+    if (position === bar) tempoChanges = changes;
+    for (const change of changes) {
+      if (position < bar || change.start <= onset) tempo = change.value;
     }
   }
-  const minor = String(key).includes("Minor");
-  const keyNames = minor ? ["A♭", "E♭", "B♭", "F", "C", "G", "D", "A", "E", "B", "F♯", "C♯", "G♯", "D♯", "A♯"] :
-    ["C♭", "G♭", "D♭", "A♭", "E♭", "B♭", "F", "C", "G", "D", "A", "E", "B", "F♯", "C♯"];
-  const keyName = profile.instrument === "drums" || key === undefined || key === null ? null :
-    `${keyNames[writtenKey(key, profile.pitch_context?.instrument_transpose) + 7]}${minor ? " 小调" : ""}`;
+  return { time, key, tempo, tempoChanges, dynamics };
+}
+
+export function musicalContext(state, index, draft, selected, profile) {
+  const current = state.measures[index], bar = current.bar_index ?? index;
   const event = draft.voices[selected.vi]?.events[selected.ei];
+  const { time, key, tempo } = measureContext(state, index, draft, event?.start ?? 0);
+  const minor = String(key).includes("Minor");
+  const keyLabel = profile.instrument === "drums" || key === undefined || key === null ? null :
+    `${keyName(writtenKey(key, profile.pitch_context?.instrument_transpose), minor)}${minor ? " 小调" : ""}`;
   return {
     track: current.part_name || "音轨",
-    meter: [time, keyName, tempo ? `♩ = ${tempo}` : null].filter(Boolean).join(" · "),
+    meter: [time, keyLabel, tempo ? `♩ = ${tempo}` : null].filter(Boolean).join(" · "),
     tuning: [profile.tuning?.length && ["guitar", "bass"].includes(profile.instrument) ? profile.tuning.map(pitchName).join(" ") : "",
       profile.pitch_context?.capo ? `Capo ${profile.pitch_context.capo}` : ""].filter(Boolean).join(" · "),
-    position: `第 ${bar + 1} 小节 · 声部 ${(draft.voices[selected.vi]?.voice ?? 0) + 1}${event ? ` · 第 ${event.start / 960 + 1} 拍` : ""}`,
+    position: `第 ${bar + 1} 小节 · 声部 ${(draft.voices[selected.vi]?.voice ?? 0) + 1}${event ? ` · ${beatStartLabel(event.start, time)}` : ""}`,
   };
 }

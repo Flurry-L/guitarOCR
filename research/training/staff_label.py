@@ -15,26 +15,7 @@ from torch.nn import functional as F
 from torch.utils.data import DataLoader, Dataset
 
 from research.models.auxiliary import StaffLabelNetwork
-
-WIDTH, HEIGHT, STRIDE = 768, 256, 4
-
-
-ANGLES = (0, 90, 180, 270)
-
-
-def staff_label_image(image):
-    image = image.convert("RGB")
-    scale = min(WIDTH / image.width, HEIGHT / image.height)
-    width, height = (
-        max(1, round(image.width * scale)),
-        max(1, round(image.height * scale)),
-    )
-    left, top = (WIDTH - width) // 2, (HEIGHT - height) // 2
-    canvas = Image.new("RGB", (WIDTH, HEIGHT), "white")
-    canvas.paste(image.resize((width, height), Image.Resampling.LANCZOS), (left, top))
-    pixels = np.asarray(canvas, dtype=np.float32).transpose(2, 0, 1) / 127.5 - 1
-    return pixels, (width / image.width, height / image.height, left, top)
-
+from research.common.staff_label import WIDTH, HEIGHT, STRIDE, ANGLES, staff_label_image
 
 @lru_cache(maxsize=256)
 def source_image(path):

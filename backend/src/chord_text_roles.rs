@@ -1,6 +1,6 @@
 //! Text ownership uses complete diagram context and a category-free query mask.
 use crate::image_boundary::Result;
-use image::{Rgb, RgbImage};
+use image::RgbImage;
 use ort::{session::Session, value::Tensor};
 use serde_json::{json, Value};
 use std::path::Path;
@@ -84,13 +84,13 @@ pub fn image_tensor(image: &RgbImage, bounds: [f64; 4]) -> Result<Vec<f32>> {
     if bounds.iter().any(|v| !v.is_finite()) || bounds[2] <= 0. || bounds[3] <= 0. {
         return Err("Invalid text query dimensions".into());
     }
-    let scale = 256. / image.width().max(image.height()) as f64;
-    let width = (image.width() as f64 * scale).round_ties_even().max(1.) as u32;
-    let height = (image.height() as f64 * scale).round_ties_even().max(1.) as u32;
-    let (ox, oy) = ((256 - width) / 2, (256 - height) / 2);
-    let resized = crate::image_transforms::resize_rgb_lanczos(image, width, height);
-    let mut canvas = RgbImage::from_pixel(256, 256, Rgb([255; 3]));
-    image::imageops::replace(&mut canvas, &resized, ox.into(), oy.into());
+    let (canvas, placement) = crate::image_transforms::contain_rgb(image, 256, 256);
+    let (width, height, ox, oy) = (
+        placement.width,
+        placement.height,
+        placement.left,
+        placement.top,
+    );
     let mut input = vec![0.; 4 * 256 * 256];
     for (i, pixel) in canvas.pixels().enumerate() {
         for c in 0..3 {

@@ -94,43 +94,8 @@ fn pitch(n: &Value, p: &Value) -> R<i64> {
     }
 }
 fn key(s: &str) -> R<(i64, &str)> {
-    if let Some((f, mode)) = s.split_once(':') {
-        let f = f.parse::<i64>().map_err(|_| "Invalid key fifths")?;
-        if (-8..=8).contains(&f) && ["major", "minor"].contains(&mode) {
-            return Ok((f, mode));
-        }
-    }
-    let normalized = s
-        .replace("MajorFlat", "bMajor")
-        .replace("MajorSharp", "#Major")
-        .replace("MinorFlat", "bMinor")
-        .replace("MinorSharp", "#Minor");
-    if normalized == "FbMajor" {
-        return Ok((-8, "major"));
-    }
-    if normalized == "G#Major" {
-        return Ok((8, "major"));
-    }
-    if normalized == "DbMinor" {
-        return Ok((-8, "minor"));
-    }
-    if normalized == "E#Minor" {
-        return Ok((8, "minor"));
-    }
-    let major = [
-        "CbMajor", "GbMajor", "DbMajor", "AbMajor", "EbMajor", "BbMajor", "FMajor", "CMajor",
-        "GMajor", "DMajor", "AMajor", "EMajor", "BMajor", "F#Major", "C#Major",
-    ];
-    let minor = [
-        "AbMinor", "EbMinor", "BbMinor", "FMinor", "CMinor", "GMinor", "DMinor", "AMinor",
-        "EMinor", "BMinor", "F#Minor", "C#Minor", "G#Minor", "D#Minor", "A#Minor",
-    ];
-    for (names, mode) in [(&major, "major"), (&minor, "minor")] {
-        if let Some(i) = names.iter().position(|x| *x == normalized) {
-            return Ok((i as i64 - 7, mode));
-        }
-    }
-    Err(format!("Unsupported key signature {s}"))
+    crate::pitch::key_parts(s)
+        .map(|(fifths, minor)| (fifths, if minor { "minor" } else { "major" }))
 }
 fn percent_decode(s: &str) -> R<String> {
     let b = s.as_bytes();
@@ -297,16 +262,13 @@ pub fn score_musicxml(input: &Value) -> R<Vec<u8>> {
                 }
             }
             out += &format!(
-                "<score-part id=\"P{}\">{}",
+                "<score-part id=\"P{}\">{}{}",
                 pi + 1,
-                format!(
-                    "{}{}",
-                    tag("part-name", txt(p, "name", "Drums"))?,
-                    tag(
-                        "part-abbreviation",
-                        txt(p, "name", "Drums").chars().take(12).collect::<String>()
-                    )?
-                )
+                tag("part-name", txt(p, "name", "Drums"))?,
+                tag(
+                    "part-abbreviation",
+                    txt(p, "name", "Drums").chars().take(12).collect::<String>()
+                )?
             );
             for pitch in &pitches {
                 out += &format!(
@@ -328,7 +290,14 @@ pub fn score_musicxml(input: &Value) -> R<Vec<u8>> {
         };
         melodic_channel += 1;
         let channel = if channel >= 10 { channel + 1 } else { channel };
-        out+=&format!("<score-part id=\"P{}\">{}<score-instrument id=\"P{}-I1\">{}</score-instrument><midi-instrument id=\"P{}-I1\">{}{}</midi-instrument></score-part>",pi+1,format!("{}{}",tag("part-name",txt(p,"name","Instrument"))?,tag("part-abbreviation",txt(p,"name","Instrument").chars().take(12).collect::<String>())?),pi+1,tag("instrument-name",txt(p,"name","Instrument"))?,pi+1,tag("midi-channel",channel)?,tag("midi-program",num(p,"midi_program",0)+1)?)
+        let name = txt(p, "name", "Instrument");
+        out += &format!(
+            "<score-part id=\"P{}\">{}{}<score-instrument id=\"P{}-I1\">{}</score-instrument><midi-instrument id=\"P{}-I1\">{}{}</midi-instrument></score-part>",
+            pi + 1, tag("part-name", name)?,
+            tag("part-abbreviation", name.chars().take(12).collect::<String>())?,
+            pi + 1, tag("instrument-name", name)?,
+            pi + 1, tag("midi-channel", channel)?, tag("midi-program", num(p, "midi_program", 0) + 1)?
+        );
     }
     out += "</part-list>";
     for (pi, p) in parts.iter().enumerate() {
@@ -614,28 +583,26 @@ pub fn score_musicxml(input: &Value) -> R<Vec<u8>> {
                             let starts = tie_starts.contains(&(si, bi as i64, vi, ei, ni));
                             if n.is_null() {
                                 out += "<rest/>"
+                            } else if txt(p, "instrument", "") == "drums" {
+                                let pp = pitch(n, p)?;
+                                let (step, octave) = match pp {
+                                    35 | 36 | 41 | 43 => ("F", 4),
+                                    37 | 38 | 40 | 47 => ("C", 5),
+                                    45 => ("A", 4),
+                                    48 => ("D", 5),
+                                    50 => ("E", 5),
+                                    42 | 44 | 46 => ("G", 5),
+                                    49 => ("A", 5),
+                                    51 | 53 => ("F", 5),
+                                    _ => ("B", 4),
+                                };
+                                out += &format!(
+                                    "<unpitched>{}{}</unpitched>",
+                                    tag("display-step", step)?,
+                                    tag("display-octave", octave)?
+                                );
                             } else {
-                                if txt(p, "instrument", "") == "drums" {
-                                    let pp = pitch(n, p)?;
-                                    let (step, octave) = match pp {
-                                        35 | 36 | 41 | 43 => ("F", 4),
-                                        37 | 38 | 40 | 47 => ("C", 5),
-                                        45 => ("A", 4),
-                                        48 => ("D", 5),
-                                        50 => ("E", 5),
-                                        42 | 44 | 46 => ("G", 5),
-                                        49 => ("A", 5),
-                                        51 | 53 => ("F", 5),
-                                        _ => ("B", 4),
-                                    };
-                                    out += &format!(
-                                        "<unpitched>{}{}</unpitched>",
-                                        tag("display-step", step)?,
-                                        tag("display-octave", octave)?
-                                    );
-                                } else {
-                                    out += &pitch_plan[&(vi, ei, ni)].pitch.xml()?;
-                                }
+                                out += &pitch_plan[&(vi, ei, ni)].pitch.xml()?;
                             }
                             out += &tag("duration", ticks)?;
                             if starts {
@@ -963,23 +930,6 @@ fn octave_direction(semitones: i64, voice: i64, staff: usize, stop: bool) -> Str
 }
 
 fn written_key(name: &str, shift: i64) -> R<(i64, &str)> {
-    let (f, mode) = key(name)?;
-    if shift % 12 == 0 {
-        return Ok((
-            if f < -7 {
-                f + 12
-            } else if f > 7 {
-                f - 12
-            } else {
-                f
-            },
-            mode,
-        ));
-    }
-    let tonic = (7 * f + if mode == "minor" { 9 } else { 0 } - shift).rem_euclid(12);
-    let candidate = (-7i64..=7)
-        .filter(|k| (7 * k + if mode == "minor" { 9 } else { 0 }).rem_euclid(12) == tonic)
-        .min_by_key(|k| (k.abs(), (k - f).abs()))
-        .ok_or("Cannot spell transposed key")?;
-    Ok((candidate, mode))
+    let (fifths, mode) = key(name)?;
+    Ok((crate::pitch::transpose_fifths(fifths, -shift), mode))
 }

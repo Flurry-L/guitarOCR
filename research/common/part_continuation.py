@@ -5,6 +5,7 @@ from functools import lru_cache
 
 import numpy as np
 from PIL import Image
+from research.common.images import contain_lanczos
 
 ROW_SIZE = (768, 192)
 CONTEXT_SIZE = (384, 256)
@@ -68,12 +69,7 @@ def match_gallery(probabilities, threshold, margin):
 
 
 def contain(image, size):
-    image = image.convert('L')
-    scale = min(size[0] / image.width, size[1] / image.height)
-    resized = image.resize((max(1, round(image.width * scale)), max(1, round(image.height * scale))),
-                           Image.Resampling.LANCZOS)
-    canvas = Image.new('L', size, 255)
-    canvas.paste(resized, ((size[0] - resized.width) // 2, (size[1] - resized.height) // 2))
+    canvas, _ = contain_lanczos(image.convert('L'), size)
     return np.asarray(canvas, dtype=np.uint8)
 
 

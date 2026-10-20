@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import re
 from collections import Counter
 
-POSITION = re.compile(r"^(?:f(?P<fret>\d+))?(?:p(?P<pitch>\d+))?$")
+from scorelib._native import ornament_position as ornament_position
 
 
 def canonical_chord_marks(measure):
@@ -34,15 +33,3 @@ def canonical_chord_marks(measure):
                 for i in range(count):
                     notes[i % len(notes)]["effects"].append(effect)
     return measure
-
-
-def ornament_position(token: str) -> tuple[int | None, int | None]:
-    if token == "x":
-        return None, None
-    match = POSITION.fullmatch(token)
-    if not match or not token:
-        raise ValueError(f"Invalid ornament position: {token}")
-    return tuple(
-        int(match.group(k)) if match.group(k) is not None else None
-        for k in ("fret", "pitch")
-    )

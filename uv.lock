@@ -426,7 +426,7 @@ wheels = [
 
 [[package]]
 name = "gpbridge"
-version = "0.1.0"
+version = "0.3.0"
 source = { editable = "gpbridge" }
 
 [[package]]
@@ -468,7 +468,7 @@ wheels = [
 
 [[package]]
 name = "guitarocr-research"
-version = "0.1.0"
+version = "0.3.0"
 source = { editable = "research" }
 dependencies = [
     { name = "gpbridge" },
@@ -1467,7 +1467,7 @@ wheels = [
 
 [[package]]
 name = "scorelib"
-version = "0.1.0"
+version = "0.3.0"
 source = { editable = "scorelib" }
 dependencies = [
     { name = "pyguitarpro" },

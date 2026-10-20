@@ -340,6 +340,5 @@ pub fn detect(
     let stage = materialize(&state, &boxes, requested, output.path(), true, &|| {
         progress.cancelled()
     })?;
-    progress.checkpoint()?;
-    publish(root, sid, state, stage, output, requested)
+    progress.commit(|| publish(root, sid, state, stage, output, requested))
 }

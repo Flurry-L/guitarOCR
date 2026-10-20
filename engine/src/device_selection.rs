@@ -212,7 +212,7 @@ pub fn cuda_available(_required_bytes: u64, _minimum_driver: i32) -> bool {
     false
 }
 
-/// Fixed short, local, no-model probe. No shell, nvidia-smi, uploads or downloads.
+/// List local devices without loading a model.
 pub fn probe_devices(
     executable: &Path,
     cancelled: &dyn Fn() -> bool,
@@ -248,7 +248,8 @@ pub fn probe_devices(
     };
     let stdout = read(Box::new(child.stdout.take().unwrap()));
     let stderr = read(Box::new(child.stderr.take().unwrap()));
-    let deadline = Instant::now() + Duration::from_secs(5);
+    // Driver initialization on the first launch can take several seconds.
+    let deadline = Instant::now() + Duration::from_secs(30);
     let status = loop {
         if cancelled() || Instant::now() >= deadline {
             let _ = child.kill();
@@ -368,10 +369,55 @@ pub fn choose_runtime(
     let detected = if !caps.cuda && !caps.metal {
         Vec::new()
     } else {
-        probe_devices(executable, cancelled)?
+        match probe_devices(executable, cancelled) {
+            Ok(devices) => devices,
+            Err(error) => {
+                if cancelled() {
+                    return Err("设备选择已取消".into());
+                }
+                return cpu_selection(caps, format!("{error}；选择CPU"));
+            }
+        }
     };
     if cancelled() {
         return Err("设备选择已取消".into());
     }
     select_from_probe(caps, budget, &detected)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn failed_gpu_probe_uses_the_available_cpu_backend() {
+        let mut caps = RuntimeCapabilities {
+            cpu: true,
+            metal: true,
+            ..Default::default()
+        };
+        let budget = MemoryBudget { required_bytes: 1 };
+        let selection = choose_runtime(Path::new(""), &caps, &budget, &|| false).unwrap();
+        assert_eq!(selection.device, Device::Cpu);
+        assert!(selection.device_selector.is_none());
+        assert!(selection.reason.contains("探测无法启动"));
+
+        caps.cpu = false;
+        assert!(choose_runtime(Path::new(""), &caps, &budget, &|| false).is_err());
+    }
+
+    #[test]
+    fn cancelling_a_probe_does_not_start_cpu_inference() {
+        let caps = RuntimeCapabilities {
+            cpu: true,
+            metal: true,
+            ..Default::default()
+        };
+        let budget = MemoryBudget { required_bytes: 1 };
+        let calls = AtomicUsize::new(0);
+        let cancelled = || calls.fetch_add(1, Ordering::SeqCst) > 0;
+        let error = choose_runtime(Path::new(""), &caps, &budget, &cancelled).unwrap_err();
+        assert_eq!(error, "设备选择已取消");
+    }
 }

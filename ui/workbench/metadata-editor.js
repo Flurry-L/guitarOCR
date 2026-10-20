@@ -1,7 +1,8 @@
-import { ui, endpoint, receiveProject } from "./state.js";
+import { ui, endpoint, receiveProject, metadataPart } from "./state.js";
 import { $, action, notice } from "./dom.js";
 import { api } from "./api.js";
 import { hasPendingChordCandidate, initChordLibraryReview } from "./score-chords.js";
+import { parseTuning, formatTuning, formatTuningSummary } from "./score-model.js";
 
 const instrumentPrograms = [
   ['钢琴', ['大钢琴','明亮钢琴','电声三角钢琴','酒吧钢琴','电钢琴 1','电钢琴 2','羽管键琴','击弦古钢琴']],
@@ -31,6 +32,24 @@ function programOptions() {
   });
 }
 
+function updateTuningPreview() {
+  const hint = $("tuningPreview");
+  if (!hint) return;
+  const raw = $("tuning")?.value?.trim();
+  if (!raw) {
+    hint.textContent = "可直接填音名（如 E4, B3, G3, D3, A2, E2）或 MIDI 编号（如 64, 59, 55, 50, 45, 40），用逗号或空格分隔。";
+    hint.classList.remove("error");
+    return;
+  }
+  try {
+    const pitches = parseTuning(raw);
+    hint.textContent = `当前各弦：${formatTuningSummary(pitches)}`;
+    hint.classList.remove("error");
+  } catch (err) {
+    hint.textContent = err.message;
+    hint.classList.add("error");
+  }
+}
 
 export function initMetadata({ start, go, render, setBusy }) {
   let activePart = '';
@@ -43,7 +62,7 @@ export function initMetadata({ start, go, render, setBusy }) {
     if (parts.some(p=>p.id===selected)) $("metadataPart").value=selected;
     activePart=$("metadataPart").value;
     $("metadataPart").closest('label').hidden=parts.length<2;
-    const m = parts.find(p=>p.id===$("metadataPart").value) || root;
+    const m = metadataPart(root, activePart);
     $("partNameField").hidden = !parts.length;
     $("partName").required = !!parts.length;
     $("partName").value = m?.name || '';
@@ -60,12 +79,14 @@ export function initMetadata({ start, go, render, setBusy }) {
       .filter((p) => p.parsed?.kind === "instrument" && Number.isInteger(p.parsed.semitones))
       .map((p) => p.parsed.semitones))];
     $("transpose").placeholder = shifts.length === 1 ? `自动读取：${shifts[0]}` : "自动读取";
-    $("tuning").value = (m?.tuning_used || []).join(",");
+    const midiKey = (m?.tuning_used || []).join(",");
     const preset = Array.from($("tuningPreset").options).some(
-      (o) => o.value === $("tuning").value,
+      (o) => o.value === midiKey,
     );
-    $("tuningPreset").value = preset ? $("tuning").value : "custom";
+    $("tuningPreset").value = preset ? midiKey : "custom";
+    $("tuning").value = preset ? midiKey : formatTuning(m?.tuning_used || []);
     $("customTuning").hidden = preset;
+    updateTuningPreview();
     $("confirmInstrument").checked = $("confirmTuning").checked = false;
     $("confirmInstrumentField").hidden = !(m?.document_metadata?.instrument_issue || m?.document_metadata?.instrument_needs_review);
     $("confirmTuningField").hidden = !(m?.document_metadata?.tuning_issue || m?.document_metadata?.tuning_needs_review || m?.document_metadata?.string_count_needs_review);
@@ -104,22 +125,31 @@ export function initMetadata({ start, go, render, setBusy }) {
     $("tuningPreset").value = tuning;
     $("midiProgram").value = String({guitar:25,bass:33,pitched:0,drums:0}[$("instrument").value]);
     instrumentFields();
+    updateTuningPreview();
     ui.metadataDirty = true;
     updateMetadataControls();
   };
   $("tuningPreset").onchange = () => {
     $("confirmTuning").checked = false;
     $("customTuning").hidden = $("tuningPreset").value !== "custom";
-    if ($("tuningPreset").value !== "custom")
+    if ($("tuningPreset").value !== "custom") {
       $("tuning").value = $("tuningPreset").value;
+    } else if (/^\d+(,\d+)*$/.test($("tuning").value.trim())) {
+      const pitches = $("tuning").value.split(",").map(Number);
+      $("tuning").value = formatTuning(pitches);
+    }
+    updateTuningPreview();
     ui.metadataDirty = true;
     updateMetadataControls();
   };
   for (const id of ["title", "artist", "subtitle", "headerNotes", "partName", "midiProgram", "tempo", "capo", "tuning", "transpose"])
     $(id).oninput = () => {
-      if (id === "tuning") $("confirmTuning").checked = false;
+      if (id === "tuning") {
+        $("confirmTuning").checked = false;
+        updateTuningPreview();
+      }
       ui.metadataDirty = true;
-    updateMetadataControls();
+      updateMetadataControls();
     };
   for (const id of ["confirmInstrument", "confirmTuning"])
     $(id).onchange = () => {
@@ -161,23 +191,9 @@ export function initMetadata({ start, go, render, setBusy }) {
       if (!$(id).reportValidity()) return;
     }
     const fretted = ["guitar", "bass"].includes($("instrument").value);
-    const tuning = fretted
-      ? $("tuning")
-          .value.split(",")
-          .map((v) => Number(v.trim()))
-      : [];
-    if (
-      fretted &&
-      (!$("tuning").value.trim() ||
-        tuning.length > 12 ||
-        tuning.some((v) => !Number.isInteger(v) || v < 0 || v > 127) ||
-        $("tuning")
-          .value.split(",")
-          .some((v) => !v.trim()))
-    )
-      throw new Error("请填写 1 至 12 个弦的 MIDI 音高（0 至 127），用逗号分隔。");
+    const tuning = fretted ? parseTuning($("tuning").value) : [];
     const root = ui.state.metadata;
-    const previous = root?.parts?.find(p => p.id === $("metadataPart").value) || root;
+    const previous = metadataPart(root, activePart);
     const transpose = $("transpose").value.trim() ? +$("transpose").value : null;
     if (ui.state.recognition && (
       previous?.instrument !== $("instrument").value ||

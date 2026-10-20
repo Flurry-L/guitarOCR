@@ -41,8 +41,9 @@ pub(super) fn recover_chord_names<G: Generator + ?Sized>(
                 64,
                 Some(information_schema("header_text")?),
             )?;
-            let value =
-                parse_info_response(&response.content, "header_text")["header_notes"].clone();
+            let value = information::parse_response(&response.content, "header_text")
+                ["header_notes"]
+                .clone();
             if let Some(name) = value.as_str().filter(|s| is_chord_symbol(s)) {
                 candidates.insert(name.to_owned());
             }

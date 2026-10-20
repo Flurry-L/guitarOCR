@@ -36,6 +36,10 @@ jobs:
           python-version: '3.11'
       - run: npm ci
         working-directory: desktop
+      - name: Test score editing and playback
+        run: npm test --prefix ui
+      - name: Test shared score rules and backend
+        run: cargo test --locked -p scorelib -p guitarocr-engine -p guitarocr-backend
       - name: Acquire native libraries
         run: >-
           python -m pip download --index-url https://pypi.org/simple --only-binary=:all:
@@ -78,6 +82,24 @@ jobs:
         working-directory: desktop
       - run: npm run resources -- --manifest ../output/native-components/manifest.json --require-inference
         working-directory: desktop
+      - name: Verify packaged playback assets and versions
+        shell: python
+        run: |
+          import hashlib, json, tomllib
+          from pathlib import Path
+          version = json.loads(Path('desktop/package.json').read_text())['version']
+          assert json.loads(Path('desktop/src-tauri/tauri.conf.json').read_text())['version'] == version
+          assert tomllib.loads(Path('Cargo.toml').read_text())['workspace']['package']['version'] == version
+          resources = Path('desktop/src-tauri/resources')
+          assert json.loads((resources / 'native/manifest.json').read_text())['version'] == version
+          for name in ('audio-preview.js', 'playback-plan.js', 'score-theory.js',
+                       'vendor/soundfont/sonivox.sf2', 'vendor/soundfont/LICENSE',
+                       'vendor/soundfont/Apache-2.0.txt'):
+              source = Path('ui/workbench') / name
+              packaged = resources / 'ui/workbench' / name
+              assert hashlib.sha256(source.read_bytes()).digest() == hashlib.sha256(packaged.read_bytes()).digest(), name
+      - name: Smoke test packaged editor and exports
+        run: python scripts/smoke_desktop.py
       - run: npm run build -- --verbose --bundles ${{ matrix.platform == 'windows-x64' && 'nsis' || 'dmg' }} -- --locked
         working-directory: desktop
       - uses: actions/upload-artifact@v4

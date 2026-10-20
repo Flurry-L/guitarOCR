@@ -412,7 +412,7 @@ pub fn apply_evidence(parsed: &Value, source_evidence: &Value) -> Result<(Value,
             parsed["diagram"] = original.clone();
         }
     } else if evidence["kind"] != "diagram" && accepted["kind"] == true && !original.is_null() {
-        let valid_name = crate::recognition::is_chord_symbol(parsed["text"].as_str().unwrap_or(""));
+        let valid_name = scorelib::chords::is_chord_symbol(parsed["text"].as_str().unwrap_or(""));
         parsed["kind"] = json!(if valid_name { "chord" } else { "other" });
         parsed["diagram"] = Value::Null;
         evidence["rejected_diagram_candidate"] = original.clone();
@@ -427,9 +427,9 @@ pub fn apply_evidence(parsed: &Value, source_evidence: &Value) -> Result<(Value,
     evidence["proposed_changed_fields"] = json!(changes);
     evidence["changed_fields"] = json!(applied);
     if matches!(parsed["kind"].as_str(), Some("chord" | "chord_diagram"))
-        && parsed["text"].as_str().is_some_and(|name| {
-            !name.trim().is_empty() && !crate::recognition::is_chord_symbol(name)
-        })
+        && parsed["text"]
+            .as_str()
+            .is_some_and(|name| !name.trim().is_empty() && !scorelib::chords::is_chord_symbol(name))
     {
         evidence["name_needs_review"] = json!(true);
     }

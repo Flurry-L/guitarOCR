@@ -12,12 +12,13 @@ const dateLabel = (timestamp) => timestamp ? new Date(timestamp * 1000).toLocale
   month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
 }) : "";
 
-export function initWorkspace({ open, resume, refreshConfig }) {
+export function initWorkspace({ open, resume, refreshConfig, onNavigate }) {
   let projects = [], screen = "workbench", refreshing = false;
   const pending = new Set();
   function show(name) {
     if (name !== screen) {
       ui.navigation += 1;
+      onNavigate();
       notice("");
     }
     screen = name;

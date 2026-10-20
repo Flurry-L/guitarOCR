@@ -4,12 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "guitarocr-research"
-version = "0.1.0"
+version = "0.3.0"
 description = "Score OCR data, training, evaluation and model export"
 requires-python = ">=3.10,<3.13"
 dependencies = [
-  "scorelib==0.1.0",
-  "gpbridge==0.1.0",
+  "scorelib==0.3.0",
+  "gpbridge==0.3.0",
   "numpy>=1.26,<3",
   "scipy>=1.11,<2",
   "Pillow>=12.3,<13",

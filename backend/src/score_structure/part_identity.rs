@@ -158,6 +158,27 @@ pub(crate) fn resolve(
     Ok((mapping, evidence))
 }
 
+pub(super) fn attach_page_staff_evidence(record: &mut Value, profile: &Value) {
+    if !["instrument_evidence", "string_count_evidence"]
+        .iter()
+        .any(|key| profile[*key].as_object().is_some_and(|e| !e.is_empty()))
+    {
+        return;
+    }
+    let mut evidence = json!({});
+    for key in [
+        "name",
+        "name_source",
+        "instrument_evidence",
+        "string_count_evidence",
+    ] {
+        if let Some(value) = profile.get(key) {
+            evidence[key] = value.clone();
+        }
+    }
+    record["page_staff_evidence"] = evidence;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -230,25 +251,4 @@ mod tests {
         .unwrap();
         assert_eq!(mapping[&0], 1);
     }
-}
-
-pub(super) fn attach_page_staff_evidence(record: &mut Value, profile: &Value) {
-    if !["instrument_evidence", "string_count_evidence"]
-        .iter()
-        .any(|key| profile[*key].as_object().is_some_and(|e| !e.is_empty()))
-    {
-        return;
-    }
-    let mut evidence = json!({});
-    for key in [
-        "name",
-        "name_source",
-        "instrument_evidence",
-        "string_count_evidence",
-    ] {
-        if let Some(value) = profile.get(key) {
-            evidence[key] = value.clone();
-        }
-    }
-    record["page_staff_evidence"] = evidence;
 }

@@ -142,7 +142,7 @@ pub(crate) async fn upload(
         if pages.is_empty(){return Err("上传内容没有可读取页面".into());}
         progress.checkpoint()?;
         let state=json!({"id":id,"pages":pages,"inputs":inputs,"input_names":names,"mode":mode,"mode_setting":mode,"boxes":[],"layout":null,"info":null,"recognition":null,"export":null,"revision":0});
-        write_session_atomic(&root,&id,&state).map_err(|e|e.to_string())?;
+        progress.commit(|| write_session_atomic(&root,&id,&state).map_err(|e|e.to_string()))?;
         if task_action=="full" { pipeline.process(&root,&id,&json!({"mode":mode,"allow_download":allow_download}),&progress)?; }
         Ok(())
     });

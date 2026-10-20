@@ -1,10 +1,10 @@
-//! Native OCR stages. This module owns model prompts and score semantics, never
-//! session persistence, task state, revision checks, or the model process.
-//! Inputs are explicit local crops and schema-1.0 stage values. No Python path.
+//! Native OCR stages: read score regions, interpret musical context, and assemble observations.
+//! Image preprocessing lives in `image_policy`; shared metadata rules live in `scorelib::information`.
 mod annotations;
 pub mod chord_evidence;
 pub mod clef_spatial;
 pub(crate) mod headers;
+pub mod image_policy;
 pub mod instrument_text;
 pub mod part_continuation;
 pub(crate) mod signature_state;
@@ -13,17 +13,24 @@ pub mod staff_label;
 mod staff_profile;
 use crate::auxiliary_onnx::SignatureReader;
 use crate::image_boundary;
-use crate::score_structure::program_from_visible_name;
 pub use annotations::attach_chord_annotations;
 use guitarocr_engine::llama;
-use image::{Rgb, RgbImage};
+#[cfg(test)]
+use image::Rgb;
+use image::RgbImage;
+pub use image_policy::{image_message, image_messages, normalize_score_image, ImagePolicy};
 use regex::Regex;
-use scorelib::chords::{diagram_effect, normalize_diagram};
+use scorelib::chords::{chord_key, diagram_effect, is_chord_symbol, normalize_diagram};
+use scorelib::information::prompts::{
+    document_header, header_field, information_schema, DIAGRAM_NAME_PROMPT, TEMPO_PROMPT,
+};
+use scorelib::information::{self, clean_text, conventional_octave, explicit_transposition};
+use scorelib::instruments::program_from_visible_name;
+use scorelib::pitch::{convert_measure_pitch, key_name, key_parts};
 use scorelib::score;
 use serde_json::{json, Map, Value};
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
-    io::Cursor,
     path::{Path, PathBuf},
 };
 
@@ -208,13 +215,6 @@ fn integer_range(value: &Value, low: i64, high: i64) -> Value {
         .filter(|v| (low..=high).contains(v))
         .map_or(Value::Null, |v| json!(v))
 }
-fn cleaned(value: &Value) -> Value {
-    value
-        .as_str()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map_or(Value::Null, |s| json!(s))
-}
 fn require_stage(value: &Value, stage: &str) -> Result<()> {
     if value["schema_version"] != "1.0" || value["stage"] != stage {
         Err(format!("Expected {stage} manifest schema 1.0"))
@@ -223,168 +223,6 @@ fn require_stage(value: &Value, stage: &str) -> Result<()> {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct ImagePolicy {
-    pub min_pixels: u64,
-    pub max_pixels: u64,
-    pub max_upscale: f64,
-    pub patch_multiple: u32,
-    pub page_max_pixels: u64,
-}
-impl Default for ImagePolicy {
-    fn default() -> Self {
-        Self {
-            min_pixels: 256 * 256,
-            max_pixels: 768 * 768,
-            max_upscale: 2.5,
-            patch_multiple: 28,
-            page_max_pixels: 768 * 768,
-        }
-    }
-}
-impl ImagePolicy {
-    pub fn from_value(v: &Value) -> Result<Self> {
-        if v["version"].as_u64() != Some(2) {
-            return Err("Unsupported score image policy version".into());
-        }
-        let mut p = Self::default();
-        p.min_pixels = match v.get("min_pixels") {
-            Some(value) => value.as_u64().ok_or("Invalid min_pixels")?,
-            None => 256 * 256,
-        };
-        p.max_pixels = v["max_pixels"].as_u64().ok_or("Missing max_pixels")?;
-        p.max_upscale = v["max_upscale"].as_f64().ok_or("Missing max_upscale")?;
-        p.patch_multiple = v["patch_multiple"]
-            .as_u64()
-            .and_then(|v| u32::try_from(v).ok())
-            .ok_or("Invalid patch_multiple")?;
-        p.page_max_pixels = match v.get("page_max_pixels") {
-            Some(value) => value.as_u64().ok_or("Invalid page_max_pixels")?,
-            None => p.max_pixels,
-        };
-        p.validate()?;
-        Ok(p)
-    }
-    fn validate(&self) -> Result<()> {
-        if self.patch_multiple == 0
-            || self.patch_multiple > 256
-            || self.max_pixels.min(self.page_max_pixels) < u64::from(self.patch_multiple).pow(2)
-            || self.max_pixels < 112 * 112
-            || self.page_max_pixels < 112 * 112
-            || self.max_pixels > image_boundary::MAX_PAGE_PIXELS
-            || self.page_max_pixels > image_boundary::MAX_PAGE_PIXELS
-            || self.min_pixels < 112 * 112
-            || self.min_pixels > self.max_pixels
-            || !self.max_upscale.is_finite()
-            || self.max_upscale <= 0.
-            || self.max_upscale > 16.
-        {
-            return Err("Invalid image policy bounds".into());
-        }
-        Ok(())
-    }
-}
-pub fn normalize_score_image(image: &RgbImage, policy: &ImagePolicy) -> Result<RgbImage> {
-    image_boundary::check_dimensions(image.width(), image.height())?;
-    policy.validate()?;
-    // Recognition content cannot determine scale. Printed lines, grids and
-    // font weight remain evidence for the model, never preprocessing classes.
-    let area = f64::from(image.width()) * f64::from(image.height());
-    let mut scale = policy
-        .max_upscale
-        .min((policy.min_pixels as f64 / area).sqrt().max(1.));
-    let budget = if image.width() >= 600 && image.height() >= 900 {
-        policy.page_max_pixels
-    } else {
-        policy.max_pixels
-    };
-    scale =
-        scale.min((budget as f64 / (f64::from(image.width()) * f64::from(image.height()))).sqrt());
-    let multiple = policy.patch_multiple;
-    let (width, height, pw, ph) = loop {
-        let w = (f64::from(image.width()) * scale).round_ties_even().max(1.) as u32;
-        let h = (f64::from(image.height()) * scale)
-            .round_ties_even()
-            .max(1.) as u32;
-        let pw = w.div_ceil(multiple) * multiple;
-        let ph = h.div_ceil(multiple) * multiple;
-        if u64::from(pw) * u64::from(ph) <= budget {
-            break (w, h, pw, ph);
-        }
-        scale *= 0.98;
-        if scale < 1e-12 {
-            return Err("Image policy cannot fit a padded image".into());
-        }
-    };
-    let mut pw = pw;
-    while u64::from(pw) * u64::from(ph) < 112 * 112 {
-        pw += multiple;
-    }
-    if u64::from(pw) * u64::from(ph) > budget {
-        return Err("Image policy cannot fit minimum processor area".into());
-    }
-    image_boundary::check_dimensions(pw, ph)?;
-    let resized = if image.dimensions() == (width, height) {
-        image.clone()
-    } else {
-        crate::image_transforms::resize_rgb_lanczos(image, width, height)
-    };
-    let mut canvas = RgbImage::from_pixel(pw, ph, Rgb([255; 3]));
-    image::imageops::replace(
-        &mut canvas,
-        &resized,
-        i64::from((pw - width) / 2),
-        i64::from((ph - height) / 2),
-    );
-    Ok(canvas)
-}
-fn base64(bytes: &[u8]) -> String {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
-    for c in bytes.chunks(3) {
-        let n = (u32::from(c[0]) << 16)
-            | (u32::from(*c.get(1).unwrap_or(&0)) << 8)
-            | u32::from(*c.get(2).unwrap_or(&0));
-        out.push(ALPHABET[(n >> 18) as usize] as char);
-        out.push(ALPHABET[((n >> 12) & 63) as usize] as char);
-        out.push(if c.len() > 1 {
-            ALPHABET[((n >> 6) & 63) as usize] as char
-        } else {
-            '='
-        });
-        out.push(if c.len() > 2 {
-            ALPHABET[(n & 63) as usize] as char
-        } else {
-            '='
-        });
-    }
-    out
-}
-pub fn image_message(image: &RgbImage, policy: Option<&ImagePolicy>) -> Result<Value> {
-    let normalized = policy
-        .map(|p| normalize_score_image(image, p))
-        .transpose()?;
-    let image = normalized.as_ref().unwrap_or(image);
-    let mut data = Cursor::new(Vec::new());
-    image
-        .write_to(&mut data, image::ImageFormat::Png)
-        .map_err(|e| e.to_string())?;
-    Ok(
-        json!({"type":"image_url","image_url":{"url":format!("data:image/png;base64,{}",base64(data.get_ref()))}}),
-    )
-}
-pub fn image_messages(
-    images: &[RgbImage],
-    prompt: &str,
-    policy: Option<&ImagePolicy>,
-) -> Result<Value> {
-    let mut content = images
-        .iter()
-        .map(|im| image_message(im, policy))
-        .collect::<Result<Vec<_>>>()?;
-    content.push(json!({"type":"text","text":prompt}));
-    Ok(json!([{"role":"user","content":content}]))
-}
 fn bbox(v: &Value) -> Result<[f64; 4]> {
     let a = v["bbox"]
         .as_array()
@@ -443,275 +281,6 @@ fn region_image(row: &Value) -> Result<RgbImage> {
     direct_crop(&page, bbox(&region)?)
 }
 
-/// Detector roles determine the destination; OCR only transcribes the crop.
-pub fn header_field(kind: &str) -> Option<&'static str> {
-    match kind {
-        "title" => Some("title"),
-        "subtitle" => Some("subtitle"),
-        "credit" => Some("artist"),
-        "tuning" => Some("tuning_name"),
-        "header_text" => Some("header_notes"),
-        _ => None,
-    }
-}
-pub fn document_header(kind: &str) -> bool {
-    matches!(
-        kind,
-        "header" | "title" | "subtitle" | "credit" | "header_text"
-    )
-}
-pub const HEADER_TEXT_PROMPT: &str = "Transcribe all visible text in this cropped score header, preserving its original language, spelling and punctuation. Return one JSON object with text; use null if unreadable. Do not infer missing words or identify the song.";
-pub const HEADER_PROMPT: &str = "Read only visible song title, artist or author credit (including composer, arranger or studio), and tuning label. Preserve the original language and spelling. Return one JSON object with title, artist, tuning_name; use null for absent fields. Tempo, playing techniques and chord names are not titles or author credits. Instrument and voice names are not song titles. An instrument's transposition designation is not a tuning label.";
-
-pub const DIAGRAM_NAME_PROMPT: &str = "Transcribe only the visible chord symbol in this cropped heading, preserving accidentals, extensions and slash bass. Return JSON with text, or null if unreadable. Do not infer the name from a fingering or identify the song.";
-
-pub const TEMPO_PROMPT: &str = "Read the visible metronome marking: a beat note, an equals sign and a number. Return JSON with beat_unit (whole, half, quarter, eighth, or sixteenth), dotted (true or false), and bpm (the printed number). Do not convert the number. Use null for all three fields when no complete metronome marking is visible or its beat unit or value is unreadable.";
-pub const STAFF_PROMPT: &str = "Read the first staff and its instrument label. Return JSON with instrument (guitar, bass, pitched, drums, or null if unknown) and string_count (number of TAB lines, or null if TAB is absent), and name (the visible instrument label, preserving abbreviations, or null if absent). Use the percussion clef for drums. Use pitched for other melodic instruments or unlabelled melodic notation; use null for unnamed TAB. Do not infer a string count from the five lines of standard notation.";
-pub const CLEF_PROMPT: &str = "Read the visible clef. Return JSON with clef (G2, F4, C3, C4, percussion, tab, or null) and clef_octave (0, -12, 12, -24, 24, or null if unreadable). A small 8 or 15 below the clef lowers its pitches; above raises them. Use tab with clef_octave 0 for a TAB symbol.";
-pub const ANNOTATION_PROMPT: &str = "Classify and read the visible score annotation. Return JSON with kind (instrument, ottava, capo, chord, chord_diagram, technique, tempo, title, credit, other, or null if unreadable), semitones (sounding minus written pitch, or null), capo (fret number, or null), and text (visible words, or null). A chord name such as Bb or F# and a chord fingering diagram are NOT transposition instructions. Let ring, P.M., vibrato and their continuation lines are techniques, NOT ottava. Use title for a song title and credit for a composer, arranger, artist or studio credit; preserve the original language. Use null pitch fields for non-pitch annotations. For ottava use 12 for 8va, -12 for 8vb, 24 for 15ma, -24 for 15mb. For instrument transposition use only an explicit instruction or an unambiguous instrument label. Do not treat a key signature or tuning as an instrument transposition. For chord_diagram also return diagram with base_fret, frets (absolute fret numbers, 0 open, \"x\" muted, LOW to HIGH string), fingers (visible numbers or null per string), barres ([absolute fret, zero-based low string index, high string index]). Preserve chord accidentals and slash bass. Read only visible dots and finger numbers; never derive a fingering from the chord name. Transcribe the evidence; do not invent missing words.";
-fn nullable(kind: &str) -> Value {
-    json!({"anyOf":[{"type":kind},{"type":"null"}]})
-}
-pub fn information_schema(kind: &str) -> Result<Value> {
-    let mut properties = Map::new();
-    match kind {
-        k if header_field(k).is_some() => {
-            properties.insert("text".into(), nullable("string"));
-        }
-        "header" => {
-            for key in ["title", "artist", "tuning_name"] {
-                properties.insert(key.into(), nullable("string"));
-            }
-        }
-        "tempo" => {
-            properties.insert(
-                "beat_unit".into(),
-                json!({"enum":["whole","half","quarter","eighth","sixteenth",null]}),
-            );
-            properties.insert("dotted".into(), nullable("boolean"));
-            properties.insert(
-                "bpm".into(),
-                json!({"anyOf":[{"type":"integer","minimum":1,"maximum":999},{"type":"null"}]}),
-            );
-        }
-        "staff" => {
-            properties.insert(
-                "instrument".into(),
-                json!({"enum":["guitar","bass","pitched","drums",null]}),
-            );
-            properties.insert(
-                "string_count".into(),
-                json!({"anyOf":[{"type":"integer","minimum":1,"maximum":12},{"type":"null"}]}),
-            );
-            properties.insert("name".into(), nullable("string"));
-        }
-        "clef" => {
-            properties.insert(
-                "clef".into(),
-                json!({"enum":["G2","F4","C3","C4","percussion","tab",null]}),
-            );
-            properties.insert("clef_octave".into(), json!({"enum":[0,-12,12,-24,24,null]}));
-        }
-        "annotation" | "transposition" | "text_annotation" => {
-            properties.insert("kind".into(),json!({"enum":["instrument","ottava","capo","chord","chord_diagram","technique","tempo","title","credit","other",null]}));
-            properties.insert(
-                "semitones".into(),
-                json!({"anyOf":[{"type":"integer","minimum":-36,"maximum":36},{"type":"null"}]}),
-            );
-            properties.insert(
-                "capo".into(),
-                json!({"anyOf":[{"type":"integer","minimum":0,"maximum":24},{"type":"null"}]}),
-            );
-            properties.insert("text".into(), nullable("string"));
-        }
-        _ => return Err(format!("Unsupported metadata region kind: {kind}")),
-    }
-    let required: Vec<String> = properties.keys().cloned().collect();
-    if matches!(kind, "annotation" | "transposition" | "text_annotation") {
-        properties.insert("diagram".into(),json!({"anyOf":[{"type":"null"},{"type":"object","additionalProperties":false,"required":["base_fret","frets","fingers","barres"],"properties":{"base_fret":{"type":"integer","minimum":1,"maximum":36},"frets":{"type":"array","minItems":3,"maxItems":12,"items":{"anyOf":[{"type":"integer","minimum":0,"maximum":36},{"const":"x"}]}},"fingers":{"type":"array","minItems":3,"maxItems":12,"items":{"enum":[null,0,1,2,3,4]}},"barres":{"type":"array","items":{"type":"array","minItems":3,"maxItems":3,"items":{"type":"integer","minimum":0,"maximum":36}}}}}]}));
-    }
-    Ok(
-        json!({"type":"object","additionalProperties":false,"required":required,"properties":properties}),
-    )
-}
-fn json_response(raw: &str) -> Result<Value> {
-    let start = raw.find('{').ok_or("Model response has no JSON object")?;
-    let end = raw
-        .rfind('}')
-        .ok_or("Model response has no closing brace")?;
-    if end < start {
-        return Err("Invalid JSON object delimiters".into());
-    }
-    let v: Value =
-        serde_json::from_str(&raw[start..=end]).map_err(|e| format!("Invalid model JSON: {e}"))?;
-    if !v.is_object() {
-        return Err("Expected model JSON object".into());
-    }
-    Ok(v)
-}
-pub fn conventional_octave(name: &str) -> Option<i64> {
-    match name
-        .trim()
-        .trim_end_matches('.')
-        .to_lowercase()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .as_str()
-    {
-        "piccolo" | "picc" => Some(12),
-        "contrabass" | "double bass" | "guitar" | "bass guitar" => Some(-12),
-        _ => None,
-    }
-}
-pub fn explicit_transposition(name: &str) -> Option<i64> {
-    let name = name
-        .trim()
-        .to_lowercase()
-        .replace('−', "-")
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
-    let name = name.trim_end_matches('.');
-    if ["concert pitch", "at concert pitch"].contains(&name) {
-        return Some(0);
-    }
-    if let Some(n) = conventional_octave(name) {
-        return Some(n);
-    }
-    if let Some(c) = Regex::new(r"^(?:transpose|written to sounding:)\s*([+-]?\d+)\s+semitones?$")
-        .unwrap()
-        .captures(name)
-    {
-        return c[1].parse::<i64>().ok().filter(|n| (-36..=36).contains(n));
-    }
-    if let Some(c) = Regex::new(r"^sounds\s+(\d+)\s+semitones?\s+(lower|higher)$")
-        .unwrap()
-        .captures(name)
-    {
-        return c[1]
-            .parse::<i64>()
-            .ok()
-            .map(|n| if &c[2] == "lower" { -n } else { n })
-            .filter(|n| (-36..=36).contains(n));
-    }
-    let name = Regex::new(r"\b([a-g])[ -]flat\b")
-        .unwrap()
-        .replace_all(&name.replace('♭', "b"), "${1}b")
-        .into_owned();
-    for (instrument, key, n) in [
-        ("clarinet", "bb", -2),
-        ("clarinet", "a", -3),
-        ("clarinet", "eb", 3),
-        ("bass clarinet", "bb", -14),
-        ("trumpet", "bb", -2),
-        ("trumpet", "a", -3),
-        ("trumpet", "c", 0),
-        ("trumpet", "d", 2),
-        ("trumpet", "eb", 3),
-        ("soprano sax(?:ophone)?", "bb", -2),
-        ("alto sax(?:ophone)?", "eb", -9),
-        ("tenor sax(?:ophone)?", "bb", -14),
-        ("baritone sax(?:ophone)?", "eb", -21),
-        ("(?:french )?horn", "f", -7),
-        ("(?:english horn|cor anglais)", "f", -7),
-    ] {
-        if Regex::new(&format!("^(?:{instrument} in {key}|{key} {instrument})$"))
-            .unwrap()
-            .is_match(&name)
-        {
-            return Some(n);
-        }
-    }
-    None
-}
-pub fn parse_info_response(raw: &str, kind: &str) -> Value {
-    let Ok(v) = json_response(raw) else {
-        return json!({});
-    };
-    // A text proposal cannot establish fingering geometry.
-    if kind == "text_annotation" && v["kind"] == "chord_diagram" {
-        return json!({"kind":"other","text":cleaned(&v["text"]),"semitones":null,"capo":null});
-    }
-    match kind {
-        k if header_field(k).is_some() => {
-            let key = header_field(k).unwrap();
-            json!({key: cleaned(&v["text"])})
-        }
-        "header" => {
-            json!({"title":cleaned(&v["title"]),"artist":cleaned(&v["artist"]),"tuning_name":cleaned(&v["tuning_name"])})
-        }
-        "staff" => {
-            json!({"instrument":v["instrument"].as_str().filter(|s|["guitar","bass","pitched","drums"].contains(s)),"string_count":integer_range(&v["string_count"],1,12),"name":cleaned(&v["name"])})
-        }
-        "clef" => {
-            json!({"clef":v["clef"].as_str().filter(|s|["G2","F4","C3","C4","percussion","tab"].contains(s)),"clef_octave":v["clef_octave"].as_i64().filter(|n|[-24,-12,0,12,24].contains(n))})
-        }
-        "tempo" => {
-            let denominator = match v["beat_unit"].as_str() {
-                Some("whole") => 1.,
-                Some("half") => 2.,
-                Some("quarter") => 4.,
-                Some("eighth") => 8.,
-                Some("sixteenth") => 16.,
-                _ => return json!({}),
-            };
-            let Some(dotted) = v["dotted"].as_bool() else {
-                return json!({});
-            };
-            let Some(bpm) = integer_range(&v["bpm"], 1, 999).as_i64() else {
-                return json!({});
-            };
-            // GP5 stores an integer quarter-note tempo. OCR only transcribes
-            // the printed pulse; musical unit conversion belongs here.
-            let quarter =
-                (bpm as f64 * 4. / denominator * if dotted { 1.5 } else { 1. }).round() as i64;
-            if !(1..=999).contains(&quarter) {
-                return json!({});
-            }
-            json!({"tempo_quarter":quarter,"beat_unit":v["beat_unit"],"dotted":dotted,"bpm":bpm})
-        }
-        "annotation" | "transposition" | "text_annotation" => {
-            let mut kind = text(&v, "kind", "");
-            let words = cleaned(&v["text"]);
-            let words_str = words.as_str().unwrap_or("");
-            // Harmonic syntax is independent of the region's detection label.
-            // Keep a misclassified title/instrument label as visible text.
-            if kind == "chord" && !is_chord_symbol(words_str) {
-                kind = "other";
-            }
-            if [
-                "chord",
-                "chord_diagram",
-                "technique",
-                "tempo",
-                "title",
-                "credit",
-                "other",
-            ]
-            .contains(&kind)
-            {
-                let mut r = json!({"kind":kind,"semitones":null,"capo":null,"text":words});
-                if kind == "chord_diagram" {
-                    r["diagram"] = normalize_diagram(&v["diagram"]);
-                }
-                return r;
-            }
-            let mut shift = None;
-            let mut capo = None;
-            match kind{
- "instrument"=>{shift=explicit_transposition(words_str).or_else(||(program_from_visible_name(words_str).is_some()&&v["semitones"]==0).then_some(0));},
- "ottava"=>{let mark=Regex::new(r"[\s.\-–_]+").unwrap().replace_all(&words_str.to_lowercase(),"").into_owned();shift=match mark.as_str(){"8va"|"8vaalta"|"ottava"=>Some(12),"8vb"|"8vabassa"|"8ba"|"ottavabassa"=>Some(-12),"15ma"|"15maalta"=>Some(24),"15mb"|"15mabassa"|"15ba"=>Some(-24),_=>None};},
- "capo"=>{if let Some(c)=Regex::new(r"(?i)^\s*(?:capo|capodastro|capotasto|变调夹)\s*[:=.]?\s*(?:(?:at|on)\s+)?(?:fret\s+)?(\d{1,2}|[IVX]{1,5})(?:st|nd|rd|th)?\s*(?:fret|品)?\s*$").unwrap().captures(words_str){capo=c[1].parse::<i64>().ok().or_else(||(1..25).find(|&n|format!("{}{}","X".repeat(n as usize/10),["","I","II","III","IV","V","VI","VII","VIII","IX"][n as usize%10])==c[1].to_uppercase())).filter(|n|(0..=24).contains(n));}},_=>{}}
-            if shift.is_none() && capo.is_none() {
-                json!({"kind":null,"semitones":null,"capo":null,"text":if ["instrument","ottava","capo"].contains(&kind){words}else{Value::Null}})
-            } else {
-                json!({"kind":kind,"semitones":shift,"capo":capo,"text":words})
-            }
-        }
-        _ => json!({}),
-    }
-}
 fn metadata_from_predictions(predictions: &[Value], opening_bar: i64) -> Value {
     let mut m = json!({"source":"image_score_ocr"});
     let mut fields = json!({});
@@ -719,7 +288,7 @@ fn metadata_from_predictions(predictions: &[Value], opening_bar: i64) -> Value {
     for p in predictions {
         let kind = text(p, "kind", "");
         if let Some(key) = header_field(kind) {
-            if let Some(value) = cleaned(&p["parsed"][key]).as_str() {
+            if let Some(value) = clean_text(&p["parsed"][key]).as_str() {
                 let old = fields[key].as_str().unwrap_or("");
                 if old.is_empty() {
                     fields[key] = json!(value);
@@ -732,7 +301,7 @@ fn metadata_from_predictions(predictions: &[Value], opening_bar: i64) -> Value {
         } else if kind == "header" {
             if let Some(fields) = p["parsed"].as_object() {
                 for (key, value) in fields {
-                    if !cleaned(value).is_null() && cleaned(&m[key]).is_null() {
+                    if !clean_text(value).is_null() && clean_text(&m[key]).is_null() {
                         m[key] = value.clone();
                     }
                 }
@@ -760,7 +329,7 @@ fn metadata_from_predictions(predictions: &[Value], opening_bar: i64) -> Value {
             "credit" => "artist",
             _ => continue,
         };
-        if cleaned(&m[key]).is_null() && !cleaned(&p["parsed"]["text"]).is_null() {
+        if clean_text(&m[key]).is_null() && !clean_text(&p["parsed"]["text"]).is_null() {
             m[key] = p["parsed"]["text"].clone();
         }
     }
@@ -925,28 +494,7 @@ pub struct InformationOutput {
     pub predictions: Vec<Value>,
     pub structure_predictions: Vec<Value>,
 }
-fn region_prompt(kind: &str) -> Result<&'static str> {
-    match kind {
-        k if header_field(k).is_some() => Ok(HEADER_TEXT_PROMPT),
-        "header" => Ok(HEADER_PROMPT),
-        "text_annotation" => Ok(ANNOTATION_PROMPT),
-        "tempo" => Ok(TEMPO_PROMPT),
-        "staff" => Ok(STAFF_PROMPT),
-        "clef" => Ok(CLEF_PROMPT),
-        "annotation" | "transposition" => Ok(ANNOTATION_PROMPT),
-        _ => Err(format!("Unsupported metadata region: {kind}")),
-    }
-}
-pub fn recognize_regions<G: Generator + ?Sized>(
-    engine: &mut G,
-    regions: &[Value],
-    policy: Option<&ImagePolicy>,
-    cancelled: &dyn Fn() -> bool,
-) -> Result<Vec<Value>> {
-    recognize_regions_with_evidence(engine, regions, policy, cancelled, None, None)
-}
-
-fn recognize_regions_with_evidence<G: Generator + ?Sized>(
+fn recognize_regions<G: Generator + ?Sized>(
     engine: &mut G,
     regions: &[Value],
     policy: Option<&ImagePolicy>,
@@ -999,7 +547,7 @@ fn recognize_regions_with_evidence<G: Generator + ?Sized>(
                 }
             }
             messages.push((
-                image_messages(&[image], region_prompt(read_kind)?, policy)?,
+                image_messages(&[image], information::prompt(read_kind)?, policy)?,
                 Some(schema),
                 OcrTask::from_region(read_kind),
             ));
@@ -1046,14 +594,14 @@ fn recognize_regions_with_evidence<G: Generator + ?Sized>(
             } else {
                 kind
             };
-            let mut parsed = parse_info_response(response.content.trim(), read_kind);
+            let mut parsed = information::parse_response(response.content.trim(), read_kind);
             let mut visual_evidence = Value::Null;
             let mut attempts = vec![
                 json!({"raw":response.content,"parsed":parsed,"generated_token_count":response.completion_tokens}),
             ];
             if matches!(kind, "annotation" | "transposition") {
                 let tempo = tempo_responses.remove(&index).unwrap();
-                let value = parse_info_response(tempo.content.trim(), "tempo");
+                let value = information::parse_response(tempo.content.trim(), "tempo");
                 attempts.push(json!({"purpose":"tempo_marking","raw":tempo.content,
                     "parsed":value,"generated_token_count":tempo.completion_tokens,
                     "task_adapter_applied":engine.task_adapter_applied(OcrTask::Tempo)}));
@@ -1623,11 +1171,13 @@ pub fn apply_pitch_regions(
             }
         }
         let mut local_clef = json!({});
-        if uses_clef && changes.get(&i).is_some_and(|changes| {
-            changes
-                .iter()
-                .any(|p| p["kind"] == "clef" && p["parsed"]["clef"] != "tab")
-        }) {
+        if uses_clef
+            && changes.get(&i).is_some_and(|changes| {
+                changes
+                    .iter()
+                    .any(|p| p["kind"] == "clef" && p["parsed"]["clef"] != "tab")
+            })
+        {
             for field in ["clef", "clef_octave"] {
                 local_clef[field] = json!({"status":if state[field].is_null() || pending.contains(field) {"unknown"}else{"observed"},
                     "value":state[field],"source":"information_ocr"});
@@ -1787,7 +1337,7 @@ pub fn recognize_information<G: Generator + ?Sized>(
         .as_deref()
         .map(clef_spatial::ClefSpatialReader::new)
         .transpose()?;
-    let mut predictions = recognize_regions_with_evidence(
+    let mut predictions = recognize_regions(
         engine,
         &regions,
         config.image_policy.as_ref(),
@@ -1897,9 +1447,9 @@ pub fn recognize_information<G: Generator + ?Sized>(
             })
             .unwrap_or_else(|| text(part, "name", ""))
             .to_owned();
-        if label_evidence.is_some() {
+        if let Some(evidence) = label_evidence {
             metadata["name"] = json!(effective_name);
-            metadata["staff_label_evidence"] = label_evidence.unwrap().clone();
+            metadata["staff_label_evidence"] = evidence.clone();
         }
         let count_evidence = if let Some(evidence) = part
             .get("string_count_evidence")
@@ -2385,14 +1935,19 @@ pub fn prepare_records(layout: &Value, information: &Value) -> Result<Vec<Value>
                 });
             }
         }
+        let part_name = text(row, "part_name", "").trim();
+        let part_label = if part_name.is_empty() {
+            "当前音轨".to_owned()
+        } else {
+            format!("“{part_name}”")
+        };
         if !matches!(
             row["instrument"].as_str(),
             Some("guitar" | "bass" | "pitched" | "drums")
         ) || row["instrument_needs_review"] == true
         {
             return Err(format!(
-                "请先在“校对谱面信息”中确认“{}”的乐器，再识别小节。",
-                text(row, "part_name", "当前音轨")
+                "请先在“校对谱面信息”中确认{part_label}的乐器，再识别小节。"
             ));
         }
         if row["mode"].is_null() {
@@ -2407,8 +1962,7 @@ pub fn prepare_records(layout: &Value, information: &Value) -> Result<Vec<Value>
         let tuning = integers(&row["tuning"])?;
         if tuning.is_empty() && matches!(text(row, "instrument", ""), "guitar" | "bass") {
             return Err(format!(
-                "请先在“校对谱面信息”中填写“{}”的调弦，再识别小节。",
-                text(row, "part_name", "当前音轨")
+                "请先在“校对谱面信息”中填写{part_label}的调弦，再识别小节。"
             ));
         }
         if tuning.len() > 12 || tuning.iter().any(|n| !(0..=127).contains(n)) {
@@ -2472,158 +2026,6 @@ pub fn read_score_states(
     }
     Ok(predictions)
 }
-const MAJOR_KEYS: [&str; 17] = [
-    "FMajorFlat",
-    "CMajorFlat",
-    "GMajorFlat",
-    "DMajorFlat",
-    "AMajorFlat",
-    "EMajorFlat",
-    "BMajorFlat",
-    "FMajor",
-    "CMajor",
-    "GMajor",
-    "DMajor",
-    "AMajor",
-    "EMajor",
-    "BMajor",
-    "FMajorSharp",
-    "CMajorSharp",
-    "GMajorSharp",
-];
-const MINOR_KEYS: [&str; 17] = [
-    "DMinorFlat",
-    "AMinorFlat",
-    "EMinorFlat",
-    "BMinorFlat",
-    "FMinor",
-    "CMinor",
-    "GMinor",
-    "DMinor",
-    "AMinor",
-    "EMinor",
-    "BMinor",
-    "FMinorSharp",
-    "CMinorSharp",
-    "GMinorSharp",
-    "DMinorSharp",
-    "AMinorSharp",
-    "EMinorSharp",
-];
-fn key_parts(name: &str) -> Result<(i64, bool)> {
-    for (minor, names) in [(false, &MAJOR_KEYS), (true, &MINOR_KEYS)] {
-        if let Some(i) = names.iter().position(|n| *n == name) {
-            return Ok((i as i64 - 8, minor));
-        }
-    }
-    Err(format!("Unknown key signature: {name}"))
-}
-fn key_name(fifths: i64, minor: bool) -> Result<&'static str> {
-    if !(-8..=8).contains(&fifths) {
-        return Err("Key accidental count outside supported range".into());
-    }
-    Ok(if minor {
-        MINOR_KEYS[(fifths + 8) as usize]
-    } else {
-        MAJOR_KEYS[(fifths + 8) as usize]
-    })
-}
-fn transpose_key(name: &str, shift: i64) -> Result<String> {
-    if shift.rem_euclid(12) == 0 {
-        return Ok(name.into());
-    }
-    let (fifths, minor) = key_parts(name)?;
-    let tonic = (7 * fifths + if minor { 9 } else { 0 } + shift).rem_euclid(12);
-    let chosen = (-8i64..=8)
-        .filter(|f| (7 * f + if minor { 9 } else { 0 }).rem_euclid(12) == tonic)
-        .min_by_key(|f| (f.abs(), (f - fifths).abs()))
-        .ok_or("No transposed key spelling")?;
-    Ok(key_name(chosen, minor)?.into())
-}
-fn ornament(position: &str) -> Option<(Option<i64>, Option<i64>)> {
-    let re = Regex::new(r"^(?:f(\d+))?(?:p(\d+))?$").unwrap();
-    let c = re.captures(position)?;
-    Some((
-        c.get(1).and_then(|m| m.as_str().parse().ok()),
-        c.get(2).and_then(|m| m.as_str().parse().ok()),
-    ))
-}
-pub fn convert_pitch_target(target: &str, context: &Value, mode: &str) -> Result<String> {
-    convert_pitch_direction(target, context, mode, 1)
-}
-fn convert_pitch_direction(
-    target: &str,
-    context: &Value,
-    mode: &str,
-    direction: i64,
-) -> Result<String> {
-    let mut m = score::parse_measure_target(target)?;
-    convert_measure_pitch(&mut m, context, direction)?;
-    score::format_measure_target(&m, mode, true)
-}
-
-fn convert_measure_pitch(m: &mut Value, context: &Value, direction: i64) -> Result<()> {
-    let instrument = context["instrument_transpose"].as_i64().unwrap_or(0);
-    let base = instrument + context["clef_octave"].as_i64().unwrap_or(0)
-        - context["capo"].as_i64().unwrap_or(0);
-    if !(-108..=108).contains(&base) {
-        return Err("Invalid pitch context range".into());
-    }
-    if let Some(key) = m["key_signature"].as_str() {
-        m["key_signature"] = json!(transpose_key(key, direction * instrument)?);
-    }
-    for voice in m["voices"].as_array_mut().unwrap() {
-        for event in voice["events"].as_array_mut().unwrap() {
-            let octaves: Vec<i64> = list(event, "effects")
-                .iter()
-                .filter_map(Value::as_str)
-                .filter_map(|s| s.strip_prefix("ottava:"))
-                .map(|s| s.parse::<i64>().map_err(|_| "Invalid ottava".to_owned()))
-                .collect::<Result<_>>()?;
-            if octaves.len() > 1 || octaves.iter().any(|n| ![-24, -12, 12, 24].contains(n)) {
-                return Err("Invalid local octave instruction".into());
-            }
-            let shift = direction * (base + octaves.first().copied().unwrap_or(0));
-            for note in event["notes"].as_array_mut().unwrap() {
-                if list(note, "effects").iter().any(|e| e == "dead") {
-                    continue;
-                }
-                // A partial export can retain a visible TAB position without
-                // a notation pitch. Its string/fret already identifies sound.
-                if let Some(pitch) = note["pitch"].as_i64() {
-                    let pitch = pitch + shift;
-                    if !(0..=127).contains(&pitch) {
-                        return Err("Transposed pitch is outside MIDI range".into());
-                    }
-                    note["pitch"] = json!(pitch);
-                } else if !(note["string"].is_i64()
-                    && (note["fret"].is_i64() || note["fret"] == "x"))
-                {
-                    return Err("Missing written pitch".into());
-                }
-                for effect in note["effects"].as_array_mut().unwrap() {
-                    let raw = effect.as_str().unwrap();
-                    let mut parts: Vec<String> = raw.split(':').map(str::to_owned).collect();
-                    if parts.len() > 1 && matches!(parts[0].as_str(), "grace" | "trill") {
-                        if let Some((fret, Some(p))) = ornament(&parts[1]) {
-                            let p = p + shift;
-                            if !(0..=127).contains(&p) {
-                                return Err("Transposed ornament is outside MIDI range".into());
-                            }
-                            parts[1] = format!(
-                                "{}p{p}",
-                                fret.map(|f| format!("f{f}")).unwrap_or_default()
-                            );
-                        }
-                    }
-                    *effect = json!(parts.join(":"));
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
 fn written_measure_state(row: &Value, measure: &mut Value) -> Result<()> {
     if row["mode"] != "tab" {
         if let Some(fifths) = row["score_state"]["key"].as_i64() {
@@ -2918,7 +2320,7 @@ fn assembly_auxiliary(row: &Value, information: &Value) -> Result<Value> {
             target.to_owned()
         } else {
             let context = product_pitch_context(row);
-            convert_pitch_direction(target, &context, mode, -1)?
+            scorelib::pitch::convert_pitch(target, &context, mode, true)?
         };
         let mut measure = score::parse_measure_target(&written)?;
         if !measure["time_signature"].is_null() {
@@ -3087,6 +2489,66 @@ pub fn refresh_issues(row: &mut Value) -> Result<()> {
     Ok(())
 }
 
+fn assembled_target(row: &mut Value, written: &str) -> Result<String> {
+    let mode = text(row, "mode", "tab").to_owned();
+    let mut measure = score::parse_measure_target(written)?;
+    written_measure_state(row, &mut measure)?;
+    let written = score::format_measure_target(&measure, &mode, true)?;
+    row["written_target"] = json!(written);
+    if mode == "tab" || row["instrument"] == "drums" {
+        return Ok(written);
+    }
+    if row["score_state"]["clef_octave"].is_null() {
+        return Err("Clef octave is unreadable; confirm the visible clef modifier".into());
+    }
+    convert_measure_pitch(&mut measure, &product_pitch_context(row), 1)?;
+    score::format_measure_target(&measure, &mode, true)
+}
+
+fn reconcile_opening_tempo(records: &[Value], information: &mut Value) {
+    if information["document_metadata"]["tempo_source"] != "information_region" {
+        return;
+    }
+    let Some(initial) = information["document_metadata"]["tempo_quarter"].as_i64() else {
+        return;
+    };
+    let Some(first) = records.first() else { return };
+    let evidence_count = list(first, "tempo_regions")
+        .iter()
+        .filter(|region| region["tempo_quarter"] == initial)
+        .count();
+    if evidence_count != 1 {
+        return;
+    }
+    // The information pass has no event onsets. A single marking located
+    // inside the opening bar supplies a tempo change, not its header tempo.
+    let effect = json!(format!("tempo:{initial}"));
+    let mut later = false;
+    for event in records
+        .iter()
+        .filter(|row| bar_index(row) == bar_index(first))
+        .flat_map(|row| list(&row["resolved"], "voices"))
+        .flat_map(|voice| list(voice, "events"))
+        .filter(|event| list(event, "effects").contains(&effect))
+    {
+        if event["start"].as_i64().is_none_or(|start| start <= 0) {
+            return;
+        }
+        later = true;
+    }
+    if !later {
+        return;
+    }
+    information["document_metadata"]["tempo_quarter"] = Value::Null;
+    for part in information["parts"].as_array_mut().into_iter().flatten() {
+        if part["document_metadata"]["tempo_source"] == "information_region"
+            && part["document_metadata"]["tempo_quarter"] == initial
+        {
+            part["document_metadata"]["tempo_quarter"] = Value::Null;
+        }
+    }
+}
+
 /// Reassemble all bars after recognition or editing so ties and scopes update
 /// their neighbours without another model call.
 pub fn finalize_records(records: &mut [Value], information: &mut Value) -> Result<()> {
@@ -3146,24 +2608,7 @@ pub fn finalize_records(records: &mut [Value], information: &mut Value) -> Resul
         if !flag(row, "manually_edited") {
             row["target"] = Value::Null;
             if let Some(written) = assembly["ir"].as_str() {
-                let mode = text(row, "mode", "tab").to_owned();
-                let converted = (|| -> Result<String> {
-                    let mut measure = score::parse_measure_target(written)?;
-                    written_measure_state(row, &mut measure)?;
-                    let written = score::format_measure_target(&measure, &mode, true)?;
-                    row["written_target"] = json!(written);
-                    if mode == "tab" || row["instrument"] == "drums" {
-                        return Ok(written);
-                    }
-                    if row["score_state"]["clef_octave"].is_null() {
-                        return Err(
-                            "Clef octave is unreadable; confirm the visible clef modifier".into(),
-                        );
-                    }
-                    let context = product_pitch_context(row);
-                    convert_pitch_target(&written, &context, &mode)
-                })();
-                match converted {
+                match assembled_target(row, written) {
                     Ok(target) => row["target"] = json!(target),
                     Err(error) => row["unresolved"]
                         .as_array_mut()
@@ -3200,46 +2645,8 @@ pub fn finalize_records(records: &mut [Value], information: &mut Value) -> Resul
         }
     }
     attach_chord_annotations(records, &annotations)?;
+    reconcile_opening_tempo(records, information);
     let opening = records.first().map(bar_index);
-    // The information pass has no event onsets. If the only opening marking
-    // is subsequently located inside the bar, it must not become its header.
-    if information["document_metadata"]["tempo_source"] == "information_region" {
-        let initial = information["document_metadata"]["tempo_quarter"].as_i64();
-        if let Some(initial) = initial {
-            let first = records.iter().find(|row| Some(bar_index(row)) == opening);
-            let evidence_count = first.map_or(0, |row| {
-                list(row, "tempo_regions")
-                    .iter()
-                    .filter(|region| region["tempo_quarter"] == initial)
-                    .count()
-            });
-            let mut later = false;
-            let mut opening_or_unknown = false;
-            for row in records.iter().filter(|row| Some(bar_index(row)) == opening) {
-                for voice in list(&row["resolved"], "voices") {
-                    for event in list(voice, "events") {
-                        if list(event, "effects").contains(&json!(format!("tempo:{initial}"))) {
-                            if event["start"].as_i64().is_some_and(|start| start > 0) {
-                                later = true;
-                            } else {
-                                opening_or_unknown = true;
-                            }
-                        }
-                    }
-                }
-            }
-            if evidence_count == 1 && later && !opening_or_unknown {
-                information["document_metadata"]["tempo_quarter"] = Value::Null;
-                for part in information["parts"].as_array_mut().into_iter().flatten() {
-                    if part["document_metadata"]["tempo_source"] == "information_region"
-                        && part["document_metadata"]["tempo_quarter"] == initial
-                    {
-                        part["document_metadata"]["tempo_quarter"] = Value::Null;
-                    }
-                }
-            }
-        }
-    }
     let tempo = information["document_metadata"]["tempo_quarter"]
         .as_i64()
         .filter(|n| (1..=999).contains(n));
@@ -3261,19 +2668,16 @@ pub fn finalize_records(records: &mut [Value], information: &mut Value) -> Resul
             }
         }
     }
-    let mut groups: BTreeMap<String, Vec<usize>> = BTreeMap::new();
-    for (i, r) in records.iter().enumerate() {
-        groups
-            .entry(text(r, "part_id", "part-1").into())
-            .or_default()
-            .push(i);
+    let mut first_by_part = BTreeMap::new();
+    for row in records.iter() {
+        first_by_part
+            .entry(text(row, "part_id", "part-1"))
+            .or_insert(row);
     }
-    for (part, indices) in groups {
-        if let Some(parts) = information["parts"].as_array_mut() {
-            if let Some(p) = parts.iter_mut().find(|p| text(p, "id", "") == part) {
-                p["tuning_used"] = records[indices[0]]["tuning"].clone();
-                p["tuning_source"] = records[indices[0]]["tuning_source"].clone();
-            }
+    for part in information["parts"].as_array_mut().into_iter().flatten() {
+        if let Some(first) = first_by_part.get(text(part, "id", "")) {
+            part["tuning_used"] = first["tuning"].clone();
+            part["tuning_source"] = first["tuning_source"].clone();
         }
     }
     for row in records.iter_mut() {
@@ -3297,35 +2701,10 @@ pub fn reassemble(source: &mut Value) -> Result<()> {
 }
 
 fn unquote(value: &str) -> String {
-    let mut out = vec![];
-    let bytes = value.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let (Some(high), Some(low)) = (
-                (bytes[i + 1] as char).to_digit(16),
-                (bytes[i + 2] as char).to_digit(16),
-            ) {
-                let n = (high * 16 + low) as u8;
-                out.push(n);
-                i += 3;
-                continue;
-            }
-        }
-        out.push(bytes[i]);
-        i += 1;
-    }
-    String::from_utf8_lossy(&out).into_owned()
+    percent_encoding::percent_decode_str(value)
+        .decode_utf8_lossy()
+        .into_owned()
 }
-fn chord_key(value: &str) -> String {
-    value
-        .chars()
-        .filter(|c| !c.is_whitespace())
-        .collect::<String>()
-        .replace('♭', "b")
-        .replace('♯', "#")
-}
-
 /// Preserve accepted/manual OCR records after compatible metadata edits.
 /// Rebuild derived pitches from retained observations when context changes.
 pub fn update_information(source: &Value, information: &Value) -> Result<Option<Value>> {
@@ -3446,36 +2825,6 @@ fn event_chord_name(event: &Value) -> Option<String> {
         .find_map(|effect| effect.strip_prefix("chord:"))
         .map(unquote)
 }
-pub fn is_chord_symbol(name: &str) -> bool {
-    use std::sync::OnceLock;
-    use unicode_normalization::UnicodeNormalization;
-    static PATTERN: OnceLock<Regex> = OnceLock::new();
-    static MODIFIER: OnceLock<Regex> = OnceLock::new();
-    let pattern = PATTERN.get_or_init(|| {
-        let accidental = r"(?:##|bb|#|b|x)?";
-        let root = format!(r"(?:[A-Ha-h]{accidental}|{accidental}(?:[IViv]+|[1-7]))");
-        let quality = r"(?:[mM]aj|[mM]in|dim|aug|sus|dom|m|M|\+|-|°|ø|Δ|o)?";
-        let extension = r"(?:2|4|5|6|7|9|11|13)?";
-        let modifier = r"(?:[#b](?:5|6|7|9|11|13)|(?:[mM]aj|M)(?:7|9|11|13)|(?:sus|add|omit|no)(?:2|3|4|5|6|7|9|11|13)|alt)";
-        let suffix = format!(r"{quality}{extension}(?:M|\+|-|°|ø)?(?:{modifier}){{0,4}}");
-        let group = format!(r"(?:\((?:{modifier}|{extension})(?:,?(?:{modifier}|{extension})){{0,3}}\))?");
-        Regex::new(&format!(r"\A{root}{suffix}{group}(?:/(?:{root}|9|11|13))?\z")).unwrap()
-    });
-    let modifier = MODIFIER
-        .get_or_init(|| Regex::new(r"(?:[#b]|sus|add|omit|no)(?:2|3|4|5|6|7|9|11|13)").unwrap());
-    let normalized = chord_key(&name.nfkc().collect::<String>())
-        .replace("major", "maj")
-        .replace("minor", "min");
-    if ["nc", "n.c", "n.c.", "nochord"].contains(&normalized.to_lowercase().as_str()) {
-        return true;
-    }
-    let pieces: Vec<_> = modifier.find_iter(&normalized).collect();
-    let repeated = pieces
-        .windows(2)
-        .any(|p| p[0].end() == p[1].start() && p[0].as_str() == p[1].as_str());
-    pattern.is_match(&normalized) && !repeated
-}
-
 pub fn chord_recognition_errors(measure: &Value) -> Vec<String> {
     let mut errors = Vec::new();
     for voice in list(measure, "voices") {
@@ -3524,13 +2873,16 @@ mod observation_pipeline_tests {
             ("sixteenth", false, 80, 20),
         ] {
             let raw = json!({"beat_unit":unit,"dotted":dotted,"bpm":bpm}).to_string();
-            assert_eq!(parse_info_response(&raw, "tempo")["tempo_quarter"], quarter);
+            assert_eq!(
+                information::parse_response(&raw, "tempo")["tempo_quarter"],
+                quarter
+            );
         }
-        assert!(
-            parse_info_response(r#"{"beat_unit":null,"dotted":null,"bpm":120}"#, "tempo")
-                ["tempo_quarter"]
-                .is_null()
-        );
+        assert!(information::parse_response(
+            r#"{"beat_unit":null,"dotted":null,"bpm":120}"#,
+            "tempo"
+        )["tempo_quarter"]
+            .is_null());
         struct Reader(usize);
         impl Generator for Reader {
             fn task_adapter_applied(&self, task: OcrTask) -> bool {
@@ -3590,7 +2942,7 @@ mod observation_pipeline_tests {
             {"kind":"tempo","image":path,"page":1,"bbox":[200,0,100,40]}
         ]);
         let mut engine = Reader(0);
-        let predictions = recognize_regions_with_evidence(
+        let predictions = recognize_regions(
             &mut engine,
             regions.as_array().unwrap(),
             None,
@@ -4157,7 +3509,10 @@ mod observation_pipeline_tests {
         assert_eq!(list(&mixed[0], "pitch_issues").len(), 2);
         assert_eq!(mixed[1]["clef_observation"], json!({}));
         assert_eq!(list(&mixed[1], "pitch_issues").len(), 1);
-        assert_eq!(mixed[1]["pitch_issues"][0]["message"], "音高指示尚不明确：capo");
+        assert_eq!(
+            mixed[1]["pitch_issues"][0]["message"],
+            "音高指示尚不明确：capo"
+        );
         assert_eq!(list(&mixed[2], "pitch_issues").len(), 3);
     }
 }

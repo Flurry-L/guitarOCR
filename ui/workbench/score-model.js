@@ -1,34 +1,25 @@
-// Edit the existing score structure; untouched notes retain all their fields.
+// Score editing helpers, musical labels, and previews.
+import { parseDuration, describeDuration } from "./score-theory.js";
 export const clone = (value) => structuredClone(value);
-// A display projection only. Incomplete evidence never becomes an editable
-// measure or an exportable score merely because some events can be drawn.
+// Project drawable events from a partially assembled measure.
 export function observationPreview(record) {
   const conflicts = new Set((record.unresolved || [])
     .filter(issue => issue.reason === "dual_note_pairing_unresolved")
     .map(issue => `${issue.voice}:${issue.event}`));
-  const duration = token => {
-    const match = /^(w|h|q|e|s|t|f|d[0-9]+)(\.\.|\.)?(?:\[([0-9]+):([0-9]+)\])?$/.exec(token);
-    if (!match) return null;
-    const value = { w: 1, h: 2, q: 4, e: 8, s: 16, t: 32, f: 64 }[match[1]] ?? Number(match[1].slice(1));
-    const enters = Number(match[3] || 1), times = Number(match[4] || 1);
-    return value > 0 && enters > 0 && times > 0
-      ? { value, dotted: match[2] === ".", double_dotted: match[2] === "..", tuplet_enters: enters, tuplet_times: times }
-      : null;
-  };
   const state = record.resolved?.state || {};
   const needs = record.mode === "tab" ? ["string", "fret"]
     : record.mode === "notation" ? ["pitch"] : ["string", "fret", "pitch"];
   const voices = (record.resolved?.voices || []).map(voice => ({
     voice: voice.voice,
     events: (voice.events || []).flatMap((event, index) => {
-      const rhythm = duration(event.duration);
+      const rhythm = parseDuration(event.duration);
       if (!Number.isSafeInteger(event.start) || event.start < 0 || !rhythm
         || !["normal", "rest", "empty"].includes(event.status)
         || conflicts.has(`${voice.voice}:${index}`)) return [];
       // Conflicting rhythm has no faithful single-voice engraving. Do not
       // move a later note to the end of an overlapping observation.
       if (voice.events.some((other, j) => {
-        const d = duration(other.duration);
+        const d = parseDuration(other.duration);
         return j !== index && Number.isSafeInteger(other.start) && d
           && other.start < event.start + ticks({duration: rhythm})
           && event.start < other.start + ticks({duration: d});
@@ -64,6 +55,114 @@ export function parsePitch(value) {
     + (["#", "♯"].includes(m[2]) ? 1 : ["b", "♭"].includes(m[2]) ? -1 : 0) + (+m[3] + 1) * 12;
   if (pitch < 0 || pitch > 127) throw new Error("音高超出 MIDI 范围。");
   return pitch;
+}
+// Tuning follows string order: first (highest) string to the lowest string.
+export function parseTuning(text) {
+  const entries = String(text || "").trim().split(/[,，、/]/);
+  if (entries.some(entry => !entry.trim()))
+    throw new Error("请为每根弦填写音名或 MIDI 编号，例如 E4, B3, G3, D3, A2, E2。");
+  const tokens = entries.flatMap(entry => entry.trim().split(/\s+/));
+  if (tokens.length < 1 || tokens.length > 12)
+    throw new Error("请填写 1 至 12 根弦的音名或 MIDI 编号，如 E4, B3, G3, D3, A2, E2。");
+  return tokens.map(token => {
+    if (/^\d+$/.test(token)) {
+      const pitch = Number(token);
+      if (pitch > 127) throw new Error(`MIDI 音高 ${token} 超出 0–127 范围。`);
+      return pitch;
+    }
+    return parsePitch(token);
+  });
+}
+export function formatTuning(pitches = []) {
+  return pitches.map(pitch => pitchName(pitch)).join(", ");
+}
+export function formatTuningSummary(pitches = []) {
+  return pitches.map((pitch, i) => `${i + 1}弦:${pitchName(pitch)}`).join(" · ");
+}
+
+function staffLineLabel(position) {
+  if (position >= 0 && position <= 8) {
+    const number = ["一", "二", "三", "四", "五"][Math.floor(position / 2)];
+    return `第${number}${position % 2 === 0 ? "线" : "间"}`;
+  }
+  const side = position < 0 ? "下" : "上";
+  const distance = position < 0 ? -position : position - 8;
+  return `${side}加${Math.ceil(distance / 2)}${position % 2 === 0 ? "线" : "间"}`;
+}
+const drumPositionNames = [
+  "踩镲踏板", "原声底鼓", "底鼓", "低嗵鼓", "中低嗵鼓", "中嗵鼓",
+  "军鼓 / 边击 / 铃鼓", "高嗵鼓", "高音嗵鼓 / 牛铃", "叮叮镲 / 镲帽 / 牛铃",
+  "闭镲 / 开镲 / 吊镲 2 / 牛铃", "水镲 / 吊镲", "中国镲",
+];
+export function staffPositionLabel(position, clef = "G2", instrument = "guitar") {
+  if (instrument === "drums") {
+    // A drum is identified by both its position and its notehead shape.
+    return [staffLineLabel(position), drumPositionNames[position + 1]].filter(Boolean).join(" · ");
+  }
+  const bottomLine = { G2: 30, F4: 18, C3: 24, C4: 22 }[clef] ?? 30;
+  const names = ["C", "D", "E", "F", "G", "A", "B"];
+  const step = bottomLine + position;
+  const note = names[((step % 7) + 7) % 7] + Math.floor(step / 7);
+  return `${note} · ${staffLineLabel(position)}`;
+}
+export function staffPositionChoices(clef = "G2", instrument = "guitar") {
+  const positions = instrument === "drums" ? drumPositionNames.map((_, i) => i - 1)
+    : Array.from({ length: 25 }, (_, i) => 16 - i);
+  return positions.map(position => [String(position), staffPositionLabel(position, clef, instrument)]);
+}
+
+function meter(timeSignature) {
+  const match = /^([1-9]|[12]\d|3[0-2])\/(1|2|4|8|16|32|64)$/.exec(timeSignature);
+  return match ? { beats: +match[1], beatTicks: 3840 / +match[2] } : { beats: 4, beatTicks: 960 };
+}
+export function beatStartLabel(tick, timeSignature = "4/4") {
+  const { beatTicks } = meter(timeSignature);
+  const beat = Number((tick / beatTicks + 1).toFixed(3));
+  return `第 ${beat} 拍`;
+}
+export function beatStartChoices(timeSignature = "4/4") {
+  const { beats, beatTicks } = meter(timeSignature);
+  const subdivisions = [[0, "起点"], [1 / 4, "+ 1/4 拍"], [1 / 3, "+ 1/3 拍"],
+    [1 / 2, "+ 1/2 拍"], [2 / 3, "+ 2/3 拍"], [3 / 4, "+ 3/4 拍"]];
+  return Array.from({ length: beats }, (_, beat) => subdivisions.map(([fraction, label]) => [
+    String(Math.round((beat + fraction) * beatTicks)), `第 ${beat + 1} 拍${label === "起点" ? "起点" : " " + label}`,
+  ])).flat();
+}
+
+function describePayload(payload, instrument) {
+  const notes = payload.replace(/<[^>]*>$/, "").replace(/\([^)]*\)/g, "");
+  const special = { r: "休止", e: "空拍", z: "空音符事件", "^": "同前事件" };
+  if (special[notes]) return special[notes];
+  return notes.split(",").map(token => {
+    const match = /^(?:s(\d+)f(x|\d+))?(?:p(\d+))?$/.exec(token);
+    if (!match) return token;
+    const [, string, fret, pitch] = match;
+    if (string) return `${string}弦${fret === "x" ? "闷音" : fret + "品"}`;
+    if (pitch) return instrument === "drums" ? drumNames[+pitch] || `鼓件 ${pitch}` : pitchName(+pitch);
+    return token;
+  }).join(" + ");
+}
+export function summarizeMText(text, { instrument = "guitar", timeSignature = "4/4" } = {}) {
+  const raw = String(text || "").trim();
+  if (!raw) return "空白小节文本";
+  const separator = raw.indexOf("|"), head = raw.slice(0, separator).trim();
+  if (separator < 0 || !/^M(?:\s|$)/.test(head))
+    return "格式：M time=4/4 | V0{@0:q:s1f5}";
+  const meterMatch = /\btime=(\d+\/\d+)/.exec(head);
+  const signature = meterMatch?.[1] || timeSignature;
+  const voices = raw.slice(separator + 1).split("||").map(voice => voice.trim()).filter(Boolean);
+  return voices.map(voice => {
+    const match = /^V(\d+)\{(.*)\}$/.exec(voice);
+    if (!match) return `声部格式待补全：${voice}`;
+    const events = match[2].trim().split(/\s+/).filter(Boolean);
+    const preview = events.slice(0, 6).map(event => {
+      const fields = /^@(\d+):((?:w|h|q|e|s|t|f|d\d+)(?:\.{1,2})?(?:\[\d+:\d+\])?):(.+)$/.exec(event);
+      if (!fields) return event;
+      const [, start, duration, payload] = fields;
+      return `${beatStartLabel(+start, signature)}：${describeDuration(duration)} · ${describePayload(payload, instrument)}`;
+    });
+    return `声部 ${+match[1] + 1}（${events.length} 个事件）：${preview.join("；")}${events.length > 6 ? "…" : ""}`;
+  }).join("\n");
 }
 export function setFret(event, string, value, mode, tuning) {
   const fret = String(value).toLowerCase() === "x" ? "x" : Number(value);

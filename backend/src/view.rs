@@ -37,58 +37,56 @@ fn annotations(value: &Value) -> Value {
     Value::Array(
         value
             .as_array()
-            .map(|rows| {
-                rows.iter()
-                    .map(|row| {
-                        let mut projected = pick(
-                            row,
-                            &[
-                                "kind",
-                                "candidate_kind",
-                                "parsed",
-                                "chord_review",
-                                "page",
-                                "bbox",
-                                "part_id",
-                                "scope",
-                                "measure_number",
-                            ],
-                        );
-                        if row["chord_evidence"].is_object() {
-                            projected["chord_evidence"] = pick(
-                                &row["chord_evidence"],
-                                &[
-                                    "schema",
-                                    "reader",
-                                    "status",
-                                    "kind",
-                                    "kind_probabilities",
-                                    "strings",
-                                    "base_fret",
-                                    "relative_frets",
-                                    "relative_barres",
-                                    "diagram",
-                                    "confidence",
-                                    "accepted",
-                                    "review_required",
-                                    "name_needs_review",
-                                    "original_diagram",
-                                    "proposed_diagram",
-                                    "rejected_diagram_candidate",
-                                    "conflict_fields",
-                                    "proposed_changed_fields",
-                                    "changed_fields",
-                                    "agreement",
-                                    "secondary_diagram",
-                                    "secondary_confidence",
-                                ],
-                            );
-                        }
-                        projected
-                    })
-                    .collect()
+            .into_iter()
+            .flatten()
+            .map(|row| {
+                let mut projected = pick(
+                    row,
+                    &[
+                        "kind",
+                        "candidate_kind",
+                        "parsed",
+                        "chord_review",
+                        "page",
+                        "bbox",
+                        "part_id",
+                        "scope",
+                        "measure_number",
+                    ],
+                );
+                if row["chord_evidence"].is_object() {
+                    projected["chord_evidence"] = pick(
+                        &row["chord_evidence"],
+                        &[
+                            "schema",
+                            "reader",
+                            "status",
+                            "kind",
+                            "kind_probabilities",
+                            "strings",
+                            "base_fret",
+                            "relative_frets",
+                            "relative_barres",
+                            "diagram",
+                            "confidence",
+                            "accepted",
+                            "review_required",
+                            "name_needs_review",
+                            "original_diagram",
+                            "proposed_diagram",
+                            "rejected_diagram_candidate",
+                            "conflict_fields",
+                            "proposed_changed_fields",
+                            "changed_fields",
+                            "agreement",
+                            "secondary_diagram",
+                            "secondary_confidence",
+                        ],
+                    );
+                }
+                projected
             })
-            .unwrap_or_default(),
+            .collect(),
     )
 }
 fn metadata(value: &Value) -> Value {

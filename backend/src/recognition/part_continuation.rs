@@ -19,21 +19,7 @@ const LABELS: [&str; 3] = ["different", "same", "unknown"];
 const MAX_PARTS: usize = 5;
 
 fn contain(image: &RgbImage, size: [usize; 2]) -> RgbImage {
-    let scale =
-        (size[0] as f64 / f64::from(image.width())).min(size[1] as f64 / f64::from(image.height()));
-    let width = (f64::from(image.width()) * scale).round_ties_even().max(1.) as u32;
-    let height = (f64::from(image.height()) * scale)
-        .round_ties_even()
-        .max(1.) as u32;
-    let resized = crate::image_transforms::resize_rgb_lanczos(&grayscale_rgb(image), width, height);
-    let mut canvas = RgbImage::from_pixel(size[0] as u32, size[1] as u32, Rgb([255; 3]));
-    image::imageops::replace(
-        &mut canvas,
-        &resized,
-        (size[0] as i64 - i64::from(width)) / 2,
-        (size[1] as i64 - i64::from(height)) / 2,
-    );
-    canvas
+    crate::image_transforms::contain_rgb(&grayscale_rgb(image), size[0] as u32, size[1] as u32).0
 }
 
 pub struct Gallery {

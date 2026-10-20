@@ -19,6 +19,40 @@
 //! contributors (1995-2011), Jeffrey 'Alex' Clark and contributors (2010).
 use image::RgbImage;
 
+pub struct Placement {
+    pub width: u32,
+    pub height: u32,
+    pub left: u32,
+    pub top: u32,
+    pub scale: f64,
+}
+
+/// Fit an RGB crop inside a white canvas, with ties-to-even size rounding.
+pub fn contain_rgb(image: &RgbImage, width: u32, height: u32) -> (RgbImage, Placement) {
+    let scale = (f64::from(width) / f64::from(image.width()))
+        .min(f64::from(height) / f64::from(image.height()));
+    let w = (f64::from(image.width()) * scale).round_ties_even().max(1.) as u32;
+    let h = (f64::from(image.height()) * scale)
+        .round_ties_even()
+        .max(1.) as u32;
+    let placement = Placement {
+        width: w,
+        height: h,
+        left: (width - w) / 2,
+        top: (height - h) / 2,
+        scale,
+    };
+    let resized = resize_rgb_lanczos(image, w, h);
+    let mut canvas = RgbImage::from_pixel(width, height, image::Rgb([255; 3]));
+    image::imageops::replace(
+        &mut canvas,
+        &resized,
+        i64::from(placement.left),
+        i64::from(placement.top),
+    );
+    (canvas, placement)
+}
+
 const CUBIC_BITS: u32 = 11;
 const LANCZOS_BITS: u32 = 22;
 

@@ -5,6 +5,7 @@ import {
   clearDrafts,
   openProject,
   receiveProject,
+  projectTitle,
 } from "./state.js";
 import { $, el, notice, action } from "./dom.js";
 import { api, request } from "./api.js";
@@ -12,6 +13,7 @@ import { initWorkspace } from "./workspace.js";
 import { initMetadata } from "./metadata-editor.js";
 import { initBoxes } from "./boxes.js";
 import { initMeasures } from "./measure-editor.js";
+import { stopPlayback } from "./audio-preview.js";
 const { loadPage, renderPages, updatePageNavigation, updateBoxControls } = initBoxes({
   start,
   go,
@@ -36,6 +38,7 @@ openProject(
 const workspace = initWorkspace({
   open: openExisting,
   refreshConfig,
+  onNavigate: stopPlayback,
   resume: () =>
     start(
       "/process",
@@ -151,6 +154,7 @@ function go(next, reveal = true) {
     return;
   }
   if (!ui.busy) notice("");
+  if (next !== ui.step) stopPlayback();
   ui.step = next;
   if (reveal) workspace.show("workbench");
   document
@@ -291,7 +295,7 @@ async function watch(after, initial, navigation = workspace.navigation()) {
         if (ui.step === 0) {
           document.querySelector('[data-panel="0"]').classList.remove("active");
           $("currentDocument").hidden = false;
-          $("scoreTitle").textContent = current.metadata?.title || current.metadata?.document_metadata?.title_fallback || current.input_names?.[0] || "正在导入乐谱";
+          $("scoreTitle").textContent = projectTitle(current, "正在导入乐谱");
           $("scoreCredits").textContent = current.metadata?.artist || "";
           $("documentName").textContent = (current.input_names || []).join("、");
           $("documentPages").textContent = current.pages?.length ? `，共 ${current.pages.length} 页` : "";
@@ -346,9 +350,11 @@ $("cancelJob").onclick = action(async () => {
   const status = result.job || (await api(`/api/sessions/${sid}`)).job;
   if (ui.sid !== sid) return;
   window.dispatchEvent(new Event("guitarocr:cancel"));
-  notice(status?.status === "cancelled"
-    ? "已停止排队。原有结果与人工修改已保留。"
-    : "正在停止，当前小节处理结束后生效。原有结果与人工修改会保留。");
+  notice(status?.status === "complete"
+    ? "任务已完成，结果已保存。"
+    : status?.status === "cancelled"
+      ? "任务已停止，已保存的结果与已完成阶段保留。"
+      : "正在停止，已保存的结果与已完成阶段会保留。");
 });
 async function start(path, body, after) {
   if (ui.busy) return;

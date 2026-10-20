@@ -1,5 +1,5 @@
 //! Python bindings use JSON only at the language boundary; Rust owns semantics.
-use crate::{chords, music_exports, observation, score};
+use crate::{chords, information, music_exports, observation, pitch, score};
 use pyo3::{exceptions::PyValueError, prelude::*};
 use serde_json::Value;
 fn value(text: &str) -> PyResult<Value> {
@@ -15,6 +15,39 @@ fn result(v: Result<Value, String>) -> PyResult<String> {
 #[pyfunction]
 fn parse_measure_target(target: &str) -> PyResult<String> {
     result(score::parse_measure_target(target))
+}
+#[pyfunction]
+fn information_prompt(kind: &str) -> PyResult<&'static str> {
+    information::prompt(kind).map_err(error)
+}
+#[pyfunction]
+fn information_schema(kind: &str) -> PyResult<String> {
+    result(information::prompts::information_schema(kind))
+}
+#[pyfunction]
+fn parse_information(raw: &str, kind: &str) -> String {
+    information::parse_response(raw, kind).to_string()
+}
+#[pyfunction]
+fn key_signature(name: &str) -> PyResult<(i64, bool)> {
+    pitch::key_parts(name).map_err(error)
+}
+#[pyfunction]
+fn transpose_key(name: &str, semitones: i64) -> PyResult<String> {
+    pitch::transpose_key(name, semitones).map_err(error)
+}
+#[pyfunction]
+fn convert_pitch_target(
+    target: &str,
+    context: &str,
+    mode: &str,
+    to_written: bool,
+) -> PyResult<String> {
+    pitch::convert_pitch(target, &value(context)?, mode, to_written).map_err(error)
+}
+#[pyfunction]
+fn ornament_position(token: &str) -> PyResult<(Option<i64>, Option<i64>)> {
+    score::ornament_position(token).map_err(error)
 }
 #[pyfunction]
 fn duration_ticks(duration: &str) -> PyResult<(i128, i128)> {
@@ -136,6 +169,13 @@ fn assemble_observations(
 }
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(information_prompt, m)?)?;
+    m.add_function(wrap_pyfunction!(information_schema, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_information, m)?)?;
+    m.add_function(wrap_pyfunction!(key_signature, m)?)?;
+    m.add_function(wrap_pyfunction!(transpose_key, m)?)?;
+    m.add_function(wrap_pyfunction!(convert_pitch_target, m)?)?;
+    m.add_function(wrap_pyfunction!(ornament_position, m)?)?;
     m.add_function(wrap_pyfunction!(parse_observation, m)?)?;
     m.add_function(wrap_pyfunction!(observation_schema, m)?)?;
     m.add_function(wrap_pyfunction!(observation_prompt, m)?)?;

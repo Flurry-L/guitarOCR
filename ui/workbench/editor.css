@@ -139,7 +139,7 @@ canvas {
   gap: 23px 30px;
   max-width: 950px;
 }
-.metadata label {
+.metadata label, .tuning-fields {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1100,3 +1100,37 @@ body[data-inference="disabled"]
 .library-chord-images .chord-preview { width: 150px; }
 .library-chord-review .metadata input { width: 100%; max-width: none; }
 .library-chord-review .tool-group { flex-wrap: wrap; }
+#tuningPreview {
+  margin-top: 2px;
+  line-height: 1.4;
+  font-size: 12px;
+}
+#tuningPreview.error {
+  color: var(--danger);
+}
+.m-syntax-help {
+  margin-top: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  font-size: 11px;
+}
+.m-syntax-help summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+.m-syntax-help ul {
+  margin: 6px 0 2px;
+  padding-left: 16px;
+  line-height: 1.6;
+}
+#mTextSummary {
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  margin: 6px 0;
+  padding: 6px 8px;
+  background: var(--surface);
+  border-radius: 5px;
+  line-height: 1.5;
+}

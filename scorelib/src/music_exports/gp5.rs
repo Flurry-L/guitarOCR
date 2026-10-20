@@ -136,8 +136,8 @@ fn duration(e: &Value) -> R<(u8, i8, Option<i32>, i64)> {
     let pair = match enters {
         1 => 1,
         3 => 2,
-        5 | 6 | 7 => 4,
-        9 | 10 | 11 | 12 | 13 => 8,
+        5..=7 => 4,
+        9..=13 => 8,
         _ => return Err("Unsupported GP5 tuplet".into()),
     };
     if times != pair {

@@ -1,6 +1,6 @@
 //! Read the clef, its staff position, and its small octave glyph together.
 use crate::image_boundary::{check_dimensions, grayscale_rgb, Result};
-use image::{Rgb, RgbImage};
+use image::RgbImage;
 use ort::{session::Session, value::Tensor};
 use serde_json::{json, Value};
 use std::path::Path;
@@ -22,24 +22,13 @@ fn labels() -> Vec<Value> {
 
 pub fn image_tensor(image: &RgbImage, query: [f64; 4]) -> Result<Vec<f32>> {
     check_dimensions(image.width(), image.height())?;
-    let scale =
-        (SIZE as f64 / f64::from(image.width())).min(SIZE as f64 / f64::from(image.height()));
-    let width = (f64::from(image.width()) * scale).round_ties_even().max(1.) as u32;
-    let height = (f64::from(image.height()) * scale)
-        .round_ties_even()
-        .max(1.) as u32;
-    let resized = crate::image_transforms::resize_rgb_lanczos(&grayscale_rgb(image), width, height);
-    let mut canvas = RgbImage::from_pixel(SIZE as u32, SIZE as u32, Rgb([255; 3]));
-    image::imageops::replace(
-        &mut canvas,
-        &resized,
-        (SIZE as i64 - i64::from(width)) / 2,
-        (SIZE as i64 - i64::from(height)) / 2,
-    );
+    let (canvas, placement) =
+        crate::image_transforms::contain_rgb(&grayscale_rgb(image), SIZE as u32, SIZE as u32);
+    let scale = placement.scale;
     let mut tensor: Vec<f32> = canvas.pixels().map(|p| f32::from(p[0]) / 255.).collect();
     tensor.resize(SIZE * SIZE * 2, 0.);
-    let x_offset = (SIZE as u32 - width) / 2;
-    let y_offset = (SIZE as u32 - height) / 2;
+    let x_offset = placement.left;
+    let y_offset = placement.top;
     let edge = |value: f64, offset: u32, upper: bool| {
         let position = value * scale + f64::from(offset);
         (if upper {

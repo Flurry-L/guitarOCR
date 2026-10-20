@@ -69,7 +69,7 @@ pub(super) fn opening_annotations(
 }
 
 pub(super) fn resolve_title(metadata: &mut Value, predictions: &[Value], filename: &str) {
-    let title = cleaned(&metadata["title"])
+    let title = clean_text(&metadata["title"])
         .as_str()
         .unwrap_or("")
         .to_owned();

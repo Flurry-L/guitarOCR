@@ -539,6 +539,8 @@ mod concurrency_tests {
                             let (release, peak, active) =
                                 (released.clone(), maximum.clone(), active.clone());
                             handlers.push(thread::spawn(move || {
+                                // macOS accepted sockets inherit the listener's nonblocking mode.
+                                socket.set_nonblocking(false).unwrap();
                                 socket.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
                                 let mut reader = BufReader::new(socket.try_clone().unwrap());
                                 let mut line = String::new();

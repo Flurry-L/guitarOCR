@@ -7,6 +7,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from PIL import Image, ImageOps
+from research.common.staff_label import staff_label_image
 
 def load_policy(model):
     path = Path(model) / "score_image_policy.json"
@@ -90,12 +91,7 @@ def staff_detail(image, label_model, policy):
     session, config = _staff_label_reader(str(label_model))
     width, height = config['input_size']
     image = image.convert('RGB')
-    scale = min(width / image.width, height / image.height)
-    w, h = max(1, round(image.width * scale)), max(1, round(image.height * scale))
-    left, top = (width - w) // 2, (height - h) // 2
-    canvas = Image.new('RGB', (width, height), 'white')
-    canvas.paste(image.resize((w, h), Image.Resampling.LANCZOS), (left, top))
-    pixels = np.asarray(canvas, dtype=np.float32).transpose(2, 0, 1) / 127.5 - 1
+    pixels, (sx, sy, left, top) = staff_label_image(image, (width, height))
     scores, bounds, directions = session.run(
         ['label_logits', 'bounds', 'orientation_logits'], {'images': pixels[None]})
     index = int(scores.argmax())
@@ -104,10 +100,9 @@ def staff_detail(image, label_model, policy):
         return None
     stride = config['stride']
     y, x = divmod(index, width // stride)
-    l, t, r, b = map(float, bounds.reshape(4, -1)[:, index])
-    sx, sy = w / image.width, h / image.height
-    x0, y0 = max(0., (x * stride - l * width - left) / sx), max(0., (y * stride - t * height - top) / sy)
-    x1, y1 = min(image.width, (x * stride + r * width - left) / sx), min(image.height, (y * stride + b * height - top) / sy)
+    left_extent, top_extent, right_extent, bottom_extent = map(float, bounds.reshape(4, -1)[:, index])
+    x0, y0 = max(0., (x * stride - left_extent * width - left) / sx), max(0., (y * stride - top_extent * height - top) / sy)
+    x1, y1 = min(image.width, (x * stride + right_extent * width - left) / sx), min(image.height, (y * stride + bottom_extent * height - top) / sy)
     if x1 <= x0 or y1 <= y0:
         return None
     angle = config['angles_ccw'][int(directions.reshape(4, -1)[:, index].argmax())]

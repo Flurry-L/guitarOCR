@@ -1,6 +1,6 @@
 //! Full-row learned evidence. Profile disagreements remain explicit candidates.
 use crate::image_boundary::Result;
-use image::{Rgb, RgbImage};
+use image::RgbImage;
 use ort::{session::Session, value::Tensor};
 use serde_json::{json, Value};
 use std::path::Path;
@@ -101,19 +101,7 @@ impl StaffReader {
 
 pub fn image_tensor(image: &RgbImage) -> Result<Vec<f32>> {
     crate::image_boundary::check_dimensions(image.width(), image.height())?;
-    let scale = (768. / f64::from(image.width())).min(256. / f64::from(image.height()));
-    let width = (f64::from(image.width()) * scale).round_ties_even().max(1.) as u32;
-    let height = (f64::from(image.height()) * scale)
-        .round_ties_even()
-        .max(1.) as u32;
-    let resized = crate::image_transforms::resize_rgb_lanczos(image, width, height);
-    let mut canvas = RgbImage::from_pixel(768, 256, Rgb([255; 3]));
-    image::imageops::replace(
-        &mut canvas,
-        &resized,
-        i64::from((768 - width) / 2),
-        i64::from((256 - height) / 2),
-    );
+    let (canvas, _) = crate::image_transforms::contain_rgb(image, 768, 256);
     let mut values = vec![0.; 3 * 768 * 256];
     for (i, p) in canvas.pixels().enumerate() {
         for c in 0..3 {

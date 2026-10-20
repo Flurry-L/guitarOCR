@@ -496,7 +496,7 @@ pub fn parse_measure_target(text: &str) -> ScoreResult<Value> {
     Ok(measure)
 }
 
-fn ornament_position(token: &str) -> ScoreResult<(Option<i64>, Option<i64>)> {
+pub fn ornament_position(token: &str) -> ScoreResult<(Option<i64>, Option<i64>)> {
     if token == "x" {
         return Ok((None, None));
     }

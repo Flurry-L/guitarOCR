@@ -15,6 +15,15 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
+def contain_lanczos(image: Image.Image, size: tuple[int, int]):
+    """Fit an RGB or grayscale crop on white; return pixels and placement."""
+    scale = min(size[0] / image.width, size[1] / image.height)
+    width, height = max(1, round(image.width * scale)), max(1, round(image.height * scale))
+    left, top = (size[0] - width) // 2, (size[1] - height) // 2
+    canvas = Image.new(image.mode, size, "white")
+    canvas.paste(image.resize((width, height), Image.Resampling.LANCZOS), (left, top))
+    return canvas, (width, height, left, top)
+
 def _cubic_taps(source: int, target: int) -> tuple[np.ndarray, np.ndarray]:
     scale = 1.0 / (target / source)
     position = ((np.arange(target, dtype=np.float64) + 0.5) * scale - 0.5).astype(np.float32)
