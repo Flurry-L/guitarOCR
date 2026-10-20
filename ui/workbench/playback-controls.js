@@ -19,7 +19,7 @@ export function initPlaybackControls({ prepare, onPosition, onError }) {
     $("playScore").disabled = !enabled;
     $("stopScore").disabled = status === "idle";
     $("playbackProgress").disabled = !["playing", "paused"].includes(status);
-    for (const id of ["playbackScope", "playbackTracks", "playbackSpeed", "playbackLoop"])
+    for (const id of ["playbackScope", "playbackTracks", "playbackTempo", "playbackLoop"])
       $(id).disabled = !enabled;
   }
   function position(value) {
@@ -40,16 +40,16 @@ export function initPlaybackControls({ prepare, onPosition, onError }) {
         case "playing": playback.pause(); return;
         case "paused": playback.resume(); return;
       }
-      if (!$("playbackSpeed").reportValidity()) return;
+      if (!$("playbackTempo").reportValidity()) return;
       const pending = ++request;
       // Keep WebAudio activation in the click gesture, before a text edit is saved.
       playback.activate();
       const context = await prepare();
       if (!context || pending !== request) return;
       const { state, index, measure, visualTechniques } = context;
-      playback.setSpeed(Number($("playbackSpeed").value) / 100);
       await playback.play(state, index, {
         measure, visualTechniques,
+        tempo: $("playbackTempo").value ? Number($("playbackTempo").value) : undefined,
         scope: $("playbackScope").value,
         partId: $("playbackTracks").value === "all" ? "all" : state.measures[index].part_id || "part-1",
         onStatus: render,
@@ -62,10 +62,7 @@ export function initPlaybackControls({ prepare, onPosition, onError }) {
   $("playScore").onclick = toggle;
   $("stopScore").onclick = stop;
   $("playbackScope").onchange = $("playbackTracks").onchange = stop;
-  $("playbackSpeed").oninput = () => {
-    if ($("playbackSpeed").validity.valid) playback.setSpeed(Number($("playbackSpeed").value) / 100);
-  };
-  $("playbackSpeed").onchange = () => $("playbackSpeed").reportValidity();
+  $("playbackTempo").onchange = stop;
   $("playbackLoop").onchange = () => playback.setLooping($("playbackLoop").checked);
   $("playbackProgress").oninput = () => playback.seek(Number($("playbackProgress").value) / 1000);
   $("scoreCanvas").addEventListener("keydown", event => {

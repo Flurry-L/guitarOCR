@@ -250,7 +250,7 @@ canvas {
   margin: 0;
   font-size: 12px;
 }
-#playbackSpeed { width: 65px; }
+#playbackTempo { width: 70px; }
 #playbackProgress { width: 120px; min-width: 80px; flex: 1; }
 #playbackPosition { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .command-toolbar > * {

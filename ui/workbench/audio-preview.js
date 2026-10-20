@@ -16,7 +16,7 @@ function createPlayer() {
 // The application owns selection/cancellation; alphaTab owns MIDI synthesis.
 export function createAudioPreview({ makePlayer = createPlayer, loadFont = loadSoundFont } = {}) {
   let player, font, plan, fontLoaded = false, playbackStatus = "idle", onStatus, onPosition, generation = 0;
-  let speed = 1, looping = false;
+  let looping = false;
 
   function setStatus(value) {
     if (playbackStatus === value) return;
@@ -59,11 +59,6 @@ export function createAudioPreview({ makePlayer = createPlayer, loadFont = loadS
     if (!player.play()) throw new Error("播放未能继续，请重新播放。");
     setStatus("playing");
   }
-  function setSpeed(value) {
-    if (!Number.isFinite(value) || value < 0.25 || value > 2) throw new Error("播放速度须为 25% 至 200%。");
-    speed = value;
-    if (player) player.playbackSpeed = value;
-  }
   function setLooping(value) {
     looping = value;
     if (player) player.isLooping = value;
@@ -89,7 +84,6 @@ export function createAudioPreview({ makePlayer = createPlayer, loadFont = loadS
         fontLoaded = player.isSoundFontLoaded;
       }
       player.loadMidiFile(plan.midi);
-      player.playbackSpeed = speed;
       player.isLooping = looping;
       if (!player.isReadyForPlayback || !player.play())
         throw new Error("试听播放器未能就绪，请重试。");
@@ -100,7 +94,7 @@ export function createAudioPreview({ makePlayer = createPlayer, loadFont = loadS
       throw error;
     }
   }
-  return { activate, play, stop, pause, resume, setSpeed, setLooping, seek, status: () => playbackStatus };
+  return { activate, play, stop, pause, resume, setLooping, seek, status: () => playbackStatus };
 }
 
 export const playback = createAudioPreview();

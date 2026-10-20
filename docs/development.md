@@ -51,11 +51,11 @@ cargo fmt --all -- --check
 
 `engrave()` 把项目与当前草稿转换成同一套 alphaTab Score，供绘谱与试听使用。试听由 alphaTab 的 [MidiFileGenerator](https://github.com/CoderLine/alphaTab/blob/v1.8.4/packages/alphatab/src/midi/MidiFileGenerator.ts) 解释奏法，再交给 [AlphaSynth](https://github.com/CoderLine/alphaTab/blob/v1.8.4/packages/alphatab/src/synth/AlphaSynth.ts) 和内置 SoundFont 合成声音。
 
-播放交互参考 TuxGuitar 的 [MidiPlayer](https://github.com/helge17/tuxguitar/blob/master/common/TuxGuitar-lib/src/main/java/app/tuxguitar/player/base/MidiPlayer.java)：播放／暂停、范围循环和相对谱面速度。音乐事件仍由现有的 alphaTab 生成与合成。
+播放交互参考 TuxGuitar 的 [MidiPlayer](https://github.com/helge17/tuxguitar/blob/master/common/TuxGuitar-lib/src/main/java/app/tuxguitar/player/base/MidiPlayer.java)：播放／暂停、范围循环和按谱面 BPM 播放。音乐事件仍由现有的 alphaTab 生成与合成。
 
 `playback-plan.js` 先汇总全谱速度，再生成全部或所选音轨的 MIDI；每条有音高的音轨分配独立通道，鼓使用通道 9。整曲和「从本节开始」保留 alphaTab 展开的反复、反复房子与跳转顺序，并用其 tick lookup 映射回谱面小节。「仅本节」按谱面顺序展开一次再截取：跨入的延音在开头发声，跨出的音符在节末收束。
 
-`audio-preview.js` 管理音色缓存、播放状态、定位、循环和相对速度；`playback-controls.js` 连接工具栏与快捷键，`score-view.js` 用独立游标显示播放位置。变速调用 AlphaSynth 的 `playbackSpeed`，保留谱中的 BPM 变化与当前音乐位置。修改音符、切换小节或离开项目会结束播放。音色版本和许可证见 [`vendor/soundfont/README.md`](../ui/workbench/vendor/soundfont/README.md)。
+`audio-preview.js` 管理音色缓存、播放状态、定位和循环；`playback-controls.js` 连接工具栏与快捷键，`score-view.js` 用独立游标显示播放位置。默认保留谱中的 BPM 变化；填写「试听 BPM」时，`playback-plan.js` 在临时 Score 上设置统一 BPM。修改音符、试听 BPM、切换小节或离开项目会结束播放。音色版本和许可证见 [`vendor/soundfont/README.md`](../ui/workbench/vendor/soundfont/README.md)。
 
 ## 2. 构建桌面应用（Tauri）
 

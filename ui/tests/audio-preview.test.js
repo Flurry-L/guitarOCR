@@ -70,10 +70,8 @@ test("pause/resume keeps the loaded song and position; stop returns to the start
   preview.pause();
   assert.equal(preview.status(), "paused");
   assert.equal(player.tickPosition, 1920);
-  preview.setSpeed(0.75);
   preview.resume();
   assert.equal(player.tickPosition, 1920);
-  assert.equal(player.playbackSpeed, 0.75);
   assert.equal(player.loads, 1);
   assert.equal(player.plays, 2);
   preview.stop();
@@ -85,12 +83,10 @@ test("loop completion keeps playing and reports the score position until the fin
   const player = fakePlayer(), positions = [];
   const preview = createAudioPreview({ makePlayer: () => player, loadFont: async () => new Uint8Array() });
   preview.setLooping(true);
-  preview.setSpeed(0.5);
   await preview.play(state(...project.measures, record(measure([beat(0, [note(7)])]), 1)), 0, {
     onPosition: value => positions.push(value),
   });
   assert.equal(player.isLooping, true);
-  assert.equal(player.playbackSpeed, 0.5);
   player.finished.emit();
   assert.equal(preview.status(), "playing");
   player.positionChanged.emit({ currentTick: 4800 });

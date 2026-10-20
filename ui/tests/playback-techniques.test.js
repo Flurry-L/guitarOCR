@@ -226,25 +226,25 @@ test("bundled soundfont produces real guitar and drum samples through alphaTab",
   player.destroy();
 });
 
-test("AlphaSynth scales the full tempo map and changes speed without moving the musical position", () => {
+test("playback follows score BPM and can preview a fixed BPM without changing the score", () => {
   const project = state(
     record({ ...measure([beat(0, [note(0)], [], 2), beat(1920, [note(2)], ["tempo:60"], 2)]), tempo_quarter: 120 }),
     record({ ...measure([beat(0, [note(2)], [], 1)]), tempo_quarter: 80 }, 1),
   );
+  const before = structuredClone(project);
   const player = new synth.AlphaSynth(sampleSink(), 500);
   player.loadMidiFile(scorePlayback(project, 0).midi);
   assert.ok(Math.abs(player.currentPosition.endTime - 6000) < 0.01);
+  player.tickPosition = 2880;
+  assert.equal(player.currentPosition.modifiedTempo, 60);
   player.tickPosition = 4800;
-  const position = player.tickPosition;
-  player.playbackSpeed = 0.5;
-  assert.ok(Math.abs(player.currentPosition.endTime - 12000) < 0.01);
-  assert.equal(player.tickPosition, position);
-  assert.equal(player.currentPosition.originalTempo, 80);
-  assert.equal(player.currentPosition.modifiedTempo, 40);
-  player.playbackSpeed = 2;
-  assert.ok(Math.abs(player.currentPosition.endTime - 3000) < 0.01);
-  assert.equal(player.tickPosition, position);
-  assert.equal(player.currentPosition.modifiedTempo, 160);
+  assert.equal(player.currentPosition.modifiedTempo, 80);
+
+  player.loadMidiFile(scorePlayback(project, 0, { tempo: 96 }).midi);
+  assert.ok(Math.abs(player.currentPosition.endTime - 5000) < 0.01);
+  player.tickPosition = 4800;
+  assert.equal(player.currentPosition.modifiedTempo, 96);
+  assert.deepEqual(project, before);
   player.destroy();
 });
 

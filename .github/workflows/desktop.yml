@@ -8,6 +8,10 @@ on:
         type: choice
         default: all
         options: [all, windows-x64, macos-arm64]
+      publish_release:
+        description: 'Upload both installers to the existing release (all platforms)'
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -111,3 +115,28 @@ jobs:
           path: |
             target/release/bundle/**/*.exe
             target/release/bundle/**/*.dmg
+  publish:
+    needs: desktop
+    if: inputs.publish_release && inputs.platform == 'all'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: GuitarOCR-*
+          path: artifacts
+      - name: Upload installers to the versioned release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(node -p 'require("./desktop/package.json").version')
+          tag="v$version"
+          git fetch --depth=1 origin "refs/tags/$tag:refs/tags/$tag"
+          test "$(git rev-parse "$tag^{}")" = "$GITHUB_SHA"
+          mkdir release
+          cp artifacts/GuitarOCR-macos-arm64/dmg/*.dmg release/
+          cp artifacts/GuitarOCR-windows-x64/nsis/*-setup.exe release/
+          (cd release && sha256sum *.dmg *.exe > SHA256SUMS.txt)
+          gh release upload "$tag" release/* --clobber

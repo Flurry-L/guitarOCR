@@ -30,7 +30,7 @@ export function sliceMidi(source, start, end) {
   return result;
 }
 
-export function scorePlayback(state, index, { scope = "score", partId = "all", ...edited } = {}) {
+export function scorePlayback(state, index, { scope = "score", partId = "all", tempo, ...edited } = {}) {
   const settings = new alphaTab.Settings();
   const { score, sourceOf, tracks } = engrave(state, settings, {
     index, measure: state.measures[index].parsed, ...edited,
@@ -38,6 +38,11 @@ export function scorePlayback(state, index, { scope = "score", partId = "all", .
   const bar = score.tracks.flatMap(track => track.staves.flatMap(staff => staff.bars))
     .find(bar => sourceOf.get(bar)?.mi === index);
   if (!bar) throw new Error("当前小节尚未准备好。");
+
+  if (tempo !== undefined) {
+    for (const master of score.masterBars) master.tempoAutomations.length = 0;
+    score.masterBars[0].tempoAutomations.push(alphaTab.model.Automation.buildTempoAutomation(false, 0, tempo, 2));
+  }
 
   // Tempo belongs to the score, including markings on a track we are not playing.
   if (partId !== "all") {
