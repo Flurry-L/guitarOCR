@@ -664,7 +664,10 @@ mod concurrency_tests {
                 .await
         };
         let release = async {
-            while pool.stats()["queued"].as_u64().unwrap() < 2 {
+            // Occupied pool slots can still be establishing their HTTP connections.
+            while pool.stats()["queued"].as_u64().unwrap() < 2
+                || server.peak.load(Ordering::SeqCst) < 2
+            {
                 tokio::time::sleep(Duration::from_millis(1)).await;
             }
             server.release.store(true, Ordering::SeqCst);
