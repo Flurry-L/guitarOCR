@@ -1,12 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { measurePlayback, sliceMidi } from "../workbench/playback-plan.js";
+import { scorePlayback, sliceMidi } from "../workbench/playback-plan.js";
 import { midi, synth } from "../workbench/vendor/alphaTab.mjs";
 import { note, beat, measure, record, state } from "./playback-fixtures.js";
 
 const E = midi.MidiEventType;
 const events = (file, type) => file.events.filter(event => event.type === type);
+const measurePlayback = (project, index, edited = {}) => scorePlayback(project, index, {
+  scope: "measure", partId: project.measures[index].part_id, ...edited,
+}).midi;
 const play = (music, fields) => measurePlayback(state(record(music, 0, fields)), 0);
 
 test("alphaTab generates tied notes, capo and the selected instrument without changing the draft", () => {
@@ -29,11 +32,11 @@ test("a preview sounds a cross-bar tie and clips it at the selected barline", ()
   assert.ok(file.events.every(event => event.tick >= 0 && event.tick <= 3840));
 });
 
-test("only the selected staff sounds while tempo follows the full score", () => {
+test("only the selected track sounds while tempo follows the full score", () => {
   const first = record({ ...measure([beat(0, [note(0)], ["tempo:80"])]), tempo_quarter: 120 });
   const current = record(measure([beat(0, [note(5)]), beat(960, [note(7)])]), 1);
   const other = record(measure([beat(960, [{ pitch: 48 }], ["tempo:60"])]), 1,
-    { staff_id: "bass", instrument: "pitched", mode: "notation", tuning: [], capo: 0 });
+    { part_id: "bass", staff_id: "bass", instrument: "pitched", mode: "notation", tuning: [], capo: 0 });
   const file = measurePlayback(state(first, current, other), 1);
   assert.deepEqual(events(file, E.NoteOn).map(event => event.noteKey), [71, 73]);
   const tempos = events(file, E.TempoChange);
@@ -123,6 +126,82 @@ test("MIDI trimming preserves attacks at the start and excludes attacks at the e
   assert.doesNotThrow(() => cut.toBinary());
 });
 
+test("song playback mixes independent instrument channels and reserves channel 9 for drums", () => {
+  const project = state(
+    record(measure([beat(0, [note(0)])]), 0, { midi_program: 24 }),
+    record(measure([beat(0, [note(2)])]), 1, { midi_program: 24 }),
+    record(measure([beat(0, [{ pitch: 40 }])]), 0,
+      { part_id: "bass", instrument: "bass", mode: "notation", tuning: [], capo: 0, midi_program: 33 }),
+    record(measure([beat(0, [{ pitch: 36 }])]), 0,
+      { part_id: "drums", instrument: "drums", mode: "notation", tuning: [], capo: 0 }),
+  );
+  const before = structuredClone(project), { midi: file, positionAt } = scorePlayback(project, 1);
+  const notes = events(file, E.NoteOn), programs = new Map(events(file, E.ProgramChange).map(e => [e.channel, e.program]));
+  assert.equal(notes.length, 4);
+  assert.equal(programs.get(notes.find(n => n.noteKey === 66).channel), 24);
+  assert.equal(programs.get(notes.find(n => n.noteKey === 40).channel), 33);
+  assert.equal(notes.find(n => n.noteKey === 36).channel, 9);
+  assert.equal(notes.find(n => n.noteKey === 68).tick, 3840);
+  assert.deepEqual(positionAt(4800), { barIndex: 1, barTick: 960 });
+  assert.deepEqual(project, before);
+});
+
+test("whole-song and from-current playback follow repeats and map repeated bars", () => {
+  const project = state(
+    record({ ...measure([beat(0, [note(0)])]), bars: ["repeat_open"] }),
+    record({ ...measure([beat(0, [note(2)])]), bars: ["repeat_close"], repeat_count: 2 }, 1),
+    record(measure([beat(0, [note(5)])]), 2),
+  );
+  const full = scorePlayback(project, 1);
+  assert.deepEqual(events(full.midi, E.NoteOn).map(e => e.noteKey), [66, 68, 66, 68, 71]);
+  assert.deepEqual([0, 3840, 7680, 11520, 15360].map(t => full.positionAt(t).barIndex), [0, 1, 0, 1, 2]);
+  const from = scorePlayback(project, 1, { scope: "from" });
+  assert.deepEqual(events(from.midi, E.NoteOn).map(e => e.noteKey), [68, 66, 68, 71]);
+  assert.equal(from.positionAt(0).barIndex, 1);
+  assert.equal(from.positionAt(3840).barIndex, 0);
+});
+
+test("starting on a held note keeps its remaining cross-bar duration and inherited tempo", () => {
+  const project = state(
+    record({ ...measure([beat(0, [note(5)], [], 1)]), tempo_quarter: 80 }),
+    record(measure([beat(0, [note(5, ["tie"])], [], 1)]), 1),
+    record(measure([beat(0, [note(5, ["tie"])], [], 1)]), 2),
+  );
+  const file = scorePlayback(project, 1, { scope: "from" }).midi;
+  assert.deepEqual(events(file, E.NoteOn).map(e => [e.tick, e.noteKey]), [[0, 71]]);
+  assert.equal(events(file, E.NoteOff)[0].tick, 7680);
+  assert.equal(events(file, E.TempoChange).at(-1).beatsPerMinute, 80);
+});
+
+test("song playback follows alternate endings and Da Capo al Fine", () => {
+  const project = (...fields) => state(...fields.map((fields, i) =>
+    record({ ...measure([beat(0, [note(i * 2)])]), ...fields }, i)));
+  const endings = scorePlayback(project(
+    { bars: ["repeat_open"] },
+    { bars: ["repeat_close"], repeat_count: 2, alternate_endings: 1 },
+    { alternate_endings: 2 },
+  ), 0);
+  assert.deepEqual(events(endings.midi, E.NoteOn).map(e => e.noteKey), [66, 68, 66, 70]);
+  assert.deepEqual([0, 3840, 7680, 11520].map(t => endings.positionAt(t).barIndex), [0, 1, 0, 2]);
+  const jump = scorePlayback(project({}, { direction: "Fine" }, { from_direction: "Da Capo al Fine" }), 0);
+  assert.deepEqual(events(jump.midi, E.NoteOn).map(e => e.noteKey), [66, 68, 70, 66, 68]);
+  assert.equal(jump.positionAt(15360).barIndex, 1);
+});
+
+test("the selected track includes both staves, and a rest-only bar keeps its duration", () => {
+  const project = state(
+    record(measure([beat(0, [{ pitch: 72 }])]), 0, { part_id: "piano", instrument: "pitched", tuning: [], capo: 0, mode: "notation" }),
+    record(measure([beat(0, [{ pitch: 48 }])]), 0, { part_id: "piano", staff_id: "lower", instrument: "pitched", tuning: [], capo: 0, mode: "notation" }),
+    record(measure([beat(0, [note(5)])])),
+  );
+  const file = scorePlayback(project, 0, { partId: "piano" }).midi;
+  assert.deepEqual(events(file, E.NoteOn).map(e => e.noteKey).sort(), [48, 72]);
+  const rest = { ...beat(0, [], [], 1), status: "rest" };
+  const silent = scorePlayback(state(record(measure([rest]))), 0, { scope: "measure" }).midi;
+  assert.equal(events(silent, E.NoteOn).length, 0);
+  assert.equal(silent.events.at(-1).tick, 3840);
+});
+
 // A sample sink lets the real alphaTab synthesizer run without browser audio.
 function sampleSink() {
   const emitter = () => ({ handlers: [], on(fn) { this.handlers.push(fn); }, trigger(value) { this.handlers.forEach(fn => fn(value)); } });
@@ -144,5 +223,44 @@ test("bundled soundfont produces real guitar and drum samples through alphaTab",
     assert.ok(chunk.samples.some(value => Math.abs(value) > 0.001));
     assert.ok(chunk.samples.every(Number.isFinite));
   }
+  player.destroy();
+});
+
+test("AlphaSynth scales the full tempo map and changes speed without moving the musical position", () => {
+  const project = state(
+    record({ ...measure([beat(0, [note(0)], [], 2), beat(1920, [note(2)], ["tempo:60"], 2)]), tempo_quarter: 120 }),
+    record({ ...measure([beat(0, [note(2)], [], 1)]), tempo_quarter: 80 }, 1),
+  );
+  const player = new synth.AlphaSynth(sampleSink(), 500);
+  player.loadMidiFile(scorePlayback(project, 0).midi);
+  assert.ok(Math.abs(player.currentPosition.endTime - 6000) < 0.01);
+  player.tickPosition = 4800;
+  const position = player.tickPosition;
+  player.playbackSpeed = 0.5;
+  assert.ok(Math.abs(player.currentPosition.endTime - 12000) < 0.01);
+  assert.equal(player.tickPosition, position);
+  assert.equal(player.currentPosition.originalTempo, 80);
+  assert.equal(player.currentPosition.modifiedTempo, 40);
+  player.playbackSpeed = 2;
+  assert.ok(Math.abs(player.currentPosition.endTime - 3000) < 0.01);
+  assert.equal(player.tickPosition, position);
+  assert.equal(player.currentPosition.modifiedTempo, 160);
+  player.destroy();
+});
+
+test("AlphaSynth renders more than eight pitched tracks on separate virtual channels", async () => {
+  const project = state(...Array.from({ length: 10 }, (_, i) => record(
+    measure([beat(0, [note(i)])]), 0, { part_id: `part-${i}`, midi_program: 24 + i },
+  )));
+  const file = scorePlayback(project, 0).midi;
+  const channels = events(file, E.NoteOn).map(e => e.channel);
+  assert.equal(new Set(channels).size, 10);
+  assert.ok(channels.some(c => c > 15));
+  assert.ok(channels.every(c => c !== 9));
+  const player = new synth.AlphaSynth(sampleSink(), 500), options = new synth.AudioExportOptions();
+  options.soundFonts = [new Uint8Array(await readFile(new URL("../workbench/vendor/soundfont/sonivox.sf2", import.meta.url)))];
+  const chunk = player.exportAudio(options, file, [], new Map()).render(500);
+  assert.ok(chunk.samples.some(value => Math.abs(value) > 0.001));
+  assert.ok(chunk.samples.every(Number.isFinite));
   player.destroy();
 });

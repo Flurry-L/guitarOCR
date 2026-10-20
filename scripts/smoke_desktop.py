@@ -30,7 +30,7 @@ def check_editor(base_url):
         }))
 
     assert json.loads(request("/health"))["ok"]
-    assert b'id="playMeasure"' in request("/")
+    assert b'id="playScore"' in request("/")
     soundfont = request("/static/vendor/soundfont/sonivox.sf2")
     assert soundfont[:4] == b"RIFF" and soundfont[8:12] == b"sfbk"
 

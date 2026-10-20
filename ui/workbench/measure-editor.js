@@ -31,7 +31,8 @@ import {
   beatStartLabel,
   summarizeMText,
 } from "./score-model.js";
-import { playMeasure, stopPlayback, isActive } from "./audio-preview.js";
+import { playback } from "./audio-preview.js";
+import { initPlaybackControls } from "./playback-controls.js";
 
 export function initMeasures({ start, go, renderExport, exportScore, setBusy }) {
   let draft,
@@ -137,7 +138,7 @@ export function initMeasures({ start, go, renderExport, exportScore, setBusy }) 
   studio.addEventListener("click", (e) => {
     if (
       e.target.closest(
-        ".command-toolbar button,.effect-tools button,#fretButtons button,#pitchButtons button",
+        ".command-toolbar button,.playback-toolbar button,.effect-tools button,#fretButtons button,#pitchButtons button",
       )
     )
       $("scoreCanvas").focus({ preventScroll: true });
@@ -145,12 +146,6 @@ export function initMeasures({ start, go, renderExport, exportScore, setBusy }) 
   studio.addEventListener("change", (e) => {
     if (e.target.closest(".command-toolbar"))
       $("scoreCanvas").focus({ preventScroll: true });
-  });
-  $("scoreCanvas").addEventListener("keydown", (e) => {
-    if (e.key === " " && !e.ctrlKey && !e.metaKey && !e.altKey) {
-      e.preventDefault();
-      if (!e.repeat) $("playMeasure").click();
-    }
   });
   const view = scoreView($("scoreCanvas"), {
     onSelect: (hit) => selectMeasure(hit.mi, hit),
@@ -187,6 +182,17 @@ export function initMeasures({ start, go, renderExport, exportScore, setBusy }) 
     },
   });
   const current = () => ui.state?.measures?.[ui.measureIndex];
+  const transport = initPlaybackControls({
+    prepare: async () => {
+      if (!draft || ui.busy || saving) return null;
+      const navigation = ui.navigation;
+      if ((ui.editorMode === "text" && ui.measureDirty || observationChanged()) && !(await save())) return null;
+      if (ui.navigation !== navigation || ui.step !== 3) return null;
+      return { state: ui.state, index: ui.measureIndex, measure: draft, visualTechniques };
+    },
+    onPosition: position => view.playback(position),
+    onError: message => feedback(message, true),
+  });
   const measureLabel = (m, i) =>
     `${m.part_name ? m.part_name + " · " : ""}${m.staff_id && m.staff_id !== "staff-1" ? "谱表 " + m.staff_id.replace("staff-", "") + " · " : ""}第 ${(m.bar_index ?? i) + 1} 小节`;
   function neighbour(delta) {
@@ -258,7 +264,7 @@ export function initMeasures({ start, go, renderExport, exportScore, setBusy }) 
     return true;
   }
   function updateDirty() {
-    stopPlayback();
+    playback.stop();
     ui.measureDirty =
       (ui.editorMode === "text"
         ? $("measureText").value.trim() !== current()?.score_text?.trim()
@@ -561,7 +567,7 @@ export function initMeasures({ start, go, renderExport, exportScore, setBusy }) 
   }
   $("nextIssue").onclick = openIssue;
   function loadMeasure() {
-    stopPlayback();
+    playback.stop();
     profile = measureProfile(current());
     draft = clone(current().parsed);
     observationDraft = clone(current().observation);
@@ -701,8 +707,7 @@ export function initMeasures({ start, go, renderExport, exportScore, setBusy }) 
       m.needs_review && (track === "all" || (m.part_id || "part-1") === track));
     $("toExport").disabled = busy || !count;
     $("finishEditing").disabled = busy || !count;
-    $("playMeasure").disabled = busy || !count || !draft || draft.incomplete;
-    if (busy) stopPlayback();
+    transport.update(!busy && !!count && !!draft);
     $("finishEditing").textContent = $("toExport").textContent = ui.measureDirty ? "保存并导出 GP5" : "直接导出 GP5";
     $("trackSelect").disabled = busy || !count;
     $("reviewFilter").disabled = busy || !count;
@@ -1233,34 +1238,6 @@ export function initMeasures({ start, go, renderExport, exportScore, setBusy }) 
     updateDirty();
     updateMeasureControls();
   };
-  function updatePlayButton(status) {
-    const button = $("playMeasure");
-    button.setAttribute("aria-pressed", String(status !== "idle"));
-    button.setAttribute("aria-busy", String(status === "loading"));
-    button.textContent = { idle: "▶ 试听本节", loading: "⏳ 加载音色…", playing: "■ 停止试听" }[status];
-    button.title = status === "loading" ? "正在加载音色，点击取消（空格键）" : "试听当前小节（空格键）";
-  }
-  async function togglePlayMeasure() {
-    if (isActive()) {
-      stopPlayback();
-      return;
-    }
-    if (!draft || ui.busy || saving) return;
-    const navigation = ui.navigation;
-    if ((ui.editorMode === "text" && ui.measureDirty || observationChanged()) && !(await save())) return;
-    if (ui.navigation !== navigation || ui.step !== 3) return;
-    try {
-      await playMeasure(ui.state, ui.measureIndex, {
-        measure: draft,
-        visualTechniques,
-        onStatus: updatePlayButton,
-      });
-    } catch (error) {
-      feedback(error.message, true);
-    }
-  }
-  $("playMeasure").onclick = togglePlayMeasure;
-  window.addEventListener("guitarocr:leave-project", stopPlayback);
   document.querySelectorAll("[data-effect]").forEach(
     (b) =>
       (b.onclick = () =>

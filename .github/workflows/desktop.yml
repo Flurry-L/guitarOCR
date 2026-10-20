@@ -92,7 +92,7 @@ jobs:
           assert tomllib.loads(Path('Cargo.toml').read_text(encoding='utf-8'))['workspace']['package']['version'] == version
           resources = Path('desktop/src-tauri/resources')
           assert json.loads((resources / 'native/manifest.json').read_text(encoding='utf-8'))['version'] == version
-          for name in ('audio-preview.js', 'playback-plan.js', 'score-theory.js',
+          for name in ('audio-preview.js', 'playback-plan.js', 'playback-controls.js', 'score-theory.js',
                        'vendor/soundfont/sonivox.sf2', 'vendor/soundfont/LICENSE',
                        'vendor/soundfont/Apache-2.0.txt'):
               source = Path('ui/workbench') / name

@@ -13,7 +13,7 @@ import { initWorkspace } from "./workspace.js";
 import { initMetadata } from "./metadata-editor.js";
 import { initBoxes } from "./boxes.js";
 import { initMeasures } from "./measure-editor.js";
-import { stopPlayback } from "./audio-preview.js";
+import { playback } from "./audio-preview.js";
 const { loadPage, renderPages, updatePageNavigation, updateBoxControls } = initBoxes({
   start,
   go,
@@ -38,7 +38,7 @@ openProject(
 const workspace = initWorkspace({
   open: openExisting,
   refreshConfig,
-  onNavigate: stopPlayback,
+  onNavigate: playback.stop,
   resume: () =>
     start(
       "/process",
@@ -154,7 +154,7 @@ function go(next, reveal = true) {
     return;
   }
   if (!ui.busy) notice("");
-  if (next !== ui.step) stopPlayback();
+  if (next !== ui.step) playback.stop();
   ui.step = next;
   if (reveal) workspace.show("workbench");
   document

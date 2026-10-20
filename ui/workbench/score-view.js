@@ -20,6 +20,15 @@ function rectangle(node, bounds) {
     height: `${bounds.h}px`,
   });
 }
+function revealCursor(cursor, viewport) {
+  if (!cursor || !viewport) return;
+  const rect = cursor.getBoundingClientRect(), frame = viewport.getBoundingClientRect();
+  const top = Math.max(0, frame.top) + 24, bottom = Math.min(innerHeight, frame.bottom) - 24;
+  const left = Math.max(0, frame.left) + 12, right = Math.min(innerWidth, frame.right) - 12;
+  const dy = rect.top < top ? rect.top - top : rect.bottom > bottom ? rect.bottom - bottom : 0;
+  const dx = rect.left < left ? rect.left - left : rect.right > right ? rect.right - right : 0;
+  viewport.scrollBy({ top: dy, left: dx, behavior: "instant" });
+}
 
 // The renderer owns engraving and hit bounds; this view
 // translates those bounds back to the original measures, voices and notes.
@@ -86,6 +95,7 @@ function engravedSection(
     selected,
     signature,
     pointer,
+    playhead,
     scrollToSelection = false,
     focusedPart = "all";
   const visibleTracks = () =>
@@ -243,26 +253,30 @@ function engravedSection(
     }
     if (scrollToSelection && boxes.length) {
       scrollToSelection = false;
-      const cursor = overlay.querySelector(".score-selection");
-      const viewport = host.closest(".score-viewport");
-      if (cursor && viewport) {
-        const rect = cursor.getBoundingClientRect(),
-          frame = viewport.getBoundingClientRect();
-        const dy =
-          rect.top < frame.top + 24
-            ? rect.top - frame.top - 24
-            : rect.bottom > frame.bottom - 24
-              ? rect.bottom - frame.bottom + 24
-              : 0;
-        const dx =
-          rect.left < frame.left + 12
-            ? rect.left - frame.left - 12
-            : rect.right > frame.right - 12
-              ? rect.right - frame.right + 12
-              : 0;
-        viewport.scrollBy({ top: dy, left: dx, behavior: "instant" });
-      }
+      revealCursor(overlay.querySelector(".score-selection"), viewport);
     }
+  }
+  function markPlayback(scroll = false) {
+    overlay.querySelectorAll(".playback-bar,.playback-cursor").forEach(node => node.remove());
+    if (!playhead || playhead.barIndex < range.start || playhead.barIndex >= range.end) return;
+    const master = api.boundsLookup?.findMasterBarByIndex(playhead.barIndex);
+    for (const bounds of master?.bars || []) {
+      const marker = el("div", undefined, "playback-bar");
+      rectangle(marker, bounds.realBounds);
+      const beats = bounds.beats.filter(b => b.beat.graceType === alphaTab.model.GraceType.None)
+        .sort((a, b) => a.beat.playbackStart - b.beat.playbackStart);
+      const previous = beats.findLast(b => b.beat.playbackStart <= playhead.barTick) || beats[0];
+      const next = beats.find(b => b.beat.playbackStart > playhead.barTick);
+      const start = previous?.beat.playbackStart || 0;
+      const end = next?.beat.playbackStart ?? bounds.bar.masterBar.calculateDuration(false);
+      const fraction = Math.max(0, Math.min(1, (playhead.barTick - start) / Math.max(1, end - start)));
+      const x = previous?.onNotesX ?? bounds.realBounds.x;
+      const right = next?.onNotesX ?? bounds.realBounds.x + bounds.realBounds.w;
+      const cursor = el("div", undefined, "playback-cursor");
+      rectangle(cursor, { x: x + (right - x) * fraction, y: bounds.realBounds.y, w: 2, h: bounds.realBounds.h });
+      overlay.append(marker, cursor);
+    }
+    if (scroll) revealCursor(overlay.querySelector(".playback-cursor"), viewport);
   }
   function decorate() {
     overlay.replaceChildren();
@@ -313,6 +327,7 @@ function engravedSection(
       overlay.append(marker);
     }
     markSelection();
+    markPlayback();
   }
   let viewportPosition = null;
   const viewport = host.closest(".score-viewport");
@@ -436,6 +451,11 @@ function engravedSection(
       if (scroll && viewportPosition) return;
       markSelection();
     },
+    playback(position) {
+      const changedBar = playhead?.barIndex !== position?.barIndex;
+      playhead = position;
+      markPlayback(changedBar || position?.isSeek);
+    },
     zoom(scale) {
       rememberViewport();
       api.settings.display.scale = scale;
@@ -507,6 +527,9 @@ export function scoreView(host, callbacks) {
           scroll,
         ),
       );
+    },
+    playback(position) {
+      sections.forEach(section => section.view.playback(position));
     },
     zoom(value) {
       scale = value;

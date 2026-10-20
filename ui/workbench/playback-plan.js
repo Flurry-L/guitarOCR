@@ -30,48 +30,71 @@ export function sliceMidi(source, start, end) {
   return result;
 }
 
-export function measurePlayback(state, index, edited = {}) {
+export function scorePlayback(state, index, { scope = "score", partId = "all", ...edited } = {}) {
   const settings = new alphaTab.Settings();
-  const { score, sourceOf } = engrave(state, settings, {
+  const { score, sourceOf, tracks } = engrave(state, settings, {
     index, measure: state.measures[index].parsed, ...edited,
   });
   const bar = score.tracks.flatMap(track => track.staves.flatMap(staff => staff.bars))
     .find(bar => sourceOf.get(bar)?.mi === index);
   if (!bar) throw new Error("当前小节尚未准备好。");
 
-  // Retain neighbouring bars for ties/slides and global tempo from every track,
-  // but generate sound only for the selected staff.
-  const staff = bar.staff, track = staff.track;
-  score.tracks.splice(0, score.tracks.length, track);
-  track.index = 0;
-  track.staves.splice(0, track.staves.length, staff);
-  staff.index = 0;
-  track.playbackInfo.primaryChannel = staff.isPercussion ? 9 : 0;
-  track.playbackInfo.secondaryChannel = staff.isPercussion ? 9 : 1;
-
-  // The next bar's grace notes can start before its barline. Keep their timing
-  // and links for alphaTab, but omit their sound from this bar's preview.
-  for (const voice of staff.bars[bar.index + 1]?.voices || [])
-    for (const beat of voice.beats)
-      if (beat.graceType !== alphaTab.model.GraceType.None) beat.notes.length = 0;
-
-  // A single-bar preview visits every bar once, including bars skipped by jumps.
-  for (const master of score.masterBars) {
-    master.isRepeatStart = false;
-    master.repeatCount = 0;
-    master.alternateEndings = 0;
-    master.directions = null;
+  // Tempo belongs to the score, including markings on a track we are not playing.
+  if (partId !== "all") {
+    const track = tracks.get(partId);
+    if (!track) throw new Error("请选择要播放的音轨。");
+    score.tracks.splice(0, score.tracks.length, track);
   }
-  score.rebuildRepeatGroups();
+  let channel = 0;
+  const nextChannel = () => {
+    if (channel === 9) channel++;
+    return channel++;
+  };
+  score.tracks.forEach((track, i) => {
+    track.index = i;
+    const drums = track.staves.every(staff => staff.isPercussion);
+    // AlphaSynth accepts virtual channels beyond the 16-channel MIDI wire format.
+    track.playbackInfo.primaryChannel = drums ? 9 : nextChannel();
+    track.playbackInfo.secondaryChannel = drums ? 9 : nextChannel();
+  });
+
+  if (scope === "measure") {
+    // A following bar's pickup belongs to that bar, even when it sounds early.
+    for (const track of score.tracks)
+      for (const staff of track.staves)
+        for (const voice of staff.bars[bar.index + 1]?.voices || [])
+          for (const beat of voice.beats)
+            if (beat.graceType !== alphaTab.model.GraceType.None) beat.notes.length = 0;
+
+    // Only a single-bar preview ignores repeats and jumps. Song playback follows them.
+    for (const master of score.masterBars) {
+      master.isRepeatStart = false;
+      master.repeatCount = 0;
+      master.alternateEndings = 0;
+      master.directions = null;
+    }
+    score.rebuildRepeatGroups();
+  }
 
   const midi = new MidiFile();
   const generator = new MidiFileGenerator(score, settings, new AlphaSynthMidiFileHandler(midi));
   generator.generate();
-  const range = generator.tickLookup.masterBars.find(range => range.masterBar === bar.masterBar);
-  const graceStart = Math.min(0, ...bar.voices.flatMap(voice => voice.beats.map(beat => beat.playbackStart)));
-  const start = range.start + graceStart + midi.tickShift, end = range.end + midi.tickShift;
-  const preview = sliceMidi(midi, start, end);
-  if (!preview.events.some(event => event.type === E.NoteOn))
-    throw new Error("当前小节没有可播放的音符。");
-  return preview;
+  let ranges = generator.tickLookup.masterBars, start = 0, end = midi.events.at(-1).tick;
+  if (scope !== "score") {
+    const occurrence = ranges.findIndex(range => range.masterBar === bar.masterBar);
+    if (occurrence < 0) throw new Error("当前小节不在反复与跳转的播放顺序中，可选择「仅本节」试听。");
+    ranges = scope === "measure" ? [ranges[occurrence]] : ranges.slice(occurrence);
+    const graceStart = Math.min(0, ...score.tracks.flatMap(track => track.staves.flatMap(staff =>
+      staff.bars[bar.index].voices.flatMap(voice => voice.beats.map(beat => beat.playbackStart)))));
+    start = ranges[0].start + graceStart + midi.tickShift;
+    if (scope === "measure") end = ranges[0].end + midi.tickShift;
+  }
+  return {
+    midi: scope === "score" ? midi : sliceMidi(midi, start, end),
+    positionAt(tick) {
+      const absolute = tick + start - midi.tickShift;
+      const range = ranges.findLast(range => range.start <= absolute) || ranges[0];
+      return { barIndex: range.masterBar.index, barTick: Math.max(0, absolute - range.start) };
+    },
+  };
 }

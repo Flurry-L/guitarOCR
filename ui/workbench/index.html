@@ -420,7 +420,6 @@
                   ><button id="nextMeasure" aria-label="下一小节">›</button>
                 </div>
                 <div class="row review-actions" role="group" aria-label="乐谱操作">
-                  <button id="playMeasure" type="button" class="quiet" title="试听当前小节（空格键）" aria-pressed="false">▶ 试听本节</button>
                   <button id="finishEditing" class="primary">直接导出 GP5</button>
                   <button id="nextIssue" class="quiet">下一个问题</button>
                 </div>
@@ -453,6 +452,23 @@
                     data-icon="focus"
                   ></button>
                 </div>
+              </div>
+              <div class="playback-toolbar" role="group" aria-label="乐谱播放">
+                <button id="playScore" type="button" title="播放 / 暂停（空格键）" aria-pressed="false">▶ 播放</button>
+                <button id="stopScore" type="button" title="停止并回到播放起点（Shift + 空格键）" disabled>■ 停止</button>
+                <select id="playbackScope" aria-label="播放范围">
+                  <option value="score">整曲</option>
+                  <option value="from">从本节开始</option>
+                  <option value="measure">仅本节</option>
+                </select>
+                <select id="playbackTracks" aria-label="播放音轨">
+                  <option value="all">全部音轨</option>
+                  <option value="current">当前音轨</option>
+                </select>
+                <label>速度 <input id="playbackSpeed" type="number" min="25" max="200" step="1" value="100" required aria-label="播放速度百分比" title="按谱面速度的百分比播放"> %</label>
+                <label><input id="playbackLoop" type="checkbox">循环</label>
+                <input id="playbackProgress" type="range" min="0" max="1000" value="0" aria-label="播放进度" disabled>
+                <span id="playbackPosition" class="muted small">按谱面速度播放</span>
               </div>
               <div class="note-tools command-toolbar">
                 <div class="tool-group" role="group" aria-label="编辑历史">
@@ -1237,7 +1253,8 @@
       </div>
       <div class="shortcut-list">
         <div><span>保存当前小节</span><kbd>Ctrl / ⌘ S</kbd></div>
-        <div><span>试听 / 停止当前小节</span><kbd>Space</kbd></div>
+        <div><span>播放 / 暂停 / 继续</span><kbd>Space</kbd></div>
+        <div><span>停止播放</span><kbd>Shift Space</kbd></div>
         <div><span>撤销 / 重做</span><kbd>Ctrl / ⌘ Z / ⇧ Z</kbd></div>
         <div><span>移动音符 / 琴弦</span><kbd>← ↑ ↓ →</kbd></div>
         <div><span>输入品位</span><kbd>0–9 / X</kbd></div>
