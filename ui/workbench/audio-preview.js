@@ -7,8 +7,19 @@ async function loadSoundFont() {
   return new Uint8Array(await response.arrayBuffer());
 }
 
+class PreviewAudioOutput extends synth.AlphaSynthScriptProcessorOutput {
+  open(bufferTime) {
+    // AlphaSynth calls open again after reading sampleRate in its constructor.
+    if (this.context) this.onReady();
+    else super.open(bufferTime);
+  }
+}
+
 function createPlayer() {
-  const player = new synth.AlphaSynth(new synth.AlphaSynthScriptProcessorOutput(), 500);
+  const output = new PreviewAudioOutput();
+  // Open the device first so synthesis uses its actual sample rate.
+  output.open(500);
+  const player = new synth.AlphaSynth(output, 500);
   player.masterVolume = 0.7;
   return player;
 }

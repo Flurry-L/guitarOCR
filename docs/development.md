@@ -53,6 +53,8 @@ cargo fmt --all -- --check
 
 播放交互参考 TuxGuitar 的 [MidiPlayer](https://github.com/helge17/tuxguitar/blob/master/common/TuxGuitar-lib/src/main/java/app/tuxguitar/player/base/MidiPlayer.java)：播放／暂停、范围循环和按谱面 BPM 播放。音乐事件仍由现有的 alphaTab 生成与合成。
 
+节拍按 TuxGuitar [TGTempo](https://github.com/helge17/tuxguitar/blob/master/common/TuxGuitar-lib/src/main/java/app/tuxguitar/song/models/TGTempo.java) 的四分音符语义换算：每拍 `60 / BPM` 秒。音频格式也与其 [GervillProcessor](https://github.com/helge17/tuxguitar/blob/master/desktop/TuxGuitar-synth-gervill/src/app/tuxguitar/midi/synth/impl/GervillProcessor.java) 一样，由合成器和输出设备共用；这里先打开 WebAudio 输出，再以设备的实际采样率创建 AlphaSynth。回归测试经过真实的合成与输出缓冲，覆盖 44.1、48、96、192 kHz 下的节拍时长和 A4 音高。
+
 `playback-plan.js` 先汇总全谱速度，再生成全部或所选音轨的 MIDI；每条有音高的音轨分配独立通道，鼓使用通道 9。整曲和「从本节开始」保留 alphaTab 展开的反复、反复房子与跳转顺序，并用其 tick lookup 映射回谱面小节。「仅本节」按谱面顺序展开一次再截取：跨入的延音在开头发声，跨出的音符在节末收束。
 
 `audio-preview.js` 管理音色缓存、播放状态、定位和循环；`playback-controls.js` 连接工具栏与快捷键，`score-view.js` 用独立游标显示播放位置。默认保留谱中的 BPM 变化；填写「试听 BPM」时，`playback-plan.js` 在临时 Score 上设置统一 BPM。修改音符、试听 BPM、切换小节或离开项目会结束播放。音色版本和许可证见 [`vendor/soundfont/README.md`](../ui/workbench/vendor/soundfont/README.md)。
